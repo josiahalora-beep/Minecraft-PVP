@@ -658,14 +658,24 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             return true;
         }
 
-        if (a[0].equalsIgnoreCase("status")) {
-            if (!ownerOnly(p)) return true;
-            p.sendMessage(color("&7Worker candidates: &f" + simWorld.workerCandidateCount() +
-                " &7adaptive body budget: &f" + adaptiveWorkerBudget(getConfig().getInt("worker-pool.max-bodies",4))));
+        if (a[0].equalsIgnoreCase("deposit")) {
+            if (!simIdentity) {
+                p.sendMessage(color("&cSimulation identities only."));
+                return true;
+            }
+            p.sendMessage("SIMDEPOSIT " + simWorld.depositEmbodiedWorker(p));
             return true;
         }
 
-        p.sendMessage("/simworker <sync|status>");
+        if (a[0].equalsIgnoreCase("status")) {
+            if (!ownerOnly(p)) return true;
+            p.sendMessage(color("&7Worker candidates: &f" + simWorld.workerCandidateCount() +
+                " &7adaptive body budget: &f" + adaptiveWorkerBudget(getConfig().getInt("worker-pool.max-bodies",12)) +
+                " &7creator bodies: &f" + getConfig().getStringList("worker-pool.creator-bodies").size()));
+            return true;
+        }
+
+        p.sendMessage("/simworker <sync|deposit|status>");
         return true;
     }
 
@@ -676,13 +686,18 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     private int adaptiveWorkerBudget(int configured) {
-        configured = Math.max(1, Math.min(6, configured));
+        configured = Math.max(1, Math.min(12, configured));
+        int creatorFloor = Math.max(1, Math.min(configured,
+            getConfig().getStringList("worker-pool.creator-bodies").size()));
+
         double[] s = tickStats();
-        if (s == null) return Math.min(2, configured);
+        if (s == null) return Math.max(creatorFloor, Math.min(8, configured));
+
         double p95 = s[1];
-        if (p95 >= 35.0) return 1;
-        if (p95 >= 25.0) return Math.min(2, configured);
-        if (p95 >= 15.0) return Math.min(3, configured);
+        if (p95 >= 42.0) return creatorFloor;
+        if (p95 >= 32.0) return Math.max(creatorFloor, Math.min(6, configured));
+        if (p95 >= 24.0) return Math.max(creatorFloor, Math.min(8, configured));
+        if (p95 >= 16.0) return Math.max(creatorFloor, Math.min(10, configured));
         return configured;
     }
 
@@ -848,6 +863,10 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     void queueSimBrewerBuild(String faction, int x, int y, int z) {
         if (hcfBaseBuilder != null) hcfBaseBuilder.queueBrewer(faction,x,y,z);
+    }
+
+    void queueSimFarmBuild(String faction, String crop, int x, int y, int z) {
+        if (hcfBaseBuilder != null) hcfBaseBuilder.queueFarm(faction,crop,x,y,z);
     }
 
     double balanceForSimTrade(String name) {

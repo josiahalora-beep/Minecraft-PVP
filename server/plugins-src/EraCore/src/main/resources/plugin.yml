@@ -49,6 +49,16 @@ commands:
     usage: /r <message>
   simchat:
     usage: /simchat <on|off|status|pulse>
+  sotw:
+    usage: /sotw <status|reset>
+  bard:
+    usage: /bard
+  archer:
+    usage: /archer
+  miner:
+    usage: /miner
+  rogue:
+    usage: /rogue
   duelprep:
     usage: /duelprep
 permissions:

@@ -44,6 +44,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     private long[] tickTimes;
     private int metricsTask = -1;
     private WarpManager warpManager;
+    private SimWorldDirector simWorld;
     private SimChatDirector simChat;
 
     enum Rank {
@@ -101,12 +102,14 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         loadFactions();
         warpManager = new WarpManager(this);
         warpManager.bootstrapDefaults();
-        simChat = new SimChatDirector(this);
+        simWorld = new SimWorldDirector(this);
+        simChat = new SimChatDirector(this, simWorld);
         bindCommands();
         getServer().getPluginManager().registerEvents(this, this);
         hookTickTimes();
         startMetrics();
         startPowerRegen();
+        simWorld.start();
         simChat.start();
 
         if (getConfig().getBoolean("map.auto-bootstrap", true) && !getConfig().getBoolean("map.complete", false)) {
@@ -122,12 +125,13 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     @Override public void onDisable() {
         if (simChat != null) simChat.stop();
+        if (simWorld != null) simWorld.stop();
         saveAll();
         if (metricsTask != -1) Bukkit.getScheduler().cancelTask(metricsTask);
     }
 
     private void bindCommands() {
-        String[] cmds = {"rank","kit","kits","balance","pay","sell","buy","shop","f","spawn","setspawn","warp","warps","setwarp","delwarp","spawnpreset","simchat","simprobe","simmap","simstate","duelprep"};
+        String[] cmds = {"rank","kit","kits","balance","pay","sell","buy","shop","f","spawn","setspawn","warp","warps","setwarp","delwarp","spawnpreset","msg","r","simchat","simprobe","simmap","simstate","duelprep"};
         for (String c : cmds) getCommand(c).setExecutor(this);
     }
 
@@ -203,7 +207,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             return;
         }
         Rank r = getRank(p.getName());
-        e.setFormat(color(identityPrefix(p.getName(), r) + "&f" + p.getName() + "&7: &f") + "%2$s");
+        e.setFormat(color(identityPrefix(p.getName(), r) + "&f" + p.getName() + factionSuffix(p.getName()) + "&7: &f") + "%2$s");
         final String chatText = e.getMessage();
         if (simChat != null) {
             Bukkit.getScheduler().runTask(this, new Runnable() {
@@ -340,14 +344,21 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         return Rank.TITAN;
     }
 
+    private String factionSuffix(String name) {
+        Faction real = factionOf(name);
+        String faction = real == null ? "" : real.name;
+        if (faction.isEmpty() && simWorld != null) faction = simWorld.factionOf(name);
+        return faction.isEmpty() ? "" : " &8[&7" + faction + "&8]";
+    }
+
     void broadcastSimulatedChat(String name, String message) {
         Rank rank = simRankFor(name);
-        Bukkit.broadcastMessage(color(identityPrefix(name, rank) + "&f" + name + "&7: &f" + message));
+        Bukkit.broadcastMessage(color(identityPrefix(name, rank) + "&f" + name + factionSuffix(name) + "&7: &f" + message));
     }
 
     void sendSimulatedPrivate(Player target, String from, String message) {
         Rank rank = simRankFor(from);
-        target.sendMessage(color("&8[&7From " + identityPrefix(from, rank) + "&f" + from + "&8] &f" + message));
+        target.sendMessage(color("&8[&7From " + identityPrefix(from, rank) + "&f" + from + factionSuffix(from) + "&8] &f" + message));
     }
 
     private void applyCreatorTag(Player p) {
@@ -402,6 +413,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (c.equals("setwarp")) return cmdSetWarp(p,args);
         if (c.equals("delwarp")) return cmdDelWarp(p,args);
         if (c.equals("spawnpreset")) return cmdSpawnPreset(p,args);
+        if (c.equals("msg")) return cmdMessage(p,args);
+        if (c.equals("r")) return cmdReply(p,args);
         if (c.equals("simchat")) return cmdSimChat(p,args);
         if (c.equals("simprobe")) {
             p.sendMessage(color("&e" + probeString()));
@@ -507,6 +520,139 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         }
         p.sendMessage("/simchat <on|off|status|pulse>");
         return true;
+    }
+
+    private boolean cmdMessage(Player p, String[] a) {
+        if (a.length < 2) {
+            p.sendMessage("/msg <player> <message>");
+            return true;
+        }
+        String targetName = a[0];
+        StringBuilder b = new StringBuilder();
+        for (int i = 1; i < a.length; i++) {
+            if (b.length() > 0) b.append(' ');
+            b.append(a[i]);
+        }
+
+        Player online = Bukkit.getPlayerExact(targetName);
+        if (online != null) {
+            online.sendMessage(color("&8[&7From &f" + p.getName() + "&8] &f" + b.toString()));
+            p.sendMessage(color("&8[&7To &f" + online.getName() + "&8] &f" + b.toString()));
+            return true;
+        }
+
+        if (simWorld != null && simWorld.contains(targetName)) {
+            p.sendMessage(color("&8[&7To &f" + targetName + factionSuffix(targetName) + "&8] &f" + b.toString()));
+            final String reply = simWorld.handlePrivate(p, targetName, b.toString());
+            if (reply != null) {
+                final String from = targetName;
+                Bukkit.getScheduler().runTaskLater(this, new Runnable() {
+                    public void run() {
+                        if (p.isOnline()) sendSimulatedPrivate(p, from, reply);
+                    }
+                }, 22L + new Random().nextInt(35));
+            }
+            return true;
+        }
+
+        p.sendMessage(color("&cPlayer not found."));
+        return true;
+    }
+
+    private boolean cmdReply(final Player p, String[] a) {
+        if (a.length < 1) {
+            p.sendMessage("/r <message>");
+            return true;
+        }
+        StringBuilder b = new StringBuilder();
+        for (String s : a) {
+            if (b.length() > 0) b.append(' ');
+            b.append(s);
+        }
+        if (simWorld == null) {
+            p.sendMessage(color("&cNobody to reply to."));
+            return true;
+        }
+        final String reply = simWorld.handleReply(p, b.toString());
+        if (reply == null) {
+            p.sendMessage(color("&cNobody to reply to."));
+            return true;
+        }
+        Bukkit.getScheduler().runTaskLater(this, new Runnable() {
+            public void run() {
+                if (p.isOnline()) p.sendMessage(color("&8[&7Reply&8] &f" + reply));
+            }
+        }, 18L + new Random().nextInt(28));
+        return true;
+    }
+
+    double balanceForSimTrade(String name) {
+        return balance(name);
+    }
+
+    void changeBalanceForSimTrade(String name, double delta) {
+        setBalance(name, balance(name) + delta);
+    }
+
+    boolean deliverSimTradeItem(Player p, String key, int qty) {
+        if (qty <= 0) return false;
+        Material m = null;
+        short data = 0;
+        if ("cane".equals(key)) m = Material.SUGAR_CANE;
+        else if ("iron".equals(key)) m = Material.IRON_INGOT;
+        else if ("obsidian".equals(key)) m = Material.OBSIDIAN;
+        else if ("tnt".equals(key)) m = Material.TNT;
+        else if ("pearl".equals(key)) m = Material.ENDER_PEARL;
+        else if ("healthpot".equals(key)) { m = Material.POTION; data = (short)16421; }
+        else if ("speedpot".equals(key)) { m = Material.POTION; data = (short)8226; }
+        else if ("fireres".equals(key)) { m = Material.POTION; data = (short)8259; }
+        if (m == null) return false;
+
+        int left = qty;
+        int max = Math.max(1, m.getMaxStackSize());
+        while (left > 0) {
+            int n = Math.min(left, max);
+            Map<Integer,ItemStack> rem = p.getInventory().addItem(new ItemStack(m, n, data));
+            if (!rem.isEmpty()) {
+                for (ItemStack x : rem.values()) p.getWorld().dropItemNaturally(p.getLocation(), x);
+            }
+            left -= n;
+        }
+        return true;
+    }
+
+    boolean takeSimTradeItem(Player p, String key, int qty) {
+        if (qty <= 0) return false;
+        Material m = null;
+        short data = 0;
+        if ("cane".equals(key)) m = Material.SUGAR_CANE;
+        else if ("iron".equals(key)) m = Material.IRON_INGOT;
+        else if ("obsidian".equals(key)) m = Material.OBSIDIAN;
+        else if ("tnt".equals(key)) m = Material.TNT;
+        else if ("pearl".equals(key)) m = Material.ENDER_PEARL;
+        else if ("healthpot".equals(key)) { m = Material.POTION; data = (short)16421; }
+        else if ("speedpot".equals(key)) { m = Material.POTION; data = (short)8226; }
+        else if ("fireres".equals(key)) { m = Material.POTION; data = (short)8259; }
+        if (m == null) return false;
+
+        int have = 0;
+        for (ItemStack i : p.getInventory().getContents()) {
+            if (i != null && i.getType() == m && (m != Material.POTION || i.getDurability() == data)) have += i.getAmount();
+        }
+        if (have < qty) return false;
+
+        int left = qty;
+        ItemStack[] inv = p.getInventory().getContents();
+        for (int slot = 0; slot < inv.length && left > 0; slot++) {
+            ItemStack i = inv[slot];
+            if (i == null || i.getType() != m || (m == Material.POTION && i.getDurability() != data)) continue;
+            int take = Math.min(left, i.getAmount());
+            i.setAmount(i.getAmount() - take);
+            left -= take;
+            if (i.getAmount() <= 0) p.getInventory().setItem(slot, null);
+            else p.getInventory().setItem(slot, i);
+        }
+        return left == 0;
     }
 
     private boolean cmdRank(CommandSender s, String[] a) {
@@ -788,6 +934,10 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
                 p.sendMessage(color("&cNo invite from that faction."));
                 return true;
             }
+            if(target.members.size() >= SimWorldDirector.MAX_FACTION_MEMBERS) {
+                p.sendMessage(color("&cThat faction is full. Maximum 5 members."));
+                return true;
+            }
             target.invites.remove(p.getName().toLowerCase(Locale.ENGLISH));
             target.members.add(p.getName());
             saveFactions();
@@ -817,6 +967,10 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             }
             if(a.length!=2) {
                 p.sendMessage("/f invite <player>");
+                return true;
+            }
+            if(f.members.size() >= SimWorldDirector.MAX_FACTION_MEMBERS) {
+                p.sendMessage(color("&cYour faction is full. Maximum 5 members."));
                 return true;
             }
             f.invites.add(a[1].toLowerCase(Locale.ENGLISH));

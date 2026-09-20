@@ -50,7 +50,7 @@ commands:
   simchat:
     usage: /simchat <on|off|status|pulse>
   sotw:
-    usage: /sotw <status|reset>
+    usage: /sotw <status|reset|end>
   bard:
     usage: /bard
   archer:

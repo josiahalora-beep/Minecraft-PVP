@@ -17,6 +17,7 @@ map:
   warzone-radius: 250
 economy:
   starting-balance: 500.0
+  cycle-director-ticks: 10
 pvp:
   pearl-cooldown-seconds: 16
 metrics:
@@ -182,3 +183,5 @@ combat-director:
   max-hot-per-faction: 3
   observation-radius: 160
   offscreen-resolution-seconds: 5
+  offscreen-brawl-chance-percent: 12
+  brawl-radius: 420

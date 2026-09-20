@@ -41,6 +41,13 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     private final Map<String, Double> power = new HashMap<String, Double>();
     private final Map<String, Long> pearlCooldowns = new HashMap<String, Long>();
     private final Map<String, String> combatPreparedFight = new HashMap<String, String>();
+    private ItemStack[] ownerTestContents;
+    private ItemStack[] ownerTestArmor;
+    private Location ownerTestReturnLocation;
+    private double ownerTestHealth = 20.0;
+    private int ownerTestFood = 20;
+    private String ownerTestName = "";
+    private String ownerTestFightId = "";
     private final Map<Material, Double> sellPrices = new LinkedHashMap<Material, Double>();
     private final Map<String, ShopItem> buyItems = new LinkedHashMap<String, ShopItem>();
     private long[] tickTimes;
@@ -426,7 +433,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     @EventHandler public void onDeath(PlayerDeathEvent e) {
         String n = e.getEntity().getName().toLowerCase(Locale.ENGLISH);
         String preparedFight=combatPreparedFight.get(n);
-        boolean testFight=preparedFight!=null && preparedFight.startsWith("TEST5V5_");
+        boolean testFight=preparedFight!=null && preparedFight.startsWith("TESTTEAM_");
 
         if(testFight) {
             combatPreparedFight.remove(n);
@@ -784,21 +791,36 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
         if(a.length==0 || a[0].equalsIgnoreCase("test") || a[0].equalsIgnoreCase("start")) {
             if(!p.getWorld().equals(Bukkit.getWorlds().get(0))) {
-                p.sendMessage(color("&cRun the 5v5 test in the Overworld."));
+                p.sendMessage(color("&cRun the teamfight test in the Overworld."));
                 return true;
             }
-            if(simWorld.startFiveVFiveTest(p)) {
-                p.sendMessage(color("&a5v5 test queued. &73 Diamond + 1 Archer + 1 Bard per side."));
-                p.sendMessage(color("&7Watch &f/simcombat status &7and &f/simprobe&7 during the fight."));
+            if(simWorld.hasVisibleFight()) {
+                p.sendMessage(color("&cA visible fight is already active. &7Use /teamfight stop first."));
+                return true;
+            }
+
+            int size=5;
+            if(a.length>=2) {
+                try { size=Integer.parseInt(a[1]); }
+                catch(Exception ignored) { size=5; }
+            }
+            size=Math.max(3,Math.min(5,size));
+
+            if(simWorld.startTeamFightTest(p,size)) {
+                beginOwnerTeamFight(p);
+                int friendlyBots=size-1;
+                p.sendMessage(color("&a"+size+"v"+size+" test started. &fYou + "+friendlyBots+" simulated teammates &7vs &f"+size+" enemies&7."));
+                p.sendMessage(color("&7Use &f/teamfight test 3&7, &f4&7, or &f5&7 for the calibration ladder. Watch &f/simprobe&7 during combat."));
             } else {
-                p.sendMessage(color("&cNeed at least two five-player simulated factions for the test."));
+                p.sendMessage(color("&cCould not start the teamfight test. &7Need two sufficiently large simulated factions."));
             }
             return true;
         }
 
         if(a[0].equalsIgnoreCase("stop")) {
             simWorld.stopVisibleFightTest();
-            p.sendMessage(color("&e5v5 test stopped. &7Bodies will return to normal faction work."));
+            restoreOwnerTeamFight();
+            p.sendMessage(color("&eTeamfight test stopped. &7Your original inventory/location are restored and bots return to normal work."));
             return true;
         }
 
@@ -807,8 +829,52 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             return true;
         }
 
-        p.sendMessage("/teamfight <test|stop|status>");
+        p.sendMessage("/teamfight <test [3|4|5]|stop|status>");
         return true;
+    }
+
+    private void beginOwnerTeamFight(Player p) {
+        ownerTestName=p.getName();
+        ownerTestFightId=simWorld.currentVisibleFightId();
+        ownerTestContents=cloneItems(p.getInventory().getContents());
+        ownerTestArmor=cloneItems(p.getInventory().getArmorContents());
+        ownerTestReturnLocation=p.getLocation().clone();
+        ownerTestHealth=p.getHealth();
+        ownerTestFood=p.getFoodLevel();
+
+        combatPreparedFight.put(p.getName().toLowerCase(Locale.ENGLISH),ownerTestFightId);
+        prepareHcfCombatKit(p,SimWorldDirector.CombatClass.DIAMOND);
+        Location spawn=simWorld.ownerTestSpawn();
+        if(spawn!=null) p.teleport(spawn);
+        p.sendMessage(color("&cTEST FIGHT: &7Deaths do not affect your DTR/economy and your original inventory is restored on /teamfight stop."));
+    }
+
+    private ItemStack[] cloneItems(ItemStack[] src) {
+        if(src==null) return null;
+        ItemStack[] out=new ItemStack[src.length];
+        for(int i=0;i<src.length;i++) out[i]=src[i]==null?null:src[i].clone();
+        return out;
+    }
+
+    private void restoreOwnerTeamFight() {
+        if(ownerTestName==null || ownerTestName.isEmpty()) return;
+        Player owner=Bukkit.getPlayerExact(ownerTestName);
+        combatPreparedFight.remove(ownerTestName.toLowerCase(Locale.ENGLISH));
+        if(owner!=null) {
+            owner.getInventory().clear();
+            owner.getInventory().setArmorContents(new ItemStack[4]);
+            if(ownerTestContents!=null) owner.getInventory().setContents(cloneItems(ownerTestContents));
+            if(ownerTestArmor!=null) owner.getInventory().setArmorContents(cloneItems(ownerTestArmor));
+            owner.setFoodLevel(ownerTestFood);
+            owner.setHealth(Math.max(1.0,Math.min(owner.getMaxHealth(),ownerTestHealth)));
+            owner.updateInventory();
+            if(ownerTestReturnLocation!=null) owner.teleport(ownerTestReturnLocation);
+        }
+        ownerTestContents=null;
+        ownerTestArmor=null;
+        ownerTestReturnLocation=null;
+        ownerTestName="";
+        ownerTestFightId="";
     }
 
     private boolean cmdSimCombat(Player p, String[] a) {
@@ -823,7 +889,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
             String k=p.getName().toLowerCase(Locale.ENGLISH);
             String prepared=combatPreparedFight.get(k);
-            if (!ca.fightId.equals(prepared) && !ca.fightId.startsWith("TEST5V5_")) {
+            if (!ca.fightId.equals(prepared) && !ca.fightId.startsWith("TESTTEAM_")) {
                 if (!simWorld.reserveCombatLoadout(p.getName(),ca.combatClass,ca.fightId)) {
                     p.sendMessage("SIMCOMBAT none reason=stock");
                     return true;

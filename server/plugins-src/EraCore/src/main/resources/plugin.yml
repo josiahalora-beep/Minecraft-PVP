@@ -51,6 +51,8 @@ commands:
     usage: /simchat <on|off|status|pulse>
   sotw:
     usage: /sotw <status|reset|end>
+  simworker:
+    usage: /simworker <sync|status>
   bard:
     usage: /bard
   archer:

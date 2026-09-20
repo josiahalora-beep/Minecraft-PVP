@@ -255,6 +255,33 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         pearlCooldowns.put(key,now+cooldown);
     }
 
+    @EventHandler(priority=EventPriority.HIGHEST, ignoreCancelled=true) public void onClaimInteract(PlayerInteractEvent e) {
+        if (e.getClickedBlock() == null) return;
+        Action action = e.getAction();
+        if (action != Action.RIGHT_CLICK_BLOCK && action != Action.LEFT_CLICK_BLOCK) return;
+
+        Player p = e.getPlayer();
+        if (getRank(p.getName()) == Rank.OWNER) return;
+
+        String owner = claimOwners.get(claimKey(e.getClickedBlock().getLocation()));
+        if (owner == null) return;
+
+        Faction own = factionOf(p.getName());
+        if (own != null && own.name.equalsIgnoreCase(owner)) return;
+
+        Faction target = factions.get(owner.toLowerCase(Locale.ENGLISH));
+        if (target != null && isRaidable(target)) return;
+
+        Material type = e.getClickedBlock().getType();
+        if (type == Material.CHEST || type == Material.TRAPPED_CHEST || type == Material.FURNACE ||
+            type == Material.BURNING_FURNACE || type == Material.HOPPER || type == Material.BREWING_STAND ||
+            type == Material.ANVIL || type == Material.ENCHANTMENT_TABLE || type == Material.WOODEN_DOOR ||
+            type == Material.IRON_DOOR_BLOCK || type == Material.TRAP_DOOR || type == Material.FENCE_GATE) {
+            e.setCancelled(true);
+            p.sendMessage(color("&c" + owner + " is not raidable."));
+        }
+    }
+
     @EventHandler(priority=EventPriority.HIGHEST, ignoreCancelled=true) public void onDamage(EntityDamageByEntityEvent e) {
         if (!(e.getEntity() instanceof Player)) return;
         Player victim = (Player)e.getEntity();
@@ -1305,6 +1332,18 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         }
         for (Faction f : remove) removeFaction(f);
         saveFactions();
+    }
+
+    synchronized void applySimulatedFactionDeath(String factionName, String memberName) {
+        Faction f = factions.get(factionName.toLowerCase(Locale.ENGLISH));
+        if (f == null) return;
+        f.dtr -= getConfig().getDouble("dtr.loss-per-death", 1.0);
+        f.dtrFrozenUntil = System.currentTimeMillis() + getConfig().getLong("dtr.freeze-seconds-after-death", 120L) * 1000L;
+        boolean nowRaidable = isRaidable(f);
+        if (nowRaidable && !f.wasRaidable) Bukkit.broadcastMessage(color("&c" + f.name + " is now raidable."));
+        f.wasRaidable = nowRaidable;
+        saveFactions();
+        if (simWorld != null) simWorld.onAuthorityDeath(memberName, f.name, f.dtr, nowRaidable);
     }
 
     synchronized boolean setSimFactionHomeAndClaims(String factionName, Location home, Collection<String> claims) {

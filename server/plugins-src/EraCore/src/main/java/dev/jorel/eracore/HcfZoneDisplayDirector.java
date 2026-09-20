@@ -360,7 +360,7 @@ final class HcfZoneDisplayDirector implements Listener {
             q.add(new int[]{cx+r,zz});
         }
 
-        plugin.getServer().getScheduler().runTaskTimer(plugin,new Runnable() {
+        new org.bukkit.scheduler.BukkitRunnable() {
             public void run() {
                 int n=0;
                 while(!q.isEmpty() && n++<96) {
@@ -377,17 +377,10 @@ final class HcfZoneDisplayDirector implements Listener {
                         b.setData((byte)5);
                     }
                 }
-                if(q.isEmpty()) throw new CancelBorderTask();
+                if(q.isEmpty()) cancel();
             }
-        },1L,1L);
+        }.runTaskTimer(plugin,1L,1L);
     }
-
-    /**
-     * Bukkit Runnable cancellation without retaining one scheduler task per border.
-     * We catch this marker in the scheduler wrapper below by using BukkitRunnable elsewhere;
-     * here it is only a local control signal.
-     */
-    private static final class CancelBorderTask extends RuntimeException {}
 
     private void load() {
         if(data.isConfigurationSection("zones")) {

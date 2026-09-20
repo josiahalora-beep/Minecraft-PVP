@@ -44,14 +44,14 @@ sim-chat:
   enabled: true
   contextual-chat: true
   max-conversation-memory: 12
-  second-responder-chance-percent: 22
-  min-delay-seconds: 18
-  max-delay-seconds: 42
-  quiet-min-delay-seconds: 55
-  quiet-max-delay-seconds: 120
-  identity-cooldown-seconds: 75
-  line-cooldown-seconds: 600
-  fan-reaction-cooldown-seconds: 28
+  second-responder-chance-percent: 38
+  min-delay-seconds: 3
+  max-delay-seconds: 8
+  quiet-min-delay-seconds: 12
+  quiet-max-delay-seconds: 28
+  identity-cooldown-seconds: 20
+  line-cooldown-seconds: 90
+  fan-reaction-cooldown-seconds: 16
   max-fan-reactions: 2
   roster:
     - xRico
@@ -133,18 +133,18 @@ sim-chat:
     - 'who is rich rn'
 
 sim-world:
-  population: 90
-  tick-seconds: 30
-  factions-per-tick: 4
+  population: 96
+  tick-seconds: 8
+  factions-per-tick: 100
   underdog-leaders: 2
   base-y: 64
   min-base-y: 50
   max-base-y: 110
   max-base-site-relief: 6
   max-base-site-liquid-samples: 1
-  logical-online-min: 18
-  logical-online-peak: 46
-  logical-online-late-night: 12
+  logical-online-min: 62
+  logical-online-peak: 88
+  logical-online-late-night: 34
   session-min-minutes: 25
   session-max-minutes: 140
 
@@ -188,7 +188,7 @@ sotw:
   protection-minutes: 60
 
 base-builder:
-  blocks-per-tick: 450
+  blocks-per-tick: 28
   repair-existing-on-start: true
 
 combat-director:

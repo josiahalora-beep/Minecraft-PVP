@@ -361,35 +361,46 @@ export function createTeamCombatController(bot, assignmentProvider) {
 
   async function bardTick(a, target) {
     const ally = nearestAlly(bot, a.allies)
-    const enemiesNear = countNearby(bot, a.enemies, 12)
+    const enemiesNear = countNearby(bot, a.enemies, 14)
 
-    if (ally) {
+    // Bard is a support/survival role, not a melee role.
+    if (target && target.dist < 7.0) {
+      moveAway(bot, target.entity)
+      if (bot.health <= profile.potHealth && target.dist >= profile.potGap) await potAtFeet()
+    } else if (ally) {
       const d = bot.entity.position.distanceTo(ally.entity.position)
-      if (d > 10) moveToward(bot, ally.entity.position.x, ally.entity.position.z, true)
-      else if (d < 4.5 && target) moveAway(bot, target.entity)
+      if (d > 15) moveToward(bot, ally.entity.position.x, ally.entity.position.z, true)
+      else if (d < 6 && target) moveAway(bot, target.entity)
       else stop(bot)
+    } else {
+      stop(bot)
     }
 
-    if (Date.now() - lastBardClick > 5500 && enemiesNear > 0) {
+    // Rotate stronger click buffs while enemies are nearby.
+    if (Date.now() - lastBardClick > 4300 && enemiesNear > 0) {
       lastBardClick = Date.now()
-      if (Math.random() < 0.58) {
+      const roll = Math.random()
+      if (roll < 0.46) {
         if (await equipNamed(['blaze_powder'])) {
           try { bot.activateItem(); await sleep(80); bot.deactivateItem() } catch {}
         }
-      } else {
+      } else if (roll < 0.78) {
         if (await equipNamed(['sugar'])) {
+          try { bot.activateItem(); await sleep(80); bot.deactivateItem() } catch {}
+        }
+      } else {
+        if (await equipNamed(['ghast_tear'])) {
           try { bot.activateItem(); await sleep(80); bot.deactivateItem() } catch {}
         }
       }
     } else {
-      if (target && bot.health < 12) await equipNamed(['ghast_tear'])
+      // Passive held aura: strength when safe, regen when pressured.
+      if (target && (target.dist < 9 || bot.health < 13)) await equipNamed(['ghast_tear'])
       else await equipNamed(['blaze_rod'])
     }
 
-    if (target && target.dist < 3.2) {
-      if (bot.health <= profile.potHealth && target.dist >= profile.potGap) await potAtFeet()
-      else await aimAndAttack(target.entity, target.dist)
-    }
+    // Bard never deliberately swings. If fully collapsed on, survival takes priority.
+    if (target && target.dist < 3.5 && bot.health <= 7) await pearlToward(target.entity, true)
   }
 
   async function archerTick(a, target) {
@@ -409,8 +420,11 @@ export function createTeamCombatController(bot, assignmentProvider) {
       return
     }
 
-    if (dist > 20) moveToward(bot, target.entity.position.x, target.entity.position.z, true)
-    else if (dist < 11) moveAway(bot, target.entity)
+    // Archer uses Speed III to keep fleeing targets tagged without taking
+    // point-blank Diamond trades.
+    if (dist > 18) moveToward(bot, target.entity.position.x, target.entity.position.z, true)
+    else if (dist < 8.5) moveAway(bot, target.entity)
+    else if (dist > 13.5) moveToward(bot, target.entity.position.x, target.entity.position.z, true)
     else stop(bot)
 
     if (Date.now() - lastBowShot < 1100) return

@@ -83,6 +83,9 @@ final class SimWorldDirector {
         int baseY = 64;
         int baseZ;
         int claimRadiusChunks = 1;
+        int buildProgress;
+        int buildTarget;
+        boolean baseQueued;
         int p4Sets;
         int sharp4Swords;
         int bardSets;
@@ -181,7 +184,11 @@ final class SimWorldDirector {
         "hcf_glass_box",
         "hcf_courtyard",
         "hcf_brewer_base",
-        "hcf_trap_base"
+        "hcf_trap_base",
+        "hcf_compact_2015",
+        "hcf_split_level",
+        "hcf_archer_tower",
+        "hcf_double_layer"
     };
 
     SimWorldDirector(EraCore plugin) {
@@ -509,17 +516,21 @@ final class SimWorldDirector {
                 break;
 
             case GATHER_STARTER:
-                if (f.wood >= 96 && f.stone >= 192 && f.iron >= 24) {
-                    f.wood -= 96;
-                    f.stone -= 192;
-                    f.iron -= 24;
+                if (baseMaterialsReady(f)) {
+                    consumeBaseMaterials(f);
+                    f.buildTarget = baseBuildTarget(f.basePreset);
+                    f.buildProgress = 0;
                     f.stage = Stage.BUILD_STARTER;
                 }
                 break;
 
             case BUILD_STARTER:
-                if (f.actionCounter % 3 == 0) {
-                    if (!f.storage) plugin.queueSimBaseBuild(f.name, f.basePreset, f.trapPreset, f.baseX, f.baseY, f.baseZ);
+                f.buildProgress = Math.min(f.buildTarget, f.buildProgress + factionBuildWork(f));
+                if (f.buildProgress >= f.buildTarget) {
+                    if (!f.baseQueued) {
+                        plugin.queueSimBaseBuild(f.name, f.basePreset, f.trapPreset, f.baseX, f.baseY, f.baseZ);
+                        f.baseQueued = true;
+                    }
                     f.storage = true;
                     f.stage = Stage.ECONOMY;
                 }
@@ -1092,6 +1103,9 @@ final class SimWorldDirector {
                 f.baseY = s.getInt("base-y", 64);
                 f.baseZ = s.getInt("base-z", 0);
                 f.claimRadiusChunks = s.getInt("claim-radius-chunks", 1);
+                f.buildProgress = s.getInt("build-progress", 0);
+                f.buildTarget = s.getInt("build-target", 0);
+                f.baseQueued = s.getBoolean("base-queued", false);
                 f.recoveryMode = s.getBoolean("recovery-mode", false);
                 f.powerFaction = s.getBoolean("power-faction", false);
                 f.underdog = s.getBoolean("underdog", false);
@@ -1448,12 +1462,86 @@ final class SimWorldDirector {
         return 1.0;
     }
 
+    private String chooseBasePreset(SimFaction f) {
+        SimPlayer leader = players.get(key(f.leader));
+        int diamonds = classCount(f, CombatClass.DIAMOND);
+        int archers = classCount(f, CombatClass.ARCHER);
+        boolean hasBrewer = jobCount(f, "brewer") > 0;
+        boolean weakerPvP = leader == null || leader.skill < 72;
+        boolean compact = f.targetSize <= 3;
+
+        if ((f.underdog || weakerPvP) && rng.nextInt(100) < 58) {
+            f.trapPreset = "fall_trap";
+            return "hcf_trap_base";
+        }
+        if (archers >= 2 && rng.nextInt(100) < 70) return "hcf_archer_tower";
+        if (hasBrewer && rng.nextInt(100) < 58) return "hcf_brewer_base";
+        if (compact) return rng.nextBoolean() ? "hcf_compact_2015" : "hcf_split_level";
+        if (f.powerFaction && f.targetSize >= 5) {
+            int r = rng.nextInt(100);
+            if (r < 45) return "hcf_double_layer";
+            if (r < 75) return "hcf_courtyard";
+            return "hcf_glass_box";
+        }
+        if (diamonds >= 3 && rng.nextBoolean()) return "hcf_double_layer";
+        return BASE_PRESETS[rng.nextInt(BASE_PRESETS.length)];
+    }
+
+    private int baseBuildTarget(String preset) {
+        if ("hcf_compact_2015".equalsIgnoreCase(preset)) return 42;
+        if ("hcf_split_level".equalsIgnoreCase(preset)) return 56;
+        if ("hcf_archer_tower".equalsIgnoreCase(preset)) return 64;
+        if ("hcf_double_layer".equalsIgnoreCase(preset)) return 78;
+        if ("hcf_courtyard".equalsIgnoreCase(preset)) return 70;
+        if ("hcf_brewer_base".equalsIgnoreCase(preset)) return 68;
+        if ("hcf_trap_base".equalsIgnoreCase(preset)) return 62;
+        return 58;
+    }
+
+    private int factionBuildWork(SimFaction f) {
+        int work = 0;
+        for (String member : f.members) {
+            SimPlayer p = players.get(key(member));
+            if (p == null) continue;
+            if ("builder".equals(p.preferredJob)) work += 5;
+            else if ("miner".equals(p.preferredJob)) work += 3;
+            else if ("leader".equals(p.role)) work += 2;
+            else work += 1;
+        }
+        return Math.max(1, Math.min(16, work));
+    }
+
+    private int[] baseMaterialCost(String preset) {
+        if ("hcf_compact_2015".equalsIgnoreCase(preset)) return new int[]{90,220,22,0};
+        if ("hcf_split_level".equalsIgnoreCase(preset)) return new int[]{78,300,26,0};
+        if ("hcf_archer_tower".equalsIgnoreCase(preset)) return new int[]{118,250,22,0};
+        if ("hcf_double_layer".equalsIgnoreCase(preset)) return new int[]{72,390,30,6};
+        if ("hcf_courtyard".equalsIgnoreCase(preset)) return new int[]{58,320,22,0};
+        if ("hcf_brewer_base".equalsIgnoreCase(preset)) return new int[]{72,300,34,0};
+        if ("hcf_trap_base".equalsIgnoreCase(preset)) return new int[]{64,270,24,8};
+        return new int[]{70,280,24,0};
+    }
+
+    private boolean baseMaterialsReady(SimFaction f) {
+        int[] cost = baseMaterialCost(f.basePreset);
+        return f.wood >= cost[0] && f.stone >= cost[1] && f.iron >= cost[2] && f.obsidian >= cost[3];
+    }
+
+    private void consumeBaseMaterials(SimFaction f) {
+        int[] cost = baseMaterialCost(f.basePreset);
+        f.wood -= cost[0];
+        f.stone -= cost[1];
+        f.iron -= cost[2];
+        f.obsidian -= cost[3];
+    }
+
     private boolean planAndClaimBase(SimFaction f) {
         if (f.baseX != 0 || f.baseZ != 0) return true;
 
         org.bukkit.World world = Bukkit.getWorlds().get(0);
         if (world == null) return false;
 
+        if (f.basePreset == null || f.basePreset.isEmpty()) f.basePreset = chooseBasePreset(f);
         int[] point = chooseBasePoint(f);
         f.baseX = point[0];
         f.baseZ = point[1];
@@ -1751,6 +1839,9 @@ final class SimWorldDirector {
             data.set(b + ".base-y", f.baseY);
             data.set(b + ".base-z", f.baseZ);
             data.set(b + ".claim-radius-chunks", f.claimRadiusChunks);
+            data.set(b + ".build-progress", f.buildProgress);
+            data.set(b + ".build-target", f.buildTarget);
+            data.set(b + ".base-queued", f.baseQueued);
             data.set(b + ".recovery-mode", f.recoveryMode);
             data.set(b + ".power-faction", f.powerFaction);
             data.set(b + ".underdog", f.underdog);

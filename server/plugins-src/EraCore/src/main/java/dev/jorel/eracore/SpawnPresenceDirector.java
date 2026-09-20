@@ -1,39 +1,26 @@
 package dev.jorel.eracore;
 
-import com.mojang.authlib.GameProfile;
-import net.minecraft.server.v1_8_R3.EntityPlayer;
-import net.minecraft.server.v1_8_R3.MinecraftServer;
-import net.minecraft.server.v1_8_R3.PacketPlayOutAnimation;
-import net.minecraft.server.v1_8_R3.PacketPlayOutEntityDestroy;
-import net.minecraft.server.v1_8_R3.PacketPlayOutEntityHeadRotation;
-import net.minecraft.server.v1_8_R3.PacketPlayOutEntityTeleport;
-import net.minecraft.server.v1_8_R3.PacketPlayOutNamedEntitySpawn;
-import net.minecraft.server.v1_8_R3.PacketPlayOutPlayerInfo;
-import net.minecraft.server.v1_8_R3.PlayerInteractManager;
-import net.minecraft.server.v1_8_R3.WorldServer;
-import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
-import org.bukkit.craftbukkit.v1_8_R3.CraftServer;
-import org.bukkit.craftbukkit.v1_8_R3.CraftWorld;
-import org.bukkit.craftbukkit.v1_8_R3.entity.CraftPlayer;
-import org.bukkit.entity.Player;
+import org.bukkit.entity.ArmorStand;
+import org.bukkit.entity.Entity;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.SkullMeta;
 import org.bukkit.scheduler.BukkitTask;
 
-import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 /**
- * Extremely cheap spawn ambience.
+ * Ultra-light spawn ambience using server-side stand-ins only.
  *
- * These are packet-only fake players. They have no network session, AI,
- * physics, pathfinder, inventory, chunk subscriptions or world simulation.
- * They only exist visually for real viewers around spawn.
+ * No Mineflayer clients, sockets, pathfinding, chunk subscriptions, combat AI,
+ * inventories, or network sessions. Each stand-in is one ArmorStand entity
+ * that occasionally teleports a short distance or changes facing.
  */
 final class SpawnPresenceDirector {
     private static final class Presence {
-        EntityPlayer entity;
+        ArmorStand stand;
         Location anchor;
         Location target;
         long idleUntil;
@@ -53,7 +40,7 @@ final class SpawnPresenceDirector {
 
     void start() {
         if (!plugin.getConfig().getBoolean("spawn-presence.enabled", true)) return;
-        if (!presences.isEmpty()) return;
+        stop();
 
         Location spawn = warps.getSpawn();
         World world = spawn.getWorld();
@@ -62,22 +49,20 @@ final class SpawnPresenceDirector {
         int count = Math.max(1, Math.min(8, plugin.getConfig().getInt("spawn-presence.count", 4)));
         List<String> names = new ArrayList<String>(plugin.getConfig().getStringList("spawn-presence.names"));
         if (names.isEmpty()) {
-            names.addAll(Arrays.asList("xRico","PurpleDino","BreezyMC","MasonHD","NightPvP","Vexing","CaneKing","MinerMatt"));
+            names.addAll(Arrays.asList("xRico","PurpleDino","BreezyMC","MasonHD","NightPvP","Vexing"));
         }
+
+        cleanupOld(world, spawn, names);
 
         for (int i = 0; i < count; i++) {
             String name = names.get(i % names.size());
             Location loc = findNearbyFloor(spawn, 3 + i * 2);
-            Presence p = create(name, loc);
+            Presence p = create(name, loc, i);
             if (p != null) presences.add(p);
         }
 
-        for (Player viewer : Bukkit.getOnlinePlayers()) {
-            if (!plugin.isBotIdentity(viewer.getName())) showTo(viewer);
-        }
-
         long period = Math.max(10L, plugin.getConfig().getLong("spawn-presence.update-ticks", 20L));
-        task = Bukkit.getScheduler().runTaskTimer(plugin, new Runnable() {
+        task = plugin.getServer().getScheduler().runTaskTimer(plugin, new Runnable() {
             public void run() { tick(); }
         }, period, period);
     }
@@ -85,92 +70,91 @@ final class SpawnPresenceDirector {
     void stop() {
         if (task != null) task.cancel();
         task = null;
-        for (Player viewer : Bukkit.getOnlinePlayers()) hideFrom(viewer);
+        for (Presence p : presences) {
+            if (p.stand != null && !p.stand.isDead()) p.stand.remove();
+        }
         presences.clear();
     }
 
-    void showTo(Player viewer) {
-        if (plugin.isBotIdentity(viewer.getName())) return;
-        for (Presence p : presences) spawnPacket(viewer, p.entity);
+    void showTo(org.bukkit.entity.Player ignored) {
+        // Bukkit entities are automatically visible to nearby players.
     }
 
-    void hideFrom(Player viewer) {
-        if (!(viewer instanceof CraftPlayer)) return;
-        for (Presence p : presences) {
-            ((CraftPlayer)viewer).getHandle().playerConnection.sendPacket(new PacketPlayOutEntityDestroy(p.entity.getId()));
-        }
-    }
-
-    private Presence create(String name, Location loc) {
+    private Presence create(String name, Location loc, int index) {
         try {
-            MinecraftServer server = ((CraftServer)Bukkit.getServer()).getServer();
-            WorldServer world = ((CraftWorld)loc.getWorld()).getHandle();
-            UUID uuid = UUID.nameUUIDFromBytes(("OfflinePlayer:" + name).getBytes(StandardCharsets.UTF_8));
-            GameProfile profile = new GameProfile(uuid, trimName(name));
+            ArmorStand stand = loc.getWorld().spawn(loc, ArmorStand.class);
+            stand.setCustomName(EraCore.colorText("&7" + name));
+            stand.setCustomNameVisible(true);
+            stand.setArms(true);
+            stand.setBasePlate(false);
+            stand.setSmall(false);
 
-            EntityPlayer entity = new EntityPlayer(server, world, profile, new PlayerInteractManager(world));
-            entity.setLocation(loc.getX(), loc.getY(), loc.getZ(), loc.getYaw(), loc.getPitch());
-            entity.getDataWatcher().watch(10, (byte)127);
+            ItemStack skull = new ItemStack(Material.SKULL_ITEM, 1, (short)3);
+            SkullMeta meta = (SkullMeta)skull.getItemMeta();
+            meta.setOwner(name);
+            skull.setItemMeta(meta);
+            stand.setHelmet(skull);
+
+            // Visual variety only; this is not the stand-in's actual stored gear.
+            if (index % 4 == 0) {
+                stand.setChestplate(new ItemStack(Material.DIAMOND_CHESTPLATE));
+                stand.setLeggings(new ItemStack(Material.DIAMOND_LEGGINGS));
+                stand.setBoots(new ItemStack(Material.DIAMOND_BOOTS));
+            } else if (index % 4 == 1) {
+                stand.setChestplate(new ItemStack(Material.LEATHER_CHESTPLATE));
+                stand.setLeggings(new ItemStack(Material.LEATHER_LEGGINGS));
+                stand.setBoots(new ItemStack(Material.LEATHER_BOOTS));
+            } else if (index % 4 == 2) {
+                stand.setChestplate(new ItemStack(Material.GOLD_CHESTPLATE));
+                stand.setLeggings(new ItemStack(Material.GOLD_LEGGINGS));
+                stand.setBoots(new ItemStack(Material.GOLD_BOOTS));
+            } else {
+                stand.setChestplate(new ItemStack(Material.IRON_CHESTPLATE));
+                stand.setLeggings(new ItemStack(Material.IRON_LEGGINGS));
+                stand.setBoots(new ItemStack(Material.IRON_BOOTS));
+            }
 
             Presence p = new Presence();
-            p.entity = entity;
+            p.stand = stand;
             p.anchor = loc.clone();
             p.target = loc.clone();
             p.idleUntil = System.currentTimeMillis() + 4000L + rng.nextInt(11000);
             return p;
         } catch (Throwable t) {
-            plugin.getLogger().warning("Could not create spawn presence NPC: " + t.getMessage());
+            plugin.getLogger().warning("Could not create spawn stand-in: " + t.getMessage());
             return null;
         }
     }
 
-    private String trimName(String name) {
-        if (name.length() <= 16) return name;
-        return name.substring(0, 16);
-    }
+    private void cleanupOld(World world, Location spawn, List<String> names) {
+        Set<String> display = new HashSet<String>();
+        for (String n : names) display.add(EraCore.colorText("&7" + n));
 
-    private void spawnPacket(final Player viewer, final EntityPlayer npc) {
-        if (!(viewer instanceof CraftPlayer)) return;
-        CraftPlayer cp = (CraftPlayer)viewer;
-        cp.getHandle().playerConnection.sendPacket(new PacketPlayOutPlayerInfo(PacketPlayOutPlayerInfo.EnumPlayerInfoAction.ADD_PLAYER, npc));
-        cp.getHandle().playerConnection.sendPacket(new PacketPlayOutNamedEntitySpawn(npc));
-        cp.getHandle().playerConnection.sendPacket(new PacketPlayOutEntityHeadRotation(npc, (byte)((npc.yaw * 256.0F) / 360.0F)));
-
-        Bukkit.getScheduler().runTaskLater(plugin, new Runnable() {
-            public void run() {
-                if (!viewer.isOnline()) return;
-                ((CraftPlayer)viewer).getHandle().playerConnection.sendPacket(
-                    new PacketPlayOutPlayerInfo(PacketPlayOutPlayerInfo.EnumPlayerInfoAction.REMOVE_PLAYER, npc)
-                );
-            }
-        }, 40L);
+        for (Entity e : world.getNearbyEntities(spawn, 40, 20, 40)) {
+            if (!(e instanceof ArmorStand)) continue;
+            ArmorStand a = (ArmorStand)e;
+            if (a.getCustomName() != null && display.contains(a.getCustomName())) a.remove();
+        }
     }
 
     private void tick() {
-        if (presences.isEmpty()) return;
         long now = System.currentTimeMillis();
 
         for (Presence p : presences) {
-            Location current = new Location(
-                p.anchor.getWorld(),
-                p.entity.locX,
-                p.entity.locY,
-                p.entity.locZ,
-                p.entity.yaw,
-                p.entity.pitch
-            );
+            if (p.stand == null || p.stand.isDead()) continue;
+            Location current = p.stand.getLocation();
 
             if (!p.walking) {
                 if (now < p.idleUntil) {
                     if (rng.nextInt(5) == 0) {
-                        p.entity.yaw += (float)((rng.nextDouble() - 0.5) * 50.0);
-                        broadcast(new PacketPlayOutEntityHeadRotation(p.entity, (byte)((p.entity.yaw * 256.0F) / 360.0F)));
-                        if (rng.nextInt(4) == 0) broadcast(new PacketPlayOutAnimation(p.entity, 0));
+                        Location turned = current.clone();
+                        turned.setYaw(current.getYaw() + (float)((rng.nextDouble() - 0.5) * 55.0));
+                        p.stand.teleport(turned);
                     }
                     continue;
                 }
 
-                if (rng.nextInt(100) < 58) {
+                if (rng.nextInt(100) < 55) {
                     p.target = findNearbyFloor(p.anchor, 4 + rng.nextInt(7));
                     p.walking = true;
                 } else {
@@ -189,27 +173,13 @@ final class SpawnPresenceDirector {
                 continue;
             }
 
-            double step = Math.min(0.55, dist);
-            double nx = current.getX() + (dx / dist) * step;
-            double nz = current.getZ() + (dz / dist) * step;
-            double ny = p.target.getY();
-            float yaw = (float)Math.toDegrees(Math.atan2(-dx, dz));
-
-            p.entity.setLocation(nx, ny, nz, yaw, 0f);
-            broadcast(new PacketPlayOutEntityTeleport(p.entity));
-            broadcast(new PacketPlayOutEntityHeadRotation(p.entity, (byte)((yaw * 256.0F) / 360.0F)));
-        }
-    }
-
-    private void broadcast(Object packet) {
-        for (Player viewer : Bukkit.getOnlinePlayers()) {
-            if (plugin.isBotIdentity(viewer.getName())) continue;
-            try {
-                CraftPlayer cp = (CraftPlayer)viewer;
-                if (packet instanceof PacketPlayOutEntityTeleport) cp.getHandle().playerConnection.sendPacket((PacketPlayOutEntityTeleport)packet);
-                else if (packet instanceof PacketPlayOutEntityHeadRotation) cp.getHandle().playerConnection.sendPacket((PacketPlayOutEntityHeadRotation)packet);
-                else if (packet instanceof PacketPlayOutAnimation) cp.getHandle().playerConnection.sendPacket((PacketPlayOutAnimation)packet);
-            } catch (Throwable ignored) {}
+            double step = Math.min(0.45, dist);
+            Location next = current.clone();
+            next.setX(current.getX() + (dx / dist) * step);
+            next.setZ(current.getZ() + (dz / dist) * step);
+            next.setY(p.target.getY());
+            next.setYaw((float)Math.toDegrees(Math.atan2(-dx, dz)));
+            p.stand.teleport(next);
         }
     }
 
@@ -232,6 +202,6 @@ final class SpawnPresenceDirector {
             }
         }
 
-        return center.clone().add((rng.nextDouble() - 0.5) * 5.0, 0, (rng.nextDouble() - 0.5) * 5.0);
+        return center.clone();
     }
 }

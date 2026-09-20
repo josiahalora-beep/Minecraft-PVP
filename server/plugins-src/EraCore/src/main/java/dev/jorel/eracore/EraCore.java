@@ -865,6 +865,10 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (hcfBaseBuilder != null) hcfBaseBuilder.queueTerrainRepair(faction,preset,trapPreset,x,y,z);
     }
 
+    void queueSimFoundationRepair(String faction, String preset, String trapPreset, int x, int y, int z) {
+        if (hcfBaseBuilder != null) hcfBaseBuilder.queueFoundationRepair(faction,preset,trapPreset,x,y,z);
+    }
+
     int[] evaluateSimBaseSite(int x, int z, int radius) {
         if (hcfBaseBuilder == null) return new int[]{64,999,999};
         return hcfBaseBuilder.evaluateSite(x,z,radius);
@@ -1528,18 +1532,26 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     synchronized boolean setSimFactionHomeAndClaims(String factionName, Location home, Collection<String> claims) {
         Faction f = factions.get(factionName.toLowerCase(Locale.ENGLISH));
         if (f == null) return false;
-        f.home = home == null ? null : home.clone();
+
         if (claims != null) {
-            for (String old : new ArrayList<String>(f.claims)) claimOwners.remove(old);
-            f.claims.clear();
+            // Validate the entire new footprint before mutating any existing
+            // claims. Claim replacement is all-or-nothing.
             for (String ck : claims) {
-                if (claimOwners.containsKey(ck) && !claimOwners.get(ck).equalsIgnoreCase(f.name)) return false;
+                String owner = claimOwners.get(ck);
+                if (owner != null && !owner.equalsIgnoreCase(f.name)) return false;
             }
+
+            Set<String> oldClaims = new LinkedHashSet<String>(f.claims);
+            for (String old : oldClaims) claimOwners.remove(old);
+
+            f.claims.clear();
             for (String ck : claims) {
                 f.claims.add(ck);
                 claimOwners.put(ck, f.name);
             }
         }
+
+        f.home = home == null ? null : home.clone();
         saveFactions();
         return true;
     }

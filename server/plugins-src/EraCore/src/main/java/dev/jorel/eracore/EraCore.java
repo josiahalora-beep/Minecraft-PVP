@@ -980,16 +980,25 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             Object craft=Bukkit.getServer();
             Method m=craft.getClass().getMethod("getServer");
             Object nms=m.invoke(craft);
-            for(Field f:nms.getClass().getDeclaredFields()) {
-                if(f.getType().equals(long[].class)) {
-                    f.setAccessible(true);
-                    long[] arr=(long[])f.get(nms);
-                    if(arr!=null&&arr.length==100) {
-                        tickTimes=arr;
-                        getLogger().info("MSPT probe hooked to "+f.getName());
-                        break;
+
+            Class<?> type=nms.getClass();
+            while(type!=null&&tickTimes==null) {
+                for(Field f:type.getDeclaredFields()) {
+                    if(f.getType().equals(long[].class)) {
+                        f.setAccessible(true);
+                        long[] arr=(long[])f.get(nms);
+                        if(arr!=null&&arr.length==100) {
+                            tickTimes=arr;
+                            getLogger().info("MSPT probe hooked to "+type.getSimpleName()+"."+f.getName());
+                            break;
+                        }
                     }
                 }
+                type=type.getSuperclass();
+            }
+
+            if(tickTimes==null) {
+                getLogger().warning("Could not find native 100-tick timing array; /simprobe will report n/a.");
             }
         } catch(Throwable t) {
             getLogger().warning("Could not hook native tick-time array; /simprobe will report n/a: "+t.getMessage());

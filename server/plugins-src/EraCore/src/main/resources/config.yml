@@ -195,6 +195,10 @@ base-builder:
 
 combat-director:
   hot-body-budget: 8
+  visible-fight-min-seconds: 25
+  visible-fight-max-seconds: 55
+  visible-fight-duration-seconds: 95
+  visible-fight-chance-percent: 62
   max-hot-per-faction: 3
   observation-radius: 160
   offscreen-resolution-seconds: 5

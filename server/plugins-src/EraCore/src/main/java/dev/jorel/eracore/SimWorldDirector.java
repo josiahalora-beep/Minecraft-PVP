@@ -179,6 +179,7 @@ final class SimWorldDirector {
         String name;
         String faction;
         String enemyFaction;
+        String world = "world";
         CombatClass combatClass;
         String action;
         int skill;
@@ -200,6 +201,7 @@ final class SimWorldDirector {
 
         String wire() {
             return "fight=" + fightId +
+                " world=" + world +
                 " faction=" + faction +
                 " enemyFaction=" + enemyFaction +
                 " class=" + combatClass.name() +
@@ -230,6 +232,7 @@ final class SimWorldDirector {
         String id;
         long expiresAt;
         String type;
+        String world = "world";
         int centerX;
         int centerY;
         int centerZ;
@@ -381,7 +384,8 @@ final class SimWorldDirector {
 
     String visibleFightSummary() {
         if(visibleFight==null) return "none";
-        return visibleFight.type+" id="+visibleFight.id+" bodies="+visibleFight.assignments.size()+
+        return visibleFight.type+" id="+visibleFight.id+" world="+visibleFight.world+
+            " bodies="+visibleFight.assignments.size()+
             " center="+visibleFight.centerX+","+visibleFight.centerY+","+visibleFight.centerZ;
     }
 
@@ -586,6 +590,7 @@ final class SimWorldDirector {
         VisibleFight fight=new VisibleFight();
         fight.id="TEST5V5_"+System.currentTimeMillis();
         fight.type="TEST_5V5";
+        fight.world=observer.getWorld().getName();
         fight.centerX=cx;fight.centerY=cy;fight.centerZ=cz;
         fight.expiresAt=System.currentTimeMillis()+180000L;
 
@@ -634,6 +639,7 @@ final class SimWorldDirector {
         for(SimPlayer p:allies) {
             CombatAssignment ca=new CombatAssignment();
             ca.fightId=fight.id;ca.name=p.name;ca.faction=own.name;ca.enemyFaction=enemy.name;
+            ca.world=fight.world;
             ca.skill=p.skill;ca.aggression=p.aggression;ca.risk=p.riskTolerance;
             ca.homeX=own.baseX;ca.homeY=own.baseY+1;ca.homeZ=own.baseZ;
             ca.trapType="none";ca.focus=focus==null?"":focus.name;
@@ -641,7 +647,8 @@ final class SimWorldDirector {
             ca.action=(p==bard)?"BARD_SUPPORT":((p==archer)?"ARCHER_RANGE":"FOCUS");
             ca.x=fight.centerX+side*(10+(index%2)*2);
             ca.z=fight.centerZ+(index-2)*3;
-            ca.y=Math.max(4,Bukkit.getWorlds().get(0).getHighestBlockYAt(ca.x,ca.z)+1);
+            World fightWorld=Bukkit.getWorld(fight.world);
+            ca.y=Math.max(4,(fightWorld==null?Bukkit.getWorlds().get(0):fightWorld).getHighestBlockYAt(ca.x,ca.z)+1);
             for(SimPlayer e:enemies) ca.enemies.add(e.name);
             for(SimPlayer m:allies) if(m!=p) ca.allies.add(m.name);
             fight.assignments.put(key(p.name),ca);
@@ -819,6 +826,7 @@ final class SimWorldDirector {
         VisibleFight fight=new VisibleFight();
         fight.id="F"+System.currentTimeMillis();
         fight.type=fightType(sizes[0],sizes[1],trapFight);
+        fight.world=observer.getWorld().getName();
         fight.centerX=cx; fight.centerY=cy; fight.centerZ=cz;
         fight.anchorFaction=anchor;
         int duration=Math.max(35,plugin.getConfig().getInt("combat-director.visible-fight-duration-seconds",95));
@@ -903,6 +911,7 @@ final class SimWorldDirector {
         VisibleFight fight=new VisibleFight();
         fight.id="M"+System.currentTimeMillis();
         fight.type="BRAWL_3WAY_"+aa.size()+"v"+bb.size()+"v"+dd.size();
+        fight.world=observer.getWorld().getName();
         fight.centerX=cx; fight.centerY=cy; fight.centerZ=cz;
         fight.anchorFaction=nearAnchor?anchor.name:"";
         fight.expiresAt=System.currentTimeMillis()+
@@ -937,6 +946,7 @@ final class SimWorldDirector {
             ca.name=p.name;
             ca.faction=own.name;
             ca.enemyFaction="MULTI";
+            ca.world=fight.world;
             ca.combatClass=p.combatClass;
             ca.skill=p.skill;
             ca.aggression=p.aggression;
@@ -1077,6 +1087,7 @@ final class SimWorldDirector {
             ca.name=p.name;
             ca.faction=own.name;
             ca.enemyFaction=enemy.name;
+            ca.world=fight.world;
             ca.combatClass=p.combatClass;
             ca.skill=p.skill;
             ca.aggression=p.aggression;
@@ -1131,6 +1142,7 @@ final class SimWorldDirector {
         if(visibleFight!=null) {
             y.set("fight.id",visibleFight.id);
             y.set("fight.type",visibleFight.type);
+            y.set("fight.world",visibleFight.world);
             y.set("fight.expires-at",visibleFight.expiresAt);
             y.set("fight.center-x",visibleFight.centerX);
             y.set("fight.center-y",visibleFight.centerY);
@@ -1142,6 +1154,7 @@ final class SimWorldDirector {
                 y.set(b+".name",ca.name);
                 y.set(b+".faction",ca.faction);
                 y.set(b+".enemy-faction",ca.enemyFaction);
+                y.set(b+".world",ca.world);
                 y.set(b+".class",ca.combatClass.name());
                 y.set(b+".action",ca.action);
                 y.set(b+".skill",ca.skill);

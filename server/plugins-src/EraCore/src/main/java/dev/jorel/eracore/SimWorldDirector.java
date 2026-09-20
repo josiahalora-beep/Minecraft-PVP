@@ -57,6 +57,12 @@ final class SimWorldDirector {
         int bargaining;     // 0..100
         int leadership;     // 0..100
         int teamwork;       // 0..100
+        int economicIq;      // 0..100
+        String farmCrop = "";
+        int farmCells;
+        double farmInvestment;
+        long farmCycles;
+        boolean farmReady;
         final Map<String,Integer> stock = new LinkedHashMap<String,Integer>();
     }
 
@@ -127,6 +133,7 @@ final class SimWorldDirector {
     }
 
     private final EraCore plugin;
+    private final SimEconomyModel economy;
     private final Random rng = new Random(881994L);
     private final File file;
     private final YamlConfiguration data;
@@ -172,6 +179,7 @@ final class SimWorldDirector {
 
     SimWorldDirector(EraCore plugin) {
         this.plugin = plugin;
+        this.economy = new SimEconomyModel(plugin);
         this.file = new File(plugin.getDataFolder(), "simulation.yml");
         this.data = YamlConfiguration.loadConfiguration(file);
         loadOrSeed();
@@ -393,6 +401,7 @@ final class SimWorldDirector {
     private void tick() {
         sotwTicks++;
         formationTick();
+        economy.tickAll(players, factions, sotwTicks);
 
         if (factions.isEmpty()) {
             save();
@@ -495,14 +504,9 @@ final class SimWorldDirector {
                 if (rng.nextInt(100) < 22) f.diamonds += 1 + rng.nextInt(2);
                 if (rng.nextInt(100) < 30) f.obsidian += 1 + rng.nextInt(3);
             } else if ("farmer".equals(p.role)) {
-                int cane = 48 + rng.nextInt(65);
-                f.cane += cane;
-                f.treasury += cane * 4.0;
-                p.balance += cane * 1.2;
-            } else if ("brewer".equals(p.role) && f.brewer) {
-                f.healPots += 3 + rng.nextInt(4);
-                if (rng.nextBoolean()) f.speedPots++;
-                if (rng.nextInt(3) == 0) f.firePots++;
+                // Farming is handled by SimEconomyModel so cash/items are conserved.
+            } else if ("brewer".equals(p.role)) {
+                // Brewing stock is created only by brewCombatStock(), which charges ingredients.
             } else {
                 f.wood += 10 + rng.nextInt(15);
                 f.stone += 8 + rng.nextInt(18);
@@ -511,26 +515,29 @@ final class SimWorldDirector {
 
         // Some faction wealth is spent on missing ingredients/resources instead of appearing from nowhere.
         if (f.treasury > 250 && f.iron < 24) {
-            int buy = Math.min(12, (int)(f.treasury / 20));
+            double unit = plugin.buyUnitPrice("iron");
+            int buy = Math.min(12, (int)(f.treasury / unit));
             f.iron += buy;
-            f.treasury -= buy * 20;
+            f.treasury -= buy * unit;
         }
     }
 
     private void buyMissingInfrastructure(SimFaction f) {
-        if (f.treasury < 500) return;
+        if (f.treasury < 300) return;
         if (f.obsidian < 8) {
-            int n = Math.min(8 - f.obsidian, (int)(f.treasury / 30));
+            double unit = plugin.buyUnitPrice("obsidian");
+            int n = Math.min(8 - f.obsidian, (int)(f.treasury / unit));
             if (n > 0) {
                 f.obsidian += n;
-                f.treasury -= n * 30;
+                f.treasury -= n * unit;
             }
         }
         if (f.iron < 35) {
-            int n = Math.min(35 - f.iron, (int)(f.treasury / 20));
+            double unit = plugin.buyUnitPrice("iron");
+            int n = Math.min(35 - f.iron, (int)(f.treasury / unit));
             if (n > 0) {
                 f.iron += n;
-                f.treasury -= n * 20;
+                f.treasury -= n * unit;
             }
         }
     }
@@ -543,12 +550,21 @@ final class SimWorldDirector {
      * We abstract individual GUI clicks while COLD; a HOT worker can perform them physically later.
      */
     private void craftBooksAndGear(SimFaction f) {
-        // Mining/farms feed XP/lapis/books; this is not free gear creation.
-        f.books += Math.max(1, f.members.size() / 2);
-        f.lapis += 2 + rng.nextInt(4);
-        f.xp += 2 + rng.nextInt(4);
+        // XP comes from mining/activity. Books and lapis are explicit purchases when needed.
+        int targetBooks = Math.max(20, f.members.size() * 20);
+        if (f.books < targetBooks && f.treasury >= plugin.buyUnitPrice("book")) {
+            int n = Math.min(targetBooks - f.books, (int)(f.treasury / plugin.buyUnitPrice("book")));
+            f.books += n;
+            f.treasury -= n * plugin.buyUnitPrice("book");
+        }
+        int targetLapis = Math.max(16, f.members.size() * 12);
+        if (f.lapis < targetLapis && f.treasury >= plugin.buyUnitPrice("lapis")) {
+            int n = Math.min(targetLapis - f.lapis, (int)(f.treasury / plugin.buyUnitPrice("lapis")));
+            f.lapis += n;
+            f.treasury -= n * plugin.buyUnitPrice("lapis");
+        }
 
-        // Approximate enough successful level-I book outcomes to build one IV via 8 I books.
+        // Approximate enough successful level-I book outcomes to build one IV via balanced combining.
         // We deliberately require surplus generic books/lapis/XP to account for RNG misses.
         int protCostBooks = 18;
         int sharpCostBooks = 20;
@@ -591,14 +607,44 @@ final class SimWorldDirector {
 
     private void brewCombatStock(SimFaction f) {
         if (!f.brewer) return;
-        // Mature factions keep restocking rather than spawning a full inventory at once.
-        if (f.healPots < f.members.size() * 28) f.healPots += 3 + rng.nextInt(6);
-        if (f.speedPots < f.members.size() * 3) f.speedPots += 1 + rng.nextInt(2);
-        if (f.firePots < f.members.size() * 2 && rng.nextBoolean()) f.firePots++;
-        if (f.pearls < f.members.size() * 8 && f.treasury >= 150) {
-            int buy = Math.min(3, (int)(f.treasury / 150));
+
+        int members = Math.max(1, f.members.size());
+        double healCost = (plugin.buyUnitPrice("netherwart") + plugin.buyUnitPrice("glisteringmelon")
+                         + plugin.buyUnitPrice("glowstone") + plugin.buyUnitPrice("gunpowder")) / 3.0;
+        double speedCost = (plugin.buyUnitPrice("netherwart") + plugin.buyUnitPrice("sugar")
+                          + plugin.buyUnitPrice("glowstone")) / 3.0;
+        double fireCost = (plugin.buyUnitPrice("netherwart") + plugin.buyUnitPrice("magmacream")
+                         + plugin.buyUnitPrice("redstone")) / 3.0;
+
+        int healNeed = Math.max(0, members * 28 - f.healPots);
+        int healBatch = Math.min(9, healNeed);
+        int canHeal = Math.min(healBatch, (int)Math.floor(f.treasury / healCost));
+        if (canHeal > 0) {
+            f.healPots += canHeal;
+            f.treasury -= canHeal * healCost;
+        }
+
+        int speedNeed = Math.max(0, members * 3 - f.speedPots);
+        int speedBatch = Math.min(3, speedNeed);
+        int canSpeed = Math.min(speedBatch, (int)Math.floor(f.treasury / speedCost));
+        if (canSpeed > 0) {
+            f.speedPots += canSpeed;
+            f.treasury -= canSpeed * speedCost;
+        }
+
+        int fireNeed = Math.max(0, members * 2 - f.firePots);
+        int fireBatch = Math.min(2, fireNeed);
+        int canFire = Math.min(fireBatch, (int)Math.floor(f.treasury / fireCost));
+        if (canFire > 0) {
+            f.firePots += canFire;
+            f.treasury -= canFire * fireCost;
+        }
+
+        double pearlPrice = plugin.buyUnitPrice("pearl");
+        if (f.pearls < members * 8 && f.treasury >= pearlPrice) {
+            int buy = Math.min(3, Math.min(members * 8 - f.pearls, (int)(f.treasury / pearlPrice)));
             f.pearls += buy;
-            f.treasury -= buy * 150;
+            f.treasury -= buy * pearlPrice;
         }
     }
 
@@ -754,6 +800,14 @@ final class SimWorldDirector {
     }
 
     private void loadOrSeed() {
+        int schema = data.getInt("meta.schema", 0);
+        if (schema < 4) {
+            plugin.resetSimFactionAuthority(Arrays.asList(PLAYER_NAMES));
+            seed();
+            save();
+            return;
+        }
+
         ConfigurationSection ps = data.getConfigurationSection("players");
         if (ps == null || ps.getKeys(false).isEmpty()) {
             seed();
@@ -777,8 +831,15 @@ final class SimWorldDirector {
             p.bargaining = s.getInt("bargaining", 50);
             p.leadership = s.getInt("leadership", 50);
             p.teamwork = s.getInt("teamwork", 50);
+            p.economicIq = s.getInt("economic-iq", 0);
+            p.farmCrop = s.getString("farm-crop", "");
+            p.farmCells = s.getInt("farm-cells", 0);
+            p.farmInvestment = s.getDouble("farm-investment", 0.0);
+            p.farmCycles = s.getLong("farm-cycles", 0L);
+            p.farmReady = s.getBoolean("farm-ready", false);
             ConfigurationSection st = s.getConfigurationSection("stock");
             if (st != null) for (String item : st.getKeys(false)) p.stock.put(item, st.getInt(item));
+            economy.initializePlayer(p);
             players.put(key(p.name), p);
         }
 
@@ -860,7 +921,7 @@ final class SimWorldDirector {
         for (int i = 0; i < count; i++) {
             SimPlayer p = new SimPlayer();
             p.name = names.get(i);
-            p.balance = 250 + rng.nextInt(3500);
+            p.balance = plugin.getConfig().getDouble("economy.starting-balance", 500.0);
             p.skill = creatorSkillOverride(p.name, skillRoll());
             p.aggression = 25 + rng.nextInt(66);
             p.bargaining = 25 + rng.nextInt(66);
@@ -873,7 +934,7 @@ final class SimWorldDirector {
             // Every strong/elite identity begins SOTW solo and is expected to
             // form/lead a power faction rather than being auto-slotted under another leader.
             p.leaderCandidate = p.skill >= 80;
-            seedStock(p);
+            economy.initializePlayer(p);
             players.put(key(p.name), p);
         }
 
@@ -967,7 +1028,12 @@ final class SimWorldDirector {
         SimFaction f = new SimFaction();
         f.name = name;
         f.leader = best.name;
-        f.targetSize = best.underdogLeader ? (3 + rng.nextInt(3)) : (rng.nextInt(100) < 55 ? 5 : 4);
+        int sizeRoll = rng.nextInt(100);
+        if (best.underdogLeader) {
+            f.targetSize = sizeRoll < 25 ? 2 : (sizeRoll < 65 ? 3 : (sizeRoll < 90 ? 4 : 5));
+        } else {
+            f.targetSize = sizeRoll < 20 ? 3 : (sizeRoll < 70 ? 4 : 5);
+        }
         f.targetSize = Math.min(MAX_FACTION_MEMBERS, f.targetSize);
         f.basePreset = BASE_PRESETS[rng.nextInt(BASE_PRESETS.length)];
         f.powerFaction = !best.underdogLeader;
@@ -1148,7 +1214,7 @@ final class SimWorldDirector {
         f.baseX = point[0];
         f.baseY = Math.max(64, plugin.getConfig().getInt("sim-world.base-y", 64));
         f.baseZ = point[1];
-        f.claimRadiusChunks = f.targetSize >= 5 ? 1 : (rng.nextInt(100) < 22 ? 1 : 0);
+        f.claimRadiusChunks = 1;
 
         org.bukkit.Location home = new org.bukkit.Location(world, f.baseX + 0.5, f.baseY + 1, f.baseZ + 0.5);
         List<String> claims = squareClaims(world.getName(), f.baseX >> 4, f.baseZ >> 4, f.claimRadiusChunks);
@@ -1328,12 +1394,6 @@ final class SimWorldDirector {
         return candidates.get(rng.nextInt(bound));
     }
 
-    private void seedStock(SimPlayer p) {
-        if ("farmer".equals(p.role) || "trader".equals(p.role)) p.stock.put("cane", 64 + rng.nextInt(512));
-        if ("miner".equals(p.role)) p.stock.put("iron", 8 + rng.nextInt(48));
-        if (p.balance > 1500 && rng.nextInt(100) < 30) p.stock.put("pearl", 8 + rng.nextInt(24));
-    }
-
     private int weightedFactionSize() {
         int r = rng.nextInt(100);
         if (r < 18) return 2;
@@ -1402,6 +1462,12 @@ final class SimWorldDirector {
             data.set(b + ".bargaining", p.bargaining);
             data.set(b + ".leadership", p.leadership);
             data.set(b + ".teamwork", p.teamwork);
+            data.set(b + ".economic-iq", p.economicIq);
+            data.set(b + ".farm-crop", p.farmCrop);
+            data.set(b + ".farm-cells", p.farmCells);
+            data.set(b + ".farm-investment", p.farmInvestment);
+            data.set(b + ".farm-cycles", p.farmCycles);
+            data.set(b + ".farm-ready", p.farmReady);
             for (Map.Entry<String,Integer> e : p.stock.entrySet()) data.set(b + ".stock." + e.getKey(), e.getValue());
         }
 
@@ -1447,6 +1513,7 @@ final class SimWorldDirector {
             data.set(b + ".members", new ArrayList<String>(f.members));
         }
 
+        data.set("meta.schema", 4);
         data.set("meta.sotw-ticks", sotwTicks);
         data.set("meta.sotw-started-at", sotwStartedAt);
         data.set("meta.faction-name-cursor", factionNameCursor);

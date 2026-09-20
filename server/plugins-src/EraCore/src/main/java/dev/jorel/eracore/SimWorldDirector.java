@@ -409,6 +409,12 @@ final class SimWorldDirector {
     private boolean fightStillRelevant(Player observer, VisibleFight f) {
         if(observer==null || f==null) return false;
         if(!observer.getWorld().equals(Bukkit.getWorlds().get(0))) return false;
+
+        for(CombatAssignment ca:f.assignments.values()) {
+            SimFaction sf=factions.get(key(ca.faction));
+            if(sf!=null && (sf.recoveryMode || plugin.factionRaidable(sf.name))) return false;
+        }
+
         int radius=Math.max(80,plugin.getConfig().getInt("combat-director.observation-radius",160));
         double dx=observer.getLocation().getX()-f.centerX;
         double dz=observer.getLocation().getZ()-f.centerZ;
@@ -1208,6 +1214,30 @@ final class SimWorldDirector {
         SimPlayer victim = players.get(key(victimName));
         SimPlayer killer = players.get(key(killerName));
 
+        if (victim != null && !victim.faction.isEmpty()) {
+            SimFaction vf = factions.get(key(victim.faction));
+            if (vf != null) {
+                // Physical deaths must matter to the same economy as cold deaths.
+                vf.healPots = Math.max(0, vf.healPots - 10 - rng.nextInt(11));
+                vf.pearls = Math.max(0, vf.pearls - 2 - rng.nextInt(5));
+                vf.speedPots = Math.max(0, vf.speedPots - 1);
+                vf.firePots = Math.max(0, vf.firePots - 1);
+
+                if (victim.combatClass == CombatClass.DIAMOND) {
+                    vf.p4Sets = Math.max(0, vf.p4Sets - 1);
+                    vf.sharp4Swords = Math.max(0, vf.sharp4Swords - 1);
+                } else if (victim.combatClass == CombatClass.BARD) {
+                    vf.bardSets = Math.max(0, vf.bardSets - 1);
+                } else if (victim.combatClass == CombatClass.ARCHER) {
+                    vf.archerSets = Math.max(0, vf.archerSets - 1);
+                } else if (victim.combatClass == CombatClass.ROGUE) {
+                    vf.rogueSets = Math.max(0, vf.rogueSets - 1);
+                }
+
+                updateDtrStrategy(vf);
+            }
+        }
+
         if (victim != null && killer != null && !victim.faction.isEmpty() && !killer.faction.isEmpty()
                 && !victim.faction.equalsIgnoreCase(killer.faction)) {
             recordRivalry(victim.faction,killer.faction,10 + rng.nextInt(9));
@@ -1216,6 +1246,7 @@ final class SimWorldDirector {
 
         if (plugin.isCreatorIdentity(victimName)) queueCreatorDeathReactions(victimName);
         if (killerName != null && plugin.isCreatorIdentity(killerName)) queueCreatorKillReactions(killerName);
+        save();
     }
 
     String handlePrivate(Player human, String simName, String text) {

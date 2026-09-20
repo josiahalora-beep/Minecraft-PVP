@@ -8,6 +8,10 @@ const targetName = process.env.TARGET || ''
 const forcedTier = process.env.DUEL_SKILL || (username === 'DuelBot01' ? 'skilled' : '')
 const SAFEZONE_RADIUS = Number(process.env.SAFEZONE_RADIUS || 60)
 const ENGAGE_RANGE = Number(process.env.ENGAGE_RANGE || 36)
+const SPEED_META = 8226
+const FIRE_RES_META = 8259
+const SPEED_MS = 90_000
+const FIRE_RES_MS = 480_000
 
 const profile = combatProfileFor(username, forcedTier)
 const bot = createBot(username, { physicsEnabled: true, viewDistance: 'tiny' })
@@ -32,6 +36,8 @@ let refillCount = 0
 let wTapUntil = 0
 let currentTargetName = ''
 let targetReadyAt = 0
+let buffing = false
+const buffUntil = { speed: 0, fire: 0 }
 
 function log(type, extra = {}) {
   const row = {
@@ -85,7 +91,7 @@ function isHealingPotion(item) {
 }
 
 function hotbarHealingPots() {
-  return bot.inventory.items().filter(i => isHealingPotion(i) && i.slot >= 37 && i.slot <= 43)
+  return bot.inventory.items().filter(i => isHealingPotion(i) && i.slot >= 37 && i.slot <= 41)
 }
 
 function reserveHealingPots() {
@@ -118,7 +124,7 @@ async function refillHotbar() {
   if (!sources.length) return false
 
   const empty = []
-  for (let slot = 37; slot <= 43; slot++) {
+  for (let slot = 37; slot <= 41; slot++) {
     if (!bot.inventory.slots[slot]) empty.push(slot)
   }
   if (!empty.length) return false
@@ -151,6 +157,91 @@ async function refillHotbar() {
   } finally {
     refilling = false
   }
+}
+
+
+function potionByMeta(meta) {
+  return bot.inventory.items().find(i => i.name === 'potion' && Number(i.metadata) === meta)
+}
+
+async function ensureBuffPotion(meta, hotbarSlot) {
+  let item = bot.inventory.slots[hotbarSlot]
+  if (item && item.name === 'potion' && Number(item.metadata) === meta) return item
+
+  const reserve = potionByMeta(meta)
+  if (!reserve) return null
+
+  if (item) {
+    try { await bot.tossStack(item) } catch {}
+  }
+
+  try {
+    await bot.moveSlotItem(reserve.slot, hotbarSlot)
+    return bot.inventory.slots[hotbarSlot]
+  } catch (e) {
+    log('buff_refill_error', { meta, message: e.message })
+    return null
+  }
+}
+
+async function drinkBuff(kind, meta, hotbarSlot, durationMs, dist) {
+  if (buffing || potting || refilling) return false
+  const now = Date.now()
+  const safeMs = Math.max(profile.refillSafeMs, 700)
+  if (now - lastDamageAt < safeMs || dist < Math.max(profile.potGap + 0.8, 4.5)) return false
+
+  const item = await ensureBuffPotion(meta, hotbarSlot)
+  if (!item) return false
+
+  buffing = true
+  const startedAt = Date.now()
+  try {
+    bot.clearControlStates()
+    bot.setQuickBarSlot(hotbarSlot - 36)
+    await sleep(Math.round(rand(45, 90) + profile.simulatedReactionJitter))
+
+    if (Date.now() - lastDamageAt < safeMs) {
+      selectSword()
+      log('buff_abort_hit', { kind })
+      return false
+    }
+
+    await bot.consume()
+
+    if (lastDamageAt >= startedAt) {
+      log('buff_interrupted', { kind })
+      selectSword()
+      return false
+    }
+
+    buffUntil[kind] = Date.now() + durationMs
+    log('buff_drink', { kind, until: buffUntil[kind] })
+
+    const bottle = bot.inventory.slots[hotbarSlot]
+    if (bottle && bottle.name === 'glass_bottle') {
+      try { await bot.tossStack(bottle) } catch {}
+    }
+
+    selectSword()
+    return true
+  } catch (e) {
+    log('buff_error', { kind, message: e.message })
+    selectSword()
+    return false
+  } finally {
+    buffing = false
+  }
+}
+
+async function maintainBuffs(dist) {
+  const now = Date.now()
+  if (buffUntil.fire <= now + 15_000) {
+    if (await drinkBuff('fire', FIRE_RES_META, 42, FIRE_RES_MS, dist)) return true
+  }
+  if (buffUntil.speed <= now + 8_000) {
+    if (await drinkBuff('speed', SPEED_META, 43, SPEED_MS, dist)) return true
+  }
+  return false
 }
 
 async function potAtFeet() {
@@ -298,9 +389,29 @@ function maybeAttack(target, dist) {
 
 bot.on('health', () => {
   const now = Date.now()
-  if (bot.health < previousHealth - 0.01) lastDamageAt = now
+  if (bot.health < previousHealth - 0.01) {
+    lastDamageAt = now
+    if (buffing) {
+      try { bot.deactivateItem() } catch {}
+    }
+  }
   log('health', { previousHealth, damaged: bot.health < previousHealth - 0.01 })
   previousHealth = bot.health
+})
+
+bot.on('entityEffect', (entity, effect) => {
+  if (entity !== bot.entity) return
+  const id = Number(effect?.id ?? effect?.effectId ?? -1)
+  const duration = Number(effect?.duration ?? 0)
+  if (id === 1) buffUntil.speed = Date.now() + (duration > 0 ? duration * 50 : SPEED_MS)
+  if (id === 12) buffUntil.fire = Date.now() + (duration > 0 ? duration * 50 : FIRE_RES_MS)
+})
+
+bot.on('entityEffectEnd', (entity, effect) => {
+  if (entity !== bot.entity) return
+  const id = Number(effect?.id ?? effect?.effectId ?? -1)
+  if (id === 1) buffUntil.speed = 0
+  if (id === 12) buffUntil.fire = 0
 })
 
 bot.on('death', () => log('death', { attacks: attackCount, pots: potCount, refills: refillCount }))
@@ -331,7 +442,9 @@ bot.on('physicsTick', async () => {
   const target = targetInfo.entity
   const dist = bot.entity.position.distanceTo(target.position)
 
-  if (potting || refilling) return
+  if (potting || refilling || buffing) return
+
+  if (await maintainBuffs(dist)) return
 
   await maybeAim(target)
   applyCombatMovement(target, dist)

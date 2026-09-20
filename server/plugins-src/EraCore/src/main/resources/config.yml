@@ -199,6 +199,7 @@ combat-director:
   visible-fight-max-seconds: 55
   visible-fight-duration-seconds: 95
   visible-fight-chance-percent: 62
+  three-way-brawl-chance-percent: 14
   max-hot-per-faction: 3
   observation-radius: 160
   offscreen-resolution-seconds: 5

@@ -240,6 +240,8 @@ final class SimWorldDirector {
         int centerY;
         int centerZ;
         String anchorFaction="";
+        String ownerName="";
+        int teamSize=0;
         final Map<String,CombatAssignment> assignments = new LinkedHashMap<String,CombatAssignment>();
     }
 
@@ -337,7 +339,7 @@ final class SimWorldDirector {
     }
 
     void repairExistingBaseTerrainAndClaims() {
-        if (data.getInt("meta.terrain-repair-version",0) >= 1) return;
+        if (data.getInt("meta.terrain-repair-version",0) >= 2) return;
 
         org.bukkit.World world=Bukkit.getWorlds().get(0);
         if(world==null) return;
@@ -354,7 +356,7 @@ final class SimWorldDirector {
             org.bukkit.Location home=new org.bukkit.Location(world,f.baseX+0.5,f.baseY+1,f.baseZ+0.5);
             plugin.setSimFactionHomeAndClaims(f.name,home,desired);
         }
-        data.set("meta.terrain-repair-version",1);
+        data.set("meta.terrain-repair-version",2);
         save();
     }
 
@@ -387,9 +389,28 @@ final class SimWorldDirector {
 
     String visibleFightSummary() {
         if(visibleFight==null) return "none";
+        String owner=visibleFight.ownerName==null||visibleFight.ownerName.isEmpty()?"":" owner="+visibleFight.ownerName;
         return visibleFight.type+" id="+visibleFight.id+" world="+visibleFight.world+
-            " bodies="+visibleFight.assignments.size()+
+            " botBodies="+visibleFight.assignments.size()+owner+
             " center="+visibleFight.centerX+","+visibleFight.centerY+","+visibleFight.centerZ;
+    }
+
+    boolean hasVisibleFight() {
+        return visibleFight != null;
+    }
+
+    String currentVisibleFightId() {
+        return visibleFight == null ? "" : visibleFight.id;
+    }
+
+    Location ownerTestSpawn() {
+        if(visibleFight==null || visibleFight.ownerName==null || visibleFight.ownerName.isEmpty()) return null;
+        World w=Bukkit.getWorld(visibleFight.world);
+        if(w==null) return null;
+        int x=visibleFight.centerX-14;
+        int z=visibleFight.centerZ;
+        int y=Math.max(4,w.getHighestBlockYAt(x,z)+1);
+        return new Location(w,x+0.5,y,z+0.5,-90f,0f);
     }
 
     boolean reserveCombatLoadout(String name, CombatClass type, String fightId) {
@@ -565,21 +586,26 @@ final class SimWorldDirector {
         return visibleFight.assignments.get(key(name));
     }
 
-    boolean startFiveVFiveTest(Player observer) {
-        if(observer==null || observer.getWorld()==null) return false;
-        List<SimFaction> five=new ArrayList<SimFaction>();
-        for(SimFaction f:factions.values()) if(f.members.size()>=5) five.add(f);
-        if(five.size()<2) return false;
+    boolean startTeamFightTest(Player observer,int requestedSize) {
+        if(observer==null || observer.getWorld()==null || visibleFight!=null) return false;
+        int teamSize=Math.max(3,Math.min(5,requestedSize));
 
-        Collections.sort(five,new Comparator<SimFaction>() {
+        List<SimFaction> eligible=new ArrayList<SimFaction>();
+        for(SimFaction f:factions.values()) {
+            if(f.members.size()>=teamSize) eligible.add(f);
+        }
+        if(eligible.size()<2) return false;
+
+        Collections.sort(eligible,new Comparator<SimFaction>() {
             public int compare(SimFaction a,SimFaction b) {
                 return Integer.compare(teamStrength(b),teamStrength(a));
             }
         });
 
-        SimFaction a=five.get(0), b=five.get(1);
-        List<SimPlayer> aa=testTeam(a), bb=testTeam(b);
-        if(aa.size()<5 || bb.size()<5) return false;
+        SimFaction a=eligible.get(0), b=eligible.get(1);
+        List<SimPlayer> aa=testTeam(a,teamSize-1);
+        List<SimPlayer> bb=testTeam(b,teamSize);
+        if(aa.size()<teamSize-1 || bb.size()<teamSize) return false;
 
         Location ol=observer.getLocation();
         Vector dir=ol.getDirection().setY(0);
@@ -592,14 +618,16 @@ final class SimWorldDirector {
         int cy=Math.max(4,w.getHighestBlockYAt(cx,cz)+1);
 
         VisibleFight fight=new VisibleFight();
-        fight.id="TEST5V5_"+System.currentTimeMillis();
-        fight.type="TEST_5V5";
+        fight.id="TESTTEAM_"+teamSize+"_"+System.currentTimeMillis();
+        fight.type="TEST_"+teamSize+"V"+teamSize+"_OWNER";
         fight.world=observer.getWorld().getName();
         fight.centerX=cx;fight.centerY=cy;fight.centerZ=cz;
+        fight.ownerName=observer.getName();
+        fight.teamSize=teamSize;
         fight.expiresAt=System.currentTimeMillis()+180000L;
 
-        addFiveVFiveAssignments(fight,a,b,aa,bb,-1);
-        addFiveVFiveAssignments(fight,b,a,bb,aa,1);
+        addTestAssignments(fight,a,b,aa,bb,-1,observer.getName(),true,teamSize);
+        addTestAssignments(fight,b,a,bb,aa,1,observer.getName(),false,teamSize);
         visibleFight=fight;
         nextVisibleFightAt=fight.expiresAt+15000L;
         writeCombatFile();
@@ -615,7 +643,7 @@ final class SimWorldDirector {
         return s;
     }
 
-    private List<SimPlayer> testTeam(SimFaction f) {
+    private List<SimPlayer> testTeam(SimFaction f,int count) {
         List<SimPlayer> xs=new ArrayList<SimPlayer>();
         for(String n:f.members) {
             SimPlayer p=players.get(key(n));
@@ -624,30 +652,19 @@ final class SimWorldDirector {
         Collections.sort(xs,new Comparator<SimPlayer>() {
             public int compare(SimPlayer a,SimPlayer b){return Integer.compare(b.skill,a.skill);}
         });
-        while(xs.size()>5) xs.remove(xs.size()-1);
+        while(xs.size()>count) xs.remove(xs.size()-1);
         return xs;
     }
 
-    private void addFiveVFiveAssignments(VisibleFight fight,SimFaction own,SimFaction enemy,
-                                         List<SimPlayer> allies,List<SimPlayer> enemies,int side) {
-        SimPlayer bard=bestSupport(allies,true,null);
-        SimPlayer archer=bestSupport(allies,false,bard);
-        List<SimPlayer> diamonds=new ArrayList<SimPlayer>();
-        for(SimPlayer p:allies) if(p!=bard && p!=archer) diamonds.add(p);
-        Collections.sort(diamonds,new Comparator<SimPlayer>() {
-            public int compare(SimPlayer a,SimPlayer b){return Integer.compare(b.skill,a.skill);}
-        });
+    private void addTestAssignments(VisibleFight fight,SimFaction own,SimFaction enemy,
+                                    List<SimPlayer> allies,List<SimPlayer> enemies,int side,
+                                    String ownerName,boolean ownerOnOwnSide,int teamSize) {
+        // 3v3: Diamond owner + Diamond + Archer.
+        // 4v4/5v5: one Bard + one Archer, remaining simulated teammates Diamond.
+        SimPlayer bard=teamSize>=4?bestSupport(allies,true,null):null;
+        SimPlayer archer=teamSize>=3?bestSupport(allies,false,bard):null;
 
-        SimPlayer enemyBard=bestSupport(enemies,true,null);
-        SimPlayer enemyArcher=bestSupport(enemies,false,enemyBard);
-        SimPlayer focus;
-        // These are deliberately the strongest five-man factions available,
-        // so test their ability to kit-snipe support instead of just tunneling
-        // the nearest Diamond.
-        if(enemyBard!=null && enemyArcher!=null) focus=rng.nextInt(100)<65?enemyBard:enemyArcher;
-        else if(enemyBard!=null) focus=enemyBard;
-        else if(enemyArcher!=null) focus=enemyArcher;
-        else focus=chooseTestFocus(enemies);
+        SimPlayer focus=chooseTestFocus(enemies);
         int index=0;
         for(SimPlayer p:allies) {
             CombatAssignment ca=new CombatAssignment();
@@ -655,15 +672,19 @@ final class SimWorldDirector {
             ca.world=fight.world;
             ca.skill=p.skill;ca.aggression=p.aggression;ca.risk=p.riskTolerance;
             ca.homeX=own.baseX;ca.homeY=own.baseY+1;ca.homeZ=own.baseZ;
-            ca.trapType="none";ca.focus=focus==null?"":focus.name;
+            ca.trapType="none";
+            if(!ownerOnOwnSide && rng.nextInt(100)<40) ca.focus=ownerName;
+            else ca.focus=focus==null?"":focus.name;
             ca.combatClass=(p==bard)?CombatClass.BARD:((p==archer)?CombatClass.ARCHER:CombatClass.DIAMOND);
             ca.action=(p==bard)?"BARD_SUPPORT":((p==archer)?"ARCHER_RANGE":"FOCUS");
             ca.x=fight.centerX+side*(10+(index%2)*2);
-            ca.z=fight.centerZ+(index-2)*3;
+            ca.z=fight.centerZ+(index-(allies.size()/2))*3;
             World fightWorld=Bukkit.getWorld(fight.world);
             ca.y=Math.max(4,(fightWorld==null?Bukkit.getWorlds().get(0):fightWorld).getHighestBlockYAt(ca.x,ca.z)+1);
             for(SimPlayer e:enemies) ca.enemies.add(e.name);
             for(SimPlayer m:allies) if(m!=p) ca.allies.add(m.name);
+            if(ownerOnOwnSide) ca.allies.add(ownerName);
+            else ca.enemies.add(ownerName);
             fight.assignments.put(key(p.name),ca);
             index++;
         }
@@ -779,8 +800,9 @@ final class SimWorldDirector {
         SimFaction a=ready.get(0);
 
         // Power/creator neighborhoods can occasionally turn into the messy
-        // three-faction brawls that old HCF maps were known for. Keep the HOT
-        // representation capped at eight bodies; the rest stays authoritative COLD.
+        // three-faction brawls that old HCF maps were known for. The worker pool
+        // now reserves the physical budget for combat first, so these can scale
+        // past the old eight-body ceiling without stacking normal workers on top.
         if (ready.size() >= 3 && rng.nextInt(100) <
                 plugin.getConfig().getInt("combat-director.three-way-brawl-chance-percent",14)) {
             VisibleFight multi=createThreeWayFight(observer,ready,a);
@@ -893,13 +915,14 @@ final class SimWorldDirector {
         SimFaction b=nearby.get(0);
         SimFaction d=nearby.get(1);
 
-        List<SimPlayer> aa=pickFightMembers(anchor,Math.min(3,activeFightMembers(anchor)));
-        List<SimPlayer> bb=pickFightMembers(b,Math.min(3,activeFightMembers(b)));
-        List<SimPlayer> dd=pickFightMembers(d,Math.min(2,activeFightMembers(d)));
+        int multiBudget=Math.max(6,Math.min(12,hotCombatBudget()));
+        int perSide=Math.max(2,Math.min(4,multiBudget/3));
+        List<SimPlayer> aa=pickFightMembers(anchor,Math.min(perSide,activeFightMembers(anchor)));
+        List<SimPlayer> bb=pickFightMembers(b,Math.min(perSide,activeFightMembers(b)));
+        List<SimPlayer> dd=pickFightMembers(d,Math.min(perSide,activeFightMembers(d)));
         if(aa.isEmpty()||bb.isEmpty()||dd.isEmpty()) return null;
 
-        // Hard physical ceiling for a three-way: 8 represented fighters.
-        while(aa.size()+bb.size()+dd.size()>8) {
+        while(aa.size()+bb.size()+dd.size()>multiBudget) {
             if(aa.size()>=bb.size() && aa.size()>=dd.size() && aa.size()>1) aa.remove(aa.size()-1);
             else if(bb.size()>=dd.size() && bb.size()>1) bb.remove(bb.size()-1);
             else if(dd.size()>1) dd.remove(dd.size()-1);
@@ -995,16 +1018,23 @@ final class SimWorldDirector {
         int maxB=Math.max(1,activeFightMembers(b));
         int r=rng.nextInt(100);
         int sa,sb;
-        if(r<18) { sa=1; sb=1; }
-        else if(r<34) { sa=1; sb=2; }
-        else if(r<56) { sa=2; sb=2; }
-        else if(r<70) { sa=2; sb=3; }
-        else if(r<84) { sa=3; sb=3; }
-        else if(r<92) { sa=3; sb=4; }
-        else if(r<97) { sa=4; sb=4; }
-        else { sa=1; sb=5; } // rare outnumbered clip / attempted trap / clutch
+        if(r<10) { sa=1; sb=1; }
+        else if(r<22) { sa=1; sb=2; }
+        else if(r<40) { sa=2; sb=2; }
+        else if(r<58) { sa=3; sb=3; }
+        else if(r<72) { sa=3; sb=4; }
+        else if(r<84) { sa=4; sb=4; }
+        else if(r<92) { sa=4; sb=5; }
+        else if(r<98) { sa=5; sb=5; }
+        else { sa=1; sb=5; } // rare clutch / trap-bait clip
         sa=Math.min(sa,maxA);
         sb=Math.min(sb,maxB);
+        int budget=Math.max(4,Math.min(12,hotCombatBudget()));
+        while(sa+sb>budget) {
+            if(sa>=sb && sa>1) sa--;
+            else if(sb>1) sb--;
+            else break;
+        }
         return new int[]{Math.max(1,sa),Math.max(1,sb)};
     }
 
@@ -1165,6 +1195,8 @@ final class SimWorldDirector {
             y.set("fight.center-y",visibleFight.centerY);
             y.set("fight.center-z",visibleFight.centerZ);
             y.set("fight.anchor-faction",visibleFight.anchorFaction);
+            y.set("fight.owner-name",visibleFight.ownerName);
+            y.set("fight.team-size",visibleFight.teamSize);
 
             for(CombatAssignment ca:visibleFight.assignments.values()) {
                 String b="participants."+key(ca.name);
@@ -1769,7 +1801,7 @@ final class SimWorldDirector {
 
     void stopVisibleFightTest() {
         if (visibleFight == null) return;
-        if (visibleFight.id != null && visibleFight.id.startsWith("TEST5V5_")) {
+        if (visibleFight.id != null && visibleFight.id.startsWith("TESTTEAM_")) {
             visibleFight = null;
             writeCombatFile();
         }

@@ -49,6 +49,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     private SimChatDirector simChat;
     private SpawnPresenceDirector spawnPresence;
     private HcfClassDirector hcfClasses;
+    private HcfBaseBuilder hcfBaseBuilder;
 
     enum Rank {
         MEMBER(0, "&7[Member]", 24),
@@ -112,6 +113,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         simChat = new SimChatDirector(this, simWorld);
         spawnPresence = new SpawnPresenceDirector(this, warpManager);
         hcfClasses = new HcfClassDirector(this);
+        hcfBaseBuilder = new HcfBaseBuilder(this);
         bindCommands();
         getServer().getPluginManager().registerEvents(this, this);
         hookTickTimes();
@@ -137,6 +139,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     @Override public void onDisable() {
         if (spawnPresence != null) spawnPresence.stop();
         if (hcfClasses != null) hcfClasses.stop();
+        if (hcfBaseBuilder != null) hcfBaseBuilder.stop();
         if (simChat != null) simChat.stop();
         if (simWorld != null) simWorld.stop();
         saveAll();
@@ -255,7 +258,13 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     @EventHandler(priority=EventPriority.HIGHEST, ignoreCancelled=true) public void onDamage(EntityDamageByEntityEvent e) {
         if (!(e.getEntity() instanceof Player)) return;
         Player victim = (Player)e.getEntity();
-        if (isSafezone(victim.getLocation())) e.setCancelled(true);
+        if (isSafezone(victim.getLocation())) {
+            e.setCancelled(true);
+            return;
+        }
+        if (simWorld != null && simWorld.sotwProtectionActive()) {
+            e.setCancelled(true);
+        }
     }
 
     @EventHandler(priority=EventPriority.HIGHEST, ignoreCancelled=true) public void onExplosion(EntityExplodeEvent e) {
@@ -571,7 +580,13 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             Bukkit.broadcastMessage(color("&6SOTW started. &7Everyone is factionless and recruiting is open."));
             return true;
         }
-        p.sendMessage("/sotw <status|reset>");
+        if (a[0].equalsIgnoreCase("end")) {
+            if (!ownerOnly(p)) return true;
+            simWorld.endSotwProtection();
+            Bukkit.broadcastMessage(color("&cSOTW protection has ended."));
+            return true;
+        }
+        p.sendMessage("/sotw <status|reset|end>");
         return true;
     }
 
@@ -677,6 +692,14 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             }
         }, 18L + new Random().nextInt(28));
         return true;
+    }
+
+    void queueSimBaseBuild(String faction, String preset, String trapPreset, int x, int y, int z) {
+        if (hcfBaseBuilder != null) hcfBaseBuilder.queueBase(faction,preset,trapPreset,x,y,z);
+    }
+
+    void queueSimBrewerBuild(String faction, int x, int y, int z) {
+        if (hcfBaseBuilder != null) hcfBaseBuilder.queueBrewer(faction,x,y,z);
     }
 
     double balanceForSimTrade(String name) {

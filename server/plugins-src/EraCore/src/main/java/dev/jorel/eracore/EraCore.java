@@ -188,6 +188,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         addBuy("fireres", Material.POTION, (short)8259, 110.0);
         addBuy("pearl", Material.ENDER_PEARL, (short)0, 160.0);
         addBuy("obsidian", Material.OBSIDIAN, (short)0, 30.0);
+        addBuy("iron", Material.IRON_INGOT, (short)0, 18.0);
         addBuy("steak", Material.COOKED_BEEF, (short)0, 6.0);
 
         // Farm/bootstrap supplies. A $500 start can establish one modest farm,
@@ -1066,7 +1067,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         p.sendMessage(color("&eSell ores: &firon $8, gold $14, diamond $60"));
         p.sendMessage(color("&ePvP: &fhealthpot $135, speedpot $95, fireres $110, pearl $160, obsidian $30, steak $6"));
         p.sendMessage(color("&eFarm: &fcane $9, cactus $7, pumpkinseed $8, melonseed $5, sand $2, dirt $1, waterbucket $35"));
-        p.sendMessage(color("&eBrewing: &fbrewingstand $140, hopper $65, netherwart $12, glowstone $12, gunpowder $18, glisteringmelon $24, sugar $6, magmacream $22"));
+        p.sendMessage(color("&eSupplies: &firon $18, brewingstand $140, hopper $65, book $12, lapis $5\n&eBrewing: &fnetherwart $12, glowstone $12, gunpowder $18, glisteringmelon $24, sugar $6, magmacream $22"));
         p.sendMessage(color("&7Use /sell hand, /sell all, or /buy <item> <amount>."));
         return true;
     }

@@ -142,6 +142,13 @@ sim-world:
   base-y: 64
   min-base-y: 50
   max-base-y: 110
+  max-base-site-relief: 6
+  max-base-site-liquid-samples: 1
+  logical-online-min: 18
+  logical-online-peak: 46
+  logical-online-late-night: 12
+  session-min-minutes: 25
+  session-max-minutes: 140
 
 spawn-presence:
   enabled: true
@@ -184,6 +191,7 @@ sotw:
 
 base-builder:
   blocks-per-tick: 450
+  repair-existing-on-start: true
 
 combat-director:
   hot-body-budget: 8
@@ -199,6 +207,9 @@ worker-pool:
   max-per-faction: 3
   reassess-seconds: 8
   sync-seconds: 10
+  minimum-lease-seconds: 120
+  missing-candidate-grace-cycles: 4
+  rotation-score-margin: 18
   creator-bodies:
     - Stimpypvp
     - Marcel

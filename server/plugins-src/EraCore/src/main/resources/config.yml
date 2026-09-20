@@ -192,27 +192,28 @@ base-builder:
   repair-existing-on-start: true
 
 combat-director:
-  hot-body-budget: 8
+  hot-body-budget: 12
   visible-fight-min-seconds: 25
   visible-fight-max-seconds: 55
   visible-fight-duration-seconds: 95
   visible-fight-chance-percent: 62
   three-way-brawl-chance-percent: 14
-  max-hot-per-faction: 3
+  max-hot-per-faction: 5
   observation-radius: 160
   offscreen-resolution-seconds: 5
   offscreen-brawl-chance-percent: 12
   brawl-radius: 420
 
 worker-pool:
-  max-bodies: 16
-  offline-bodies: 10
-  max-per-faction: 3
+  max-bodies: 12
+  offline-bodies: 8
+  max-per-faction: 4
   reassess-seconds: 8
   sync-seconds: 10
   minimum-lease-seconds: 120
   missing-candidate-grace-cycles: 4
   rotation-score-margin: 18
+  fight-ambient-bodies: 1
   creator-bodies:
     - Stimpypvp
     - Marcel

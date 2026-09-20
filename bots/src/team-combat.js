@@ -50,6 +50,63 @@ function reservePotions(bot) {
   )
 }
 
+function healingPotionCount(bot) {
+  return bot.inventory.items()
+    .filter(i => i.name === 'potion' && Number(i.metadata) === HEAL_META)
+    .reduce((n,i)=>n+Number(i.count || 1),0)
+}
+
+function emptyInventorySlots(bot) {
+  let n=0
+  for(let slot=9;slot<=44;slot++) if(!bot.inventory.slots?.[slot]) n++
+  return n
+}
+
+function itemNameFromDrop(bot, entity) {
+  const values=Array.isArray(entity?.metadata) ? entity.metadata : Object.values(entity?.metadata || {})
+  for(const v of values) {
+    if (!v || typeof v !== 'object') continue
+    if (typeof v.name === 'string' && v.name) return v.name
+    const id=Number(v.itemId ?? v.blockId ?? v.id)
+    if (!Number.isInteger(id)) continue
+    const reg=bot.registry?.items?.[id] || bot.registry?.itemsByName?.[String(id)]
+    if (reg?.name) return reg.name
+  }
+  return ''
+}
+
+function lootScore(name) {
+  const n=String(name || '')
+  if (n.startsWith('diamond_') && (n.endsWith('_helmet') || n.endsWith('_chestplate') || n.endsWith('_leggings') || n.endsWith('_boots'))) return 120
+  if (n === 'diamond_sword') return 115
+  if (n === 'diamond') return 105
+  if (n === 'ender_pearl') return 95
+  if (n.startsWith('iron_') && n.endsWith('_sword')) return 82
+  if ((n.startsWith('golden_') || n.startsWith('gold_') || n.startsWith('leather_') || n.startsWith('chainmail_')) &&
+      (n.endsWith('_helmet') || n.endsWith('_chestplate') || n.endsWith('_leggings') || n.endsWith('_boots'))) return 78
+  if (n === 'bow') return 72
+  if (n === 'potion') return 25
+  return 0
+}
+
+function bestNearbyLoot(bot, radius=11) {
+  if (!bot.entity) return null
+  let best=null
+  for(const e of Object.values(bot.entities || {})) {
+    if (!e || e === bot.entity) continue
+    const kind=String(e.name || e.displayName || '').toLowerCase()
+    if (kind !== 'item' && kind !== 'item_stack' && kind !== 'dropped_item') continue
+    const dist=bot.entity.position.distanceTo(e.position)
+    if (dist>radius) continue
+    const name=itemNameFromDrop(bot,e)
+    const score=lootScore(name)
+    if(score<=0) continue
+    const total=score-dist*2
+    if(!best || total>best.total) best={entity:e,name,dist,score,total}
+  }
+  return best
+}
+
 function nearestNamedEntity(bot, names) {
   if (!bot.entity || !Array.isArray(names)) return null
   let best = null
@@ -107,8 +164,15 @@ function pointDistance(pos, x, z) {
 }
 
 function blockName(bot, x, y, z) {
-  try { return String(bot.blockAt({ x: Math.floor(x), y: Math.floor(y), z: Math.floor(z) })?.name || '') }
-  catch { return '' }
+  if (!bot.entity) return ''
+  try {
+    const p=bot.entity.position.offset(
+      Math.floor(x)-Math.floor(bot.entity.position.x),
+      Math.floor(y)-Math.floor(bot.entity.position.y),
+      Math.floor(z)-Math.floor(bot.entity.position.z)
+    ).floored()
+    return String(bot.blockAt(p)?.name || '')
+  } catch { return '' }
 }
 
 function isLiquidName(name) {
@@ -363,7 +427,7 @@ export function createTeamCombatController(bot, assignmentProvider) {
       if (lastMoveSample) {
         const dx=p.x-lastMoveSample.x,dz=p.z-lastMoveSample.z
         const moved=Math.sqrt(dx*dx+dz*dz)
-        const trying=Boolean(bot.controlState?.forward || bot.controlState?.back || bot.controlState?.left || bot.controlState?.right)
+        const trying=Boolean(target && target.dist>3.2)
         if (trying && moved<0.10) {
           if (!stuckSince) stuckSince=now
         } else stuckSince=0
@@ -387,6 +451,68 @@ export function createTeamCombatController(bot, assignmentProvider) {
     return false
   }
 
+  async function makeLootSpace() {
+    if (emptyInventorySlots(bot)>0) return true
+
+    // Dump secondary buffs first. If the inventory is still full and there are
+    // plenty of heals left, sacrifice one heal for an enemy set/sword/pearls.
+    const secondary=bot.inventory.items().find(i =>
+      i.name==='potion' && Number(i.metadata)!==HEAL_META
+    )
+    if (secondary) {
+      try { await bot.tossStack(secondary); await sleep(70); return true } catch {}
+    }
+
+    const heals=bot.inventory.items().filter(i => i.name==='potion' && Number(i.metadata)===HEAL_META)
+    if (healingPotionCount(bot)>4 && heals.length) {
+      try { await bot.tossStack(heals[heals.length-1]); await sleep(70); return true } catch {}
+    }
+    return false
+  }
+
+  async function lootTick(a,target) {
+    const loot=bestNearbyLoot(bot,12)
+    if(!loot) return false
+
+    const enemiesNear=countNearby(bot,a.enemies,9)
+    const alliesNear=countNearby(bot,a.allies,9)
+    // Don't greed a set while being hard collapsed unless it is almost underfoot.
+    if(enemiesNear>alliesNear+1 && loot.dist>2.5) return false
+    if(loot.score>=72 && emptyInventorySlots(bot)===0) await makeLootSpace()
+    if(emptyInventorySlots(bot)===0) return false
+
+    if(loot.dist>1.15) {
+      moveToward(bot,loot.entity.position.x,loot.entity.position.z,true)
+      return true
+    }
+    return false
+  }
+
+  async function lowPotDisengage(a,target) {
+    if(!target || !bot.entity) return false
+    const heals=healingPotionCount(bot)
+    const enemiesNear=countNearby(bot,a.enemies,12)
+    const alliesNear=countNearby(bot,a.allies,12)
+    const criticalStock=heals===0 || (heals<=2 && enemiesNear>=Math.max(1,alliesNear))
+    if(!criticalStock) return false
+
+    // A player with no healing should stop taking an even/open-field trade.
+    moveAway(bot,target.entity)
+    bot.setControlState('jump',aheadBlocked(bot,
+      bot.entity.position.x-(target.entity.position.x-bot.entity.position.x),
+      bot.entity.position.z-(target.entity.position.z-bot.entity.position.z)))
+
+    if ((heals===0 || bot.health<=10) && target.dist<9) {
+      await pearlToward(target.entity,true)
+    } else if (!String(a.fightId || '').startsWith('TESTTEAM_') &&
+               Number.isFinite(Number(a.homeX)) && Number.isFinite(Number(a.homeZ))) {
+      // Once a little separation exists, path toward home instead of immediately
+      // re-entering the fight. Test fights stay local so the benchmark remains useful.
+      if(target.dist>7) moveToward(bot,Number(a.homeX),Number(a.homeZ),true)
+    }
+    return true
+  }
+
   async function diamondTick(a, target) {
     if (!target) {
       stop(bot)
@@ -396,6 +522,8 @@ export function createTeamCombatController(bot, assignmentProvider) {
     const alliesNear = countNearby(bot, a.allies, 9)
     const enemiesNear = countNearby(bot, a.enemies, 9)
     const dist = target.dist
+
+    if (await lowPotDisengage(a,target)) return
 
     if (a.action === 'KITE_HOME' || a.action === 'BAIT' || a.action === 'BAIT_FALL' ||
         a.action === 'BAIT_GATE' || a.action === 'BAIT_DROP') {
@@ -510,6 +638,8 @@ export function createTeamCombatController(bot, assignmentProvider) {
     const ally = nearestAlly(bot, a.allies)
     const enemiesNear = countNearby(bot, a.enemies, 14)
 
+    if (target && await lowPotDisengage(a,target)) return
+
     // Bard is a support/survival role, not a melee role.
     if (target && target.dist < 8.5) {
       moveAway(bot, target.entity)
@@ -566,6 +696,7 @@ export function createTeamCombatController(bot, assignmentProvider) {
     }
 
     const dist = target.dist
+    if (await lowPotDisengage(a,target)) return
     if (bot.health <= profile.potHealth && dist >= profile.potGap) {
       if (await potAtFeet()) return
     }
@@ -665,6 +796,10 @@ export function createTeamCombatController(bot, assignmentProvider) {
       const cls = String(a.class || 'DIAMOND').toUpperCase()
 
       if (await terrainEscapeTick(a,target)) return
+
+      // Loot is a tactical objective: after a kill or when pressure briefly
+      // drops, sweep valuable sets/swords/pearls instead of walking past them.
+      if ((!target || target.dist>7) && await lootTick(a,target)) return
 
       if (cls === 'BARD') await bardTick(a, target)
       else if (cls === 'ARCHER') await archerTick(a, target)

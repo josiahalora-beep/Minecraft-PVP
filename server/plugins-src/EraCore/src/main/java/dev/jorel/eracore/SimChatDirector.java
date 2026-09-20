@@ -24,7 +24,7 @@ final class SimChatDirector {
 
     void start() {
         if (task != null) return;
-        nextAt = System.currentTimeMillis() + 12000L;
+        nextAt = System.currentTimeMillis() + 2500L;
         task = Bukkit.getScheduler().runTaskTimer(plugin, new Runnable() {
             public void run() { tick(); }
         }, 20L, 20L);
@@ -81,7 +81,23 @@ final class SimChatDirector {
         long now = System.currentTimeMillis();
         if (now < nextAt) return;
         boolean fast = emitGeneral();
-        nextAt = now + (fast ? (2200L + rng.nextInt(3600)) : nextDelayMillis());
+        nextAt = now + (fast ? (1400L + rng.nextInt(2200)) : nextDelayMillis());
+
+        // Busy SOTW chat arrives in short uneven bursts, not a metronome.
+        int online = world.logicalOnlineCount();
+        if (online >= 50 && rng.nextInt(100) < 38) {
+            long d1 = 24L + rng.nextInt(34);
+            Bukkit.getScheduler().runTaskLater(plugin,new Runnable() {
+                public void run(){ if(enabled() && plugin.hasHumanOnline()) emitGeneral(); }
+            },d1);
+
+            if (online >= 75 && rng.nextInt(100) < 22) {
+                long d2 = d1 + 28L + rng.nextInt(42);
+                Bukkit.getScheduler().runTaskLater(plugin,new Runnable() {
+                    public void run(){ if(enabled() && plugin.hasHumanOnline()) emitGeneral(); }
+                },d2);
+            }
+        }
     }
 
     private long nextDelayMillis() {

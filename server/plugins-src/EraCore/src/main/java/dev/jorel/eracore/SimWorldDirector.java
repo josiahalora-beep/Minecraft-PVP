@@ -1456,8 +1456,14 @@ final class SimWorldDirector {
 
         int[] point = chooseBasePoint(f);
         f.baseX = point[0];
-        f.baseY = Math.max(64, plugin.getConfig().getInt("sim-world.base-y", 64));
         f.baseZ = point[1];
+
+        // Normal-world aware placement: build on the actual terrain surface
+        // instead of assuming the old superflat Y=64 benchmark world.
+        int surfaceY = world.getHighestBlockYAt(f.baseX, f.baseZ);
+        int minY = Math.max(50, plugin.getConfig().getInt("sim-world.min-base-y", 50));
+        int maxY = Math.min(110, plugin.getConfig().getInt("sim-world.max-base-y", 110));
+        f.baseY = Math.max(minY, Math.min(maxY, surfaceY));
         f.claimRadiusChunks = 1;
 
         org.bukkit.Location home = new org.bukkit.Location(world, f.baseX + 0.5, f.baseY + 1, f.baseZ + 0.5);

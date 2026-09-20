@@ -344,6 +344,16 @@ final class SimWorldDirector {
     }
 
 
+    int combatAssignmentCount() {
+        return visibleFight == null ? 0 : visibleFight.assignments.size();
+    }
+
+    String visibleFightSummary() {
+        if(visibleFight==null) return "none";
+        return visibleFight.type+" id="+visibleFight.id+" bodies="+visibleFight.assignments.size()+
+            " center="+visibleFight.centerX+","+visibleFight.centerY+","+visibleFight.centerZ;
+    }
+
     CombatAssignment combatAssignmentFor(String name) {
         if (visibleFight == null) return null;
         return visibleFight.assignments.get(key(name));

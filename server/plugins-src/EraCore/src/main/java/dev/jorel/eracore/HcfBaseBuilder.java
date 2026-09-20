@@ -63,6 +63,22 @@ final class HcfBaseBuilder {
         ensureRunner();
     }
 
+    void queueTrapAddon(String faction, String trapPreset, int cx, int y, int cz) {
+        if (trapPreset == null || "none".equalsIgnoreCase(trapPreset)) return;
+        String key = "trap-addon:" + faction.toLowerCase();
+        if (!completed.add(key)) return;
+
+        World world = Bukkit.getWorlds().get(0);
+        if (world == null) return;
+
+        // Only prepare the trap's approach footprint. Do not reapply or alter
+        // the existing live faction base.
+        if ("fall_trap".equalsIgnoreCase(trapPreset)) buildFallTrap(world,cx,y,cz);
+        else if ("fence_gate_bow".equalsIgnoreCase(trapPreset)) buildFenceGateBowTrap(world,cx,y,cz);
+        else if ("drop_chute".equalsIgnoreCase(trapPreset)) buildDropChute(world,cx,y,cz);
+        ensureRunner();
+    }
+
     void queueFarm(String faction, String crop, int cx, int y, int cz) {
         String key = "farm:" + faction.toLowerCase();
         if (!completed.add(key)) return;

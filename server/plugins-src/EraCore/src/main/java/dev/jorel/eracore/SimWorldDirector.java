@@ -2103,6 +2103,9 @@ final class SimWorldDirector {
                     if (!f.baseQueued) {
                         plugin.queueSimBaseBuild(f.name, f.basePreset, f.trapPreset, f.baseX, f.baseY, f.baseZ);
                         f.baseQueued = true;
+                        if ("TRAPPER".equals(f.archetype) && f.trapPreset != null && !"none".equalsIgnoreCase(f.trapPreset)) {
+                            f.specialTrapBuilt = true;
+                        }
                     }
                     f.storage = true;
                     f.stage = Stage.ECONOMY;

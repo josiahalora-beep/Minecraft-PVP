@@ -356,8 +356,13 @@ async function potAtFeet() {
   potting = true
   const startedAt = Date.now()
   try {
-    bot.clearControlStates()
-    await sleep(Math.round(rand(35, 70) + profile.simulatedReactionJitter))
+    // Running pot: preserve forward momentum and sprint through the splash.
+    // This makes the bot run into its own feet-pot instead of stopping dead.
+    bot.setControlState('back', false)
+    bot.setControlState('forward', true)
+    bot.setControlState('sprint', true)
+
+    await sleep(Math.round(rand(20, 45) + profile.simulatedReactionJitter))
 
     if (lastDamageAt >= startedAt || Date.now() - lastDamageAt < profile.potSafeMs) {
       selectSword()
@@ -365,8 +370,9 @@ async function potAtFeet() {
       return false
     }
 
+    // Keep yaw unchanged, look straight down, and throw without releasing sprint.
     await bot.look(bot.entity.yaw, -Math.PI / 2, true)
-    await sleep(Math.round(rand(25, 60)))
+    await sleep(Math.round(rand(15, 35)))
 
     if (lastDamageAt >= startedAt) {
       selectSword()
@@ -375,7 +381,7 @@ async function potAtFeet() {
     }
 
     bot.activateItem()
-    await sleep(Math.round(rand(90, 135)))
+    await sleep(Math.round(rand(80, 115)))
     bot.deactivateItem()
     selectSword()
 

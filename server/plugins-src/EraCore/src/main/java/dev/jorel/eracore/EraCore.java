@@ -146,8 +146,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         sellPrices.put(Material.DIAMOND, 75.0);
 
         addBuy("healthpot", Material.POTION, (short)16421, 85.0);
-        addBuy("speedpot", Material.POTION, (short)16418, 65.0);
-        addBuy("fireres", Material.POTION, (short)16451, 65.0);
+        addBuy("speedpot", Material.POTION, (short)8226, 65.0);
+        addBuy("fireres", Material.POTION, (short)8259, 65.0);
         addBuy("pearl", Material.ENDER_PEARL, (short)0, 150.0);
         addBuy("obsidian", Material.OBSIDIAN, (short)0, 22.0);
         addBuy("tnt", Material.TNT, (short)0, 80.0);
@@ -428,6 +428,12 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     private ItemStack sword(Material m,int sharp) {
         ItemStack i=new ItemStack(m);
         if(sharp>0)i.addUnsafeEnchantment(Enchantment.DAMAGE_ALL,sharp);
+        return i;
+    }
+
+    private ItemStack pvpSword(Material m,int sharp,int fireAspect) {
+        ItemStack i=sword(m,sharp);
+        if(fireAspect>0)i.addUnsafeEnchantment(Enchantment.FIRE_ASPECT,fireAspect);
         return i;
     }
 
@@ -983,13 +989,24 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         inv.setChestplate(armor(Material.DIAMOND_CHESTPLATE,2));
         inv.setLeggings(armor(Material.DIAMOND_LEGGINGS,2));
         inv.setBoots(armor(Material.DIAMOND_BOOTS,2));
-        inv.setItem(0,sword(Material.DIAMOND_SWORD,2));
-        for(int slot=1;slot<36;slot++) inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
+        inv.setItem(0,pvpSword(Material.DIAMOND_SWORD,2,2));
+
+        // Hotbar: sword, five Healing II splashes, Fire Resistance, Speed II, pearls.
+        for(int slot=1;slot<=5;slot++) inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
+        inv.setItem(6,new ItemStack(Material.POTION,1,(short)8259));
+        inv.setItem(7,new ItemStack(Material.POTION,1,(short)8226));
         inv.setItem(8,new ItemStack(Material.ENDER_PEARL,16));
+
+        // Reserve inventory: healing pots plus replacement drinkable buffs.
+        for(int slot=9;slot<33;slot++) inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
+        inv.setItem(33,new ItemStack(Material.POTION,1,(short)8259));
+        inv.setItem(34,new ItemStack(Material.POTION,1,(short)8226));
+        inv.setItem(35,new ItemStack(Material.POTION,1,(short)8226));
+
         p.setHealth(20.0);
         p.setFoodLevel(20);
-        p.addPotionEffect(new PotionEffect(PotionEffectType.SPEED,20*60*15,1,true),true);
-        p.addPotionEffect(new PotionEffect(PotionEffectType.FIRE_RESISTANCE,20*60*15,0,true),true);
+        p.removePotionEffect(PotionEffectType.SPEED);
+        p.removePotionEffect(PotionEffectType.FIRE_RESISTANCE);
     }
 
     private void startPowerRegen() {

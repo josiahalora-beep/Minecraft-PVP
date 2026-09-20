@@ -161,6 +161,7 @@ final class SimWorldDirector {
 
     private final EraCore plugin;
     private final SimEconomyModel economy;
+    private final ContextChatBrain chatBrain;
     private final Random rng = new Random(881994L);
     private final File file;
     private final YamlConfiguration data;
@@ -171,6 +172,11 @@ final class SimWorldDirector {
     private final Map<String,String> lastReplyTarget = new HashMap<String,String>();
     private final Deque<ChatEvent> pendingChat = new ArrayDeque<ChatEvent>();
     private final Map<String,Integer> rivalries = new HashMap<String,Integer>();
+    private final Deque<String> recentPublicSpeakers = new ArrayDeque<String>();
+    private final Deque<String> recentPublicMessages = new ArrayDeque<String>();
+    private final Map<String,String> lastPublicLineBySpeaker = new HashMap<String,String>();
+    private String recentKiller = "";
+    private String recentVictim = "";
     private BukkitTask task;
     private int factionCursor;
     private int factionNameCursor;
@@ -213,6 +219,7 @@ final class SimWorldDirector {
     SimWorldDirector(EraCore plugin) {
         this.plugin = plugin;
         this.economy = new SimEconomyModel(plugin);
+        this.chatBrain = new ContextChatBrain();
         this.file = new File(plugin.getDataFolder(), "simulation.yml");
         this.data = YamlConfiguration.loadConfiguration(file);
         loadOrSeed();
@@ -505,7 +512,9 @@ final class SimWorldDirector {
 
     void onHumanPublicChat(Player human, String message) {
         String lower = message.toLowerCase(Locale.ENGLISH);
+        rememberPublic(human.getName(), message);
 
+        // Transaction intent remains authoritative and creates real orders.
         String item = itemFromText(lower);
         if (item != null && (lower.contains("selling") || lower.startsWith("sell ") || lower.contains("wts"))) {
             SimPlayer buyer = findInterestedBuyer(item);
@@ -514,6 +523,8 @@ final class SimWorldDirector {
                 MarketOrder order = buyOrder(buyer,item,qty,fairAiBuyUnit(item));
                 activeOrders.put(key(buyer.name), order);
                 enqueue(buyer.name, rng.nextBoolean() ? "how much for " + qty + " " + pretty(item) : "ill buy " + qty + " " + pretty(item), true);
+                rememberPublic(buyer.name, pendingChat.peekLast() == null ? "" : pendingChat.peekLast().message);
+                return;
             }
         } else if (item != null && (lower.contains("buying") || lower.startsWith("buy ") || lower.contains("wtb"))) {
             SimPlayer seller = findSeller(item);
@@ -523,10 +534,38 @@ final class SimWorldDirector {
                     MarketOrder order = sellOrder(seller,item,qty,fairAiSellUnit(item));
                     activeOrders.put(key(seller.name), order);
                     enqueue(seller.name, rng.nextBoolean() ? "i have " + qty + " " + pretty(item) : "msg me i can sell " + qty, true);
+                    rememberPublic(seller.name, pendingChat.peekLast() == null ? "" : pendingChat.peekLast().message);
+                    return;
                 }
             }
         }
 
+        SimPlayer respondent = chooseContextResponder(human.getName(), lower);
+        if (respondent != null) {
+            ContextChatBrain.Snapshot snap = chatSnapshot(human.getName(), respondent, message);
+            String prior = lastPublicLineBySpeaker.get(key(respondent.name));
+            String reply = prior == null ? chatBrain.reply(snap) : chatBrain.followup(snap, prior);
+            if (reply != null && !reply.trim().isEmpty()) {
+                enqueue(respondent.name, reply, true);
+                rememberPublic(respondent.name, reply);
+
+                // Occasionally another relevant player joins the same thread.
+                if (rng.nextInt(100) < 22) {
+                    SimPlayer second = chooseSecondResponder(respondent, lower);
+                    if (second != null) {
+                        ContextChatBrain.Snapshot secondSnap = chatSnapshot(human.getName(), second, message);
+                        String secondReply = chatBrain.reply(secondSnap);
+                        if (secondReply != null && !secondReply.equalsIgnoreCase(reply)) {
+                            enqueue(second.name, secondReply, true);
+                            rememberPublic(second.name, secondReply);
+                        }
+                    }
+                }
+                return;
+            }
+        }
+
+        // Legacy intent fallbacks only fire when contextual chat chose silence.
         if (lower.contains("who wants pvp") || lower.contains("1v1") || lower.contains("anyone at spawn")) {
             SimPlayer fighter = findReadyFighter();
             if (fighter != null) enqueue(fighter.name, fighter.skill >= 80 ? "im down" : "give me a min", true);
@@ -536,16 +575,179 @@ final class SimWorldDirector {
             SimPlayer fighter = findReadyFighter();
             if (fighter != null && !fighter.faction.isEmpty()) enqueue(fighter.name, "our fac might go", true);
         }
+    }
 
+    private void rememberPublic(String speaker, String message) {
+        if (speaker == null || message == null || message.trim().isEmpty()) return;
+        recentPublicSpeakers.addLast(speaker);
+        recentPublicMessages.addLast(message);
+        lastPublicLineBySpeaker.put(key(speaker), message);
+        while (recentPublicSpeakers.size() > 12) recentPublicSpeakers.removeFirst();
+        while (recentPublicMessages.size() > 12) recentPublicMessages.removeFirst();
+    }
+
+    private SimPlayer chooseContextResponder(String humanName, String lower) {
+        // Direct name mention wins.
         for (SimPlayer p : players.values()) {
-            if (lower.contains(p.name.toLowerCase(Locale.ENGLISH))) {
-                enqueue(p.name, rng.nextBoolean() ? "what" : "yeah?", true);
-                break;
+            if (lower.contains(p.name.toLowerCase(Locale.ENGLISH))) return p;
+        }
+
+        // Faction mention should pull a member of that faction.
+        for (SimFaction f : factions.values()) {
+            if (lower.contains(f.name.toLowerCase(Locale.ENGLISH))) {
+                SimPlayer leader = players.get(key(f.leader));
+                if (leader != null) return leader;
+                for (String member : f.members) {
+                    SimPlayer p = players.get(key(member));
+                    if (p != null) return p;
+                }
             }
         }
+
+        List<SimPlayer> candidates = new ArrayList<SimPlayer>();
+        for (SimPlayer p : players.values()) {
+            if (p.name.equalsIgnoreCase(humanName)) continue;
+            if (lower.contains("faction") || lower.contains("lff") || lower.contains("recruit")) {
+                if (!p.faction.isEmpty()) candidates.add(p);
+            } else if (lower.contains("pvp") || lower.contains("fight") || lower.contains("1v1") || lower.contains("koth")) {
+                if (shouldSeekPvp(p.name) || p.skill >= 70) candidates.add(p);
+            } else if (lower.contains("farm") || lower.contains("money") || lower.contains("cane")) {
+                if ("farmer".equals(p.preferredJob)) candidates.add(p);
+            } else if (lower.contains("mine") || lower.contains("iron") || lower.contains("diamond")) {
+                if ("miner".equals(p.preferredJob)) candidates.add(p);
+            } else if (lower.contains("brew") || lower.contains("pots")) {
+                if ("brewer".equals(p.preferredJob)) candidates.add(p);
+            } else if (lower.contains("dtr") || lower.contains("raid")) {
+                if (!p.faction.isEmpty()) {
+                    SimFaction f = factions.get(key(p.faction));
+                    if (f != null && (f.recoveryMode || plugin.factionDtr(f.name) <= 2.0)) candidates.add(p);
+                }
+            }
+        }
+
+        if (candidates.isEmpty()) {
+            if (!isConversationWorthy(lower)) return null;
+            candidates.addAll(players.values());
+        }
+
+        return candidates.get(rng.nextInt(candidates.size()));
+    }
+
+    private SimPlayer chooseSecondResponder(SimPlayer first, String lower) {
+        if (first == null) return null;
+        List<SimPlayer> xs = new ArrayList<SimPlayer>();
+
+        if (!first.faction.isEmpty()) {
+            SimFaction f = factions.get(key(first.faction));
+            if (f != null) {
+                for (String member : f.members) {
+                    SimPlayer p = players.get(key(member));
+                    if (p != null && !p.name.equalsIgnoreCase(first.name)) xs.add(p);
+                }
+            }
+        }
+
+        if (xs.isEmpty() && !first.faction.isEmpty()) {
+            for (SimPlayer p : players.values()) {
+                if (p.name.equalsIgnoreCase(first.name) || p.faction.isEmpty()) continue;
+                if (!p.faction.equalsIgnoreCase(first.faction)) xs.add(p);
+            }
+        }
+
+        if (xs.isEmpty()) return null;
+        return xs.get(rng.nextInt(xs.size()));
+    }
+
+    private boolean isConversationWorthy(String lower) {
+        if (lower == null || lower.trim().isEmpty()) return false;
+        return lower.endsWith("?") || lower.contains("who ") || lower.contains("what ") ||
+            lower.contains("where ") || lower.contains("when ") || lower.contains("how ") ||
+            lower.contains("gg") || lower.contains("lol") || lower.contains("bruh") ||
+            lower.contains("trash") || lower.contains("nice") || lower.contains("base") ||
+            lower.contains("faction") || lower.contains("koth") || lower.contains("dtr");
+    }
+
+    private ContextChatBrain.Snapshot chatSnapshot(String speaker, SimPlayer responder, String message) {
+        ContextChatBrain.Snapshot s = new ContextChatBrain.Snapshot();
+        s.speaker = speaker;
+        s.message = message;
+        s.responder = responder.name;
+        s.responderFaction = responder.faction == null ? "" : responder.faction;
+        s.responderRole = responder.role;
+        s.responderJob = responder.preferredJob;
+        s.responderClass = responder.combatClass.name();
+        s.responderSkill = responder.skill;
+        s.responderAggression = responder.aggression;
+        s.responderBargaining = responder.bargaining;
+        s.responderCreator = plugin.isCreatorIdentity(responder.name);
+        s.creatorMentioned = mentionsCreator(message);
+        s.recentKiller = recentKiller;
+        s.recentVictim = recentVictim;
+
+        SimPlayer speakerSim = players.get(key(speaker));
+        if (speakerSim != null) s.speakerFaction = speakerSim.faction == null ? "" : speakerSim.faction;
+
+        if (!responder.faction.isEmpty()) {
+            SimFaction f = factions.get(key(responder.faction));
+            if (f != null) {
+                s.factionStage = f.stage.name();
+                s.factionNeed = factionNeedText(f);
+                s.recovery = f.recoveryMode;
+                s.raidable = plugin.factionRaidable(f.name);
+                s.dtr = plugin.factionDtr(f.name);
+                s.maxDtr = plugin.factionMaxDtr(f.name);
+                s.pvpReady = f.stage == Stage.PVP_READY && !f.recoveryMode && !s.raidable;
+
+                String rival = strongestRival(f.name);
+                s.rivalFaction = rival;
+                s.rivalry = rival.isEmpty() ? 0 : rivalryScore(f.name,rival);
+            }
+        }
+
+        return s;
+    }
+
+    private String factionNeedText(SimFaction f) {
+        List<String> needs = new ArrayList<String>();
+        if (classCount(f, CombatClass.BARD) == 0) needs.add("bard");
+        if (classCount(f, CombatClass.ARCHER) == 0) needs.add("archer");
+        if (jobCount(f, "miner") == 0) needs.add("miner");
+        if (jobCount(f, "brewer") == 0) needs.add("brewer");
+        if (jobCount(f, "builder") == 0) needs.add("builder");
+        if (needs.isEmpty()) return "";
+        return joinWords(needs,2);
+    }
+
+    private String strongestRival(String faction) {
+        String best = "";
+        int bestScore = 0;
+        for (SimFaction other : factions.values()) {
+            if (other.name.equalsIgnoreCase(faction)) continue;
+            int score = rivalryScore(faction,other.name);
+            if (score > bestScore) {
+                bestScore = score;
+                best = other.name;
+            }
+        }
+        return best;
+    }
+
+    private int rivalryScore(String a, String b) {
+        Integer n = rivalries.get(rivalryKey(a,b));
+        return n == null ? 0 : n;
+    }
+
+    private boolean mentionsCreator(String text) {
+        String m = text == null ? "" : text.toLowerCase(Locale.ENGLISH);
+        for (String name : plugin.getConfig().getStringList("creator-tag.creators")) {
+            if (m.contains(name.toLowerCase(Locale.ENGLISH))) return true;
+        }
+        return false;
     }
 
     void onLiveDeath(String victimName, String killerName) {
+        recentVictim = victimName == null ? "" : victimName;
+        recentKiller = killerName == null ? "" : killerName;
         SimPlayer victim = players.get(key(victimName));
         SimPlayer killer = players.get(key(killerName));
 
@@ -1037,6 +1239,7 @@ final class SimWorldDirector {
         if (name == null || message == null || message.trim().isEmpty()) return;
         if (pendingChat.size() >= 18) return;
         pendingChat.addLast(new ChatEvent(name,message,fast));
+        rememberPublic(name,message);
     }
 
     private String rivalryKey(String a, String b) {

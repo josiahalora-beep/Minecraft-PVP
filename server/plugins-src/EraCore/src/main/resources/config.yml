@@ -36,3 +36,94 @@ creator-tag:
     - lolitsalex
     - loolitsalex
     - Skimpy
+
+sim-chat:
+  enabled: true
+  min-delay-seconds: 18
+  max-delay-seconds: 42
+  quiet-min-delay-seconds: 55
+  quiet-max-delay-seconds: 120
+  identity-cooldown-seconds: 75
+  line-cooldown-seconds: 600
+  fan-reaction-cooldown-seconds: 28
+  max-fan-reactions: 2
+  roster:
+    - xRico
+    - SethPvP
+    - iTzMason
+    - FrostyHD
+    - NateMC
+    - PurpleDino
+    - xNova
+    - CamPvP
+    - iHackLite
+    - Jettison
+    - MasonHD
+    - ClutchKid
+    - xRekt
+    - RyanPvP
+    - HoaxMC
+    - Kinq
+    - Axion
+    - PandaPvP
+    - VerzideFan
+    - Toxxic
+    - BreezyMC
+    - RektByPing
+    - Cxdy
+    - LlamaPvP
+    - Beamed
+    - ZiblackingFan
+    - RedstoneKid
+    - CreeperHD
+    - iTzJordan
+    - NightPvP
+    - Stimpy
+    - Stimpypvp
+    - Marcel
+    - PainfulPvP
+    - lolitsalex
+    - Skimpy
+  fans:
+    - xRico
+    - SethPvP
+    - PurpleDino
+    - CamPvP
+    - MasonHD
+    - ClutchKid
+    - RyanPvP
+    - PandaPvP
+    - BreezyMC
+    - NightPvP
+  lines:
+    - 'anyone selling p4'
+    - 'who has pearls'
+    - 'buying obsidian'
+    - 'selling gapples msg me'
+    - 'any factions recruiting'
+    - 'who wants to pvp'
+    - 'gg'
+    - 'lol'
+    - 'where is koth'
+    - 'need 1 more'
+    - 'anyone got blaze spawners'
+    - 'paying 8k for silk'
+    - 'who raided us'
+    - 'tp for 1v1'
+    - 'need pots'
+    - 'anyone mining'
+    - 'who wants ally'
+    - 'nice base lol'
+    - 'who just died at spawn'
+    - 'selling 2 dubs of cane'
+    - 'buying tnt'
+    - 'need fire res'
+    - 'who has a grinder'
+    - 'inv me'
+    - 'bruh'
+    - 'that combo'
+    - 'meet at spawn'
+    - 'anyone doing koth'
+    - 'selling pearls cheap'
+    - 'need one for our faction'
+    - 'who is rich rn'

@@ -269,6 +269,10 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     @EventHandler(priority=EventPriority.HIGHEST) public void onQuit(PlayerQuitEvent e) {
         Player p = e.getPlayer();
         if (isBotIdentity(p.getName())) {
+            if (simWorld != null && simWorld.hasCombatReservation(p.getName())) {
+                simWorld.releaseCombatLoadout(p);
+                combatPreparedFight.remove(p.getName().toLowerCase(Locale.ENGLISH));
+            }
             e.setQuitMessage(null);
             return;
         }
@@ -394,6 +398,9 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     @EventHandler public void onDeath(PlayerDeathEvent e) {
         String n = e.getEntity().getName().toLowerCase(Locale.ENGLISH);
+        if (simWorld != null && simWorld.settleCombatDeath(e.getEntity())) {
+            combatPreparedFight.remove(n);
+        }
         power.put(n, Math.max(-10.0, getPower(n) - 2.0));
 
         Faction f = factionOf(e.getEntity().getName());
@@ -685,8 +692,24 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
                 return true;
             }
 
+            String k=p.getName().toLowerCase(Locale.ENGLISH);
+            String prepared=combatPreparedFight.get(k);
+            if (!ca.fightId.equals(prepared)) {
+                if (!simWorld.reserveCombatLoadout(p.getName(),ca.combatClass,ca.fightId)) {
+                    p.sendMessage("SIMCOMBAT none reason=stock");
+                    return true;
+                }
+            }
+
             prepareCombatProjection(p,ca);
             p.sendMessage("SIMCOMBAT " + ca.wire());
+            return true;
+        }
+
+        if (a[0].equalsIgnoreCase("release")) {
+            String result=simWorld.releaseCombatLoadout(p);
+            combatPreparedFight.remove(p.getName().toLowerCase(Locale.ENGLISH));
+            p.sendMessage("SIMCOMBAT released " + result);
             return true;
         }
 
@@ -696,7 +719,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             return true;
         }
 
-        p.sendMessage("/simcombat <sync|status>");
+        p.sendMessage("/simcombat <sync|release|status>");
         return true;
     }
 
@@ -732,18 +755,18 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             inv.setLeggings(armor(Material.GOLD_LEGGINGS,2));
             inv.setBoots(armor(Material.GOLD_BOOTS,2));
             inv.setItem(0,sword(Material.IRON_SWORD,2));
-            inv.setItem(1,new ItemStack(Material.BLAZE_ROD,1));
-            inv.setItem(2,new ItemStack(Material.GHAST_TEAR,1));
-            inv.setItem(3,new ItemStack(Material.FEATHER,1));
-            inv.setItem(4,new ItemStack(Material.MAGMA_CREAM,1));
-            inv.setItem(5,new ItemStack(Material.BLAZE_POWDER,8));
-            inv.setItem(6,new ItemStack(Material.SUGAR,16));
-            inv.setItem(7,new ItemStack(Material.POTION,1,(short)8259));
-            inv.setItem(8,new ItemStack(Material.ENDER_PEARL,12));
-            for(int slot=9;slot<31;slot++) inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
-            inv.setItem(31,new ItemStack(Material.POTION,1,(short)8226));
-            inv.setItem(32,new ItemStack(Material.POTION,1,(short)8226));
-            inv.setItem(33,new ItemStack(Material.POTION,1,(short)8259));
+            for(int slot=1;slot<=5;slot++) inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
+            inv.setItem(6,new ItemStack(Material.POTION,1,(short)8259));
+            inv.setItem(7,new ItemStack(Material.POTION,1,(short)8226));
+            inv.setItem(8,new ItemStack(Material.ENDER_PEARL,8));
+            for(int slot=9;slot<=27;slot++) inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
+            inv.setItem(28,new ItemStack(Material.BLAZE_ROD,1));
+            inv.setItem(29,new ItemStack(Material.GHAST_TEAR,1));
+            inv.setItem(30,new ItemStack(Material.FEATHER,1));
+            inv.setItem(31,new ItemStack(Material.MAGMA_CREAM,1));
+            inv.setItem(32,new ItemStack(Material.BLAZE_POWDER,8));
+            inv.setItem(33,new ItemStack(Material.SUGAR,16));
+            inv.setItem(34,new ItemStack(Material.POTION,1,(short)8226));
         } else if (type == SimWorldDirector.CombatClass.ARCHER) {
             inv.setHelmet(armor(Material.LEATHER_HELMET,3));
             inv.setChestplate(armor(Material.LEATHER_CHESTPLATE,3));
@@ -756,24 +779,25 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             bow.addUnsafeEnchantment(Enchantment.ARROW_KNOCKBACK,1);
             inv.setItem(1,bow);
             inv.setItem(2,new ItemStack(Material.ARROW,64));
-            for(int slot=3;slot<=6;slot++) inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
+            for(int slot=3;slot<=5;slot++) inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
+            inv.setItem(6,new ItemStack(Material.POTION,1,(short)8259));
             inv.setItem(7,new ItemStack(Material.POTION,1,(short)8226));
-            inv.setItem(8,new ItemStack(Material.ENDER_PEARL,12));
-            for(int slot=9;slot<31;slot++) inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
-            inv.setItem(31,new ItemStack(Material.POTION,1,(short)8226));
-            inv.setItem(32,new ItemStack(Material.POTION,1,(short)8259));
+            inv.setItem(8,new ItemStack(Material.ENDER_PEARL,8));
+            for(int slot=9;slot<=29;slot++) inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
+            inv.setItem(30,new ItemStack(Material.POTION,1,(short)8226));
         } else if (type == SimWorldDirector.CombatClass.ROGUE) {
             inv.setHelmet(armor(Material.CHAINMAIL_HELMET,2));
             inv.setChestplate(armor(Material.CHAINMAIL_CHESTPLATE,2));
             inv.setLeggings(armor(Material.CHAINMAIL_LEGGINGS,2));
             inv.setBoots(armor(Material.CHAINMAIL_BOOTS,2));
             inv.setItem(0,sword(Material.DIAMOND_SWORD,2));
-            for(int slot=1;slot<=5;slot++) inv.setItem(slot,new ItemStack(Material.GOLD_SWORD,1));
-            inv.setItem(6,new ItemStack(Material.POTION,1,(short)16421));
+            for(int slot=1;slot<=4;slot++) inv.setItem(slot,new ItemStack(Material.GOLD_SWORD,1));
+            inv.setItem(5,new ItemStack(Material.POTION,1,(short)16421));
+            inv.setItem(6,new ItemStack(Material.POTION,1,(short)8259));
             inv.setItem(7,new ItemStack(Material.POTION,1,(short)8226));
-            inv.setItem(8,new ItemStack(Material.ENDER_PEARL,12));
-            for(int slot=9;slot<32;slot++) inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
-            inv.setItem(32,new ItemStack(Material.POTION,1,(short)8259));
+            inv.setItem(8,new ItemStack(Material.ENDER_PEARL,8));
+            for(int slot=9;slot<=31;slot++) inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
+            inv.setItem(32,new ItemStack(Material.POTION,1,(short)8226));
         } else if (type == SimWorldDirector.CombatClass.MINER) {
             inv.setHelmet(armor(Material.IRON_HELMET,2));
             inv.setChestplate(armor(Material.IRON_CHESTPLATE,2));
@@ -781,9 +805,11 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             inv.setBoots(armor(Material.IRON_BOOTS,2));
             inv.setItem(0,sword(Material.DIAMOND_SWORD,2));
             for(int slot=1;slot<=5;slot++) inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
+            inv.setItem(6,new ItemStack(Material.POTION,1,(short)8259));
             inv.setItem(7,new ItemStack(Material.POTION,1,(short)8226));
             inv.setItem(8,new ItemStack(Material.ENDER_PEARL,8));
-            for(int slot=9;slot<28;slot++) inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
+            for(int slot=9;slot<=27;slot++) inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
+            inv.setItem(28,new ItemStack(Material.POTION,1,(short)8226));
         } else {
             inv.setHelmet(armor(Material.DIAMOND_HELMET,4));
             inv.setChestplate(armor(Material.DIAMOND_CHESTPLATE,4));
@@ -793,15 +819,14 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             for(int slot=1;slot<=5;slot++) inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
             inv.setItem(6,new ItemStack(Material.POTION,1,(short)8259));
             inv.setItem(7,new ItemStack(Material.POTION,1,(short)8226));
-            inv.setItem(8,new ItemStack(Material.ENDER_PEARL,16));
-            for(int slot=9;slot<33;slot++) inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
-            inv.setItem(33,new ItemStack(Material.POTION,1,(short)8259));
-            inv.setItem(34,new ItemStack(Material.POTION,1,(short)8226));
-            inv.setItem(35,new ItemStack(Material.POTION,1,(short)8226));
+            inv.setItem(8,new ItemStack(Material.ENDER_PEARL,8));
+            for(int slot=9;slot<=27;slot++) inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
+            inv.setItem(28,new ItemStack(Material.POTION,1,(short)8226));
         }
 
         p.setHealth(20.0);
         p.setFoodLevel(20);
+        p.updateInventory();
     }
 
     private boolean cmdSimWorker(Player p, String[] a) {

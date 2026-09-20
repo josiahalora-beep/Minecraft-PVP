@@ -9,6 +9,7 @@ import java.util.*;
 
 final class SimChatDirector {
     private final EraCore plugin;
+    private final SimWorldDirector world;
     private final Random rng = new Random(2014L);
     private final Map<String,Long> identityCooldown = new HashMap<String,Long>();
     private final Map<String,Long> lineCooldown = new HashMap<String,Long>();
@@ -16,8 +17,9 @@ final class SimChatDirector {
     private long nextAt;
     private long fanCooldownUntil;
 
-    SimChatDirector(EraCore plugin) {
+    SimChatDirector(EraCore plugin, SimWorldDirector world) {
         this.plugin = plugin;
+        this.world = world;
     }
 
     void start() {
@@ -104,16 +106,21 @@ final class SimChatDirector {
     }
 
     private void emitGeneral() {
-        List<String> names = plugin.getConfig().getStringList("sim-chat.roster");
-        List<String> lines = plugin.getConfig().getStringList("sim-chat.lines");
-        if (names.isEmpty() || lines.isEmpty()) return;
+        SimWorldDirector.ChatEvent event = world.nextChatEvent();
+        if (event == null) return;
 
-        String name = chooseIdentity(names);
-        String line = chooseLine(lines);
-        if (name == null || line == null) return;
+        String name = event.name;
+        String line = event.message;
+        long now = System.currentTimeMillis();
+        Long lastIdentity = identityCooldown.get(name.toLowerCase(Locale.ENGLISH));
+        long identityCd = plugin.getConfig().getLong("sim-chat.identity-cooldown-seconds", 75L) * 1000L;
+        if (lastIdentity != null && now - lastIdentity < identityCd) return;
+
+        Long lastLine = lineCooldown.get(line);
+        long lineCd = plugin.getConfig().getLong("sim-chat.line-cooldown-seconds", 600L) * 1000L;
+        if (lastLine != null && now - lastLine < lineCd) return;
 
         plugin.broadcastSimulatedChat(name, line);
-        long now = System.currentTimeMillis();
         identityCooldown.put(name.toLowerCase(Locale.ENGLISH), now);
         lineCooldown.put(line, now);
 
@@ -122,49 +129,28 @@ final class SimChatDirector {
         }
     }
 
-    private String chooseIdentity(List<String> names) {
-        long now = System.currentTimeMillis();
-        long cd = plugin.getConfig().getLong("sim-chat.identity-cooldown-seconds", 75L) * 1000L;
-
-        List<String> pool = new ArrayList<String>();
-        for (String n : names) {
-            if (Bukkit.getPlayerExact(n) != null) continue;
-            Long last = identityCooldown.get(n.toLowerCase(Locale.ENGLISH));
-            if (last == null || now - last >= cd) pool.add(n);
-        }
-        if (pool.isEmpty()) return null;
-        return pool.get(rng.nextInt(pool.size()));
-    }
-
-    private String chooseLine(List<String> lines) {
-        long now = System.currentTimeMillis();
-        long cd = plugin.getConfig().getLong("sim-chat.line-cooldown-seconds", 600L) * 1000L;
-
-        List<String> pool = new ArrayList<String>();
-        for (String line : lines) {
-            Long last = lineCooldown.get(line);
-            if (last == null || now - last >= cd) pool.add(line);
-        }
-        if (pool.isEmpty()) pool.addAll(lines);
-        return pool.get(rng.nextInt(pool.size()));
-    }
-
     private void scheduleRecruitmentReplies(final Player player) {
-        final String[] recruiters = {"xRico", "SethPvP", "iTzMason", "FrostyHD", "NateMC"};
+        List<String> candidates = new ArrayList<String>();
+        for (String name : plugin.getConfig().getStringList("sim-chat.roster")) {
+            String faction = world.factionOf(name);
+            if (faction.isEmpty()) continue;
+            if (world.factionMembers(faction).size() >= SimWorldDirector.MAX_FACTION_MEMBERS) continue;
+            candidates.add(name);
+        }
+        if (candidates.isEmpty()) return;
+        Collections.shuffle(candidates, rng);
+
         final String[] replies = {
             "we got room",
             "msg me",
             "you can join us",
             "we need one more",
-            "yeah inv if you want"
+            "yeah we have a spot"
         };
 
-        int count = 2 + rng.nextInt(2);
-        Set<Integer> used = new HashSet<Integer>();
+        int count = Math.min(candidates.size(), 1 + rng.nextInt(3));
         for (int i = 0; i < count; i++) {
-            int idx;
-            do { idx = rng.nextInt(recruiters.length); } while (!used.add(idx));
-            final String recruiter = recruiters[idx];
+            final String recruiter = candidates.get(i);
             final String reply = replies[rng.nextInt(replies.length)];
             long delay = 30L + (i * 38L) + rng.nextInt(28);
 

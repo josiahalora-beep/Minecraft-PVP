@@ -324,6 +324,29 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         }
     }
 
+    @EventHandler(priority=EventPriority.HIGHEST, ignoreCancelled=true)
+    public void onTaggedTeleportCommand(PlayerCommandPreprocessEvent e) {
+        Player p=e.getPlayer();
+        if(hcfZones==null || !hcfZones.isTagged(p) || isOwnerPlayer(p)) return;
+
+        String raw=e.getMessage()==null?"":e.getMessage().trim().toLowerCase(Locale.ENGLISH);
+        if(raw.startsWith("/")) raw=raw.substring(1);
+        String[] parts=raw.split("\\s+");
+        if(parts.length==0) return;
+        String cmd=parts[0];
+
+        boolean blocked=cmd.equals("spawn") || cmd.equals("home") || cmd.equals("warp") ||
+            cmd.equals("tp") || cmd.equals("teleport") || cmd.equals("tpa") ||
+            cmd.equals("tpaccept") || cmd.equals("back");
+        if((cmd.equals("f") || cmd.equals("faction") || cmd.equals("fac")) &&
+            parts.length>1 && parts[1].equals("home")) blocked=true;
+
+        if(blocked) {
+            e.setCancelled(true);
+            p.sendMessage(color("&cYou cannot teleport while combat tagged. &7"+hcfZones.tagSeconds(p)+"s remaining."));
+        }
+    }
+
     @EventHandler(priority=EventPriority.HIGHEST, ignoreCancelled=true) public void onPearlUse(PlayerInteractEvent e) {
         ItemStack item=e.getItem();
         if(item==null||item.getType()!=Material.ENDER_PEARL) return;
@@ -469,6 +492,11 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         String raw = ranksData.getString(name.toLowerCase(Locale.ENGLISH), "MEMBER");
         Rank r = Rank.parse(raw);
         return r == null ? Rank.MEMBER : r;
+    }
+
+    private Rank effectiveRank(String name) {
+        if (simWorld != null && simWorld.contains(name) && isBotIdentity(name)) return simRankFor(name);
+        return getRank(name);
     }
 
     private void setRank(String name, Rank rank) {
@@ -674,7 +702,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     private boolean cmdSpawn(Player p) {
         Location target=warpManager.getSpawn();
-        if(hcfZones!=null && hcfZones.blocksTeleport(p,target)) {
+        if(hcfZones!=null && hcfZones.isTagged(p) && !isOwnerPlayer(p)) {
             p.sendMessage(color("&cYou cannot /spawn while combat tagged. &7"+hcfZones.tagSeconds(p)+"s remaining."));
             return true;
         }
@@ -701,8 +729,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             p.sendMessage(color("&cWarp not found. &7Use /warps."));
             return true;
         }
-        if(hcfZones!=null && hcfZones.blocksTeleport(p,l)) {
-            p.sendMessage(color("&cYou cannot enter Safezone while combat tagged. &7"+hcfZones.tagSeconds(p)+"s remaining."));
+        if(hcfZones!=null && hcfZones.isTagged(p) && !isOwnerPlayer(p)) {
+            p.sendMessage(color("&cYou cannot use warps while combat tagged. &7"+hcfZones.tagSeconds(p)+"s remaining."));
             return true;
         }
         p.teleport(l);
@@ -946,7 +974,10 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             prepareWorkerProjection(p,task);
             int humans = humanOnlineCount();
             int workerBudget = adaptiveWorkerBudget(getConfig().getInt("worker-pool.max-bodies",4));
-            p.sendMessage("SIMWORKER " + task.wire() + " humans=" + humans + " budget=" + workerBudget);
+            Rank simRank=effectiveRank(p.getName());
+            boolean tagged=hcfZones!=null && hcfZones.isTagged(p);
+            p.sendMessage("SIMWORKER " + task.wire() + " humans=" + humans + " budget=" + workerBudget +
+                " rank=" + simRank.name() + " tagged=" + (tagged?1:0));
             return true;
         }
 
@@ -1000,8 +1031,9 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         int y = Math.max(3, task.y);
         Location target = new Location(world,task.x + 0.5,y,task.z + 0.5);
 
-        // Never repeatedly snap a worker while it is already doing the job locally.
-        if (!p.getWorld().equals(world) || p.getLocation().distanceSquared(target) > 48.0 * 48.0) {
+        // Never bypass HCF combat tag with internal worker projection.
+        boolean tagged=hcfZones!=null && hcfZones.isTagged(p);
+        if (!tagged && (!p.getWorld().equals(world) || p.getLocation().distanceSquared(target) > 48.0 * 48.0)) {
             p.teleport(target);
         }
 
@@ -1306,7 +1338,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             p.sendMessage(color("&cUnknown kit."));
             return true;
         }
-        Rank own = getRank(p.getName());
+        Rank own = effectiveRank(p.getName());
         if (own != Rank.OWNER && own.level < requested.level) {
             p.sendMessage(color("&cYour rank cannot use that kit."));
             return true;
@@ -1320,6 +1352,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             return true;
         }
         grantKit(p, requested);
+        if (simWorld != null && simWorld.contains(p.getName())) simWorld.applyDonorKitClaim(p.getName(), requested.level);
         if (own != Rank.OWNER) kitsData.set(key, now + requested.cooldownHours * 3600000L);
         saveYaml(kitsData, kitsFile);
         p.sendMessage(color("&aClaimed " + requested.prefix + " &akit. If you die, the gear is gone until the cooldown ends."));
@@ -1327,7 +1360,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     private boolean cmdKits(Player p) {
-        Rank own = getRank(p.getName());
+        Rank own = effectiveRank(p.getName());
         p.sendMessage(color("&6--- Kit Cooldowns ---"));
         for (Rank r : new Rank[]{Rank.MEMBER,Rank.VIP,Rank.ELITE,Rank.LEGEND,Rank.TITAN}) {
             boolean eligible = own == Rank.OWNER || own.level >= r.level;
@@ -1696,6 +1729,10 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         }
 
         if(sub.equals("home")) {
+            if(hcfZones!=null && hcfZones.isTagged(p) && !isOwnerPlayer(p)) {
+                p.sendMessage(color("&cYou cannot /f home while combat tagged. &7"+hcfZones.tagSeconds(p)+"s remaining."));
+                return true;
+            }
             if(f.home==null) {
                 p.sendMessage(color("&cNo faction home."));
                 return true;

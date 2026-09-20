@@ -233,6 +233,19 @@ final class SimWorldDirector {
         final Map<String,CombatAssignment> assignments = new LinkedHashMap<String,CombatAssignment>();
     }
 
+
+    static final class CombatReservation {
+        String fightId;
+        String name;
+        String faction;
+        CombatClass type;
+        int healPots;
+        int pearls;
+        int speedPots;
+        int firePots;
+        int minerIron;
+    }
+
     private final EraCore plugin;
     private final SimEconomyModel economy;
     private final ContextChatBrain chatBrain;
@@ -254,6 +267,8 @@ final class SimWorldDirector {
     private String recentVictim = "";
     private VisibleFight visibleFight;
     private long nextVisibleFightAt;
+    private final Map<String,CombatReservation> combatReservations = new HashMap<String,CombatReservation>();
+    private final Set<String> projectedCombatDeaths = new HashSet<String>();
     private BukkitTask task;
     private int factionCursor;
     private int factionNameCursor;
@@ -364,6 +379,174 @@ final class SimWorldDirector {
         if(visibleFight==null) return "none";
         return visibleFight.type+" id="+visibleFight.id+" bodies="+visibleFight.assignments.size()+
             " center="+visibleFight.centerX+","+visibleFight.centerY+","+visibleFight.centerZ;
+    }
+
+    boolean reserveCombatLoadout(String name, CombatClass type, String fightId) {
+        SimPlayer p=players.get(key(name));
+        if(p==null || p.faction.isEmpty()) return false;
+        SimFaction f=factions.get(key(p.faction));
+        if(f==null) return false;
+
+        CombatReservation current=combatReservations.get(key(name));
+        if(current!=null) {
+            if(fightId.equals(current.fightId)) return true;
+            return false;
+        }
+
+        // Physical HCF loadout matches the authoritative readiness gate.
+        int heal=24;
+        int pearls=8;
+        int speed=2;
+        int fire=1;
+        if(f.healPots<heal || f.pearls<pearls || f.speedPots<speed || f.firePots<fire) return false;
+
+        if(type==CombatClass.DIAMOND) {
+            if(f.p4Sets<1 || f.sharp4Swords<1) return false;
+            f.p4Sets--;
+            f.sharp4Swords--;
+        } else if(type==CombatClass.BARD) {
+            if(f.bardSets<1) return false;
+            f.bardSets--;
+        } else if(type==CombatClass.ARCHER) {
+            if(f.archerSets<1) return false;
+            f.archerSets--;
+        } else if(type==CombatClass.ROGUE) {
+            if(f.rogueSets<1) return false;
+            f.rogueSets--;
+        } else {
+            if(f.iron<24) return false;
+            f.iron-=24;
+        }
+
+        f.healPots-=heal;
+        f.pearls-=pearls;
+        f.speedPots-=speed;
+        f.firePots-=fire;
+
+        CombatReservation r=new CombatReservation();
+        r.fightId=fightId;
+        r.name=p.name;
+        r.faction=f.name;
+        r.type=type;
+        r.healPots=heal;
+        r.pearls=pearls;
+        r.speedPots=speed;
+        r.firePots=fire;
+        r.minerIron=type==CombatClass.MINER?24:0;
+        combatReservations.put(key(name),r);
+        save();
+        return true;
+    }
+
+    boolean hasCombatReservation(String name) {
+        return combatReservations.containsKey(key(name));
+    }
+
+    String releaseCombatLoadout(Player body) {
+        if(body==null) return "none";
+        CombatReservation r=combatReservations.remove(key(body.getName()));
+        if(r==null) return "none";
+
+        SimFaction f=factions.get(key(r.faction));
+        if(f==null) {
+            clearCombatInventory(body);
+            save();
+            return "orphan";
+        }
+
+        // Return every tracked consumable still physically present. This also
+        // conserves loot picked up from enemies because it was never in this
+        // faction's stock before the fight.
+        int heals=countPotion(body,(short)16421);
+        int speeds=countPotion(body,(short)8226);
+        int fires=countPotion(body,(short)8259);
+        int pearls=countMaterial(body,Material.ENDER_PEARL);
+        f.healPots+=heals;
+        f.speedPots+=speeds;
+        f.firePots+=fires;
+        f.pearls+=pearls;
+
+        // Return surviving worn gear and recognizable captured sets.
+        int diamondPieces=countArmorPieces(body,Material.DIAMOND_HELMET,Material.DIAMOND_CHESTPLATE,
+            Material.DIAMOND_LEGGINGS,Material.DIAMOND_BOOTS);
+        int goldPieces=countArmorPieces(body,Material.GOLD_HELMET,Material.GOLD_CHESTPLATE,
+            Material.GOLD_LEGGINGS,Material.GOLD_BOOTS);
+        int leatherPieces=countArmorPieces(body,Material.LEATHER_HELMET,Material.LEATHER_CHESTPLATE,
+            Material.LEATHER_LEGGINGS,Material.LEATHER_BOOTS);
+        int chainPieces=countArmorPieces(body,Material.CHAINMAIL_HELMET,Material.CHAINMAIL_CHESTPLATE,
+            Material.CHAINMAIL_LEGGINGS,Material.CHAINMAIL_BOOTS);
+        int ironPieces=countArmorPieces(body,Material.IRON_HELMET,Material.IRON_CHESTPLATE,
+            Material.IRON_LEGGINGS,Material.IRON_BOOTS);
+
+        f.p4Sets += diamondPieces/4;
+        f.bardSets += goldPieces/4;
+        f.archerSets += leatherPieces/4;
+        f.rogueSets += chainPieces/4;
+        f.iron += (ironPieces/4)*24;
+
+        int sharp4=0;
+        for(org.bukkit.inventory.ItemStack item:allPhysicalItems(body)) {
+            if(item==null || item.getType()!=Material.DIAMOND_SWORD) continue;
+            Integer lvl=item.getEnchantments().get(org.bukkit.enchantments.Enchantment.DAMAGE_ALL);
+            if(lvl!=null && lvl>=4) sharp4++;
+        }
+        f.sharp4Swords+=sharp4;
+
+        clearCombatInventory(body);
+        save();
+        return "heal="+heals+" pearls="+pearls+" speed="+speeds+" fire="+fires+
+            " p4="+(diamondPieces/4)+" sharp4="+sharp4;
+    }
+
+    boolean settleCombatDeath(Player body) {
+        if(body==null) return false;
+        CombatReservation r=combatReservations.remove(key(body.getName()));
+        if(r==null) return false;
+
+        // The reservation was already withdrawn at promotion. On death the
+        // physical inventory remains in the world as loot, so return nothing.
+        projectedCombatDeaths.add(key(body.getName()));
+        save();
+        return true;
+    }
+
+    private int countPotion(Player p,short dataValue) {
+        int n=0;
+        for(org.bukkit.inventory.ItemStack item:allPhysicalItems(p)) {
+            if(item!=null && item.getType()==Material.POTION && item.getDurability()==dataValue) n+=item.getAmount();
+        }
+        return n;
+    }
+
+    private int countMaterial(Player p,Material material) {
+        int n=0;
+        for(org.bukkit.inventory.ItemStack item:allPhysicalItems(p)) {
+            if(item!=null && item.getType()==material) n+=item.getAmount();
+        }
+        return n;
+    }
+
+    private int countArmorPieces(Player p,Material h,Material c,Material l,Material b) {
+        int n=0;
+        for(org.bukkit.inventory.ItemStack item:allPhysicalItems(p)) {
+            if(item==null) continue;
+            Material m=item.getType();
+            if(m==h||m==c||m==l||m==b) n+=item.getAmount();
+        }
+        return n;
+    }
+
+    private List<org.bukkit.inventory.ItemStack> allPhysicalItems(Player p) {
+        List<org.bukkit.inventory.ItemStack> out=new ArrayList<org.bukkit.inventory.ItemStack>();
+        for(org.bukkit.inventory.ItemStack i:p.getInventory().getContents()) if(i!=null) out.add(i);
+        for(org.bukkit.inventory.ItemStack i:p.getInventory().getArmorContents()) if(i!=null) out.add(i);
+        return out;
+    }
+
+    private void clearCombatInventory(Player p) {
+        p.getInventory().clear();
+        p.getInventory().setArmorContents(new org.bukkit.inventory.ItemStack[4]);
+        p.updateInventory();
     }
 
     CombatAssignment combatAssignmentFor(String name) {
@@ -1385,26 +1568,29 @@ final class SimWorldDirector {
         SimPlayer victim = players.get(key(victimName));
         SimPlayer killer = players.get(key(killerName));
 
+        boolean projectedDeath=projectedCombatDeaths.remove(key(victimName));
         if (victim != null && !victim.faction.isEmpty()) {
             SimFaction vf = factions.get(key(victim.faction));
             if (vf != null) {
-                // Physical deaths must matter to the same economy as cold deaths.
-                vf.healPots = Math.max(0, vf.healPots - 10 - rng.nextInt(11));
-                vf.pearls = Math.max(0, vf.pearls - 2 - rng.nextInt(5));
-                vf.speedPots = Math.max(0, vf.speedPots - 1);
-                vf.firePots = Math.max(0, vf.firePots - 1);
+                // COLD deaths approximate lost inventory here. HOT projected
+                // deaths already withdrew the exact physical loadout on promotion.
+                if(!projectedDeath) {
+                    vf.healPots = Math.max(0, vf.healPots - 10 - rng.nextInt(11));
+                    vf.pearls = Math.max(0, vf.pearls - 2 - rng.nextInt(5));
+                    vf.speedPots = Math.max(0, vf.speedPots - 1);
+                    vf.firePots = Math.max(0, vf.firePots - 1);
 
-                if (victim.combatClass == CombatClass.DIAMOND) {
-                    vf.p4Sets = Math.max(0, vf.p4Sets - 1);
-                    vf.sharp4Swords = Math.max(0, vf.sharp4Swords - 1);
-                } else if (victim.combatClass == CombatClass.BARD) {
-                    vf.bardSets = Math.max(0, vf.bardSets - 1);
-                } else if (victim.combatClass == CombatClass.ARCHER) {
-                    vf.archerSets = Math.max(0, vf.archerSets - 1);
-                } else if (victim.combatClass == CombatClass.ROGUE) {
-                    vf.rogueSets = Math.max(0, vf.rogueSets - 1);
+                    if (victim.combatClass == CombatClass.DIAMOND) {
+                        vf.p4Sets = Math.max(0, vf.p4Sets - 1);
+                        vf.sharp4Swords = Math.max(0, vf.sharp4Swords - 1);
+                    } else if (victim.combatClass == CombatClass.BARD) {
+                        vf.bardSets = Math.max(0, vf.bardSets - 1);
+                    } else if (victim.combatClass == CombatClass.ARCHER) {
+                        vf.archerSets = Math.max(0, vf.archerSets - 1);
+                    } else if (victim.combatClass == CombatClass.ROGUE) {
+                        vf.rogueSets = Math.max(0, vf.rogueSets - 1);
+                    }
                 }
-
                 updateDtrStrategy(vf);
             }
         }

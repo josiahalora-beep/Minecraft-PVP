@@ -6,8 +6,7 @@
   "scripts": {
     "idle": "node src/idle-benchmark.js",
     "state": "node src/state-handoff.js",
-    "duel": "node src/duel-bot.js",
-    "presence": "node src/spawn-presence.js"
+    "duel": "node src/duel-bot.js"
   },
   "dependencies": {
     "mineflayer": "4.39.0"

@@ -166,6 +166,7 @@ final class SimWorldDirector {
         String zone = "base";
         String combatClass = "DIAMOND";
         String preferredJob = "member";
+        String allies = "";
         int x;
         int y;
         int z;
@@ -177,6 +178,7 @@ final class SimWorldDirector {
                 " zone=" + zone +
                 " class=" + combatClass +
                 " job=" + preferredJob +
+                " allies=" + allies +
                 " x=" + x + " y=" + y + " z=" + z +
                 " priority=" + priority;
         }
@@ -1292,6 +1294,12 @@ final class SimWorldDirector {
         t.faction = f.name;
         t.combatClass = p.combatClass.name();
         t.preferredJob = p.preferredJob;
+        StringBuilder allyNames=new StringBuilder();
+        for(String member:f.members) {
+            if(allyNames.length()>0) allyNames.append(',');
+            allyNames.append(member);
+        }
+        t.allies=allyNames.toString();
         t.zone = "base";
         int bx = f.baseX;
         int by = f.baseY > 0 ? f.baseY + 1 : t.y;

@@ -106,3 +106,41 @@ Names/aliases that are historically ambiguous are kept as separate simulation id
 - Reddit CompetitiveMinecraft, PotPvP clip feedback: https://www.reddit.com/r/CompetitiveMinecraft/comments/o6kiso/
 - Reddit CompetitiveMinecraft, PotPvP advice: https://www.reddit.com/r/CompetitiveMinecraft/comments/j20vfk/how_do_you_pot_pvp_well/
 - Reddit CompetitiveMinecraft, ping/CPS discussion: https://www.reddit.com/r/CompetitiveMinecraft/comments/1eub57i/
+
+## Additional mechanics extracted from player discussions
+
+### W-tap vs block-hit context
+- Players did not describe sprint resetting as one universal repeated input.
+- A useful period heuristic is: W-tap when you expect to keep initiative/mid-combo; block-hit when you expect to be hit back or are entering a trade.
+- Some players also block-hit mid-combo when they get too close, using the slowdown to preserve spacing.
+- This should be modeled as per-player habits and timing quality, not "every good player does both perfectly."
+
+### S-tap / backward spacing
+- Players describe moving backward near the end of a combo, or S-tapping in Speed fights, to avoid running inside the opponent and collapsing the combo.
+- This is a higher-skill spacing behavior. It should appear mostly in skilled/strong/elite profiles and still have timing mistakes.
+
+### Aggro, side and counter pearls
+- "Agro pearl" is explicitly part of the player vocabulary in period-adjacent PotPvP discussion.
+- Community advice describes:
+  - pearling in when knockback creates too much distance,
+  - pearling into an attacker at sufficiently high health to interrupt a combo,
+  - turning/pearling out when low or trapped,
+  - side/aggressive pearls to re-enter at a useful angle.
+- Pearl decisions should depend on health, recent pressure, target distance, cooldown and remaining pearls.
+- The simulation intentionally avoids repeated pearl spam.
+
+### Pot trajectory
+- Community players also used forward-potting in some environments, but this project intentionally uses the user's requested floor-pot style for the core bot behavior: make space, look straight down, splash at feet, and abort if pressure closes before release.
+- Forward potting can later exist as a rare style trait if explicitly desired, but it is not the current default.
+
+### Inventory layouts
+- Historical player hotbars varied substantially, but common themes were a sword in a fixed muscle-memory slot, pearls in a dedicated slot, drinkable Speed/Fire Resistance in fixed slots, and health splashes filling remaining combat slots.
+- The important simulation variable is not one canonical layout; it is how accurately and quickly a player returns to sword, selects healing, selects pearls, rebuffs and refills.
+
+### Pressure and game sense
+- Older competitive discussion treats dealing with pressure as a separate skill from raw aim: keeping track of inventory, surviving while being hit, using terrain, knowing when to disengage and making decisions under risk.
+- This is important for the future Factions layer because a strong duelist should not automatically be equally good at escaping caves, defending a base, target-calling or surviving a 2v1.
+
+### Flat PotPvP arenas
+- Period competitive-server discussion explicitly requested flat Kohi-style maps for smoother PotPvP gameplay.
+- That supports keeping the duel calibration arena flat even when the final Factions overworld becomes visually richer and strategically varied.

@@ -380,21 +380,88 @@ async function localMotion(state, action) {
   if (!bot?.entity) return
 
   bot.physicsEnabled = true
-  const side = Math.random() < 0.5 ? 'left' : 'right'
+  const mobile = ['patrol', 'scout', 'mine', 'gather', 'supply', 'farm', 'build'].includes(action)
+  const totalMs = mobile ? rand(1800, 4200) : rand(900, 2200)
+  const endAt = Date.now() + totalMs
+
+  while (Date.now() < endAt && state.bot?.entity && !state.combat) {
+    stopMovement(bot)
+
+    // Human movement is mostly forward travel with occasional strafes and
+    // pauses, not a permanent diagonal input.
+    const moving = Math.random() < (mobile ? 0.90 : 0.58)
+    const sprintChance = (action === 'patrol' || action === 'scout') ? 0.80 : 0.30
+    const strafeRoll = Math.random()
+
+    if (moving) {
+      bot.setControlState('forward', true)
+      bot.setControlState('sprint', Math.random() < sprintChance)
+      if (strafeRoll < 0.14) bot.setControlState('left', true)
+      else if (strafeRoll > 0.86) bot.setControlState('right', true)
+    }
+
+    try {
+      const yawChange = mobile ? rand(-0.34, 0.34) : rand(-0.70, 0.70)
+      const pitch = action === 'mine' ? rand(0.15, 0.58) : rand(-0.12, 0.20)
+      await bot.look(bot.entity.yaw + yawChange, pitch, false)
+    } catch {}
+
+    // Step/jump responses make terrain movement much less robotic.
+    if (moving && Math.random() < 0.18) {
+      try {
+        bot.setControlState('jump', true)
+        await sleep(Math.round(rand(120, 260)))
+        bot.setControlState('jump', false)
+      } catch {}
+    }
+
+    await sleep(Math.round(rand(320, 820)))
+  }
+
   stopMovement(bot)
-  bot.setControlState('forward', true)
-  bot.setControlState(side, true)
-  bot.setControlState('sprint', action === 'patrol' || action === 'scout')
+}
+
+async function visibleStationWork(state, action) {
+  const bot = state.bot
+  if (!bot?.entity) return false
+
+  let names = []
+  if (action === 'brew') names = ['brewing_stand', 'chest', 'hopper']
+  else if (action === 'gear') names = ['enchanting_table', 'anvil', 'crafting_table', 'chest']
+  else if (action === 'build') names = ['chest', 'crafting_table', 'furnace']
+  else if (action === 'recruit' || action === 'social') names = ['chest']
+  if (!names.length) return false
+
+  const blocks = nearbyBlocks(bot, names, 10, 12)
+  if (!blocks.length) return false
+  const block = blocks[Math.floor(Math.random() * blocks.length)]
 
   try {
-    await bot.look(bot.entity.yaw + rand(-0.45, 0.45), action === 'mine' ? rand(0.2, 0.65) : rand(-0.08, 0.22), false)
-  } catch {}
+    await bot.lookAt(block.position.offset(0.5, 0.5, 0.5), false)
+    const dist = bot.entity.position.distanceTo(block.position)
+    if (dist > 4.0) {
+      stopMovement(bot)
+      bot.setControlState('forward', true)
+      bot.setControlState('sprint', false)
+      await sleep(Math.round(rand(450, 1000)))
+      stopMovement(bot)
+    }
 
-  const until = Date.now() + (action === 'patrol' ? rand(900, 1700) : rand(350, 900))
-  while (Date.now() < until && state.bot?.entity) {
-    await sleep(150)
+    if (Math.random() < 0.45) {
+      try {
+        await bot.activateBlock(block)
+        await sleep(Math.round(rand(220, 500)))
+        if (bot.currentWindow) bot.closeWindow(bot.currentWindow)
+      } catch {
+        try { bot.swingArm('right') } catch {}
+      }
+    } else {
+      try { bot.swingArm('right') } catch {}
+    }
+    return true
+  } catch {
+    return false
   }
-  stopMovement(bot)
 }
 
 function startWorkLoop(state, settings) {
@@ -414,26 +481,26 @@ function startWorkLoop(state, settings) {
 
       if (Date.now() - state.lastSyncAt >= settings.syncMs) await sync(state)
 
-      const passive = action === 'idle' || action === 'recruit' || action === 'safe' || action === 'brew' || action === 'gear'
+      const passive = action === 'idle' || action === 'recruit' || action === 'safe' || action === 'brew' || action === 'gear' || action === 'social'
       if (passive) {
-        stopMovement(bot)
-        bot.physicsEnabled = false
+        bot.physicsEnabled = true
+        const worked = await visibleStationWork(state, action)
+        if (!worked || Math.random() < 0.70) await localMotion(state, action)
+
+        // Even players waiting on gear/brewing don't freeze like NPCs.
         if (Math.random() < 0.35) {
-          try { await bot.look(bot.entity.yaw + rand(-0.9, 0.9), rand(-0.15, 0.18), false) } catch {}
-        }
-        if ((action === 'brew' || action === 'gear') && Math.random() < 0.30) {
           try { bot.swingArm('right') } catch {}
         }
-        await sleep(Math.round(rand(1800, 4500)))
+        await sleep(Math.round(rand(500, 1500)))
         continue
       }
 
       let physical = false
-      if (['mine', 'gather', 'supply', 'farm'].includes(action)) {
+      if (['mine', 'gather', 'supply', 'farm'].includes(action) && Math.random() < 0.55) {
         physical = await doPhysicalWork(state, action)
       }
 
-      if (!physical) {
+      if (!physical || Math.random() < 0.65) {
         await localMotion(state, action)
         if (['build', 'farm', 'mine', 'gather', 'supply'].includes(action)) {
           try { bot.swingArm('right') } catch {}

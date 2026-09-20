@@ -39,20 +39,24 @@ final class SpawnPresenceDirector {
     }
 
     void start() {
-        if (!plugin.getConfig().getBoolean("spawn-presence.enabled", true)) return;
         stop();
 
         Location spawn = warps.getSpawn();
         World world = spawn.getWorld();
         if (world == null) return;
 
-        int count = Math.max(1, Math.min(8, plugin.getConfig().getInt("spawn-presence.count", 4)));
         List<String> names = new ArrayList<String>(plugin.getConfig().getStringList("spawn-presence.names"));
         if (names.isEmpty()) {
             names.addAll(Arrays.asList("xRico","PurpleDino","BreezyMC","MasonHD","NightPvP","Vexing"));
         }
 
+        // Always remove legacy stand-ins first. In real-player-only mode no
+        // ArmorStand impersonators are created at all.
         cleanupOld(world, spawn, names);
+        if (plugin.getConfig().getBoolean("spawn-presence.real-players-only", true) ||
+            !plugin.getConfig().getBoolean("spawn-presence.enabled", false)) return;
+
+        int count = Math.max(1, Math.min(8, plugin.getConfig().getInt("spawn-presence.count", 4)));
 
         for (int i = 0; i < count; i++) {
             String name = names.get(i % names.size());

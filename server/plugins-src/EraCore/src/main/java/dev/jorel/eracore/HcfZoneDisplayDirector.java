@@ -248,6 +248,15 @@ final class HcfZoneDisplayDirector implements Listener {
         if(labelIds.contains(e.getEntity().getUniqueId())) e.setCancelled(true);
     }
 
+    @EventHandler public void onRespawn(PlayerRespawnEvent e) {
+        combatTags.remove(key(e.getPlayer().getName()));
+        lastSafe.remove(key(e.getPlayer().getName()));
+    }
+
+    @EventHandler public void onDeath(org.bukkit.event.entity.PlayerDeathEvent e) {
+        combatTags.remove(key(e.getEntity().getName()));
+    }
+
     @EventHandler public void onQuit(PlayerQuitEvent e) {
         removeLabel(e.getPlayer());
         lastSafe.remove(key(e.getPlayer().getName()));

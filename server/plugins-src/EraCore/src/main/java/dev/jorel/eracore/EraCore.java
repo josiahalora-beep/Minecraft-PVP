@@ -8,6 +8,7 @@ import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Player;
 import org.bukkit.event.*;
+import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
@@ -37,6 +38,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     private final Map<String, String> claimOwners = new HashMap<String, String>();
     private final Set<String> factionChat = new HashSet<String>();
     private final Map<String, Double> power = new HashMap<String, Double>();
+    private final Map<String, Long> pearlCooldowns = new HashMap<String, Long>();
     private final Map<Material, Double> sellPrices = new LinkedHashMap<Material, Double>();
     private final Map<String, ShopItem> buyItems = new LinkedHashMap<String, ShopItem>();
     private long[] tickTimes;
@@ -194,6 +196,28 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         }
         Rank r = getRank(p.getName());
         e.setFormat(color(identityPrefix(p.getName(), r) + "&f" + p.getName() + "&7: &f") + "%2$s");
+    }
+
+    @EventHandler(priority=EventPriority.HIGHEST, ignoreCancelled=true) public void onPearlUse(PlayerInteractEvent e) {
+        ItemStack item=e.getItem();
+        if(item==null||item.getType()!=Material.ENDER_PEARL) return;
+        Action action=e.getAction();
+        if(action!=Action.RIGHT_CLICK_AIR&&action!=Action.RIGHT_CLICK_BLOCK) return;
+
+        Player p=e.getPlayer();
+        String key=p.getName().toLowerCase(Locale.ENGLISH);
+        long now=System.currentTimeMillis();
+        Long until=pearlCooldowns.get(key);
+        if(until!=null&&until>now) {
+            e.setCancelled(true);
+            long left=(long)Math.ceil((until-now)/1000.0);
+            p.sendMessage(color("&7Ender pearl: &c"+left+"s"));
+            p.updateInventory();
+            return;
+        }
+
+        long cooldown=Math.max(1,getConfig().getInt("pvp.pearl-cooldown-seconds",16))*1000L;
+        pearlCooldowns.put(key,now+cooldown);
     }
 
     @EventHandler(priority=EventPriority.HIGHEST, ignoreCancelled=true) public void onDamage(EntityDamageByEntityEvent e) {
@@ -555,8 +579,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     private boolean cmdShop(Player p) {
         p.sendMessage(color("&6--- Classic Server Shop ---"));
-        p.sendMessage(color("&eSELL: &fSugar cane $4, melon $1, cactus $3, pumpkin $8, wheat/carrot/potato $2, iron $10, gold $18, diamond $75"));
-        StringBuilder sb=new StringBuilder("&eBUY: ");
+        p.sendMessage(color("&eSell: &fSugar cane $4, melon $1, cactus $3, pumpkin $8, wheat/carrot/potato $2, iron $10, gold $18, diamond $75"));
+        StringBuilder sb=new StringBuilder("&eBuy: ");
         for(ShopItem i:buyItems.values()) sb.append("&f").append(i.key).append(" $").append((int)i.price).append("  ");
         p.sendMessage(color(sb.toString()));
         p.sendMessage(color("&7Use /sell hand, /sell all, or /buy <item> <amount>."));

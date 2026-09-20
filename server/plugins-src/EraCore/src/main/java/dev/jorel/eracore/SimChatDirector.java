@@ -52,6 +52,7 @@ final class SimChatDirector {
     void onHumanChat(final Player player, String message) {
         if (!enabled() || plugin.isBotIdentity(player.getName())) return;
         String m = message.toLowerCase(Locale.ENGLISH);
+        world.onHumanPublicChat(player,message);
 
         if (m.contains("faction") && (m.contains("join") || m.contains("recruit") || m.contains("inv"))) {
             scheduleRecruitmentReplies(player);
@@ -73,6 +74,7 @@ final class SimChatDirector {
         if (!enabled()) return;
         Player victim = event.getEntity();
         Player killer = victim.getKiller();
+        world.onLiveDeath(victim.getName(), killer == null ? "" : killer.getName());
 
         if (killer != null && plugin.isCreatorIdentity(killer.getName())) {
             scheduleFanReaction(killer.getName(), "kill");
@@ -85,8 +87,8 @@ final class SimChatDirector {
         if (!enabled() || !plugin.hasHumanOnline()) return;
         long now = System.currentTimeMillis();
         if (now < nextAt) return;
-        emitGeneral();
-        nextAt = now + nextDelayMillis();
+        boolean fast = emitGeneral();
+        nextAt = now + (fast ? (2200L + rng.nextInt(3600)) : nextDelayMillis());
     }
 
     private long nextDelayMillis() {
@@ -105,20 +107,20 @@ final class SimChatDirector {
         return (min + rng.nextInt(max - min + 1)) * 1000L;
     }
 
-    private void emitGeneral() {
+    private boolean emitGeneral() {
         SimWorldDirector.ChatEvent event = world.nextChatEvent();
-        if (event == null) return;
+        if (event == null) return false;
 
         String name = event.name;
         String line = event.message;
         long now = System.currentTimeMillis();
         Long lastIdentity = identityCooldown.get(name.toLowerCase(Locale.ENGLISH));
-        long identityCd = plugin.getConfig().getLong("sim-chat.identity-cooldown-seconds", 75L) * 1000L;
-        if (lastIdentity != null && now - lastIdentity < identityCd) return;
+        long identityCd = (event.fastFollow ? 4L : plugin.getConfig().getLong("sim-chat.identity-cooldown-seconds", 75L)) * 1000L;
+        if (lastIdentity != null && now - lastIdentity < identityCd) return event.fastFollow;
 
         Long lastLine = lineCooldown.get(line);
-        long lineCd = plugin.getConfig().getLong("sim-chat.line-cooldown-seconds", 600L) * 1000L;
-        if (lastLine != null && now - lastLine < lineCd) return;
+        long lineCd = (event.fastFollow ? 15L : plugin.getConfig().getLong("sim-chat.line-cooldown-seconds", 600L)) * 1000L;
+        if (lastLine != null && now - lastLine < lineCd) return event.fastFollow;
 
         plugin.broadcastSimulatedChat(name, line);
         identityCooldown.put(name.toLowerCase(Locale.ENGLISH), now);
@@ -127,6 +129,7 @@ final class SimChatDirector {
         if (plugin.isCreatorIdentity(name)) {
             scheduleFanReaction(name, "chat");
         }
+        return event.fastFollow;
     }
 
     private void scheduleRecruitmentReplies(final Player player) {

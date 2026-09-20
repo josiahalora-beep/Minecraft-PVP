@@ -20,6 +20,9 @@ map:
 economy:
   starting-balance: 500.0
   cycle-director-ticks: 10
+kits:
+  starter-cooldown-hours: 6
+
 pvp:
   pearl-cooldown-seconds: 16
 metrics:
@@ -149,7 +152,8 @@ sim-world:
   session-max-minutes: 140
 
 spawn-presence:
-  enabled: true
+  enabled: false
+  real-players-only: true
   count: 4
   update-ticks: 20
   names:

@@ -206,8 +206,8 @@ combat-director:
   brawl-radius: 420
 
 worker-pool:
-  max-bodies: 12
-  offline-bodies: 8
+  max-bodies: 16
+  offline-bodies: 10
   max-per-faction: 3
   reassess-seconds: 8
   sync-seconds: 10

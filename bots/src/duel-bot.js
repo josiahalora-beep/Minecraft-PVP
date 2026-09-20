@@ -1,115 +1,355 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { createBot, sleep, waitForSpawn } from './common.js'
+import { combatProfileFor, profileSummary } from './combat-profiles.js'
 
 const username = process.env.DUEL_BOT || 'DuelBot01'
 const targetName = process.env.TARGET || ''
+const forcedTier = process.env.DUEL_SKILL || (username === 'DuelBot01' ? 'skilled' : '')
+const SAFEZONE_RADIUS = Number(process.env.SAFEZONE_RADIUS || 60)
+const ENGAGE_RANGE = Number(process.env.ENGAGE_RANGE || 36)
+
+const profile = combatProfileFor(username, forcedTier)
 const bot = createBot(username, { physicsEnabled: true, viewDistance: 'tiny' })
 const outDir = path.resolve('logs')
 fs.mkdirSync(outDir, { recursive: true })
-const file = path.join(outDir, `duel-${Date.now()}.jsonl`)
+const file = path.join(outDir, 'duel-' + Date.now() + '.jsonl')
 
 let lastAttack = 0
+let nextAttackAt = 0
 let lastPot = 0
+let lastDamageAt = 0
+let previousHealth = 20
 let strafeLeft = true
 let nextStrafeSwitch = Date.now() + 700
 let potting = false
+let refilling = false
+let aimBusy = false
+let nextAimAt = 0
 let attackCount = 0
 let potCount = 0
+let refillCount = 0
+let wTapUntil = 0
+let currentTargetName = ''
+let targetReadyAt = 0
 
 function log(type, extra = {}) {
-  const row = { t: Date.now(), type, health: bot.health, food: bot.food, ...extra }
+  const row = {
+    t: Date.now(),
+    type,
+    health: bot.health,
+    food: bot.food,
+    profile: profile.tier,
+    ...extra
+  }
   fs.appendFileSync(file, JSON.stringify(row) + '\n')
 }
 
+function rand(min, max) {
+  return min + Math.random() * (max - min)
+}
+
+function isSafezone(pos) {
+  if (!pos) return true
+  return (pos.x * pos.x + pos.z * pos.z) <= SAFEZONE_RADIUS * SAFEZONE_RADIUS
+}
+
+function canEngage(entity) {
+  if (!entity || !bot.entity) return false
+  if (isSafezone(bot.entity.position) || isSafezone(entity.position)) return false
+  return bot.entity.position.distanceTo(entity.position) <= ENGAGE_RANGE
+}
+
 function candidateTarget() {
-  if (targetName && bot.players[targetName]?.entity) return bot.players[targetName].entity
+  if (targetName && bot.players[targetName]?.entity) {
+    const entity = bot.players[targetName].entity
+    return canEngage(entity) ? { name: targetName, entity } : null
+  }
+
   let best = null
   let bestD = Infinity
   for (const [name, player] of Object.entries(bot.players)) {
     if (!player.entity || name === bot.username || /^(Bench|StateBot|Sim|Fake|DuelBot)/i.test(name)) continue
+    if (!canEngage(player.entity)) continue
     const d = bot.entity.position.distanceTo(player.entity.position)
-    if (d < bestD) { best = player.entity; bestD = d }
+    if (d < bestD) {
+      best = { name, entity: player.entity }
+      bestD = d
+    }
   }
   return best
 }
 
-function healingPotion() {
-  return bot.inventory.items().find(i => i.name === 'potion' && Number(i.metadata) === 16421)
+function isHealingPotion(item) {
+  return item && item.name === 'potion' && Number(item.metadata) === 16421
 }
-function sword() {
+
+function hotbarHealingPots() {
+  return bot.inventory.items().filter(i => isHealingPotion(i) && i.slot >= 37 && i.slot <= 43)
+}
+
+function reserveHealingPots() {
+  return bot.inventory.items().filter(i => isHealingPotion(i) && i.slot >= 9 && i.slot <= 35)
+}
+
+function swordItem() {
   return bot.inventory.items().find(i => i.name.includes('sword'))
 }
 
+function selectSword() {
+  const sword = swordItem()
+  if (!sword) return
+  if (sword.slot >= 36 && sword.slot <= 44) bot.setQuickBarSlot(sword.slot - 36)
+}
+
+function selectPotion(pot) {
+  if (pot.slot >= 36 && pot.slot <= 44) {
+    bot.setQuickBarSlot(pot.slot - 36)
+    return true
+  }
+  return false
+}
+
+async function refillHotbar() {
+  if (refilling || potting) return false
+  if (Date.now() - lastDamageAt < profile.refillSafeMs) return false
+
+  const sources = reserveHealingPots()
+  if (!sources.length) return false
+
+  const empty = []
+  for (let slot = 37; slot <= 43; slot++) {
+    if (!bot.inventory.slots[slot]) empty.push(slot)
+  }
+  if (!empty.length) return false
+
+  refilling = true
+  let moved = 0
+  try {
+    const limit = Math.min(profile.refillBatch, sources.length, empty.length)
+    for (let i = 0; i < limit; i++) {
+      if (Date.now() - lastDamageAt < profile.refillSafeMs) break
+      await bot.moveSlotItem(sources[i].slot, empty[i])
+      moved++
+      await sleep(Math.round(rand(45, 95) + profile.simulatedReactionJitter))
+    }
+    if (moved > 0) {
+      refillCount++
+      log('refill', {
+        moved,
+        refillCount,
+        hotbarPots: hotbarHealingPots().length,
+        reservePots: reserveHealingPots().length
+      })
+    }
+    selectSword()
+    return moved > 0
+  } catch (e) {
+    log('refill_error', { message: e.message })
+    selectSword()
+    return false
+  } finally {
+    refilling = false
+  }
+}
+
 async function potAtFeet() {
-  if (potting || Date.now() - lastPot < 650) return false
-  const pot = healingPotion()
-  if (!pot) return false
+  if (potting || refilling || Date.now() - lastPot < 650) return false
+  if (Date.now() - lastDamageAt < profile.potSafeMs) return false
+
+  let pots = hotbarHealingPots()
+  if (!pots.length) {
+    const refilled = await refillHotbar()
+    if (!refilled) return false
+    pots = hotbarHealingPots()
+  }
+
+  const pot = pots[0]
+  if (!pot || !selectPotion(pot)) return false
+
   potting = true
-  lastPot = Date.now()
+  const startedAt = Date.now()
   try {
     bot.clearControlStates()
-    await bot.equip(pot, 'hand')
-    await bot.look(bot.entity.yaw, Math.PI / 2, true)
+    await sleep(Math.round(rand(35, 70) + profile.simulatedReactionJitter))
+
+    if (lastDamageAt >= startedAt || Date.now() - lastDamageAt < profile.potSafeMs) {
+      selectSword()
+      log('pot_abort_hit')
+      return false
+    }
+
+    await bot.look(bot.entity.yaw, -Math.PI / 2, true)
+    await sleep(Math.round(rand(25, 60)))
+
+    if (lastDamageAt >= startedAt) {
+      selectSword()
+      log('pot_abort_hit')
+      return false
+    }
+
     bot.activateItem()
-    await sleep(180)
+    await sleep(Math.round(rand(90, 135)))
     bot.deactivateItem()
-    const sw = sword()
-    if (sw) await bot.equip(sw, 'hand')
+    selectSword()
+
+    lastPot = Date.now()
     potCount++
-    log('pot', { potCount })
+    log('pot', {
+      potCount,
+      hotbarPots: hotbarHealingPots().length,
+      reservePots: reserveHealingPots().length
+    })
     return true
   } catch (e) {
     log('pot_error', { message: e.message })
+    selectSword()
     return false
   } finally {
     potting = false
   }
 }
 
-bot.on('health', () => log('health'))
-bot.on('death', () => log('death', { attacks: attackCount, pots: potCount }))
+function scheduleTargetReaction(name) {
+  if (name === currentTargetName) return
+  currentTargetName = name
+  targetReadyAt = Date.now() + Math.round(rand(profile.targetReactionMin, profile.targetReactionMax))
+  nextAimAt = targetReadyAt
+  log('target_acquired', { target: name, readyInMs: targetReadyAt - Date.now() })
+}
+
+async function maybeAim(target) {
+  const now = Date.now()
+  if (aimBusy || now < nextAimAt || now < targetReadyAt) return
+
+  aimBusy = true
+  nextAimAt = now + Math.round(rand(profile.aimIntervalMin, profile.aimIntervalMax))
+  try {
+    const e = profile.aimError
+    const point = target.position.offset(
+      rand(-e, e),
+      1.28 + rand(-e * 0.7, e * 0.7),
+      rand(-e, e)
+    )
+    await bot.lookAt(point, false)
+  } catch {
+  } finally {
+    aimBusy = false
+  }
+}
+
+function applyCombatMovement(target, dist) {
+  const now = Date.now()
+
+  if (profile.canStrafe && now >= nextStrafeSwitch) {
+    strafeLeft = !strafeLeft
+    nextStrafeSwitch = now + Math.round(rand(profile.strafeSwitchMin, profile.strafeSwitchMax))
+    log('strafe_switch', { left: strafeLeft })
+  }
+
+  const low = bot.health <= profile.potHealth
+  const recentlyHit = now - lastDamageAt < profile.potSafeMs
+  const needsGap = low && (recentlyHit || dist < profile.potGap)
+
+  bot.setControlState('left', profile.canStrafe ? strafeLeft : false)
+  bot.setControlState('right', profile.canStrafe ? !strafeLeft : false)
+
+  if (needsGap) {
+    bot.setControlState('sprint', false)
+    bot.setControlState('forward', false)
+    bot.setControlState('back', true)
+    return
+  }
+
+  bot.setControlState('back', dist < 1.75)
+  const wTapping = profile.canWTap && now < wTapUntil
+  bot.setControlState('sprint', !wTapping)
+  bot.setControlState('forward', !wTapping && dist > 2.42)
+}
+
+function maybeAttack(target, dist) {
+  const now = Date.now()
+  if (now < targetReadyAt || now < nextAttackAt || potting || refilling) return
+  const range = rand(profile.attackRangeMin, profile.attackRangeMax)
+  if (dist > range) return
+
+  const cps = rand(profile.cpsMin, profile.cpsMax)
+  nextAttackAt = now + Math.round(1000 / cps)
+  lastAttack = now
+
+  if (Math.random() > profile.hitCommitChance) {
+    log('attack_skip', { dist: Number(dist.toFixed(3)) })
+    return
+  }
+
+  try {
+    bot.attack(target, true)
+    attackCount++
+    log('attack', { attackCount, dist: Number(dist.toFixed(3)) })
+
+    if (profile.canWTap && Math.random() < profile.wTapChance) {
+      wTapUntil = now + Math.round(rand(profile.wTapMin, profile.wTapMax))
+      log('wtap', { until: wTapUntil })
+    }
+  } catch (e) {
+    log('attack_error', { message: e.message })
+  }
+}
+
+bot.on('health', () => {
+  const now = Date.now()
+  if (bot.health < previousHealth - 0.01) lastDamageAt = now
+  log('health', { previousHealth, damaged: bot.health < previousHealth - 0.01 })
+  previousHealth = bot.health
+})
+
+bot.on('death', () => log('death', { attacks: attackCount, pots: potCount, refills: refillCount }))
 bot.on('kicked', r => log('kicked', { reason: String(r) }))
 bot.on('error', e => log('error', { message: e.message }))
 
 await waitForSpawn(bot)
 bot.settings.viewDistance = 'tiny'
-console.log(`${username} spawned. In Minecraft, run /duelprep as Owner.`)
-console.log(`Telemetry: ${file}`)
+previousHealth = bot.health
+selectSword()
+
+console.log(username + ' spawned. In Minecraft, run /duelprep as Owner.')
+console.log('Combat profile: ' + profileSummary(profile))
+console.log('Pot threshold: ' + profile.potHealth.toFixed(1) + ' hp; safe gap: ' + profile.potGap.toFixed(2) + ' blocks')
+console.log('Telemetry: ' + file)
 
 bot.on('physicsTick', async () => {
-  if (potting) return
-  const target = candidateTarget()
-  if (!target) { bot.clearControlStates(); return }
+  if (!bot.entity) return
+
+  const targetInfo = candidateTarget()
+  if (!targetInfo) {
+    currentTargetName = ''
+    bot.clearControlStates()
+    return
+  }
+
+  scheduleTargetReaction(targetInfo.name)
+  const target = targetInfo.entity
   const dist = bot.entity.position.distanceTo(target.position)
 
-  if (bot.health <= 12) {
-    const didPot = await potAtFeet()
-    if (didPot) return
-  }
+  if (potting || refilling) return
 
-  if (Date.now() >= nextStrafeSwitch) {
-    strafeLeft = !strafeLeft
-    nextStrafeSwitch = Date.now() + 500 + Math.floor(Math.random() * 650)
-    log('strafe_switch', { left: strafeLeft })
-  }
+  await maybeAim(target)
+  applyCombatMovement(target, dist)
 
-  try { await bot.lookAt(target.position.offset(0, 1.3, 0), true) } catch {}
-  bot.setControlState('sprint', true)
-  bot.setControlState('left', strafeLeft)
-  bot.setControlState('right', !strafeLeft)
-  bot.setControlState('forward', dist > 2.45)
-  bot.setControlState('back', dist < 1.75)
+  if (bot.health <= profile.potHealth) {
+    const hotbarCount = hotbarHealingPots().length
+    const safeFromHits = Date.now() - lastDamageAt >= profile.potSafeMs
 
-  const now = Date.now()
-  if (dist <= 3.25 && now - lastAttack >= 125) {
-    lastAttack = now
-    try {
-      bot.attack(target, true)
-      attackCount++
-      log('attack', { attackCount, dist: Number(dist.toFixed(3)) })
-    } catch (e) {
-      log('attack_error', { message: e.message })
+    if (hotbarCount <= profile.refillTrigger && dist >= profile.potGap && safeFromHits) {
+      const didRefill = await refillHotbar()
+      if (didRefill) return
+    }
+
+    if (dist >= profile.potGap && safeFromHits) {
+      const didPot = await potAtFeet()
+      if (didPot) return
     }
   }
+
+  maybeAttack(target, dist)
 })

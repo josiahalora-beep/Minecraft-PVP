@@ -8,8 +8,8 @@ $server = Join-Path $root 'server'
 $build = Join-Path $server 'buildtools'
 New-Item -ItemType Directory -Force -Path $build | Out-Null
 
-function Test-Java8Home([string]$Home) {
-  if ([string]::IsNullOrWhiteSpace($Home)) { return $false }
+function Test-Java8Home([string]$CandidateHome) {
+  if ([string]::IsNullOrWhiteSpace($CandidateHome)) { return $false }
   $java = Join-Path $Home 'bin\java.exe'
   $javac = Join-Path $Home 'bin\javac.exe'
   if (!(Test-Path $java) -or !(Test-Path $javac)) { return $false }

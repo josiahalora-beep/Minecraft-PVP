@@ -47,7 +47,11 @@ final class HcfBaseBuilder {
 
         if ("hcf_courtyard".equalsIgnoreCase(preset)) buildCourtyard(world,cx,y,cz);
         else if ("hcf_brewer_base".equalsIgnoreCase(preset)) buildGlassBox(world,cx,y,cz,true);
-        else if ("hcf_trap_base".equalsIgnoreCase(preset)) buildGlassBox(world,cx,y,cz,false);
+        else if ("hcf_trap_base".equalsIgnoreCase(preset)) buildTrapHouse(world,cx,y,cz);
+        else if ("hcf_compact_2015".equalsIgnoreCase(preset)) buildCompact2015(world,cx,y,cz);
+        else if ("hcf_split_level".equalsIgnoreCase(preset)) buildSplitLevel(world,cx,y,cz);
+        else if ("hcf_archer_tower".equalsIgnoreCase(preset)) buildArcherTower(world,cx,y,cz);
+        else if ("hcf_double_layer".equalsIgnoreCase(preset)) buildDoubleLayer(world,cx,y,cz);
         else buildGlassBox(world,cx,y,cz,false);
 
         if ("fall_trap".equalsIgnoreCase(trapPreset)) buildFallTrap(world,cx,y,cz);
@@ -174,6 +178,125 @@ final class HcfBaseBuilder {
             queue.add(new Op(w,x,y,cz+9,Material.SAND));
             queue.add(new Op(w,x,y+1,cz+9,Material.SUGAR_CANE_BLOCK));
             queue.add(new Op(w,x,y,cz+10,Material.STATIONARY_WATER));
+        }
+    }
+
+    private void buildCompact2015(World w, int cx, int y, int cz) {
+        int half=9, height=8;
+        shell(w,cx,y,cz,half,height,Material.SMOOTH_BRICK,Material.GLASS);
+
+        // Compact period-style core: storage below, enchant/anvil, narrow exits.
+        for(int x=cx-6;x<=cx+6;x++) for(int z=cz-6;z<=cz+6;z++) {
+            queue.add(new Op(w,x,y-1,z,Material.SMOOTH_BRICK));
+            for(int yy=y-5;yy<y-1;yy++) queue.add(new Op(w,x,yy,z,Material.AIR));
+        }
+        for(int x=cx-5;x<=cx-2;x++) {
+            queue.add(new Op(w,x,y-4,cz+4,Material.CHEST));
+            queue.add(new Op(w,x,y-3,cz+4,Material.CHEST));
+        }
+        queue.add(new Op(w,cx+5,y+1,cz+5,Material.ENCHANTMENT_TABLE));
+        queue.add(new Op(w,cx+4,y+1,cz+5,Material.ANVIL));
+        doorway(w,cx,y,cz-half);
+    }
+
+    private void buildSplitLevel(World w, int cx, int y, int cz) {
+        int half=11, height=10;
+        shell(w,cx,y,cz,half,height,Material.SMOOTH_BRICK,Material.STAINED_GLASS);
+
+        // Upper fight/refill room.
+        for(int x=cx-6;x<=cx+6;x++) for(int z=cz-6;z<=cz+6;z++)
+            queue.add(new Op(w,x,y+5,z,Material.SMOOTH_BRICK));
+        for(int x=cx-2;x<=cx+2;x++) for(int z=cz-2;z<=cz+2;z++)
+            queue.add(new Op(w,x,y+5,z,Material.AIR));
+
+        // Lower storage level.
+        for(int x=cx-8;x<=cx+8;x++) for(int z=cz-8;z<=cz+8;z++) {
+            queue.add(new Op(w,x,y-1,z,Material.SMOOTH_BRICK));
+            for(int yy=y-5;yy<y-1;yy++) queue.add(new Op(w,x,yy,z,Material.AIR));
+        }
+        for(int z=cz-6;z<=cz+6;z+=3) {
+            queue.add(new Op(w,cx-7,y-4,z,Material.CHEST));
+            queue.add(new Op(w,cx+7,y-4,z,Material.CHEST));
+        }
+        doorway(w,cx,y,cz-half);
+    }
+
+    private void buildArcherTower(World w, int cx, int y, int cz) {
+        int half=10, height=9;
+        shell(w,cx,y,cz,half,height,Material.SMOOTH_BRICK,Material.GLASS);
+
+        // Two lightweight archer towers overlooking the approach.
+        tower(w,cx-7,y+1,cz-7,4,12);
+        tower(w,cx+7,y+1,cz-7,4,12);
+
+        // Interior safe/refill room.
+        for(int x=cx-4;x<=cx+4;x++) for(int z=cz+2;z<=cz+8;z++) {
+            for(int yy=y+1;yy<=y+5;yy++) {
+                boolean wall=x==cx-4||x==cx+4||z==cz+2||z==cz+8||yy==y+5;
+                if(wall) queue.add(new Op(w,x,yy,z,Material.SMOOTH_BRICK));
+            }
+        }
+        doorway(w,cx,y,cz-half);
+    }
+
+    private void buildDoubleLayer(World w, int cx, int y, int cz) {
+        int half=13, height=10;
+        shell(w,cx,y,cz,half,height,Material.SMOOTH_BRICK,Material.STAINED_GLASS);
+
+        // Second shell/panic layer leaves a fighting corridor between shells.
+        int inner=7;
+        for(int x=cx-inner;x<=cx+inner;x++) for(int z=cz-inner;z<=cz+inner;z++) {
+            for(int yy=y+1;yy<=y+7;yy++) {
+                boolean edge=x==cx-inner||x==cx+inner||z==cz-inner||z==cz+inner||yy==y+7;
+                if(edge) queue.add(new Op(w,x,yy,z,Material.SMOOTH_BRICK));
+            }
+        }
+        for(int yy=y+1;yy<=y+2;yy++) queue.add(new Op(w,cx,yy,cz-inner,Material.AIR));
+        for(int x=cx-5;x<=cx-2;x++) {
+            queue.add(new Op(w,x,y+1,cz+5,Material.CHEST));
+            queue.add(new Op(w,x,y+2,cz+5,Material.CHEST));
+        }
+        doorway(w,cx,y,cz-half);
+    }
+
+    private void buildTrapHouse(World w, int cx, int y, int cz) {
+        buildGlassBox(w,cx,y,cz,false);
+
+        // Safe viewing/trigger lane facing the trap approach.
+        for(int z=cz-11;z<=cz-6;z++) {
+            queue.add(new Op(w,cx+7,y+1,z,Material.IRON_FENCE));
+            queue.add(new Op(w,cx+8,y+1,z,Material.SMOOTH_BRICK));
+        }
+    }
+
+    private void shell(World w,int cx,int y,int cz,int half,int height,Material frame,Material wall) {
+        for(int x=cx-half;x<=cx+half;x++) for(int z=cz-half;z<=cz+half;z++) {
+            queue.add(new Op(w,x,y,z,frame));
+            for(int yy=y+1;yy<=y+height;yy++) {
+                boolean edge=x==cx-half||x==cx+half||z==cz-half||z==cz+half;
+                if(edge) {
+                    boolean corner=(x==cx-half||x==cx+half)&&(z==cz-half||z==cz+half);
+                    queue.add(new Op(w,x,yy,z,corner?frame:wall));
+                } else {
+                    queue.add(new Op(w,x,yy,z,Material.AIR));
+                }
+            }
+            queue.add(new Op(w,x,y+height+1,z,frame));
+        }
+    }
+
+    private void doorway(World w,int cx,int y,int frontZ) {
+        for(int yy=y+1;yy<=y+3;yy++) for(int x=cx-1;x<=cx+1;x++)
+            queue.add(new Op(w,x,yy,frontZ,Material.AIR));
+    }
+
+    private void tower(World w,int cx,int y,int cz,int half,int height) {
+        for(int x=cx-half;x<=cx+half;x++) for(int z=cz-half;z<=cz+half;z++) {
+            for(int yy=y;yy<=y+height;yy++) {
+                boolean edge=x==cx-half||x==cx+half||z==cz-half||z==cz+half;
+                if(edge) queue.add(new Op(w,x,yy,z,yy%3==0?Material.SMOOTH_BRICK:Material.GLASS));
+            }
+            queue.add(new Op(w,x,y+height,z,Material.SMOOTH_BRICK));
         }
     }
 

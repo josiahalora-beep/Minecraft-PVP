@@ -290,6 +290,7 @@ export function createTeamCombatController(bot, assignmentProvider) {
   let lastMoveSampleAt = 0
   let lastMoveSample = null
   let lastEscapeAt = 0
+  let lastLootEquipAt = 0
 
   function ensureProfile(a) {
     const key = String(a?.skill || 50) + ':' + String(a?.aggression || 50)
@@ -468,6 +469,9 @@ export function createTeamCombatController(bot, assignmentProvider) {
   }
 
   async function equipLootUpgrades() {
+    const now=Date.now()
+    if(now-lastLootEquipAt<1200) return false
+    lastLootEquipAt=now
     const specs=[
       ['_helmet','head',5],
       ['_chestplate','torso',6],

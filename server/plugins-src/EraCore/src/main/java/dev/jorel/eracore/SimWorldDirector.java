@@ -2335,8 +2335,15 @@ final class SimWorldDirector {
             SimPlayer p = players.get(key(member));
             if (p == null || !p.logicalOnline) continue;
 
-            // HOT bodies are visual projections of this authoritative work.
-            // Keeping production here prevents embodiment from stalling SOTW.
+            // A HOT body doing physical resource work deposits its real
+            // inventory through /simworker deposit. Do not also credit the same
+            // worker's COLD mining/building roll in the same period.
+            boolean embodied=Bukkit.getPlayerExact(p.name)!=null;
+            if (embodied && ("mine".equals(p.currentGoal) || "gather".equals(p.currentGoal) ||
+                "supply".equals(p.currentGoal) || "build".equals(p.currentGoal))) {
+                continue;
+            }
+
             if ("mine".equals(p.currentGoal) || "gather".equals(p.currentGoal) || "supply".equals(p.currentGoal)) {
                 int minerBonus = "miner".equals(p.preferredJob) ? 8 : 0;
                 int stoneMade=20 + minerBonus + rng.nextInt(18);

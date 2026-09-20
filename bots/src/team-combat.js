@@ -212,17 +212,24 @@ function dryEscapePoint(bot, preferredEntity = null, radius = 8) {
     const r=radius*(0.55 + (i%3)*0.2)
     const x=me.x+Math.cos(angle)*r
     const z=me.z+Math.sin(angle)*r
-    const feet=blockName(bot,x,me.y,z)
-    const head=blockName(bot,x,me.y+1,z)
-    const below=blockName(bot,x,me.y-1,z)
-    if (isLiquidName(feet) || isLiquidName(head) || isLiquidName(below)) continue
-    if (!passableName(feet) || !passableName(head) || passableName(below)) continue
-    let score=r
-    if (preferredEntity) {
-      const dx=x-preferredEntity.position.x, dz=z-preferredEntity.position.z
-      score += Math.sqrt(dx*dx+dz*dz)*0.7
+
+    // Banks are frequently one block above the swimmer. Check a small vertical
+    // column and choose the first two-block-tall dry standing space.
+    for (const dy of [-1,0,1,2]) {
+      const fy=me.y+dy
+      const feet=blockName(bot,x,fy,z)
+      const head=blockName(bot,x,fy+1,z)
+      const below=blockName(bot,x,fy-1,z)
+      if (isLiquidName(feet) || isLiquidName(head) || isLiquidName(below)) continue
+      if (!passableName(feet) || !passableName(head) || passableName(below)) continue
+      let score=r-Math.abs(dy)*0.6
+      if (preferredEntity) {
+        const dx=x-preferredEntity.position.x, dz=z-preferredEntity.position.z
+        score += Math.sqrt(dx*dx+dz*dz)*0.7
+      }
+      if (!best || score>best.score) best={x,y:fy+0.2,z,score}
+      break
     }
-    if (!best || score>best.score) best={x,y:me.y+1.2,z,score}
   }
   return best
 }

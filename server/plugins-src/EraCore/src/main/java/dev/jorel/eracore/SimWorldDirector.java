@@ -90,6 +90,8 @@ final class SimWorldDirector {
         boolean brewer;
         boolean farmBuilt;
         boolean recoveryMode;
+        String archetype = "BALANCED";
+        String campTarget = "";
         int baseX;
         int baseY = 64;
         int baseZ;
@@ -554,6 +556,120 @@ final class SimWorldDirector {
         return visibleFight.assignments.get(key(name));
     }
 
+    boolean startFiveVFiveTest(Player observer) {
+        if(observer==null || observer.getWorld()==null) return false;
+        List<SimFaction> five=new ArrayList<SimFaction>();
+        for(SimFaction f:factions.values()) if(f.members.size()>=5) five.add(f);
+        if(five.size()<2) return false;
+
+        Collections.sort(five,new Comparator<SimFaction>() {
+            public int compare(SimFaction a,SimFaction b) {
+                return Integer.compare(teamStrength(b),teamStrength(a));
+            }
+        });
+
+        SimFaction a=five.get(0), b=five.get(1);
+        List<SimPlayer> aa=testTeam(a), bb=testTeam(b);
+        if(aa.size()<5 || bb.size()<5) return false;
+
+        Location ol=observer.getLocation();
+        Vector dir=ol.getDirection().setY(0);
+        if(dir.lengthSquared()<0.01) dir=new Vector(1,0,0);
+        dir.normalize();
+        int cx=(int)Math.round(ol.getX()+dir.getX()*34);
+        int cz=(int)Math.round(ol.getZ()+dir.getZ()*34);
+        World w=observer.getWorld();
+        int cy=Math.max(4,w.getHighestBlockYAt(cx,cz)+1);
+
+        VisibleFight fight=new VisibleFight();
+        fight.id="TEST5V5_"+System.currentTimeMillis();
+        fight.type="TEST_5V5";
+        fight.centerX=cx;fight.centerY=cy;fight.centerZ=cz;
+        fight.expiresAt=System.currentTimeMillis()+180000L;
+
+        addFiveVFiveAssignments(fight,a,b,aa,bb,-1);
+        addFiveVFiveAssignments(fight,b,a,bb,aa,1);
+        visibleFight=fight;
+        nextVisibleFightAt=fight.expiresAt+15000L;
+        writeCombatFile();
+        return true;
+    }
+
+    private int teamStrength(SimFaction f) {
+        int s=0;
+        for(String n:f.members) {
+            SimPlayer p=players.get(key(n));
+            if(p!=null) s+=p.skill+p.teamwork/3;
+        }
+        return s;
+    }
+
+    private List<SimPlayer> testTeam(SimFaction f) {
+        List<SimPlayer> xs=new ArrayList<SimPlayer>();
+        for(String n:f.members) {
+            SimPlayer p=players.get(key(n));
+            if(p!=null) xs.add(p);
+        }
+        Collections.sort(xs,new Comparator<SimPlayer>() {
+            public int compare(SimPlayer a,SimPlayer b){return Integer.compare(b.skill,a.skill);}
+        });
+        while(xs.size()>5) xs.remove(xs.size()-1);
+        return xs;
+    }
+
+    private void addFiveVFiveAssignments(VisibleFight fight,SimFaction own,SimFaction enemy,
+                                         List<SimPlayer> allies,List<SimPlayer> enemies,int side) {
+        SimPlayer bard=bestSupport(allies,true,null);
+        SimPlayer archer=bestSupport(allies,false,bard);
+        List<SimPlayer> diamonds=new ArrayList<SimPlayer>();
+        for(SimPlayer p:allies) if(p!=bard && p!=archer) diamonds.add(p);
+        Collections.sort(diamonds,new Comparator<SimPlayer>() {
+            public int compare(SimPlayer a,SimPlayer b){return Integer.compare(b.skill,a.skill);}
+        });
+
+        SimPlayer focus=chooseTestFocus(enemies);
+        int index=0;
+        for(SimPlayer p:allies) {
+            CombatAssignment ca=new CombatAssignment();
+            ca.fightId=fight.id;ca.name=p.name;ca.faction=own.name;ca.enemyFaction=enemy.name;
+            ca.skill=p.skill;ca.aggression=p.aggression;ca.risk=p.riskTolerance;
+            ca.homeX=own.baseX;ca.homeY=own.baseY+1;ca.homeZ=own.baseZ;
+            ca.trapType="none";ca.focus=focus==null?"":focus.name;
+            ca.combatClass=(p==bard)?CombatClass.BARD:((p==archer)?CombatClass.ARCHER:CombatClass.DIAMOND);
+            ca.action=(p==bard)?"BARD_SUPPORT":((p==archer)?"ARCHER_RANGE":"FOCUS");
+            ca.x=fight.centerX+side*(10+(index%2)*2);
+            ca.z=fight.centerZ+(index-2)*3;
+            ca.y=Math.max(4,Bukkit.getWorlds().get(0).getHighestBlockYAt(ca.x,ca.z)+1);
+            for(SimPlayer e:enemies) ca.enemies.add(e.name);
+            for(SimPlayer m:allies) if(m!=p) ca.allies.add(m.name);
+            fight.assignments.put(key(p.name),ca);
+            index++;
+        }
+    }
+
+    private SimPlayer bestSupport(List<SimPlayer> xs,boolean bard,SimPlayer exclude) {
+        SimPlayer best=null;int bestScore=Integer.MIN_VALUE;
+        for(SimPlayer p:xs) {
+            if(p==exclude) continue;
+            int score;
+            if(bard) score=p.teamwork+p.patience+p.riskTolerance+p.skill/2;
+            else score=p.skill+p.aggression+p.riskTolerance+p.teamwork/2;
+            if(score>bestScore){best=p;bestScore=score;}
+        }
+        return best;
+    }
+
+    private SimPlayer chooseTestFocus(List<SimPlayer> enemies) {
+        if(enemies.isEmpty()) return null;
+        SimPlayer best=enemies.get(0);
+        int bestScore=Integer.MAX_VALUE;
+        for(SimPlayer p:enemies) {
+            int score=p.skill+p.teamwork/2+p.riskTolerance/3;
+            if(score<bestScore){best=p;bestScore=score;}
+        }
+        return best;
+    }
+
     void refreshVisibleCombat() {
         if (sotwProtectionActive()) {
             clearVisibleFight();
@@ -651,9 +767,18 @@ final class SimWorldDirector {
 
         SimFaction b=null;
 
+        // If this faction is being deliberately camped, use the campers first.
+        for(SimFaction candidate:ready) {
+            if(candidate==a) continue;
+            if(candidate.campTarget!=null && candidate.campTarget.equalsIgnoreCase(a.name)) {
+                b=candidate;
+                break;
+            }
+        }
+
         // Prefer real neighbors/rivals before teleporting a distant rivalry into view.
         int neighborRadius=Math.max(250,plugin.getConfig().getInt("combat-director.brawl-radius",420)*2);
-        for(int i=1;i<ready.size();i++) {
+        for(int i=1;b==null && i<ready.size();i++) {
             SimFaction candidate=ready.get(i);
             if(distSq(a.baseX,a.baseZ,candidate.baseX,candidate.baseZ)<=neighborRadius*neighborRadius) {
                 b=candidate;
@@ -1882,6 +2007,11 @@ final class SimWorldDirector {
                 if("brewer".equals(p.preferredJob)) return "brew";
                 return "gear";
             case PVP_READY:
+                if ("PVP".equals(f.archetype) || "TRAPPER".equals(f.archetype)) {
+                    if ("farmer".equals(p.preferredJob) && rng.nextInt(100)<18) return "farm";
+                    if ("brewer".equals(p.preferredJob) && rng.nextInt(100)<28) return "brew";
+                    return rng.nextInt(100)<78 ? "patrol" : "social";
+                }
                 int rivalryHeat=0;
                 String rival=strongestRival(f.name);
                 if(!rival.isEmpty()) rivalryHeat=rivalryScore(f.name,rival);
@@ -1899,6 +2029,7 @@ final class SimWorldDirector {
         sotwTicks++;
         updateLogicalSessionsAndGoals();
         formationTick();
+        updateCampTargets();
         economy.tickAll(logicallyOnlinePlayers(), factions, sotwTicks);
 
         if (factions.isEmpty()) {
@@ -2556,8 +2687,11 @@ final class SimWorldDirector {
                 f.buildTarget = s.getInt("build-target", 0);
                 f.baseQueued = s.getBoolean("base-queued", false);
                 f.recoveryMode = s.getBoolean("recovery-mode", false);
+                f.archetype = s.getString("archetype", "");
+                f.campTarget = s.getString("camp-target", "");
                 f.powerFaction = s.getBoolean("power-faction", false);
                 f.underdog = s.getBoolean("underdog", false);
+                if (f.archetype == null || f.archetype.isEmpty()) f.archetype = inferArchetype(f);
                 f.claimed = s.getBoolean("claimed");
                 f.storage = s.getBoolean("storage");
                 f.brewer = s.getBoolean("brewer");
@@ -2714,6 +2848,52 @@ final class SimWorldDirector {
         }
     }
 
+    private String archetypeForLeader(SimPlayer leader) {
+        if (leader == null) return "BALANCED";
+        if (key(leader.name).equals("lolitsalex")) return "TRAPPER";
+        if (leader.underdogLeader) return "UNDERDOG";
+
+        int donor=plugin.simulatedDonorLevel(leader.name);
+        int pvpScore=leader.skill+leader.aggression+leader.riskTolerance+donor*12;
+        if (donor>=2 && leader.skill>=70 && pvpScore>=225 && rng.nextInt(100)<58) return "PVP";
+        if (leader.economicIq>=82 && rng.nextInt(100)<55) return "ECONOMY";
+        return "BALANCED";
+    }
+
+    private String inferArchetype(SimFaction f) {
+        SimPlayer leader=players.get(key(f.leader));
+        if (leader!=null && key(leader.name).equals("lolitsalex")) return "TRAPPER";
+        if (f.underdog) return "UNDERDOG";
+        if (leader!=null) return archetypeForLeader(leader);
+        return f.powerFaction?"BALANCED":"UNDERDOG";
+    }
+
+    private void updateCampTargets() {
+        SimPlayer alex=players.get("lolitsalex");
+        String alexFaction=(alex==null)?"":alex.faction;
+
+        for(SimFaction f:factions.values()) {
+            if(f.recoveryMode || f.stage!=Stage.PVP_READY) {
+                if(rng.nextInt(100)<25) f.campTarget="";
+                continue;
+            }
+
+            if(!alexFaction.isEmpty() && !f.name.equalsIgnoreCase(alexFaction)) {
+                if(("PVP".equals(f.archetype) && rng.nextInt(100)<48) ||
+                   (f.powerFaction && rng.nextInt(100)<13)) {
+                    f.campTarget=alexFaction;
+                    recordRivalry(f.name,alexFaction,1+rng.nextInt(2));
+                    continue;
+                }
+            }
+
+            if("PVP".equals(f.archetype) && (f.campTarget==null || f.campTarget.isEmpty()) && rng.nextInt(100)<30) {
+                String rival=strongestRival(f.name);
+                if(!rival.isEmpty()) f.campTarget=rival;
+            }
+        }
+    }
+
     private void createNextLeaderFaction() {
         SimPlayer best = null;
         for (SimPlayer p : players.values()) {
@@ -2741,10 +2921,16 @@ final class SimWorldDirector {
         f.basePreset = BASE_PRESETS[rng.nextInt(BASE_PRESETS.length)];
         f.powerFaction = !best.underdogLeader;
         f.underdog = best.underdogLeader;
-        if ((best.skill < 72 || best.underdogLeader) && rng.nextInt(100) < 68) {
+        f.archetype = archetypeForLeader(best);
+        if (key(best.name).equals("lolitsalex")) {
+            f.archetype = "TRAPPER";
+            f.basePreset = "hcf_trap_base";
+            int tr=rng.nextInt(100);
+            f.trapPreset = tr < 38 ? "fall_trap" : (tr < 82 ? "fence_gate_bow" : "drop_chute");
+        } else if ((best.skill < 72 || best.underdogLeader) && rng.nextInt(100) < 68) {
             int tr=rng.nextInt(100);
             f.trapPreset = tr < 45 ? "fall_trap" : (tr < 80 ? "fence_gate_bow" : "drop_chute");
-        } else {
+        } else if (!"TRAPPER".equals(f.archetype)) {
             f.trapPreset = "none";
         }
         f.treasury = 0.0;
@@ -2771,6 +2957,8 @@ final class SimWorldDirector {
 
         for (SimPlayer p : players.values()) {
             if (!p.faction.isEmpty() || p.leaderCandidate || !p.logicalOnline) continue;
+            if (p.combatClass == CombatClass.BARD && classCount(f,CombatClass.BARD) >= 1) continue;
+            if (p.combatClass == CombatClass.ARCHER && classCount(f,CombatClass.ARCHER) >= 1) continue;
 
             int score = candidateScore(f, p);
             score += rng.nextInt(17) - 8;
@@ -3389,6 +3577,8 @@ final class SimWorldDirector {
             data.set(b + ".build-target", f.buildTarget);
             data.set(b + ".base-queued", f.baseQueued);
             data.set(b + ".recovery-mode", f.recoveryMode);
+            data.set(b + ".archetype", f.archetype);
+            data.set(b + ".camp-target", f.campTarget);
             data.set(b + ".power-faction", f.powerFaction);
             data.set(b + ".underdog", f.underdog);
             data.set(b + ".claimed", f.claimed);

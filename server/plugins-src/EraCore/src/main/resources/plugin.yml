@@ -55,6 +55,10 @@ commands:
     usage: /simworker <sync|deposit|status>
   simcombat:
     usage: /simcombat <sync|release|status>
+  safezone:
+    usage: /safezone <info|set [radius]|build>
+  teamfight:
+    usage: /teamfight <test|status>
   bard:
     usage: /bard
   archer:

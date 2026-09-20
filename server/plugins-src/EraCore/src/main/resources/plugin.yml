@@ -42,6 +42,11 @@ commands:
     usage: /delwarp <name>
   spawnpreset:
     usage: /spawnpreset playman2013
+  msg:
+    aliases: [tell, whisper, w]
+    usage: /msg <player> <message>
+  r:
+    usage: /r <message>
   simchat:
     usage: /simchat <on|off|status|pulse>
   duelprep:

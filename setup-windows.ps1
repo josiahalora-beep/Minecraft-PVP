@@ -13,7 +13,18 @@ function Test-Java8Home([string]$CandidateHome) {
   $java = Join-Path $Home 'bin\java.exe'
   $javac = Join-Path $Home 'bin\javac.exe'
   if (!(Test-Path $java) -or !(Test-Path $javac)) { return $false }
-  $versionText = (& $java -version 2>&1 | Out-String)
+  $psi = New-Object System.Diagnostics.ProcessStartInfo
+  $psi.FileName = $java
+  $psi.Arguments = '-version'
+  $psi.UseShellExecute = $false
+  $psi.RedirectStandardError = $true
+  $psi.RedirectStandardOutput = $true
+  $psi.CreateNoWindow = $true
+  $proc = New-Object System.Diagnostics.Process
+  $proc.StartInfo = $psi
+  [void]$proc.Start()
+  $versionText = $proc.StandardError.ReadToEnd() + $proc.StandardOutput.ReadToEnd()
+  $proc.WaitForExit()
   return ($versionText -match 'version "1\.8\.' -or $versionText -match 'openjdk version "1\.8\.')
 }
 

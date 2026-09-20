@@ -276,6 +276,109 @@ function rand(min, max) {
   return min + Math.random() * (max - min)
 }
 
+function commandTagged(state) {
+  return Date.now() < (state.combatTaggedUntil || 0) || String(state.job?.tagged || '0') === '1'
+}
+
+function kitForRank(rank) {
+  const r = String(rank || '').toUpperCase()
+  if (r === 'TITAN') return 'titan'
+  if (r === 'LEGEND') return 'legend'
+  if (r === 'ELITE') return 'elite'
+  if (r === 'VIP') return 'vip'
+  return null
+}
+
+function parseTagSeconds(text) {
+  const m = String(text).match(/(\d+)s(?:\s|\.|$)/i)
+  return m ? Math.max(1, Number(m[1]) || 0) : 60
+}
+
+async function tryCommand(state, command, cooldownMs = 5000) {
+  if (!state.bot?.entity || state.combat) return false
+  if (Date.now() - (state.lastCommandAt || 0) < cooldownMs) return false
+  try {
+    state.bot.chat(command)
+    state.lastCommandAt = Date.now()
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function commandBrain(state) {
+  const bot = state.bot
+  if (!bot?.entity || state.combat) return
+
+  const action = state.job?.action || 'idle'
+  const faction = String(state.job?.faction || state.faction || 'none')
+  const tagged = commandTagged(state)
+
+  // Donor players actually use their highest available rank kit. Server-side
+  // cooldowns are authoritative, so reconnects cannot duplicate the source.
+  const kit = kitForRank(state.rank)
+  if (kit && !tagged && Date.now() - (state.lastKitAttempt || 0) > 20 * 60 * 1000) {
+    state.lastKitAttempt = Date.now()
+    await tryCommand(state, '/kit ' + kit, 900)
+    return
+  }
+
+  // DTR recovery means get safely home if teleporting is legal.
+  if (action === 'safe' && !tagged && faction !== 'none' &&
+      Date.now() - (state.lastTeleportAttempt || 0) > 20000) {
+    state.lastTeleportAttempt = Date.now()
+    await tryCommand(state, '/f home', 900)
+    return
+  }
+
+  // Recruitment happens at spawn. This is deliberate command knowledge, not
+  // server-side snapping, and is never attempted through an active PvP tag.
+  if (action === 'recruit' && !tagged &&
+      Date.now() - (state.lastTeleportAttempt || 0) > 60000) {
+    state.lastTeleportAttempt = Date.now()
+    await tryCommand(state, '/spawn', 900)
+    return
+  }
+
+  // Brewing/gearing should happen at the faction base. If a worker has drifted
+  // far away and is not tagged, use faction home rather than walking hundreds
+  // of blocks for no gameplay reason.
+  if ((action === 'brew' || action === 'gear') && !tagged && faction !== 'none') {
+    const x = Number(state.job?.x)
+    const z = Number(state.job?.z)
+    if (Number.isFinite(x) && Number.isFinite(z)) {
+      const dx = bot.entity.position.x - x
+      const dz = bot.entity.position.z - z
+      if (dx * dx + dz * dz > 45 * 45 &&
+          Date.now() - (state.lastTeleportAttempt || 0) > 45000) {
+        state.lastTeleportAttempt = Date.now()
+        await tryCommand(state, '/f home', 900)
+      }
+    }
+  }
+}
+
+async function emergencyRetreat(state) {
+  const bot = state.bot
+  if (!bot?.entity || state.combat) return
+
+  // Combat-tagged workers must physically survive; commands are intentionally
+  // unavailable until the tag falls off.
+  if (commandTagged(state)) {
+    bot.physicsEnabled = true
+    stopMovement(bot)
+    bot.setControlState('sprint', true)
+    bot.setControlState('forward', true)
+    if (Math.random() < 0.5) bot.setControlState('left', true)
+    else bot.setControlState('right', true)
+    return
+  }
+
+  const faction = String(state.job?.faction || state.faction || 'none')
+  if (faction !== 'none') await tryCommand(state, '/f home', 800)
+  else await tryCommand(state, '/spawn', 800)
+}
+
 async function sync(state) {
   if (!state.bot || !state.bot.entity || state.syncing) return
   state.syncing = true
@@ -480,6 +583,10 @@ function startWorkLoop(state, settings) {
       }
 
       if (Date.now() - state.lastSyncAt >= settings.syncMs) await sync(state)
+      if (Date.now() - (state.lastCommandBrainAt || 0) >= 2200) {
+        state.lastCommandBrainAt = Date.now()
+        await commandBrain(state)
+      }
 
       const passive = action === 'idle' || action === 'recruit' || action === 'safe' || action === 'brew' || action === 'gear' || action === 'social'
       if (passive) {
@@ -547,7 +654,13 @@ async function connectIdentity(candidate, settings) {
     lastCandidateScore: candidate.score || 0,
     combat: candidate.combat ? candidate.assignment : null,
     combatController: null,
-    lastCombatFightId: ''
+    lastCombatFightId: '',
+    rank: 'MEMBER',
+    combatTaggedUntil: 0,
+    lastKitAttempt: 0,
+    lastTeleportAttempt: 0,
+    lastCommandAt: 0,
+    lastCommandBrainAt: 0
   }
   live.set(name, state)
 
@@ -560,8 +673,18 @@ async function connectIdentity(candidate, settings) {
       const parsed = parseTokenMessage(text, 'SIMWORKER')
       if (parsed) {
         state.job = parsed
+        if (parsed.rank) state.rank = String(parsed.rank).toUpperCase()
+        if (String(parsed.tagged || '0') === '1') state.combatTaggedUntil = Math.max(state.combatTaggedUntil || 0, Date.now() + 2500)
         if (parsed.humans != null) humanCount = Math.max(0, Number(parsed.humans) || 0)
         if (parsed.budget != null) serverBudget = clamp(Number(parsed.budget) || 1, 1, 16)
+      }
+
+      const low = text.toLowerCase()
+      if (low.includes('combat tagged') || (low.includes('cannot') && low.includes('tagged'))) {
+        state.combatTaggedUntil = Date.now() + parseTagSeconds(text) * 1000
+      }
+      if (low.includes('claimed ') && low.includes(' kit')) {
+        state.lastKitAttempt = Date.now()
       }
     })
 
@@ -574,7 +697,7 @@ async function connectIdentity(candidate, settings) {
 
     bot.on('health', () => {
       if (bot.health > 0 && bot.health <= 7 && state.job?.action !== 'safe') {
-        try { bot.chat('/spawn') } catch {}
+        emergencyRetreat(state).catch(() => {})
       }
     })
 
@@ -602,6 +725,8 @@ async function connectIdentity(candidate, settings) {
       try { bot.chat('/simcombat sync') } catch {}
     } else {
       await sync(state)
+      await sleep(350)
+      await commandBrain(state)
     }
     startWorkLoop(state, settings)
   } catch (err) {

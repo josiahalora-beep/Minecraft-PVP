@@ -240,20 +240,41 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     @EventHandler(priority=EventPriority.HIGHEST) public void onJoin(PlayerJoinEvent e) {
         Player p = e.getPlayer();
+        boolean bot = isBotIdentity(p.getName());
+
         maybeClaimOwner(p);
         ensurePlayerData(p);
         Rank r = getRank(p.getName());
         applyCreatorTag(p);
         p.setPlayerListName(color(identityPrefix(p.getName(), r) + "&f" + p.getName()));
-        e.setJoinMessage(color("&8[&a+&8] " + identityPrefix(p.getName(), r) + "&f" + p.getName()));
-        if (simChat != null) simChat.onJoin(p);
+
+        // HOT/COLD body promotion is an implementation detail, not a logical
+        // login. Suppress those technical join messages and fan reactions.
+        if (bot) {
+            e.setJoinMessage(null);
+        } else {
+            e.setJoinMessage(color("&8[&a+&8] " + identityPrefix(p.getName(), r) + "&f" + p.getName()));
+            if (simChat != null) simChat.onJoin(p);
+        }
+
         if (spawnPresence != null) spawnPresence.showTo(p);
     }
 
     @EventHandler(priority=EventPriority.HIGHEST) public void onQuit(PlayerQuitEvent e) {
         Player p = e.getPlayer();
+        if (isBotIdentity(p.getName())) {
+            e.setQuitMessage(null);
+            return;
+        }
         Rank r = getRank(p.getName());
         e.setQuitMessage(color("&8[&c-&8] " + identityPrefix(p.getName(), r) + "&f" + p.getName()));
+    }
+
+    void broadcastSimulatedPresence(String name, boolean joining) {
+        if (!hasHumanOnline()) return;
+        Rank rank = simRank(name);
+        String marker = joining ? "&8[&a+&8] " : "&8[&c-&8] ";
+        Bukkit.broadcastMessage(color(marker + identityPrefix(name,rank) + "&f" + name + factionSuffix(name)));
     }
 
     @EventHandler(priority=EventPriority.HIGHEST) public void onChat(AsyncPlayerChatEvent e) {

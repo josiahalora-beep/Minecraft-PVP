@@ -98,7 +98,7 @@ function tierFromRoll(roll) {
   return 'elite'
 }
 
-export function combatProfileFor(username, forcedTier = '') {
+export function combatProfileFor(username, forcedTier = '', forcedStyle = '') {
   const key = String(username || '').toLowerCase()
   const seed = hash32(key || 'player')
   const rng = rngFrom(seed)
@@ -109,7 +109,8 @@ export function combatProfileFor(username, forcedTier = '') {
   const canStrafe = rng() < base.strafeChance
   const canWTap = rng() < base.wTapChance
   const styleRoll = rng()
-  const style = styleRoll < 0.30 ? 'passive' : (styleRoll < 0.72 ? 'balanced' : 'aggressive')
+  const rolledStyle = styleRoll < 0.30 ? 'passive' : (styleRoll < 0.72 ? 'balanced' : 'aggressive')
+  const style = ['passive', 'balanced', 'aggressive'].includes(forcedStyle) ? forcedStyle : rolledStyle
   const stylePearlMult = style === 'aggressive' ? 1.25 : (style === 'passive' ? 0.45 : 1.0)
 
   return {

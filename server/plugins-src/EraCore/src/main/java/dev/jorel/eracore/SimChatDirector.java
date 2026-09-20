@@ -76,11 +76,8 @@ final class SimChatDirector {
         Player killer = victim.getKiller();
         world.onLiveDeath(victim.getName(), killer == null ? "" : killer.getName());
 
-        if (killer != null && plugin.isCreatorIdentity(killer.getName())) {
-            scheduleFanReaction(killer.getName(), "kill");
-        } else if (plugin.isCreatorIdentity(victim.getName())) {
-            scheduleFanReaction(victim.getName(), "death");
-        }
+        // Creator kill/death reactions are queued by SimWorldDirector so
+        // real and offscreen deaths use the same pacing and do not double-post.
     }
 
     private void tick() {

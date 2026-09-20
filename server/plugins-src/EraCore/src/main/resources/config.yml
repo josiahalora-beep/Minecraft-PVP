@@ -132,3 +132,26 @@ sim-world:
   population: 90
   tick-seconds: 30
   factions-per-tick: 4
+  underdog-leaders: 2
+
+spawn-presence:
+  enabled: true
+  count: 4
+  update-ticks: 20
+  names:
+    - xRico
+    - PurpleDino
+    - BreezyMC
+    - MasonHD
+    - NightPvP
+    - Vexing
+
+hcf-classes:
+  enabled: true
+  bard-radius: 30.0
+  bard-click-seconds: 5
+  archer-bonus-per-block: 0.08
+  archer-max-bonus-damage: 4.0
+  miner-invisibility-y: 20
+  rogue-backstab-cooldown-seconds: 20
+  rogue-backstab-bonus-damage: 7.0

@@ -1474,7 +1474,7 @@ final class SimWorldDirector {
             if (f.stage == Stage.PVP_READY && rng.nextBoolean()) return new ChatEvent(p.name, "who is at spawn");
         }
 
-        String[] neutral = {"gg","anyone at spawn","who has pearls","koth soon?","who wants ally","selling stuff msg me","lol","need levels"};
+        String[] neutral = {"gg","anyone at spawn","who has pearls","who wants ally","selling stuff msg me","lol","need levels","who is outside","need pots","who has p4"};
         return new ChatEvent(p.name, neutral[rng.nextInt(neutral.length)]);
     }
 
@@ -1924,6 +1924,24 @@ final class SimWorldDirector {
         return "yeah";
     }
 
+    List<String> allIdentityNames() {
+        List<String> out=new ArrayList<String>();
+        for(SimPlayer p:players.values()) out.add(p.name);
+        Collections.sort(out,String.CASE_INSENSITIVE_ORDER);
+        return out;
+    }
+
+    String identityDisplayName(String keyOrName) {
+        SimPlayer p=players.get(key(keyOrName));
+        return p==null?keyOrName:p.name;
+    }
+
+    int logicalOnlineCount() {
+        int n=0;
+        for(SimPlayer p:players.values()) if(p.logicalOnline) n++;
+        return n;
+    }
+
     private Collection<SimPlayer> logicallyOnlinePlayers() {
         List<SimPlayer> out=new ArrayList<SimPlayer>();
         for(SimPlayer p:players.values()) if(p.logicalOnline) out.add(p);
@@ -2084,8 +2102,8 @@ final class SimWorldDirector {
             return;
         }
 
-        int work = Math.max(1, plugin.getConfig().getInt("sim-world.factions-per-tick", 4));
         List<SimFaction> list = new ArrayList<SimFaction>(factions.values());
+        int work = Math.min(list.size(), Math.max(1, plugin.getConfig().getInt("sim-world.factions-per-tick", 4)));
         for (int i = 0; i < work; i++) {
             if (factionCursor >= list.size()) factionCursor = 0;
             SimFaction f = list.get(factionCursor++);
@@ -2121,12 +2139,6 @@ final class SimWorldDirector {
                     f.buildTarget = baseBuildTarget(f.basePreset);
                     f.buildProgress = 0;
                     f.stage = Stage.BUILD_STARTER;
-                }
-                break;
-
-            case BUILD_STARTER:
-                f.buildProgress = Math.min(f.buildTarget, f.buildProgress + factionBuildWork(f));
-                if (f.buildProgress >= f.buildTarget) {
                     if (!f.baseQueued) {
                         plugin.queueSimBaseBuild(f.name, f.basePreset, f.trapPreset, f.baseX, f.baseY, f.baseZ);
                         f.baseQueued = true;
@@ -2134,6 +2146,12 @@ final class SimWorldDirector {
                             f.specialTrapBuilt = true;
                         }
                     }
+                }
+                break;
+
+            case BUILD_STARTER:
+                f.buildProgress = Math.min(f.buildTarget, f.buildProgress + factionBuildWork(f));
+                if (f.buildProgress >= f.buildTarget) {
                     f.storage = true;
                     f.stage = Stage.ECONOMY;
                 }
@@ -2187,11 +2205,8 @@ final class SimWorldDirector {
             SimPlayer p = players.get(key(member));
             if (p == null || !p.logicalOnline) continue;
 
-            // A connected simulated identity is embodied. Its physical work is
-            // deposited from the real inventory instead of also receiving the
-            // offscreen production roll.
-            if (Bukkit.getPlayerExact(p.name) != null) continue;
-
+            // HOT bodies are visual projections of this authoritative work.
+            // Keeping production here prevents embodiment from stalling SOTW.
             if ("mine".equals(p.currentGoal) || "gather".equals(p.currentGoal) || "supply".equals(p.currentGoal)) {
                 int minerBonus = "miner".equals(p.preferredJob) ? 8 : 0;
                 f.stone += 20 + minerBonus + rng.nextInt(18);
@@ -2461,7 +2476,7 @@ final class SimWorldDirector {
             "gg stop crying",
             "we live next to you what do you expect"
         };
-        String[] last = {"fair lol","see you at koth","just wait","alright gg"};
+        String[] last = {"fair lol","come outside then","just wait","alright gg"};
 
         enqueue(pb.name, reply[rng.nextInt(reply.length)], true);
         if (e.getValue() >= 35 && rng.nextBoolean()) enqueue(pa.name, last[rng.nextInt(last.length)], true);
@@ -2888,15 +2903,15 @@ final class SimWorldDirector {
     private void formationTick() {
         if (!sotwRecruitingActive()) return;
 
-        if (sotwTicks % 2L == 0L) createNextLeaderFaction();
+        createNextLeaderFaction();
 
         List<SimFaction> open = new ArrayList<SimFaction>(factions.values());
         Collections.shuffle(open, rng);
         int recruits = 0;
         for (SimFaction f : open) {
             if (f.members.size() >= f.targetSize || f.members.size() >= MAX_FACTION_MEMBERS) continue;
-            if (rng.nextInt(100) < 48 && recruitBestCandidate(f)) recruits++;
-            if (recruits >= 2) break;
+            if (rng.nextInt(100) < 72 && recruitBestCandidate(f)) recruits++;
+            if (recruits >= 8) break;
         }
     }
 

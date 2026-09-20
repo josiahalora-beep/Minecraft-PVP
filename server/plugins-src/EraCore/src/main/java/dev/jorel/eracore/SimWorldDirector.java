@@ -78,6 +78,7 @@ final class SimWorldDirector {
         boolean claimed;
         boolean storage;
         boolean brewer;
+        boolean farmBuilt;
         boolean recoveryMode;
         int baseX;
         int baseY = 64;
@@ -372,6 +373,80 @@ final class SimWorldDirector {
                 break;
         }
         return t;
+    }
+
+    private SimPlayer firstJobMember(SimFaction f, String job) {
+        for (String member : f.members) {
+            SimPlayer p = players.get(key(member));
+            if (p != null && job.equals(p.preferredJob)) return p;
+        }
+        return null;
+    }
+
+    String depositEmbodiedWorker(Player body) {
+        SimPlayer p = players.get(key(body.getName()));
+        if (p == null || p.faction.isEmpty()) return "no-sim-player";
+        SimFaction f = factions.get(key(p.faction));
+        if (f == null) return "no-faction";
+
+        int stone=0, wood=0, iron=0, diamond=0, obsidian=0;
+        int cane=0, cactus=0, pumpkin=0, melon=0;
+
+        org.bukkit.inventory.ItemStack[] contents = body.getInventory().getContents();
+        for (int slot=0; slot<contents.length; slot++) {
+            org.bukkit.inventory.ItemStack item = contents[slot];
+            if (item == null || item.getType() == Material.AIR) continue;
+            int n = item.getAmount();
+            boolean take = true;
+
+            switch (item.getType()) {
+                case COBBLESTONE:
+                case STONE:
+                    stone += n; break;
+                case LOG:
+                case LOG_2:
+                case WOOD:
+                    wood += n; break;
+                case IRON_ORE:
+                case IRON_INGOT:
+                    iron += n; break;
+                case DIAMOND_ORE:
+                case DIAMOND:
+                    diamond += n; break;
+                case OBSIDIAN:
+                    obsidian += n; break;
+                case SUGAR_CANE:
+                case SUGAR_CANE_BLOCK:
+                    cane += n; break;
+                case CACTUS:
+                    cactus += n; break;
+                case PUMPKIN:
+                    pumpkin += n; break;
+                case MELON:
+                    melon += n; break;
+                default:
+                    take = false;
+            }
+
+            if (take) body.getInventory().setItem(slot,null);
+        }
+
+        f.stone += stone;
+        f.wood += wood;
+        f.iron += iron;
+        f.diamonds += diamond;
+        f.obsidian += obsidian;
+        f.cane += cane;
+
+        if (cane > 0) p.stock.put("cane", getStock(p,"cane") + cane);
+        if (cactus > 0) p.stock.put("cactus", getStock(p,"cactus") + cactus);
+        if (pumpkin > 0) p.stock.put("pumpkin", getStock(p,"pumpkin") + pumpkin);
+        if (melon > 0) p.stock.put("melon", getStock(p,"melon") + melon);
+
+        save();
+        return "stone="+stone+" wood="+wood+" iron="+iron+" diamond="+diamond+
+            " obsidian="+obsidian+" cane="+cane+" cactus="+cactus+
+            " pumpkin="+pumpkin+" melon="+melon;
     }
 
     int workerCandidateCount() {
@@ -692,6 +767,13 @@ final class SimWorldDirector {
                 break;
 
             case ECONOMY:
+                if (!f.farmBuilt) {
+                    SimPlayer farmer = firstJobMember(f,"farmer");
+                    if (farmer != null && farmer.farmReady) {
+                        plugin.queueSimFarmBuild(f.name, farmer.farmCrop, f.baseX, f.baseY, f.baseZ);
+                        f.farmBuilt = true;
+                    }
+                }
                 // Mature factions nearly always prioritize potion infrastructure.
                 if (f.iron >= 35 && f.stone >= 96 && f.obsidian >= 8) {
                     f.stage = Stage.BREWER;
@@ -731,6 +813,11 @@ final class SimWorldDirector {
         for (String member : f.members) {
             SimPlayer p = players.get(key(member));
             if (p == null) continue;
+
+            // A connected simulated identity is embodied. Its physical work is
+            // deposited from the real inventory instead of also receiving the
+            // offscreen production roll.
+            if (Bukkit.getPlayerExact(p.name) != null) continue;
 
             if ("miner".equals(p.role)) {
                 f.stone += 28 + rng.nextInt(22);
@@ -1267,6 +1354,7 @@ final class SimWorldDirector {
                 f.claimed = s.getBoolean("claimed");
                 f.storage = s.getBoolean("storage");
                 f.brewer = s.getBoolean("brewer");
+                f.farmBuilt = s.getBoolean("farm-built", false);
                 f.p4Sets = s.getInt("p4-sets");
                 f.sharp4Swords = s.getInt("sharp4-swords");
                 f.bardSets = s.getInt("bard-sets");
@@ -2003,6 +2091,7 @@ final class SimWorldDirector {
             data.set(b + ".claimed", f.claimed);
             data.set(b + ".storage", f.storage);
             data.set(b + ".brewer", f.brewer);
+            data.set(b + ".farm-built", f.farmBuilt);
             data.set(b + ".p4-sets", f.p4Sets);
             data.set(b + ".sharp4-swords", f.sharp4Swords);
             data.set(b + ".bard-sets", f.bardSets);

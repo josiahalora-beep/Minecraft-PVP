@@ -1425,6 +1425,45 @@ final class SimWorldDirector {
             " pumpkin="+pumpkin+" melon="+melon;
     }
 
+    void applyDonorKitClaim(String name,int rankLevel) {
+        SimPlayer p=players.get(key(name));
+        if(p==null || p.faction.isEmpty() || rankLevel<=0) return;
+        SimFaction f=factions.get(key(p.faction));
+        if(f==null) return;
+
+        // Donor kits are an allowed item source. Credit the authoritative
+        // faction economy once when the real /kit cooldown succeeds.
+        if(rankLevel>=4) {
+            f.p4Sets+=1;
+            f.sharp4Swords+=1;
+            f.pearls+=16;
+            f.healPots+=16;
+            f.speedPots+=2;
+            f.firePots+=1;
+        } else if(rankLevel==3) {
+            f.diamonds+=18;
+            f.xp+=18;
+            f.pearls+=12;
+            f.healPots+=12;
+            f.speedPots+=2;
+            f.firePots+=1;
+        } else if(rankLevel==2) {
+            f.diamonds+=12;
+            f.xp+=12;
+            f.pearls+=8;
+            f.healPots+=8;
+            f.speedPots+=1;
+        } else {
+            f.diamonds+=8;
+            f.xp+=7;
+            f.pearls+=4;
+            f.healPots+=4;
+        }
+
+        p.reputation=Math.min(999,p.reputation+1);
+        save();
+    }
+
     int workerCandidateCount() {
         int n = 0;
         for (SimPlayer p : players.values()) {

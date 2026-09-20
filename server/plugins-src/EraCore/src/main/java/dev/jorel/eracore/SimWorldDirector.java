@@ -999,6 +999,7 @@ final class SimWorldDirector {
     private void updateLogicalSessionsAndGoals() {
         int target=logicalOnlineTarget();
         int online=0;
+        int presenceBudget=2;
         List<SimPlayer> offline=new ArrayList<SimPlayer>();
 
         for(SimPlayer p:players.values()) {
@@ -1010,6 +1011,10 @@ final class SimWorldDirector {
                     p.currentGoal="offline";
                     online--;
                     offline.add(p);
+                    if(presenceBudget>0 && rng.nextInt(100)<65) {
+                        plugin.broadcastSimulatedPresence(p.name,false);
+                        presenceBudget--;
+                    }
                 } else if(p.sessionTicksLeft<=0) {
                     p.sessionTicksLeft=newSessionTicks(p);
                 }
@@ -1029,6 +1034,10 @@ final class SimWorldDirector {
             p.sessionTicksLeft=newSessionTicks(p);
             p.nextGoalTick=sotwTicks;
             online++;
+            if(presenceBudget>0 && rng.nextInt(100)<65) {
+                plugin.broadcastSimulatedPresence(p.name,true);
+                presenceBudget--;
+            }
         }
 
         for(SimPlayer p:players.values()) {

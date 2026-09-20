@@ -165,24 +165,63 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     private void initShops() {
-        sellPrices.put(Material.SUGAR_CANE, 4.0);
-        sellPrices.put(Material.MELON, 1.0);
-        sellPrices.put(Material.CACTUS, 3.0);
-        sellPrices.put(Material.PUMPKIN, 8.0);
-        sellPrices.put(Material.WHEAT, 2.0);
-        sellPrices.put(Material.CARROT_ITEM, 2.0);
-        sellPrices.put(Material.POTATO_ITEM, 2.0);
-        sellPrices.put(Material.IRON_INGOT, 10.0);
-        sellPrices.put(Material.GOLD_INGOT, 18.0);
-        sellPrices.put(Material.DIAMOND, 75.0);
+        sellPrices.clear();
+        buyItems.clear();
 
-        addBuy("healthpot", Material.POTION, (short)16421, 85.0);
-        addBuy("speedpot", Material.POTION, (short)8226, 65.0);
-        addBuy("fireres", Material.POTION, (short)8259, 65.0);
-        addBuy("pearl", Material.ENDER_PEARL, (short)0, 150.0);
-        addBuy("obsidian", Material.OBSIDIAN, (short)0, 22.0);
-        addBuy("tnt", Material.TNT, (short)0, 80.0);
-        addBuy("steak", Material.COOKED_BEEF, (short)0, 5.0);
+        // Slow-inflation classic economy. Farming is the reliable money source;
+        // mining helps bootstrap but cannot instantly finance endless PvP sets.
+        sellPrices.put(Material.SUGAR_CANE, 3.0);
+        sellPrices.put(Material.CACTUS, 2.25);
+        sellPrices.put(Material.PUMPKIN, 5.5);
+        sellPrices.put(Material.MELON, 0.75);
+        sellPrices.put(Material.WHEAT, 1.25);
+        sellPrices.put(Material.CARROT_ITEM, 1.25);
+        sellPrices.put(Material.POTATO_ITEM, 1.25);
+        sellPrices.put(Material.IRON_INGOT, 8.0);
+        sellPrices.put(Material.GOLD_INGOT, 14.0);
+        sellPrices.put(Material.DIAMOND, 60.0);
+
+        // Finished PvP consumables are an expensive convenience. Mature factions
+        // save heavily by brewing instead of buying finished pots.
+        addBuy("healthpot", Material.POTION, (short)16421, 135.0);
+        addBuy("speedpot", Material.POTION, (short)8226, 95.0);
+        addBuy("fireres", Material.POTION, (short)8259, 110.0);
+        addBuy("pearl", Material.ENDER_PEARL, (short)0, 160.0);
+        addBuy("obsidian", Material.OBSIDIAN, (short)0, 30.0);
+        addBuy("steak", Material.COOKED_BEEF, (short)0, 6.0);
+
+        // Farm/bootstrap supplies. A $500 start can establish one modest farm,
+        // but not simultaneously buy a PvP loadout.
+        addBuy("cane", Material.SUGAR_CANE, (short)0, 9.0);
+        addBuy("cactus", Material.CACTUS, (short)0, 7.0);
+        addBuy("pumpkinseed", Material.PUMPKIN_SEEDS, (short)0, 8.0);
+        addBuy("melonseed", Material.MELON_SEEDS, (short)0, 5.0);
+        addBuy("sand", Material.SAND, (short)0, 2.0);
+        addBuy("dirt", Material.DIRT, (short)0, 1.0);
+        addBuy("waterbucket", Material.WATER_BUCKET, (short)0, 35.0);
+        addBuy("chest", Material.CHEST, (short)0, 20.0);
+        addBuy("hopper", Material.HOPPER, (short)0, 65.0);
+        addBuy("brewingstand", Material.BREWING_STAND_ITEM, (short)0, 140.0);
+        addBuy("redstone", Material.REDSTONE, (short)0, 4.0);
+        addBuy("netherwart", Material.NETHER_STALK, (short)0, 12.0);
+        addBuy("glowstone", Material.GLOWSTONE_DUST, (short)0, 12.0);
+        addBuy("gunpowder", Material.SULPHUR, (short)0, 18.0);
+        addBuy("glisteringmelon", Material.SPECKLED_MELON, (short)0, 24.0);
+        addBuy("sugar", Material.SUGAR, (short)0, 6.0);
+        addBuy("magmacream", Material.MAGMA_CREAM, (short)0, 22.0);
+        addBuy("glass", Material.GLASS, (short)0, 2.0);
+        addBuy("book", Material.BOOK, (short)0, 12.0);
+        addBuy("lapis", Material.INK_SACK, (short)4, 5.0);
+    }
+
+    double sellUnitPrice(Material material) {
+        Double price = sellPrices.get(material);
+        return price == null ? 0.0 : price;
+    }
+
+    double buyUnitPrice(String key) {
+        ShopItem item = buyItems.get(key.toLowerCase(Locale.ENGLISH));
+        return item == null ? Double.POSITIVE_INFINITY : item.price;
     }
 
     private void addBuy(String key, Material m, short data, double price) {
@@ -985,7 +1024,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     private boolean cmdBuy(Player p,String[] a) {
         if(a.length!=2) {
-            p.sendMessage("/buy <healthpot|speedpot|fireres|pearl|obsidian|tnt|steak> <amount>");
+            p.sendMessage("/buy <item> <amount>");
             return true;
         }
         ShopItem item=buyItems.get(a[0].toLowerCase(Locale.ENGLISH));
@@ -1023,10 +1062,11 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     private boolean cmdShop(Player p) {
         p.sendMessage(color("&6--- Classic Server Shop ---"));
-        p.sendMessage(color("&eSell: &fSugar cane $4, melon $1, cactus $3, pumpkin $8, wheat/carrot/potato $2, iron $10, gold $18, diamond $75"));
-        StringBuilder sb=new StringBuilder("&eBuy: ");
-        for(ShopItem i:buyItems.values()) sb.append("&f").append(i.key).append(" $").append((int)i.price).append("  ");
-        p.sendMessage(color(sb.toString()));
+        p.sendMessage(color("&eSell crops: &fcane $3, cactus $2.25, pumpkin $5.50, melon $0.75, wheat/carrot/potato $1.25"));
+        p.sendMessage(color("&eSell ores: &firon $8, gold $14, diamond $60"));
+        p.sendMessage(color("&ePvP: &fhealthpot $135, speedpot $95, fireres $110, pearl $160, obsidian $30, steak $6"));
+        p.sendMessage(color("&eFarm: &fcane $9, cactus $7, pumpkinseed $8, melonseed $5, sand $2, dirt $1, waterbucket $35"));
+        p.sendMessage(color("&eBrewing: &fbrewingstand $140, hopper $65, netherwart $12, glowstone $12, gunpowder $18, glisteringmelon $24, sugar $6, magmacream $22"));
         p.sendMessage(color("&7Use /sell hand, /sell all, or /buy <item> <amount>."));
         return true;
     }

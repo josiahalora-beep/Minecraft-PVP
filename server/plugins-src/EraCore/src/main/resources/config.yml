@@ -110,7 +110,6 @@ sim-chat:
     - 'who wants to pvp'
     - 'gg'
     - 'lol'
-    - 'where is koth'
     - 'need 1 more'
     - 'anyone got blaze spawners'
     - 'paying 8k for silk'
@@ -129,7 +128,6 @@ sim-chat:
     - 'bruh'
     - 'that combo'
     - 'meet at spawn'
-    - 'anyone doing koth'
     - 'selling pearls cheap'
     - 'need one for our faction'
     - 'who is rich rn'
@@ -221,3 +219,12 @@ worker-pool:
     - PainfulPvP
     - lolitsalex
     - Skimpy
+
+safezones:
+  combat-tag-seconds: 60
+  overworld-radius: 60
+  nether-radius: 42
+  end-radius: 42
+  auto-build-borders: true
+  archer-tag-seconds: 10
+  archer-tag-damage-multiplier: 1.20

@@ -1708,6 +1708,17 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         return new double[]{avg,p95,max,v.length};
     }
 
+    int adaptiveHotBodyBudget(int requested) {
+        double[] s = tickStats();
+        if (s == null) return Math.max(2, requested);
+        double p95 = s[1];
+        if (p95 >= 40.0) return 2;
+        if (p95 >= 30.0) return Math.min(requested, 3);
+        if (p95 >= 20.0) return Math.min(requested, 4);
+        if (p95 >= 12.0) return Math.min(requested, 6);
+        return requested;
+    }
+
     private String probeString() {
         double[] s=tickStats();
         Runtime r=Runtime.getRuntime();

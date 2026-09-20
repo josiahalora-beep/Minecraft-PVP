@@ -40,6 +40,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     private final Set<String> factionChat = new HashSet<String>();
     private final Map<String, Double> power = new HashMap<String, Double>();
     private final Map<String, Long> pearlCooldowns = new HashMap<String, Long>();
+    private final Map<String, String> combatPreparedFight = new HashMap<String, String>();
     private final Map<Material, Double> sellPrices = new LinkedHashMap<Material, Double>();
     private final Map<String, ShopItem> buyItems = new LinkedHashMap<String, ShopItem>();
     private long[] tickTimes;

@@ -144,7 +144,7 @@ function candidatesFrom(data, settings) {
     for (const name of members) {
       if (pinnedNames.has(String(name).toLowerCase())) continue
       const p = players[String(name).toLowerCase()] || players[name] || null
-      if (!p) continue
+      if (!p || p['logical-online'] === false) continue
       const score = roleScore(stage, p)
       if (score < 20) continue
       out.push({
@@ -525,17 +525,20 @@ async function reconcile() {
 
     const leaseExpired = Date.now() - (state.connectedAt || 0) >= settings.minimumLeaseMs
     const missingLongEnough = state.missingCycles >= settings.missingGraceCycles
+    const overCapacity = live.size > target
 
     // Do not churn a useful body just because simulation.yml was momentarily
     // incomplete during a save or priorities changed by a tiny amount.
-    if (!leaseExpired || !missingLongEnough) continue
+    if (!leaseExpired) continue
+    if (!overCapacity && !missingLongEnough) continue
 
-    const replacement = desired.find(c => !live.has(c.name))
+    const replacement = desired.find(c => ![...live.keys()].some(n => n.toLowerCase() === c.name.toLowerCase()))
     const replacementScore = replacement?.score || 0
     const oldScore = state.lastCandidateScore || 0
-    if (replacement && replacementScore < oldScore + settings.rotationScoreMargin) continue
 
-    disconnectIdentity(name, 'stable rotation')
+    if (!overCapacity && replacement && replacementScore < oldScore + settings.rotationScoreMargin) continue
+
+    disconnectIdentity(name, overCapacity ? 'adaptive capacity' : 'stable rotation')
   }
 
   for (const cand of desired) {

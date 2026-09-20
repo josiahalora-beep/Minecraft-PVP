@@ -163,6 +163,9 @@ final class SimWorldDirector {
         String identity;
         String faction;
         String action;
+        String zone = "base";
+        String combatClass = "DIAMOND";
+        String preferredJob = "member";
         int x;
         int y;
         int z;
@@ -171,6 +174,9 @@ final class SimWorldDirector {
         String wire() {
             return "action=" + action +
                 " faction=" + (faction == null || faction.isEmpty() ? "none" : faction) +
+                " zone=" + zone +
+                " class=" + combatClass +
+                " job=" + preferredJob +
                 " x=" + x + " y=" + y + " z=" + z +
                 " priority=" + priority;
         }
@@ -777,7 +783,7 @@ final class SimWorldDirector {
     }
 
     private VisibleFight createVisibleFight(Player observer) {
-        List<SimFaction> ready=new ArrayList<SimFaction>();
+        List<SimFaction> allReady=new ArrayList<SimFaction>();
         for(SimFaction f:factions.values()) {
             if(f.stage!=Stage.PVP_READY || f.recoveryMode || plugin.factionRaidable(f.name)) continue;
             int active=0;
@@ -785,20 +791,48 @@ final class SimWorldDirector {
                 SimPlayer p=players.get(key(member));
                 if(p!=null && p.logicalOnline && shouldSeekPvp(p.name)) active++;
             }
-            if(active>0) ready.add(f);
+            if(active>0) allReady.add(f);
+        }
+        if(allReady.size()<2) return null;
+
+        final Location ol=observer.getLocation();
+        SimFaction observedBase=null;
+        if(observer.getWorld().equals(Bukkit.getWorlds().get(0))) {
+            double limit=Math.pow(plugin.getConfig().getInt("combat-director.observation-radius",160)*1.6,2);
+            double best=Double.MAX_VALUE;
+            for(SimFaction f:allReady) {
+                double d=distSq(ol.getX(),ol.getZ(),f.baseX,f.baseZ);
+                if(d<=limit && d<best){observedBase=f;best=d;}
+            }
+        }
+
+        final String observerZone=zoneForWorld(observer.getWorld());
+        List<SimFaction> ready=new ArrayList<SimFaction>();
+        if(observedBase!=null) {
+            ready.add(observedBase);
+            for(SimFaction f:allReady) {
+                if(f==observedBase) continue;
+                if((f.campTarget!=null && f.campTarget.equalsIgnoreCase(observedBase.name)) ||
+                   rivalryScore(f.name,observedBase.name)>=8) ready.add(f);
+            }
+            if(ready.size()<2) {
+                for(SimFaction f:allReady) if(f!=observedBase && !ready.contains(f)) {ready.add(f);break;}
+            }
+        } else {
+            for(SimFaction f:allReady) if(observerZone.equals(warzoneForFaction(f))) ready.add(f);
         }
         if(ready.size()<2) return null;
 
-        final Location ol=observer.getLocation();
         Collections.sort(ready,new Comparator<SimFaction>() {
             public int compare(SimFaction a,SimFaction b) {
-                double da=distSq(ol.getX(),ol.getZ(),a.baseX,a.baseZ);
-                double db=distSq(ol.getX(),ol.getZ(),b.baseX,b.baseZ);
-                return Double.compare(da,db);
+                int pa=(a.powerFaction?30:0)+("PVP".equals(a.archetype)?20:0);
+                int pb=(b.powerFaction?30:0)+("PVP".equals(b.archetype)?20:0);
+                if(pa!=pb) return Integer.compare(pb,pa);
+                return Integer.compare(teamStrength(b),teamStrength(a));
             }
         });
 
-        SimFaction a=ready.get(0);
+        SimFaction a=observedBase!=null?observedBase:ready.get(0);
 
         // Power/creator neighborhoods can occasionally turn into the messy
         // three-faction brawls that old HCF maps were known for. The worker pool
@@ -832,9 +866,7 @@ final class SimWorldDirector {
         }
         if(b==null) b=ready.get(1);
 
-        boolean atBase=observer.getWorld().equals(Bukkit.getWorlds().get(0)) &&
-            distSq(ol.getX(),ol.getZ(),a.baseX,a.baseZ) <=
-            Math.pow(plugin.getConfig().getInt("combat-director.observation-radius",160)*1.6,2);
+        boolean atBase=observedBase!=null && a==observedBase;
 
         int[] sizes=rollFightSizes(a,b);
         List<SimPlayer> sideA=pickFightMembers(a,sizes[0]);
@@ -899,9 +931,10 @@ final class SimWorldDirector {
         List<SimFaction> nearby=new ArrayList<SimFaction>();
         int radius=Math.max(300,plugin.getConfig().getInt("combat-director.brawl-radius",420)*2);
 
+        boolean overworld=observer.getWorld().equals(Bukkit.getWorlds().get(0));
         for(SimFaction f:ready) {
             if(f==anchor) continue;
-            if(distSq(anchor.baseX,anchor.baseZ,f.baseX,f.baseZ)<=radius*radius) nearby.add(f);
+            if(!overworld || distSq(anchor.baseX,anchor.baseZ,f.baseX,f.baseZ)<=radius*radius) nearby.add(f);
         }
         if(nearby.size()<2) return null;
 
@@ -1235,6 +1268,9 @@ final class SimWorldDirector {
         t.identity = name;
         t.action = "idle";
         t.faction = "";
+        t.zone = "spawn";
+        t.combatClass = p == null ? "DIAMOND" : p.combatClass.name();
+        t.preferredJob = p == null ? "member" : p.preferredJob;
         org.bukkit.World world = Bukkit.getWorlds().get(0);
         org.bukkit.Location spawn = world == null ? null : world.getSpawnLocation();
         t.x = spawn == null ? 0 : spawn.getBlockX();
@@ -1254,6 +1290,9 @@ final class SimWorldDirector {
         if (f == null) return t;
 
         t.faction = f.name;
+        t.combatClass = p.combatClass.name();
+        t.preferredJob = p.preferredJob;
+        t.zone = "base";
         int bx = f.baseX;
         int by = f.baseY > 0 ? f.baseY + 1 : t.y;
         int bz = f.baseZ;
@@ -1353,10 +1392,11 @@ final class SimWorldDirector {
                     t.priority = 70;
                 } else {
                     t.action = "patrol";
+                    t.zone = warzoneForFaction(f);
                     t.x = bx;
                     t.y = by;
                     t.z = bz;
-                    t.priority = 35;
+                    t.priority = 52 + p.aggression/4;
                 }
                 break;
         }
@@ -1367,10 +1407,45 @@ final class SimWorldDirector {
                 "farm".equals(g) || "brew".equals(g) || "gear".equals(g) || "patrol".equals(g) ||
                 "scout".equals(g) || "safe".equals(g) || "recruit".equals(g)) {
                 t.action=g;
+                if("patrol".equals(g)) t.zone=warzoneForFaction(f);
                 t.priority=Math.max(t.priority,goalPriority(p,g));
             }
         }
         return t;
+    }
+
+    private String warzoneForFaction(SimFaction f) {
+        if(f==null) return "spawn";
+        int members=Math.max(1,f.members.size());
+
+        // Real resource pressure creates destination choice first.
+        if(f.pearls < members*8) return "end";
+        if(!f.brewer || f.healPots < members*18 || f.firePots < members) return "nether";
+
+        // Once supplied, personality determines where a faction looks for fights.
+        long epoch=Math.max(0L,f.actionCounter/12L); // roughly stable for ~1-2 minutes
+        int roll=Math.abs((f.name.toLowerCase(Locale.ENGLISH).hashCode()*31 + (int)epoch*17) % 100);
+
+        if(f.powerFaction || "PVP".equals(f.archetype)) {
+            if(roll<46) return "end";
+            if(roll<72) return "nether";
+            return "spawn";
+        }
+        if("TRAPPER".equals(f.archetype)) {
+            if(roll<58) return "spawn";
+            if(roll<78) return "end";
+            return "nether";
+        }
+        if(roll<46) return "spawn";
+        if(roll<73) return "end";
+        return "nether";
+    }
+
+    private String zoneForWorld(World w) {
+        if(w==null) return "spawn";
+        if(w.getEnvironment()==World.Environment.NETHER) return "nether";
+        if(w.getEnvironment()==World.Environment.THE_END) return "end";
+        return "spawn";
     }
 
     private int goalPriority(SimPlayer p,String goal) {

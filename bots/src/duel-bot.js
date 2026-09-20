@@ -5,7 +5,8 @@ import { combatProfileFor, profileSummary } from './combat-profiles.js'
 
 const username = process.env.DUEL_BOT || 'DuelBot01'
 const targetName = process.env.TARGET || ''
-const forcedTier = process.env.DUEL_SKILL || (username === 'DuelBot01' ? 'skilled' : '')
+const forcedTier = process.env.DUEL_SKILL || process.argv[2] || (username === 'DuelBot01' ? 'skilled' : '')
+const forcedStyle = process.env.DUEL_STYLE || process.argv[3] || ''
 const SAFEZONE_RADIUS = Number(process.env.SAFEZONE_RADIUS || 60)
 const ENGAGE_RANGE = Number(process.env.ENGAGE_RANGE || 36)
 const SPEED_META = 8226
@@ -13,7 +14,7 @@ const FIRE_RES_META = 8259
 const SPEED_MS = 90_000
 const FIRE_RES_MS = 480_000
 
-const profile = combatProfileFor(username, forcedTier)
+const profile = combatProfileFor(username, forcedTier, forcedStyle)
 const bot = createBot(username, { physicsEnabled: true, viewDistance: 'tiny' })
 const outDir = path.resolve('logs')
 fs.mkdirSync(outDir, { recursive: true })

@@ -25,6 +25,7 @@ final class SimWorldDirector {
     static final int MAX_FACTION_MEMBERS = 5;
 
     enum Stage {
+        RECRUITING,
         SCOUT_CLAIM,
         GATHER_STARTER,
         BUILD_STARTER,
@@ -34,14 +35,28 @@ final class SimWorldDirector {
         PVP_READY
     }
 
+    enum CombatClass {
+        DIAMOND,
+        BARD,
+        ARCHER,
+        ROGUE,
+        MINER
+    }
+
     static final class SimPlayer {
         String name;
         String faction = "";
         String role = "member";
+        String preferredJob = "member";
+        CombatClass combatClass = CombatClass.DIAMOND;
+        boolean leaderCandidate;
+        boolean underdogLeader;
         double balance;
         int skill;          // 0..100
         int aggression;     // 0..100
         int bargaining;     // 0..100
+        int leadership;     // 0..100
+        int teamwork;       // 0..100
         final Map<String,Integer> stock = new LinkedHashMap<String,Integer>();
     }
 
@@ -49,13 +64,18 @@ final class SimWorldDirector {
         String name;
         String leader;
         int targetSize;
-        Stage stage = Stage.SCOUT_CLAIM;
+        Stage stage = Stage.RECRUITING;
         String basePreset;
+        boolean powerFaction;
+        boolean underdog;
         boolean claimed;
         boolean storage;
         boolean brewer;
         int p4Sets;
         int sharp4Swords;
+        int bardSets;
+        int archerSets;
+        int rogueSets;
         int healPots;
         int pearls;
         int speedPots;
@@ -111,6 +131,8 @@ final class SimWorldDirector {
     private final Map<String,String> lastReplyTarget = new HashMap<String,String>();
     private BukkitTask task;
     private int factionCursor;
+    private int factionNameCursor;
+    private long sotwTicks;
 
     private static final Pattern MONEY = Pattern.compile("(?:\\$\\s*)?(\\d{2,7})");
 
@@ -180,8 +202,14 @@ final class SimWorldDirector {
     ChatEvent nextChatEvent() {
         if (players.isEmpty()) return null;
 
-        // Most chat should be caused by actual needs or inventory, not filler.
-        if (rng.nextInt(100) < 72) {
+        // During SOTW, faction formation should dominate chat naturally.
+        if (sotwRecruitingActive() && rng.nextInt(100) < 55) {
+            ChatEvent recruitment = recruitmentChatEvent();
+            if (recruitment != null) return recruitment;
+        }
+
+        // Outside recruitment, most chat should still be caused by actual needs or inventory.
+        if (rng.nextInt(100) < 62) {
             MarketOrder order = makeMarketOrder();
             if (order != null) {
                 activeOrders.put(key(order.owner), order);
@@ -355,7 +383,13 @@ final class SimWorldDirector {
     }
 
     private void tick() {
-        if (factions.isEmpty()) return;
+        sotwTicks++;
+        formationTick();
+
+        if (factions.isEmpty()) {
+            save();
+            return;
+        }
 
         int work = Math.max(1, plugin.getConfig().getInt("sim-world.factions-per-tick", 4));
         List<SimFaction> list = new ArrayList<SimFaction>(factions.values());
@@ -372,6 +406,12 @@ final class SimWorldDirector {
         produce(f);
 
         switch (f.stage) {
+            case RECRUITING:
+                if (f.members.size() >= Math.min(2, f.targetSize) || !sotwRecruitingActive()) {
+                    f.stage = Stage.SCOUT_CLAIM;
+                }
+                break;
+
             case SCOUT_CLAIM:
                 if (f.actionCounter % 2 == 0) {
                     f.claimed = true;
@@ -500,6 +540,25 @@ final class SimWorldDirector {
         int protCostBooks = 18;
         int sharpCostBooks = 20;
 
+        int neededBard = classCount(f, CombatClass.BARD);
+        int neededArcher = classCount(f, CombatClass.ARCHER);
+        int neededRogue = classCount(f, CombatClass.ROGUE);
+
+        // HCF support sets are cheaper materially than diamond, but still must
+        // actually be crafted and stocked before those players are fight-ready.
+        if (f.bardSets < neededBard && f.iron >= 4) {
+            f.iron -= 4;
+            f.bardSets++;
+        }
+        if (f.archerSets < neededArcher && f.cane >= 24) {
+            f.cane -= 24;
+            f.archerSets++;
+        }
+        if (f.rogueSets < neededRogue && f.iron >= 24) {
+            f.iron -= 24;
+            f.rogueSets++;
+        }
+
         if (f.p4Sets < f.members.size() && f.diamonds >= 24 && f.books >= protCostBooks * 4 && f.lapis >= 32 && f.xp >= 32) {
             f.diamonds -= 24;
             f.books -= protCostBooks * 4;
@@ -531,13 +590,30 @@ final class SimWorldDirector {
     }
 
     private boolean combatReady(SimFaction f) {
-        int fighters = Math.max(1, f.members.size() - 1);
-        return f.p4Sets >= fighters
-            && f.sharp4Swords >= fighters
-            && f.healPots >= fighters * 24
-            && f.pearls >= fighters * 8
-            && f.speedPots >= fighters * 2
-            && f.firePots >= fighters;
+        int diamonds = 0;
+        int bards = 0;
+        int archers = 0;
+        int rogues = 0;
+        for (String member : f.members) {
+            SimPlayer p = players.get(key(member));
+            if (p == null) continue;
+            if (p.combatClass == CombatClass.BARD) bards++;
+            else if (p.combatClass == CombatClass.ARCHER) archers++;
+            else if (p.combatClass == CombatClass.ROGUE) rogues++;
+            else diamonds++;
+        }
+
+        // P4 + Sharp4 is the baseline for diamond fighters. Support classes use
+        // their complete HCF armor sets instead, and nobody roams without pots/pearls.
+        return f.p4Sets >= diamonds
+            && f.sharp4Swords >= Math.max(1, diamonds)
+            && f.bardSets >= bards
+            && f.archerSets >= archers
+            && f.rogueSets >= rogues
+            && f.healPots >= Math.max(1, f.members.size()) * 24
+            && f.pearls >= Math.max(1, f.members.size()) * 8
+            && f.speedPots >= Math.max(1, f.members.size()) * 2
+            && f.firePots >= Math.max(1, f.members.size());
     }
 
     boolean shouldSeekPvp(String name) {
@@ -670,14 +746,23 @@ final class SimWorldDirector {
             p.name = s.getString("name", k);
             p.faction = s.getString("faction", "");
             p.role = s.getString("role", "member");
+            p.preferredJob = s.getString("preferred-job", p.role);
+            try { p.combatClass = CombatClass.valueOf(s.getString("combat-class", "DIAMOND")); } catch (Exception ignored) {}
+            p.leaderCandidate = s.getBoolean("leader-candidate", false);
+            p.underdogLeader = s.getBoolean("underdog-leader", false);
             p.balance = s.getDouble("balance", 500);
             p.skill = s.getInt("skill", 50);
             p.aggression = s.getInt("aggression", 50);
             p.bargaining = s.getInt("bargaining", 50);
+            p.leadership = s.getInt("leadership", 50);
+            p.teamwork = s.getInt("teamwork", 50);
             ConfigurationSection st = s.getConfigurationSection("stock");
             if (st != null) for (String item : st.getKeys(false)) p.stock.put(item, st.getInt(item));
             players.put(key(p.name), p);
         }
+
+        sotwTicks = data.getLong("meta.sotw-ticks", 0L);
+        factionNameCursor = data.getInt("meta.faction-name-cursor", 0);
 
         ConfigurationSection fs = data.getConfigurationSection("factions");
         if (fs != null) {
@@ -689,11 +774,16 @@ final class SimWorldDirector {
                 f.targetSize = Math.min(MAX_FACTION_MEMBERS, s.getInt("target-size", 3));
                 try { f.stage = Stage.valueOf(s.getString("stage", "SCOUT_CLAIM")); } catch (Exception ignored) {}
                 f.basePreset = s.getString("base-preset", "compact_vault");
+                f.powerFaction = s.getBoolean("power-faction", false);
+                f.underdog = s.getBoolean("underdog", false);
                 f.claimed = s.getBoolean("claimed");
                 f.storage = s.getBoolean("storage");
                 f.brewer = s.getBoolean("brewer");
                 f.p4Sets = s.getInt("p4-sets");
                 f.sharp4Swords = s.getInt("sharp4-swords");
+                f.bardSets = s.getInt("bard-sets");
+                f.archerSets = s.getInt("archer-sets");
+                f.rogueSets = s.getInt("rogue-sets");
                 f.healPots = s.getInt("heal-pots");
                 f.pearls = s.getInt("pearls");
                 f.speedPots = s.getInt("speed-pots");
@@ -717,6 +807,11 @@ final class SimWorldDirector {
     }
 
     private void seed() {
+        players.clear();
+        factions.clear();
+        sotwTicks = 0;
+        factionNameCursor = 0;
+
         int target = Math.max(30, Math.min(100, plugin.getConfig().getInt("sim-world.population", 90)));
         List<String> names = new ArrayList<String>(Arrays.asList(PLAYER_NAMES));
         Collections.shuffle(names, new Random(2015L));
@@ -726,50 +821,235 @@ final class SimWorldDirector {
             SimPlayer p = new SimPlayer();
             p.name = names.get(i);
             p.balance = 250 + rng.nextInt(3500);
-            p.skill = skillRoll();
+            p.skill = creatorSkillOverride(p.name, skillRoll());
             p.aggression = 25 + rng.nextInt(66);
             p.bargaining = 25 + rng.nextInt(66);
+            p.leadership = 25 + rng.nextInt(71);
+            p.teamwork = 35 + rng.nextInt(61);
+            p.preferredJob = randomJob();
+            p.role = p.preferredJob;
+            p.combatClass = classFor(p);
+
+            // Every strong/elite identity begins SOTW solo and is expected to
+            // form/lead a power faction rather than being auto-slotted under another leader.
+            p.leaderCandidate = p.skill >= 80;
+            seedStock(p);
             players.put(key(p.name), p);
         }
 
-        // 10% begin unaffiliated. Faction sizes are weighted and capped at five.
-        List<SimPlayer> pool = new ArrayList<SimPlayer>(players.values());
-        Collections.shuffle(pool, new Random(1441L));
-        int affiliated = (int)Math.round(pool.size() * 0.90);
-        int idx = 0;
-        int factionIndex = 0;
-
-        while (idx < affiliated && factionIndex < FACTION_NAMES.length) {
-            int desired = weightedFactionSize();
-            desired = Math.min(desired, affiliated - idx);
-            if (desired <= 0) break;
-
-            SimFaction f = new SimFaction();
-            f.name = FACTION_NAMES[factionIndex++];
-            f.targetSize = desired;
-            f.basePreset = BASE_PRESETS[rng.nextInt(BASE_PRESETS.length)];
-            f.treasury = 300 + rng.nextInt(2200);
-
-            for (int m = 0; m < desired; m++) {
-                SimPlayer p = pool.get(idx++);
-                p.faction = f.name;
-                p.role = roleFor(m, desired);
-                if (m == 0) {
-                    p.role = "leader";
-                    f.leader = p.name;
-                }
-                seedStock(p);
-                f.members.add(p.name);
+        // A small number of non-elite leaders become underdog power-faction seeds.
+        List<SimPlayer> underdogPool = new ArrayList<SimPlayer>();
+        for (SimPlayer p : players.values()) {
+            if (!p.leaderCandidate && p.skill >= 52 && p.skill < 80) underdogPool.add(p);
+        }
+        Collections.sort(underdogPool, new Comparator<SimPlayer>() {
+            public int compare(SimPlayer a, SimPlayer b) {
+                int sa = a.leadership + a.teamwork + ("farmer".equals(a.preferredJob) || "miner".equals(a.preferredJob) ? 20 : 0);
+                int sb = b.leadership + b.teamwork + ("farmer".equals(b.preferredJob) || "miner".equals(b.preferredJob) ? 20 : 0);
+                return Integer.compare(sb, sa);
             }
-
-            factions.put(key(f.name), f);
+        });
+        int underdogs = Math.min(plugin.getConfig().getInt("sim-world.underdog-leaders", 2), underdogPool.size());
+        for (int i = 0; i < underdogs; i++) {
+            underdogPool.get(i).leaderCandidate = true;
+            underdogPool.get(i).underdogLeader = true;
         }
 
-        while (idx < pool.size()) {
-            SimPlayer p = pool.get(idx++);
-            p.role = rng.nextBoolean() ? "farmer" : "trader";
-            seedStock(p);
+        // Critical SOTW rule: nobody is preassigned to a faction.
+        for (SimPlayer p : players.values()) p.faction = "";
+    }
+
+    void resetForSotw() {
+        seed();
+        save();
+    }
+
+    boolean sotwRecruitingActive() {
+        int unaffiliated = 0;
+        for (SimPlayer p : players.values()) if (p.faction.isEmpty()) unaffiliated++;
+        int minSolo = Math.max(8, (int)Math.round(players.size() * 0.18));
+        return unaffiliated > minSolo || hasUnformedLeader();
+    }
+
+    String sotwStatus() {
+        int solo = 0;
+        for (SimPlayer p : players.values()) if (p.faction.isEmpty()) solo++;
+        return "SOTW factions=" + factions.size() + " solo=" + solo + " population=" + players.size();
+    }
+
+    private boolean hasUnformedLeader() {
+        for (SimPlayer p : players.values()) if (p.leaderCandidate && p.faction.isEmpty()) return true;
+        return false;
+    }
+
+    private void formationTick() {
+        if (!sotwRecruitingActive()) return;
+
+        if (sotwTicks % 2L == 0L) createNextLeaderFaction();
+
+        List<SimFaction> open = new ArrayList<SimFaction>(factions.values());
+        Collections.shuffle(open, rng);
+        int recruits = 0;
+        for (SimFaction f : open) {
+            if (f.members.size() >= f.targetSize || f.members.size() >= MAX_FACTION_MEMBERS) continue;
+            if (rng.nextInt(100) < 48 && recruitBestCandidate(f)) recruits++;
+            if (recruits >= 2) break;
         }
+    }
+
+    private void createNextLeaderFaction() {
+        SimPlayer best = null;
+        for (SimPlayer p : players.values()) {
+            if (!p.leaderCandidate || !p.faction.isEmpty()) continue;
+            if (best == null) best = p;
+            else {
+                int ps = p.skill + p.leadership + (p.underdogLeader ? -18 : 20);
+                int bs = best.skill + best.leadership + (best.underdogLeader ? -18 : 20);
+                if (ps > bs) best = p;
+            }
+        }
+        if (best == null) return;
+
+        String name = nextFactionName();
+        SimFaction f = new SimFaction();
+        f.name = name;
+        f.leader = best.name;
+        f.targetSize = best.underdogLeader ? (3 + rng.nextInt(3)) : (rng.nextInt(100) < 55 ? 5 : 4);
+        f.targetSize = Math.min(MAX_FACTION_MEMBERS, f.targetSize);
+        f.basePreset = BASE_PRESETS[rng.nextInt(BASE_PRESETS.length)];
+        f.powerFaction = !best.underdogLeader;
+        f.underdog = best.underdogLeader;
+        f.treasury = 250 + rng.nextInt(best.underdogLeader ? 900 : 1500);
+        f.members.add(best.name);
+
+        best.faction = f.name;
+        best.role = "leader";
+        factions.put(key(f.name), f);
+    }
+
+    private String nextFactionName() {
+        for (int i = 0; i < FACTION_NAMES.length; i++) {
+            String candidate = FACTION_NAMES[(factionNameCursor++) % FACTION_NAMES.length];
+            if (!factions.containsKey(key(candidate))) return candidate;
+        }
+        return "Faction" + (factionNameCursor++);
+    }
+
+    private boolean recruitBestCandidate(SimFaction f) {
+        SimPlayer best = null;
+        int bestScore = Integer.MIN_VALUE;
+
+        for (SimPlayer p : players.values()) {
+            if (!p.faction.isEmpty() || p.leaderCandidate) continue;
+
+            int score = candidateScore(f, p);
+            score += rng.nextInt(17) - 8;
+            if (score > bestScore) {
+                best = p;
+                bestScore = score;
+            }
+        }
+
+        if (best == null) return false;
+        best.faction = f.name;
+        best.role = best.preferredJob;
+        f.members.add(best.name);
+        return true;
+    }
+
+    private int candidateScore(SimFaction f, SimPlayer p) {
+        int score = p.teamwork / 2 + p.leadership / 5;
+        score += f.powerFaction ? p.skill : p.skill / 2;
+
+        if (classCount(f, CombatClass.BARD) == 0 && p.combatClass == CombatClass.BARD) score += 45;
+        if (classCount(f, CombatClass.ARCHER) == 0 && p.combatClass == CombatClass.ARCHER) score += 34;
+        if (classCount(f, CombatClass.DIAMOND) < 2 && p.combatClass == CombatClass.DIAMOND) score += 25;
+
+        if (jobCount(f, "miner") == 0 && "miner".equals(p.preferredJob)) score += 35;
+        if (jobCount(f, "farmer") == 0 && "farmer".equals(p.preferredJob)) score += 30;
+        if (jobCount(f, "builder") == 0 && "builder".equals(p.preferredJob)) score += 24;
+        if (jobCount(f, "brewer") == 0 && "brewer".equals(p.preferredJob)) score += 28;
+
+        if (f.underdog) {
+            if ("farmer".equals(p.preferredJob) || "miner".equals(p.preferredJob) || "brewer".equals(p.preferredJob)) score += 28;
+            score += p.teamwork / 2;
+        }
+
+        return score;
+    }
+
+    private int classCount(SimFaction f, CombatClass type) {
+        int n = 0;
+        for (String member : f.members) {
+            SimPlayer p = players.get(key(member));
+            if (p != null && p.combatClass == type) n++;
+        }
+        return n;
+    }
+
+    private int jobCount(SimFaction f, String job) {
+        int n = 0;
+        for (String member : f.members) {
+            SimPlayer p = players.get(key(member));
+            if (p != null && job.equals(p.preferredJob)) n++;
+        }
+        return n;
+    }
+
+    private ChatEvent recruitmentChatEvent() {
+        List<SimPlayer> solos = new ArrayList<SimPlayer>();
+        for (SimPlayer p : players.values()) {
+            if (p.faction.isEmpty() && !p.leaderCandidate) solos.add(p);
+        }
+
+        List<SimFaction> open = new ArrayList<SimFaction>();
+        for (SimFaction f : factions.values()) {
+            if (f.members.size() < f.targetSize && f.members.size() < MAX_FACTION_MEMBERS) open.add(f);
+        }
+
+        if (!solos.isEmpty() && (open.isEmpty() || rng.nextBoolean())) {
+            SimPlayer p = solos.get(rng.nextInt(solos.size()));
+            return new ChatEvent(p.name, lffLine(p));
+        }
+
+        if (!open.isEmpty()) {
+            SimFaction f = open.get(rng.nextInt(open.size()));
+            SimPlayer leader = players.get(key(f.leader));
+            if (leader != null) return new ChatEvent(leader.name, recruitingLine(f));
+        }
+
+        return null;
+    }
+
+    private String lffLine(SimPlayer p) {
+        String cls = p.combatClass.name().toLowerCase(Locale.ENGLISH);
+        if ("miner".equals(p.preferredJob) || "builder".equals(p.preferredJob) || "brewer".equals(p.preferredJob)) {
+            return "lff " + p.preferredJob + " can " + cls;
+        }
+        if (p.skill >= 70) return "lff " + cls + " good at pvp";
+        return "lff " + cls + " active";
+    }
+
+    private String recruitingLine(SimFaction f) {
+        List<String> needs = new ArrayList<String>();
+        if (classCount(f, CombatClass.BARD) == 0) needs.add("bard");
+        if (classCount(f, CombatClass.ARCHER) == 0) needs.add("archer");
+        if (jobCount(f, "miner") == 0) needs.add("miner");
+        if (jobCount(f, "brewer") == 0) needs.add("brewer");
+        if (classCount(f, CombatClass.DIAMOND) < 2) needs.add("diamond");
+
+        int slots = Math.min(MAX_FACTION_MEMBERS, f.targetSize) - f.members.size();
+        String needText = needs.isEmpty() ? "active players" : joinWords(needs, 2);
+        return f.name + " recruiting " + slots + " need " + needText + " msg me";
+    }
+
+    private String joinWords(List<String> xs, int limit) {
+        StringBuilder b = new StringBuilder();
+        for (int i = 0; i < xs.size() && i < limit; i++) {
+            if (b.length() > 0) b.append(" + ");
+            b.append(xs.get(i));
+        }
+        return b.toString();
     }
 
     private void seedStock(SimPlayer p) {
@@ -780,20 +1060,43 @@ final class SimWorldDirector {
 
     private int weightedFactionSize() {
         int r = rng.nextInt(100);
-        if (r < 10) return 1;      // 10%
-        if (r < 28) return 2;      // 18%
-        if (r < 58) return 3;      // 30%
-        if (r < 85) return 4;      // 27%
-        return 5;                  // 15%
+        if (r < 18) return 2;
+        if (r < 48) return 3;
+        if (r < 80) return 4;
+        return 5;
     }
 
-    private String roleFor(int index, int size) {
-        if (index == 0) return "leader";
-        if (index == 1) return "miner";
-        if (index == 2) return "farmer";
-        if (index == 3) return "builder";
-        if (index == 4) return "brewer";
-        return "member";
+    private String randomJob() {
+        int r = rng.nextInt(100);
+        if (r < 23) return "miner";
+        if (r < 43) return "farmer";
+        if (r < 61) return "builder";
+        if (r < 75) return "brewer";
+        return "fighter";
+    }
+
+    private CombatClass classFor(SimPlayer p) {
+        int r = rng.nextInt(100);
+        if (p.skill >= 80) {
+            if (r < 72) return CombatClass.DIAMOND;
+            if (r < 82) return CombatClass.ARCHER;
+            if (r < 90) return CombatClass.BARD;
+            if (r < 97) return CombatClass.ROGUE;
+            return CombatClass.MINER;
+        }
+        if (r < 48) return CombatClass.DIAMOND;
+        if (r < 64) return CombatClass.BARD;
+        if (r < 78) return CombatClass.ARCHER;
+        if (r < 88) return CombatClass.ROGUE;
+        return CombatClass.MINER;
+    }
+
+    private int creatorSkillOverride(String name, int rolled) {
+        String n = key(name);
+        if (n.equals("stimpy") || n.equals("stimpypvp") || n.equals("marcel") || n.equals("painfulpvp")) return 95 + rng.nextInt(6);
+        if (n.equals("lolitsalex")) return 86 + rng.nextInt(7);
+        if (n.equals("skimpy")) return 78 + rng.nextInt(8);
+        return rolled;
     }
 
     private int skillRoll() {
@@ -813,10 +1116,16 @@ final class SimWorldDirector {
             data.set(b + ".name", p.name);
             data.set(b + ".faction", p.faction);
             data.set(b + ".role", p.role);
+            data.set(b + ".preferred-job", p.preferredJob);
+            data.set(b + ".combat-class", p.combatClass.name());
+            data.set(b + ".leader-candidate", p.leaderCandidate);
+            data.set(b + ".underdog-leader", p.underdogLeader);
             data.set(b + ".balance", p.balance);
             data.set(b + ".skill", p.skill);
             data.set(b + ".aggression", p.aggression);
             data.set(b + ".bargaining", p.bargaining);
+            data.set(b + ".leadership", p.leadership);
+            data.set(b + ".teamwork", p.teamwork);
             for (Map.Entry<String,Integer> e : p.stock.entrySet()) data.set(b + ".stock." + e.getKey(), e.getValue());
         }
 
@@ -828,11 +1137,16 @@ final class SimWorldDirector {
             data.set(b + ".target-size", f.targetSize);
             data.set(b + ".stage", f.stage.name());
             data.set(b + ".base-preset", f.basePreset);
+            data.set(b + ".power-faction", f.powerFaction);
+            data.set(b + ".underdog", f.underdog);
             data.set(b + ".claimed", f.claimed);
             data.set(b + ".storage", f.storage);
             data.set(b + ".brewer", f.brewer);
             data.set(b + ".p4-sets", f.p4Sets);
             data.set(b + ".sharp4-swords", f.sharp4Swords);
+            data.set(b + ".bard-sets", f.bardSets);
+            data.set(b + ".archer-sets", f.archerSets);
+            data.set(b + ".rogue-sets", f.rogueSets);
             data.set(b + ".heal-pots", f.healPots);
             data.set(b + ".pearls", f.pearls);
             data.set(b + ".speed-pots", f.speedPots);
@@ -850,6 +1164,9 @@ final class SimWorldDirector {
             data.set(b + ".actions", f.actionCounter);
             data.set(b + ".members", new ArrayList<String>(f.members));
         }
+
+        data.set("meta.sotw-ticks", sotwTicks);
+        data.set("meta.faction-name-cursor", factionNameCursor);
 
         try {
             data.save(file);

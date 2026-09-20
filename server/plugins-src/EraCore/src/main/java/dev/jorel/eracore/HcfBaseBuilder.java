@@ -57,7 +57,7 @@ final class HcfBaseBuilder {
         else if ("hcf_double_layer".equalsIgnoreCase(preset)) buildDoubleLayer(world,cx,y,cz);
         else buildGlassBox(world,cx,y,cz,false);
 
-        addDistinctExterior(world,preset,cx,y,cz);
+        addDistinctExterior(world,faction,preset,cx,y,cz);
 
         if ("fall_trap".equalsIgnoreCase(trapPreset)) buildFallTrap(world,cx,y,cz);
         else if ("fence_gate_bow".equalsIgnoreCase(trapPreset)) buildFenceGateBowTrap(world,cx,y,cz);
@@ -149,7 +149,7 @@ final class HcfBaseBuilder {
         // and install/clear the canonical fence-gate entrance.
         clearHomePocket(world,cx,y,cz);
         doorway(world,cx,y,frontZForPreset(preset,cz));
-        addDistinctExterior(world,preset,cx,y,cz);
+        addDistinctExterior(world,faction,preset,cx,y,cz);
         rescueEmbeddedPlayers(world,cx,y,cz,radius);
         ensureRunner();
     }
@@ -537,11 +537,21 @@ final class HcfBaseBuilder {
         }
     }
 
-    private void addDistinctExterior(World w,String preset,int cx,int y,int cz) {
+    private Material factionAccent(String faction) {
+        Material[] palette=new Material[]{
+            Material.NETHER_BRICK, Material.BRICK, Material.QUARTZ_BLOCK,
+            Material.MOSSY_COBBLESTONE, Material.SANDSTONE, Material.WOOD
+        };
+        int h=faction==null?0:faction.toLowerCase(java.util.Locale.ENGLISH).hashCode();
+        return palette[Math.abs(h % palette.length)];
+    }
+
+    private void addDistinctExterior(World w,String faction,String preset,int cx,int y,int cz) {
+        Material accent=factionAccent(faction);
         if ("hcf_courtyard".equalsIgnoreCase(preset)) {
             // Open courtyard: four visible corner standards and a low front arcade.
             for(int sx:new int[]{-12,12}) for(int sz:new int[]{-12,12}) {
-                for(int yy=y+1;yy<=y+9;yy++) queue.add(new Op(w,cx+sx,yy,cz+sz,Material.COBBLESTONE));
+                for(int yy=y+1;yy<=y+9;yy++) queue.add(new Op(w,cx+sx,yy,cz+sz,accent));
                 queue.add(new Op(w,cx+sx,y+10,cz+sz,Material.GLOWSTONE));
             }
             for(int x=cx-9;x<=cx+9;x+=3) {
@@ -555,7 +565,7 @@ final class HcfBaseBuilder {
             // Brewer base: industrial side chimney and utility stripe.
             int bx=cx+10,bz=cz+7;
             for(int yy=y+1;yy<=y+13;yy++) {
-                Material m=(yy%3==0)?Material.IRON_FENCE:Material.COBBLESTONE;
+                Material m=(yy%3==0)?Material.IRON_FENCE:accent;
                 queue.add(new Op(w,bx,yy,bz,m));
             }
             for(int z=cz-8;z<=cz+8;z+=2)
@@ -581,16 +591,16 @@ final class HcfBaseBuilder {
             // Low bunker silhouette with crenellated roof and chunky corners.
             int half=9,roof=y+10;
             for(int x=cx-half;x<=cx+half;x+=2) {
-                queue.add(new Op(w,x,roof,cz-half,Material.COBBLESTONE));
-                queue.add(new Op(w,x,roof,cz+half,Material.COBBLESTONE));
+                queue.add(new Op(w,x,roof,cz-half,accent));
+                queue.add(new Op(w,x,roof,cz+half,accent));
             }
             for(int z=cz-half;z<=cz+half;z+=2) {
-                queue.add(new Op(w,cx-half,roof,z,Material.COBBLESTONE));
-                queue.add(new Op(w,cx+half,roof,z,Material.COBBLESTONE));
+                queue.add(new Op(w,cx-half,roof,z,accent));
+                queue.add(new Op(w,cx+half,roof,z,accent));
             }
             for(int yy=y+1;yy<=y+6;yy++) {
-                queue.add(new Op(w,cx-10,yy,cz+6,Material.COBBLESTONE));
-                queue.add(new Op(w,cx+10,yy,cz+6,Material.COBBLESTONE));
+                queue.add(new Op(w,cx-10,yy,cz+6,accent));
+                queue.add(new Op(w,cx+10,yy,cz+6,accent));
             }
             return;
         }
@@ -602,7 +612,7 @@ final class HcfBaseBuilder {
             for(int z=cz-6;z<=cz+6;z++)
                 queue.add(new Op(w,cx+15,y+6,z,Material.IRON_FENCE));
             for(int yy=y+1;yy<=y+12;yy++)
-                queue.add(new Op(w,cx+14,yy,cz+7,yy%3==0?Material.GLASS:Material.COBBLESTONE));
+                queue.add(new Op(w,cx+14,yy,cz+7,yy%3==0?Material.GLASS:accent));
             return;
         }
 
@@ -626,14 +636,14 @@ final class HcfBaseBuilder {
             // Heavy external ribs make the defensive double shell visually obvious.
             for(int x=cx-13;x<=cx+13;x+=6) {
                 for(int yy=y+1;yy<=y+11;yy++) {
-                    queue.add(new Op(w,x,yy,cz-14,Material.COBBLESTONE));
-                    queue.add(new Op(w,x,yy,cz+14,Material.COBBLESTONE));
+                    queue.add(new Op(w,x,yy,cz-14,accent));
+                    queue.add(new Op(w,x,yy,cz+14,accent));
                 }
             }
             for(int z=cz-13;z<=cz+13;z+=6) {
                 for(int yy=y+1;yy<=y+11;yy++) {
-                    queue.add(new Op(w,cx-14,yy,z,Material.COBBLESTONE));
-                    queue.add(new Op(w,cx+14,yy,z,Material.COBBLESTONE));
+                    queue.add(new Op(w,cx-14,yy,z,accent));
+                    queue.add(new Op(w,cx+14,yy,z,accent));
                 }
             }
             return;
@@ -642,10 +652,10 @@ final class HcfBaseBuilder {
         // Default glass box: restrained corner braces + roof beacon instead of
         // sharing another preset's major silhouette.
         for(int yy=y+1;yy<=y+10;yy++) {
-            queue.add(new Op(w,cx-13,yy,cz-13,Material.COBBLESTONE));
-            queue.add(new Op(w,cx+13,yy,cz-13,Material.COBBLESTONE));
-            queue.add(new Op(w,cx-13,yy,cz+13,Material.COBBLESTONE));
-            queue.add(new Op(w,cx+13,yy,cz+13,Material.COBBLESTONE));
+            queue.add(new Op(w,cx-13,yy,cz-13,accent));
+            queue.add(new Op(w,cx+13,yy,cz-13,accent));
+            queue.add(new Op(w,cx-13,yy,cz+13,accent));
+            queue.add(new Op(w,cx+13,yy,cz+13,accent));
         }
         queue.add(new Op(w,cx,y+11,cz,Material.GLOWSTONE));
     }

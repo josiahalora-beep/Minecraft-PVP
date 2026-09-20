@@ -728,7 +728,7 @@ final class SimWorldDirector {
 
     private boolean fightStillRelevant(Player observer, VisibleFight f) {
         if(observer==null || f==null) return false;
-        if(!observer.getWorld().equals(Bukkit.getWorlds().get(0))) return false;
+        if(f.world==null || !observer.getWorld().getName().equalsIgnoreCase(f.world)) return false;
 
         for(CombatAssignment ca:f.assignments.values()) {
             SimFaction sf=factions.get(key(ca.faction));
@@ -796,7 +796,8 @@ final class SimWorldDirector {
         }
         if(b==null) b=ready.get(1);
 
-        boolean atBase=distSq(ol.getX(),ol.getZ(),a.baseX,a.baseZ) <=
+        boolean atBase=observer.getWorld().equals(Bukkit.getWorlds().get(0)) &&
+            distSq(ol.getX(),ol.getZ(),a.baseX,a.baseZ) <=
             Math.pow(plugin.getConfig().getInt("combat-director.observation-radius",160)*1.6,2);
 
         int[] sizes=rollFightSizes(a,b);
@@ -893,7 +894,8 @@ final class SimWorldDirector {
         }
 
         Location ol=observer.getLocation();
-        boolean nearAnchor=distSq(ol.getX(),ol.getZ(),anchor.baseX,anchor.baseZ) <=
+        boolean nearAnchor=observer.getWorld().equals(Bukkit.getWorlds().get(0)) &&
+            distSq(ol.getX(),ol.getZ(),anchor.baseX,anchor.baseZ) <=
             Math.pow(plugin.getConfig().getInt("combat-director.observation-radius",160)*1.7,2);
 
         int cx,cz;

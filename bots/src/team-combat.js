@@ -31,7 +31,11 @@ function stop(bot) {
 }
 
 function itemByName(bot, names) {
-  return bot.inventory.items().find(i => names.includes(i.name))
+  for (const name of names || []) {
+    const item=bot.inventory.items().find(i => i.name===name)
+    if (item) return item
+  }
+  return null
 }
 
 function hotbarPotions(bot) {
@@ -247,6 +251,8 @@ function moveToward(bot, x, z, sprint = true) {
   const yaw = Math.atan2(-(x - me.x), -(z - me.z))
   bot.look(yaw, 0, false).catch(() => {})
   bot.setControlState('back', false)
+  bot.setControlState('left', false)
+  bot.setControlState('right', false)
   bot.setControlState('forward', true)
   bot.setControlState('sprint', sprint)
   if (inLiquid(bot) || aheadBlocked(bot,x,z)) bot.setControlState('jump', true)
@@ -449,6 +455,37 @@ export function createTeamCombatController(bot, assignmentProvider) {
       }
     }
     return false
+  }
+
+  function armorMaterialScore(name) {
+    const n=String(name || '')
+    if(n.startsWith('diamond_')) return 500
+    if(n.startsWith('iron_')) return 400
+    if(n.startsWith('chainmail_')) return 320
+    if(n.startsWith('golden_') || n.startsWith('gold_')) return 240
+    if(n.startsWith('leather_')) return 160
+    return 0
+  }
+
+  async function equipLootUpgrades() {
+    const specs=[
+      ['_helmet','head',5],
+      ['_chestplate','torso',6],
+      ['_leggings','legs',7],
+      ['_boots','feet',8]
+    ]
+    for(const [suffix,dest,slot] of specs) {
+      let best=null
+      for(const item of bot.inventory.items()) {
+        if(!String(item.name || '').endsWith(suffix)) continue
+        if(!best || armorMaterialScore(item.name)>armorMaterialScore(best.name)) best=item
+      }
+      const current=bot.inventory.slots?.[slot]
+      if(best && armorMaterialScore(best.name)>armorMaterialScore(current?.name)) {
+        try { await bot.equip(best,dest); await sleep(45) } catch {}
+      }
+    }
+    await equipNamed(['diamond_sword','iron_sword','stone_sword','golden_sword','gold_sword'])
   }
 
   async function makeLootSpace() {
@@ -800,6 +837,7 @@ export function createTeamCombatController(bot, assignmentProvider) {
       // Loot is a tactical objective: after a kill or when pressure briefly
       // drops, sweep valuable sets/swords/pearls instead of walking past them.
       if ((!target || target.dist>7) && await lootTick(a,target)) return
+      if (!target || target.dist>10) await equipLootUpgrades()
 
       if (cls === 'BARD') await bardTick(a, target)
       else if (cls === 'ARCHER') await archerTick(a, target)

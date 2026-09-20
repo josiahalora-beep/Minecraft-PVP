@@ -1446,6 +1446,13 @@ final class SimWorldDirector {
         f.iron += iron;
         f.diamonds += diamond;
         f.obsidian += obsidian;
+        if(f.storage) {
+            mirrorDepositToStorage(f,Material.COBBLESTONE,stone);
+            mirrorDepositToStorage(f,Material.LOG,wood);
+            mirrorDepositToStorage(f,Material.IRON_INGOT,iron);
+            mirrorDepositToStorage(f,Material.DIAMOND,diamond);
+            mirrorDepositToStorage(f,Material.OBSIDIAN,obsidian);
+        }
         if (cane > 0) p.stock.put("cane", getStock(p,"cane") + cane);
         if (cactus > 0) p.stock.put("cactus", getStock(p,"cactus") + cactus);
         if (pumpkin > 0) p.stock.put("pumpkin", getStock(p,"pumpkin") + pumpkin);
@@ -2233,6 +2240,12 @@ final class SimWorldDirector {
         f.actionCounter++;
         produce(f);
 
+        // Once a faction has storage, excess materials become working capital.
+        // Keep strategic reserves first; only liquidate genuine surplus.
+        if (f.storage && f.stage.ordinal() >= Stage.ECONOMY.ordinal() && f.actionCounter % 4 == 0) {
+            liquidateSurplus(f);
+        }
+
         switch (f.stage) {
             case RECRUITING:
                 if (f.members.size() >= Math.min(2, f.targetSize) || !sotwRecruitingActive()) {
@@ -2267,6 +2280,7 @@ final class SimWorldDirector {
                 f.buildProgress = Math.min(f.buildTarget, f.buildProgress + factionBuildWork(f));
                 if (f.buildProgress >= f.buildTarget) {
                     f.storage = true;
+                    seedVisibleStorage(f);
                     f.stage = Stage.ECONOMY;
                 }
                 break;
@@ -2293,6 +2307,8 @@ final class SimWorldDirector {
                     if (f.iron >= 35 && f.stone >= 96) {
                         f.iron -= 35;
                         f.stone -= 96;
+                        mirrorConsumeFromStorage(f,Material.IRON_INGOT,35);
+                        mirrorConsumeFromStorage(f,Material.COBBLESTONE,96);
                         f.brewer = true;
                         plugin.queueSimBrewerBuild(f.name, f.baseX, f.baseY, f.baseZ);
                     }
@@ -2323,23 +2339,48 @@ final class SimWorldDirector {
             // Keeping production here prevents embodiment from stalling SOTW.
             if ("mine".equals(p.currentGoal) || "gather".equals(p.currentGoal) || "supply".equals(p.currentGoal)) {
                 int minerBonus = "miner".equals(p.preferredJob) ? 8 : 0;
-                f.stone += 20 + minerBonus + rng.nextInt(18);
-                f.iron += 2 + ("miner".equals(p.preferredJob) ? 2 : 0) + rng.nextInt(4);
+                int stoneMade=20 + minerBonus + rng.nextInt(18);
+                int ironMade=2 + ("miner".equals(p.preferredJob) ? 2 : 0) + rng.nextInt(4);
+                f.stone += stoneMade;
+                f.iron += ironMade;
+                if(f.storage) {
+                    mirrorDepositToStorage(f,Material.COBBLESTONE,stoneMade);
+                    mirrorDepositToStorage(f,Material.IRON_INGOT,ironMade);
+                }
                 f.xp += 2 + rng.nextInt(4);
-                if (rng.nextInt(100) < (12 + p.economicIq / 6)) f.diamonds += 1;
-                if (rng.nextInt(100) < (18 + p.economicIq / 7)) f.obsidian += 1 + rng.nextInt(2);
+                if (rng.nextInt(100) < (12 + p.economicIq / 6)) {
+                    f.diamonds += 1;
+                    if(f.storage) mirrorDepositToStorage(f,Material.DIAMOND,1);
+                }
+                if (rng.nextInt(100) < (18 + p.economicIq / 7)) {
+                    int obby=1+rng.nextInt(2);
+                    f.obsidian += obby;
+                    if(f.storage) mirrorDepositToStorage(f,Material.OBSIDIAN,obby);
+                }
             } else if ("farm".equals(p.currentGoal)) {
                 // Farming is handled by SimEconomyModel so cash/items are conserved.
             } else if ("brew".equals(p.currentGoal) || "gear".equals(p.currentGoal)) {
                 // Brewing/gearing consume explicit resources in their dedicated models.
             } else if ("build".equals(p.currentGoal)) {
-                f.wood += 8 + rng.nextInt(10);
-                f.stone += 8 + rng.nextInt(14);
+                int woodMade=8+rng.nextInt(10);
+                int stoneMade=8+rng.nextInt(14);
+                f.wood += woodMade;
+                f.stone += stoneMade;
+                if(f.storage) {
+                    mirrorDepositToStorage(f,Material.LOG,woodMade);
+                    mirrorDepositToStorage(f,Material.COBBLESTONE,stoneMade);
+                }
             } else if ("recruit".equals(p.currentGoal) || "social".equals(p.currentGoal) || "trade".equals(p.currentGoal)) {
                 // Social/economic actions intentionally produce no free materials.
             } else {
-                f.wood += 4 + rng.nextInt(8);
-                f.stone += 4 + rng.nextInt(10);
+                int woodMade=4+rng.nextInt(8);
+                int stoneMade=4+rng.nextInt(10);
+                f.wood += woodMade;
+                f.stone += stoneMade;
+                if(f.storage) {
+                    mirrorDepositToStorage(f,Material.LOG,woodMade);
+                    mirrorDepositToStorage(f,Material.COBBLESTONE,stoneMade);
+                }
             }
         }
 
@@ -3433,6 +3474,105 @@ final class SimWorldDirector {
         f.stone -= cost[1];
         f.iron -= cost[2];
         f.obsidian -= cost[3];
+        mirrorConsumeFromStorage(f,Material.LOG,cost[0]);
+        mirrorConsumeFromStorage(f,Material.COBBLESTONE,cost[1]);
+        mirrorConsumeFromStorage(f,Material.IRON_INGOT,cost[2]);
+        mirrorConsumeFromStorage(f,Material.OBSIDIAN,cost[3]);
+    }
+
+    private org.bukkit.inventory.Inventory factionStorageInventory(SimFaction f) {
+        if(f==null || f.baseX==0 && f.baseZ==0) return null;
+        org.bukkit.World w=Bukkit.getWorlds().get(0);
+        if(w==null) return null;
+
+        org.bukkit.block.Chest best=null;
+        double bestD=Double.MAX_VALUE;
+        for(int x=f.baseX-14;x<=f.baseX+14;x++) {
+            for(int z=f.baseZ-14;z<=f.baseZ+14;z++) {
+                for(int y=Math.max(2,f.baseY-6);y<=Math.min(w.getMaxHeight()-1,f.baseY+6);y++) {
+                    org.bukkit.block.Block b=w.getBlockAt(x,y,z);
+                    if(b.getType()!=Material.CHEST && b.getType()!=Material.TRAPPED_CHEST) continue;
+                    if(!(b.getState() instanceof org.bukkit.block.Chest)) continue;
+                    double d=(x-f.baseX)*(x-f.baseX)+(z-f.baseZ)*(z-f.baseZ)+(y-f.baseY)*(y-f.baseY);
+                    if(d<bestD) { best=(org.bukkit.block.Chest)b.getState(); bestD=d; }
+                }
+            }
+        }
+        return best==null?null:best.getInventory();
+    }
+
+    private void mirrorDepositToStorage(SimFaction f,Material material,int amount) {
+        if(!f.storage || amount<=0 || material==null) return;
+        org.bukkit.inventory.Inventory inv=factionStorageInventory(f);
+        if(inv==null) return;
+        int left=amount;
+        while(left>0) {
+            int n=Math.min(64,left);
+            java.util.Map<Integer,org.bukkit.inventory.ItemStack> overflow=
+                inv.addItem(new org.bukkit.inventory.ItemStack(material,n));
+            if(!overflow.isEmpty()) break;
+            left-=n;
+        }
+    }
+
+    private int mirrorConsumeFromStorage(SimFaction f,Material material,int amount) {
+        if(amount<=0 || material==null) return 0;
+        org.bukkit.inventory.Inventory inv=factionStorageInventory(f);
+        if(inv==null) return 0;
+        int left=amount,removed=0;
+        org.bukkit.inventory.ItemStack[] contents=inv.getContents();
+        for(int i=0;i<contents.length && left>0;i++) {
+            org.bukkit.inventory.ItemStack item=contents[i];
+            if(item==null || item.getType()!=material) continue;
+            int take=Math.min(left,item.getAmount());
+            int remain=item.getAmount()-take;
+            if(remain<=0) inv.setItem(i,null);
+            else { item.setAmount(remain); inv.setItem(i,item); }
+            left-=take; removed+=take;
+        }
+        return removed;
+    }
+
+    private void seedVisibleStorage(SimFaction f) {
+        // Seed only a bounded physical view of existing ledger stock. Future
+        // production/deposits keep it moving, while consumption/sales drain it.
+        mirrorDepositToStorage(f,Material.LOG,Math.min(f.wood,128));
+        mirrorDepositToStorage(f,Material.COBBLESTONE,Math.min(f.stone,192));
+        mirrorDepositToStorage(f,Material.IRON_INGOT,Math.min(f.iron,64));
+        mirrorDepositToStorage(f,Material.DIAMOND,Math.min(f.diamonds,32));
+        mirrorDepositToStorage(f,Material.OBSIDIAN,Math.min(f.obsidian,32));
+    }
+
+    private int sellFactionSurplus(SimFaction f,Material material,int available,int reserve,int cap) {
+        int qty=Math.min(cap,Math.max(0,available-reserve));
+        if(qty<=0) return 0;
+        double unit=plugin.sellUnitPrice(material);
+        if(unit<=0.0) return 0;
+        mirrorConsumeFromStorage(f,material,qty);
+        f.treasury+=qty*unit;
+        return qty;
+    }
+
+    private void liquidateSurplus(SimFaction f) {
+        int stoneReserve=f.brewer?128:Math.max(220,baseMaterialCost(f.basePreset)[1]);
+        int woodReserve=Math.max(96,baseMaterialCost(f.basePreset)[0]/2);
+        int ironReserve=f.brewer?48:Math.max(40,baseMaterialCost(f.basePreset)[2]+35);
+        int obbyReserve="TRAPPER".equals(f.archetype)?24:12;
+
+        int sold=sellFactionSurplus(f,Material.COBBLESTONE,f.stone,stoneReserve,96);
+        f.stone-=sold;
+        sold=sellFactionSurplus(f,Material.LOG,f.wood,woodReserve,64);
+        f.wood-=sold;
+        sold=sellFactionSurplus(f,Material.IRON_INGOT,f.iron,ironReserve,24);
+        f.iron-=sold;
+        sold=sellFactionSurplus(f,Material.OBSIDIAN,f.obsidian,obbyReserve,12);
+        f.obsidian-=sold;
+
+        // Never sell diamonds until the faction has enough reserve for at least
+        // one replacement set per Diamond-class member plus spare swords.
+        int diamondReserve=Math.max(12,classCount(f,CombatClass.DIAMOND)*26);
+        sold=sellFactionSurplus(f,Material.DIAMOND,f.diamonds,diamondReserve,12);
+        f.diamonds-=sold;
     }
 
     private boolean planAndClaimBase(SimFaction f) {

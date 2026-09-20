@@ -2296,13 +2296,21 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     int adaptiveHotBodyBudget(int requested) {
+        requested=Math.max(4,Math.min(12,requested));
         double[] s = tickStats();
-        if (s == null) return Math.max(2, requested);
+        if (s == null) return Math.min(requested,10);
         double p95 = s[1];
-        if (p95 >= 40.0) return 2;
-        if (p95 >= 30.0) return Math.min(requested, 3);
-        if (p95 >= 20.0) return Math.min(requested, 4);
-        if (p95 >= 12.0) return Math.min(requested, 6);
+
+        // Combat gets its own reserved pool now; unrelated workers are shed
+        // before fighters are promoted. These thresholds therefore govern the
+        // size of the fight itself rather than fight + ambient load combined.
+        if (p95 >= 46.0) return Math.min(requested,4);
+        if (p95 >= 40.0) return Math.min(requested,6);
+        if (p95 >= 34.0) return Math.min(requested,7);
+        if (p95 >= 28.0) return Math.min(requested,8);
+        if (p95 >= 22.0) return Math.min(requested,9);
+        if (p95 >= 17.0) return Math.min(requested,10);
+        if (p95 >= 12.0) return Math.min(requested,11);
         return requested;
     }
 

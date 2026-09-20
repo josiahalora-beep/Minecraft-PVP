@@ -9,10 +9,12 @@ owner:
     - Sim
     - Fake
 map:
-  auto-bootstrap: true
-  complete: false
+  auto-bootstrap: false
+  complete: true
   surface-y: 63
   world-border: 3000
+  nether-border: 1000
+  manage-world-border: true
   safezone-radius: 60
   warzone-radius: 250
 economy:

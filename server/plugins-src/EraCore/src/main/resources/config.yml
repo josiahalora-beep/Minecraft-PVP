@@ -189,3 +189,10 @@ combat-director:
   offscreen-resolution-seconds: 5
   offscreen-brawl-chance-percent: 12
   brawl-radius: 420
+
+worker-pool:
+  max-bodies: 4
+  offline-bodies: 2
+  max-per-faction: 2
+  reassess-seconds: 10
+  sync-seconds: 12

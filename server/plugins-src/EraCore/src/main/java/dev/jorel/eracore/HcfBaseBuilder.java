@@ -57,6 +57,8 @@ final class HcfBaseBuilder {
         else if ("hcf_double_layer".equalsIgnoreCase(preset)) buildDoubleLayer(world,cx,y,cz);
         else buildGlassBox(world,cx,y,cz,false);
 
+        addDistinctExterior(world,preset,cx,y,cz);
+
         if ("fall_trap".equalsIgnoreCase(trapPreset)) buildFallTrap(world,cx,y,cz);
         else if ("fence_gate_bow".equalsIgnoreCase(trapPreset)) buildFenceGateBowTrap(world,cx,y,cz);
         else if ("drop_chute".equalsIgnoreCase(trapPreset)) buildDropChute(world,cx,y,cz);
@@ -147,6 +149,7 @@ final class HcfBaseBuilder {
         // and install/clear the canonical fence-gate entrance.
         clearHomePocket(world,cx,y,cz);
         doorway(world,cx,y,frontZForPreset(preset,cz));
+        addDistinctExterior(world,preset,cx,y,cz);
         rescueEmbeddedPlayers(world,cx,y,cz,radius);
         ensureRunner();
     }
@@ -532,6 +535,119 @@ final class HcfBaseBuilder {
             Material head=w.getBlockAt(l.getBlockX(),l.getBlockY()+1,l.getBlockZ()).getType();
             if(feet.isSolid() || head.isSolid()) p.teleport(safe);
         }
+    }
+
+    private void addDistinctExterior(World w,String preset,int cx,int y,int cz) {
+        if ("hcf_courtyard".equalsIgnoreCase(preset)) {
+            // Open courtyard: four visible corner standards and a low front arcade.
+            for(int sx:new int[]{-12,12}) for(int sz:new int[]{-12,12}) {
+                for(int yy=y+1;yy<=y+9;yy++) queue.add(new Op(w,cx+sx,yy,cz+sz,Material.COBBLESTONE));
+                queue.add(new Op(w,cx+sx,y+10,cz+sz,Material.GLOWSTONE));
+            }
+            for(int x=cx-9;x<=cx+9;x+=3) {
+                queue.add(new Op(w,x,y+1,cz-15,Material.COBBLE_WALL));
+                queue.add(new Op(w,x,y+2,cz-15,Material.FENCE));
+            }
+            return;
+        }
+
+        if ("hcf_brewer_base".equalsIgnoreCase(preset)) {
+            // Brewer base: industrial side chimney and utility stripe.
+            int bx=cx+10,bz=cz+7;
+            for(int yy=y+1;yy<=y+13;yy++) {
+                Material m=(yy%3==0)?Material.IRON_FENCE:Material.COBBLESTONE;
+                queue.add(new Op(w,bx,yy,bz,m));
+            }
+            for(int z=cz-8;z<=cz+8;z+=2)
+                queue.add(new Op(w,cx+12,y+4,z,Material.GLOWSTONE));
+            return;
+        }
+
+        if ("hcf_trap_base".equalsIgnoreCase(preset)) {
+            // Trap house: aggressive front jaw around the gate, intentionally
+            // asymmetric so it is recognizable from a chase.
+            int front=cz-12;
+            for(int x=cx-7;x<=cx+7;x+=2) {
+                int h=2+Math.abs(x-cx)%4;
+                for(int yy=y+1;yy<=y+h;yy++)
+                    queue.add(new Op(w,x,yy,front-2,Material.OBSIDIAN));
+            }
+            for(int z=front-5;z<=front+1;z++)
+                queue.add(new Op(w,cx+8,y+1,z,Material.IRON_FENCE));
+            return;
+        }
+
+        if ("hcf_compact_2015".equalsIgnoreCase(preset)) {
+            // Low bunker silhouette with crenellated roof and chunky corners.
+            int half=9,roof=y+10;
+            for(int x=cx-half;x<=cx+half;x+=2) {
+                queue.add(new Op(w,x,roof,cz-half,Material.COBBLESTONE));
+                queue.add(new Op(w,x,roof,cz+half,Material.COBBLESTONE));
+            }
+            for(int z=cz-half;z<=cz+half;z+=2) {
+                queue.add(new Op(w,cx-half,roof,z,Material.COBBLESTONE));
+                queue.add(new Op(w,cx+half,roof,z,Material.COBBLESTONE));
+            }
+            for(int yy=y+1;yy<=y+6;yy++) {
+                queue.add(new Op(w,cx-10,yy,cz+6,Material.COBBLESTONE));
+                queue.add(new Op(w,cx+10,yy,cz+6,Material.COBBLESTONE));
+            }
+            return;
+        }
+
+        if ("hcf_split_level".equalsIgnoreCase(preset)) {
+            // Elevated east-side balcony and offset tower communicate the split floor.
+            for(int x=cx+11;x<=cx+15;x++) for(int z=cz-6;z<=cz+6;z++)
+                queue.add(new Op(w,x,y+5,z,Material.SMOOTH_BRICK));
+            for(int z=cz-6;z<=cz+6;z++)
+                queue.add(new Op(w,cx+15,y+6,z,Material.IRON_FENCE));
+            for(int yy=y+1;yy<=y+12;yy++)
+                queue.add(new Op(w,cx+14,yy,cz+7,yy%3==0?Material.GLASS:Material.COBBLESTONE));
+            return;
+        }
+
+        if ("hcf_archer_tower".equalsIgnoreCase(preset)) {
+            // High parapets and firing rails exaggerate the vertical silhouette.
+            for(int sx:new int[]{-7,7}) {
+                int tx=cx+sx,tz=cz-7,top=y+14;
+                for(int dx=-4;dx<=4;dx++) {
+                    queue.add(new Op(w,tx+dx,top,tz-4,Material.COBBLE_WALL));
+                    queue.add(new Op(w,tx+dx,top,tz+4,Material.COBBLE_WALL));
+                }
+                for(int dz=-4;dz<=4;dz++) {
+                    queue.add(new Op(w,tx-4,top,tz+dz,Material.COBBLE_WALL));
+                    queue.add(new Op(w,tx+4,top,tz+dz,Material.COBBLE_WALL));
+                }
+            }
+            return;
+        }
+
+        if ("hcf_double_layer".equalsIgnoreCase(preset)) {
+            // Heavy external ribs make the defensive double shell visually obvious.
+            for(int x=cx-13;x<=cx+13;x+=6) {
+                for(int yy=y+1;yy<=y+11;yy++) {
+                    queue.add(new Op(w,x,yy,cz-14,Material.COBBLESTONE));
+                    queue.add(new Op(w,x,yy,cz+14,Material.COBBLESTONE));
+                }
+            }
+            for(int z=cz-13;z<=cz+13;z+=6) {
+                for(int yy=y+1;yy<=y+11;yy++) {
+                    queue.add(new Op(w,cx-14,yy,z,Material.COBBLESTONE));
+                    queue.add(new Op(w,cx+14,yy,z,Material.COBBLESTONE));
+                }
+            }
+            return;
+        }
+
+        // Default glass box: restrained corner braces + roof beacon instead of
+        // sharing another preset's major silhouette.
+        for(int yy=y+1;yy<=y+10;yy++) {
+            queue.add(new Op(w,cx-13,yy,cz-13,Material.COBBLESTONE));
+            queue.add(new Op(w,cx+13,yy,cz-13,Material.COBBLESTONE));
+            queue.add(new Op(w,cx-13,yy,cz+13,Material.COBBLESTONE));
+            queue.add(new Op(w,cx+13,yy,cz+13,Material.COBBLESTONE));
+        }
+        queue.add(new Op(w,cx,y+11,cz,Material.GLOWSTONE));
     }
 
     private void tower(World w,int cx,int y,int cz,int half,int height) {

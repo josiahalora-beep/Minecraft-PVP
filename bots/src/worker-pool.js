@@ -47,6 +47,7 @@ function runtimeSettings() {
     minimumLeaseMs: clamp(Number(process.env.WORKER_MIN_LEASE_MS || (w['minimum-lease-seconds'] || 120) * 1000), 30000, 600000),
     missingGraceCycles: clamp(Number(w['missing-candidate-grace-cycles'] || 4), 1, 20),
     rotationScoreMargin: clamp(Number(w['rotation-score-margin'] || 18), 0, 100),
+    fightAmbientBodies: clamp(Number(w['fight-ambient-bodies'] ?? 1), 0, 3),
     creatorBodies
   }
 }
@@ -764,11 +765,16 @@ function effectiveTarget(settings, data, combat = null) {
   else if (nodeCpuPct >= 82) target = Math.max(creatorsPresent, target - 2)
   else if (nodeCpuPct >= 72) target = Math.max(creatorsPresent, target - 1)
 
-  // Owner-triggered 5v5 is a deliberate capacity test. Represent all ten
-  // fighters even if the normal adaptive budget is currently lower.
-  if (String(combat?.fight?.type || '') === 'TEST_5V5') target = Math.max(target, 10)
+  // Visible combat consumes the physical budget instead of stacking on top of
+  // ordinary workers. Reserve every combatant first, then at most a tiny ambient
+  // slice for world activity. This is what makes 5v5+ fights viable.
+  const combatCount = combatCandidatesFrom(combat).length
+  if (combatCount > 0) {
+    target = Math.min(settings.maxBodies, combatCount + settings.fightAmbientBodies)
+    target = Math.max(Math.min(combatCount, settings.maxBodies), target)
+  }
 
-  return clamp(target, creatorsPresent || 1, settings.maxBodies)
+  return clamp(target, combatCount > 0 ? Math.min(combatCount, settings.maxBodies) : (creatorsPresent || 1), settings.maxBodies)
 }
 
 async function reconcile() {
@@ -782,6 +788,8 @@ async function reconcile() {
   const desired = chooseActive(data, settings, target, combat)
   const wanted = new Set(desired.map(x => x.name.toLowerCase()))
 
+  const combatCount = combatCandidatesFrom(combat).length
+  const combatActive = combatCount > 0
   const candidateMap = new Map(candidatesFrom(data, settings, combat).map(c => [c.name.toLowerCase(), c]))
 
   for (const name of [...live.keys()]) {
@@ -796,7 +804,9 @@ async function reconcile() {
       state.missingCycles = (state.missingCycles || 0) + 1
     }
 
-    if (state?.pinned) continue
+    // Creator bodies are normally sticky, but during a visible fight an
+    // unrelated creator must yield the slot to combat just like any other worker.
+    if (state?.pinned && !combatActive) continue
     if (wanted.has(lower)) continue
 
     const leaseExpired = Date.now() - (state.connectedAt || 0) >= settings.minimumLeaseMs
@@ -805,8 +815,8 @@ async function reconcile() {
 
     // Do not churn a useful body just because simulation.yml was momentarily
     // incomplete during a save or priorities changed by a tiny amount.
-    if (!leaseExpired) continue
-    if (!overCapacity && !missingLongEnough) continue
+    if (!leaseExpired && !combatActive) continue
+    if (!overCapacity && !missingLongEnough && !combatActive) continue
 
     const replacement = desired.find(c => ![...live.keys()].some(n => n.toLowerCase() === c.name.toLowerCase()))
     const replacementScore = replacement?.score || 0

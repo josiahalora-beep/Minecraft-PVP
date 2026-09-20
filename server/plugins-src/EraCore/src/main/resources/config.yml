@@ -17,6 +17,8 @@ map:
   warzone-radius: 250
 economy:
   starting-balance: 500.0
+pvp:
+  pearl-cooldown-seconds: 16
 metrics:
   enabled: true
   interval-seconds: 5

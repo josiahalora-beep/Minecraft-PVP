@@ -804,6 +804,17 @@ final class SimWorldDirector {
                 factions.put(key(f.name), f);
             }
         }
+
+        syncFactionAuthority();
+    }
+
+    private void syncFactionAuthority() {
+        for (SimFaction f : factions.values()) {
+            plugin.createSimFactionAuthority(f.name, f.leader);
+            for (String member : f.members) {
+                if (!member.equalsIgnoreCase(f.leader)) plugin.joinSimFactionAuthority(f.name, member);
+            }
+        }
     }
 
     private void seed() {
@@ -860,6 +871,7 @@ final class SimWorldDirector {
     }
 
     void resetForSotw() {
+        plugin.resetSimFactionAuthority(new ArrayList<String>(players.keySet()));
         seed();
         save();
     }
@@ -922,6 +934,7 @@ final class SimWorldDirector {
         f.treasury = 250 + rng.nextInt(best.underdogLeader ? 900 : 1500);
         f.members.add(best.name);
 
+        if (!plugin.createSimFactionAuthority(f.name, best.name)) return;
         best.faction = f.name;
         best.role = "leader";
         factions.put(key(f.name), f);
@@ -951,6 +964,7 @@ final class SimWorldDirector {
         }
 
         if (best == null) return false;
+        if (!plugin.joinSimFactionAuthority(f.name, best.name)) return false;
         best.faction = f.name;
         best.role = best.preferredJob;
         f.members.add(best.name);

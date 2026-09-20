@@ -127,3 +127,8 @@ sim-chat:
     - 'selling pearls cheap'
     - 'need one for our faction'
     - 'who is rich rn'
+
+sim-world:
+  population: 90
+  tick-seconds: 30
+  factions-per-tick: 4

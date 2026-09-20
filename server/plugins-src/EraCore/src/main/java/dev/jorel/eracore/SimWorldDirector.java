@@ -109,9 +109,14 @@ final class SimWorldDirector {
     static final class ChatEvent {
         final String name;
         final String message;
+        final boolean fastFollow;
         ChatEvent(String name, String message) {
+            this(name,message,false);
+        }
+        ChatEvent(String name, String message, boolean fastFollow) {
             this.name = name;
             this.message = message;
+            this.fastFollow = fastFollow;
         }
     }
 
@@ -142,6 +147,8 @@ final class SimWorldDirector {
     private final Map<String,MarketOrder> activeOrders = new HashMap<String,MarketOrder>();
     private final Map<String,Conversation> conversations = new HashMap<String,Conversation>();
     private final Map<String,String> lastReplyTarget = new HashMap<String,String>();
+    private final Deque<ChatEvent> pendingChat = new ArrayDeque<ChatEvent>();
+    private final Map<String,Integer> rivalries = new HashMap<String,Integer>();
     private BukkitTask task;
     private int factionCursor;
     private int factionNameCursor;
@@ -216,6 +223,12 @@ final class SimWorldDirector {
 
     ChatEvent nextChatEvent() {
         if (players.isEmpty()) return null;
+        if (!pendingChat.isEmpty()) return pendingChat.pollFirst();
+
+        if (!sotwRecruitingActive() && rng.nextInt(100) < 11) {
+            ChatEvent rivalry = rivalryChatEvent();
+            if (rivalry != null) return rivalry;
+        }
 
         // During SOTW, faction formation should dominate chat naturally.
         if (sotwRecruitingActive() && rng.nextInt(100) < 55) {
@@ -253,6 +266,62 @@ final class SimWorldDirector {
 
         String[] neutral = {"gg","anyone at spawn","who has pearls","koth soon?","who wants ally","selling stuff msg me","lol","need levels"};
         return new ChatEvent(p.name, neutral[rng.nextInt(neutral.length)]);
+    }
+
+    void onHumanPublicChat(Player human, String message) {
+        String lower = message.toLowerCase(Locale.ENGLISH);
+
+        String item = itemFromText(lower);
+        if (item != null && (lower.contains("selling") || lower.startsWith("sell ") || lower.contains("wts"))) {
+            SimPlayer buyer = findInterestedBuyer(item);
+            if (buyer != null) {
+                int qty = suggestedTradeQty(item, buyer, true);
+                MarketOrder order = buyOrder(buyer,item,qty,fairAiBuyUnit(item));
+                activeOrders.put(key(buyer.name), order);
+                enqueue(buyer.name, rng.nextBoolean() ? "how much for " + qty + " " + pretty(item) : "ill buy " + qty + " " + pretty(item), true);
+            }
+        } else if (item != null && (lower.contains("buying") || lower.startsWith("buy ") || lower.contains("wtb"))) {
+            SimPlayer seller = findSeller(item);
+            if (seller != null) {
+                int qty = Math.min(suggestedTradeQty(item,seller,false), getStock(seller,item));
+                if (qty > 0) {
+                    MarketOrder order = sellOrder(seller,item,qty,fairAiSellUnit(item));
+                    activeOrders.put(key(seller.name), order);
+                    enqueue(seller.name, rng.nextBoolean() ? "i have " + qty + " " + pretty(item) : "msg me i can sell " + qty, true);
+                }
+            }
+        }
+
+        if (lower.contains("who wants pvp") || lower.contains("1v1") || lower.contains("anyone at spawn")) {
+            SimPlayer fighter = findReadyFighter();
+            if (fighter != null) enqueue(fighter.name, fighter.skill >= 80 ? "im down" : "give me a min", true);
+        }
+
+        if (lower.contains("koth") && !lower.contains("where")) {
+            SimPlayer fighter = findReadyFighter();
+            if (fighter != null && !fighter.faction.isEmpty()) enqueue(fighter.name, "our fac might go", true);
+        }
+
+        for (SimPlayer p : players.values()) {
+            if (lower.contains(p.name.toLowerCase(Locale.ENGLISH))) {
+                enqueue(p.name, rng.nextBoolean() ? "what" : "yeah?", true);
+                break;
+            }
+        }
+    }
+
+    void onLiveDeath(String victimName, String killerName) {
+        SimPlayer victim = players.get(key(victimName));
+        SimPlayer killer = players.get(key(killerName));
+
+        if (victim != null && killer != null && !victim.faction.isEmpty() && !killer.faction.isEmpty()
+                && !victim.faction.equalsIgnoreCase(killer.faction)) {
+            recordRivalry(victim.faction,killer.faction,10 + rng.nextInt(9));
+            queueDeathConversation(victim,killer);
+        }
+
+        if (plugin.isCreatorIdentity(victimName)) queueCreatorDeathReactions(victimName);
+        if (killerName != null && plugin.isCreatorIdentity(killerName)) queueCreatorKillReactions(killerName);
     }
 
     String handlePrivate(Player human, String simName, String text) {
@@ -713,6 +782,165 @@ final class SimWorldDirector {
         return p.aggression >= 65 ? "PRESSURE_CAUTIOUS" : "HOLD";
     }
 
+    private void enqueue(String name, String message, boolean fast) {
+        if (name == null || message == null || message.trim().isEmpty()) return;
+        if (pendingChat.size() >= 18) return;
+        pendingChat.addLast(new ChatEvent(name,message,fast));
+    }
+
+    private String rivalryKey(String a, String b) {
+        String x = key(a), y = key(b);
+        return x.compareTo(y) <= 0 ? x + "|" + y : y + "|" + x;
+    }
+
+    private void recordRivalry(String a, String b, int amount) {
+        if (a == null || b == null || a.equalsIgnoreCase(b)) return;
+        String k = rivalryKey(a,b);
+        rivalries.put(k, Math.min(100, (rivalries.containsKey(k) ? rivalries.get(k) : 0) + Math.max(1,amount)));
+    }
+
+    private ChatEvent rivalryChatEvent() {
+        if (rivalries.isEmpty()) return null;
+
+        List<Map.Entry<String,Integer>> hot = new ArrayList<Map.Entry<String,Integer>>();
+        for (Map.Entry<String,Integer> e : rivalries.entrySet()) if (e.getValue() >= 12) hot.add(e);
+        if (hot.isEmpty()) return null;
+
+        Map.Entry<String,Integer> e = hot.get(rng.nextInt(hot.size()));
+        String[] parts = e.getKey().split("\\|",2);
+        if (parts.length != 2) return null;
+        SimFaction a = factions.get(parts[0]);
+        SimFaction b = factions.get(parts[1]);
+        if (a == null || b == null) return null;
+        SimPlayer pa = players.get(key(a.leader));
+        SimPlayer pb = players.get(key(b.leader));
+        if (pa == null || pb == null) return null;
+
+        String[] first = {
+            b.name + " only fights with numbers",
+            "why are " + b.name + " always outside our base",
+            "gg " + b.name + " but stop chasing for 10 mins",
+            b.name + " you guys love jumping people"
+        };
+        String[] reply = {
+            "then dont come out",
+            "you chased us first lol",
+            "gg stop crying",
+            "we live next to you what do you expect"
+        };
+        String[] last = {"fair lol","see you at koth","just wait","alright gg"};
+
+        enqueue(pb.name, reply[rng.nextInt(reply.length)], true);
+        if (e.getValue() >= 35 && rng.nextBoolean()) enqueue(pa.name, last[rng.nextInt(last.length)], true);
+        return new ChatEvent(pa.name, first[rng.nextInt(first.length)], false);
+    }
+
+    private void queueDeathConversation(SimPlayer victim, SimPlayer killer) {
+        if (rng.nextInt(100) < 45) {
+            String[] a = {"you guys jumped me","gg i had no pots","why were all of you there","i was trying to kite"};
+            String[] b = {"gg","you pushed us first","we saw you outside","shouldve went home"};
+            enqueue(victim.name,a[rng.nextInt(a.length)],true);
+            enqueue(killer.name,b[rng.nextInt(b.length)],true);
+        }
+
+        SimFaction vf = factions.get(key(victim.faction));
+        if (vf != null && vf.members.size() >= 2 && rng.nextInt(100) < 12) {
+            SimPlayer mate = players.get(key(vf.members.get(rng.nextInt(vf.members.size()))));
+            if (mate != null && !mate.name.equalsIgnoreCase(victim.name)) {
+                enqueue(mate.name, "why did you chase that", true);
+                enqueue(victim.name, rng.nextBoolean() ? "thought you were behind me" : "i was trying to get out", true);
+            }
+        }
+    }
+
+    private void queueCreatorDeathReactions(String creator) {
+        List<String> fans = plugin.getConfig().getStringList("sim-chat.fans");
+        if (fans.isEmpty()) return;
+        Collections.shuffle(fans,rng);
+        int count = Math.min(fans.size(), 1 + rng.nextInt(2));
+        String[] lines = {"no way " + creator + " died","who killed " + creator,"rip " + creator,"gg " + creator};
+        for (int i=0;i<count;i++) enqueue(fans.get(i), lines[rng.nextInt(lines.length)], true);
+    }
+
+    private void queueCreatorKillReactions(String creator) {
+        List<String> fans = plugin.getConfig().getStringList("sim-chat.fans");
+        if (fans.isEmpty() || rng.nextInt(100) >= 55) return;
+        String fan = fans.get(rng.nextInt(fans.size()));
+        String[] lines = {"that combo","gg","" + creator + " is farming","rip"};
+        enqueue(fan,lines[rng.nextInt(lines.length)],true);
+    }
+
+    private SimPlayer findReadyFighter() {
+        List<SimPlayer> ready = new ArrayList<SimPlayer>();
+        for (SimPlayer p : players.values()) if (shouldSeekPvp(p.name)) ready.add(p);
+        if (ready.isEmpty()) return null;
+        return ready.get(rng.nextInt(ready.size()));
+    }
+
+    private SimPlayer findSeller(String item) {
+        SimPlayer best = null;
+        for (SimPlayer p : players.values()) {
+            if (getStock(p,item) <= 0) continue;
+            if (best == null || getStock(p,item) > getStock(best,item)) best = p;
+        }
+        return best;
+    }
+
+    private SimPlayer findInterestedBuyer(String item) {
+        List<SimPlayer> candidates = new ArrayList<SimPlayer>();
+        for (SimPlayer p : players.values()) {
+            if (p.faction.isEmpty()) continue;
+            SimFaction f = factions.get(key(p.faction));
+            if (f == null || f.treasury < 50) continue;
+            if (item.equals("pearl") && f.pearls < Math.max(8,f.members.size()*8)) candidates.add(p);
+            else if (item.equals("iron") && f.iron < 35) candidates.add(p);
+            else if (item.equals("obsidian") && f.obsidian < 8) candidates.add(p);
+            else if (item.equals("healthpot") && f.healPots < f.members.size()*24) candidates.add(p);
+            else if (item.equals("cane") && ("farmer".equals(p.preferredJob) || f.books < 20)) candidates.add(p);
+        }
+        if (candidates.isEmpty()) return null;
+        return candidates.get(rng.nextInt(candidates.size()));
+    }
+
+    private int suggestedTradeQty(String item, SimPlayer p, boolean buying) {
+        if (item.equals("pearl")) return 8;
+        if (item.equals("healthpot")) return 6;
+        if (item.equals("iron")) return 16;
+        if (item.equals("obsidian")) return 8;
+        if (item.equals("cane") || item.equals("cactus")) return 64;
+        return 16;
+    }
+
+    private int fairAiBuyUnit(String item) {
+        if (item.equals("pearl")) return 145 + rng.nextInt(11);
+        if (item.equals("healthpot")) return 90 + rng.nextInt(21);
+        if (item.equals("iron")) return 10 + rng.nextInt(4);
+        if (item.equals("obsidian")) return 22 + rng.nextInt(5);
+        if (item.equals("cane")) return 4;
+        if (item.equals("cactus")) return 3;
+        return 5;
+    }
+
+    private int fairAiSellUnit(String item) {
+        if (item.equals("pearl")) return 150 + rng.nextInt(11);
+        if (item.equals("healthpot")) return 105 + rng.nextInt(16);
+        if (item.equals("iron")) return 13 + rng.nextInt(3);
+        if (item.equals("obsidian")) return 25 + rng.nextInt(4);
+        if (item.equals("cane")) return 4;
+        if (item.equals("cactus")) return 3;
+        return 6;
+    }
+
+    private String itemFromText(String lower) {
+        if (lower.contains("pearl")) return "pearl";
+        if (lower.contains("heal pot") || lower.contains("health pot") || lower.contains("pots")) return "healthpot";
+        if (lower.contains("obsidian") || lower.contains("obby")) return "obsidian";
+        if (lower.contains("iron")) return "iron";
+        if (lower.contains("sugar cane") || lower.contains("cane")) return "cane";
+        if (lower.contains("cactus")) return "cactus";
+        return null;
+    }
+
     private MarketOrder makeMarketOrder() {
         for (int tries = 0; tries < 12; tries++) {
             SimPlayer p = randomPlayer();
@@ -846,6 +1074,8 @@ final class SimWorldDirector {
         sotwTicks = data.getLong("meta.sotw-ticks", 0L);
         sotwStartedAt = data.getLong("meta.sotw-started-at", System.currentTimeMillis());
         factionNameCursor = data.getInt("meta.faction-name-cursor", 0);
+        ConfigurationSection rr = data.getConfigurationSection("rivalries");
+        if (rr != null) for (String k : rr.getKeys(false)) rivalries.put(k,rr.getInt(k,0));
 
         ConfigurationSection fs = data.getConfigurationSection("factions");
         if (fs != null) {
@@ -909,6 +1139,8 @@ final class SimWorldDirector {
     private void seed() {
         players.clear();
         factions.clear();
+        rivalries.clear();
+        pendingChat.clear();
         sotwTicks = 0;
         sotwStartedAt = System.currentTimeMillis();
         factionNameCursor = 0;
@@ -1240,6 +1472,7 @@ final class SimWorldDirector {
 
         if (!creatorLed && !creatorAnchors.isEmpty() && rng.nextInt(100) < (f.powerFaction ? 78 : 52)) {
             SimFaction anchor = creatorAnchors.get(rng.nextInt(creatorAnchors.size()));
+            recordRivalry(f.name,anchor.name,f.powerFaction ? 7 : 3);
             double angle = rng.nextDouble() * Math.PI * 2.0;
             int distance = (f.powerFaction ? 140 : 220) + rng.nextInt(f.powerFaction ? 160 : 260);
             return new int[]{
@@ -1328,7 +1561,25 @@ final class SimWorldDirector {
         SimPlayer victim = weakestExposedMember(loser);
         if (victim == null) return;
 
+        SimFaction winner = null;
+        double bestStrength = -1;
+        for (SimFaction candidate : cluster) {
+            if (candidate == loser) continue;
+            double strength = factionFightStrength(candidate);
+            if (winner == null || strength > bestStrength) {
+                winner = candidate;
+                bestStrength = strength;
+            }
+        }
+
         plugin.applySimulatedFactionDeath(loser.name, victim.name);
+        if (winner != null) {
+            recordRivalry(loser.name,winner.name,12 + rng.nextInt(10));
+            SimPlayer killer = players.get(key(winner.leader));
+            if (killer != null) queueDeathConversation(victim,killer);
+            if (killer != null && plugin.isCreatorIdentity(killer.name)) queueCreatorKillReactions(killer.name);
+        }
+        if (plugin.isCreatorIdentity(victim.name)) queueCreatorDeathReactions(victim.name);
 
         // A death also consumes some combat stock rather than duplicating gear/pots.
         loser.healPots = Math.max(0, loser.healPots - 10 - rng.nextInt(10));
@@ -1336,8 +1587,6 @@ final class SimWorldDirector {
         if (victim.combatClass == CombatClass.DIAMOND && loser.p4Sets > 0) loser.p4Sets--;
         if (loser.sharp4Swords > 0 && victim.combatClass == CombatClass.DIAMOND) loser.sharp4Swords--;
 
-        ChatEvent event = new ChatEvent(victim.name, rng.nextBoolean() ? "gg" : "got jumped");
-        // Reuse chat cooldown path naturally on the next pulse by storing no synthetic loot.
     }
 
     private SimFaction weightedBrawlLoser(List<SimFaction> cluster) {
@@ -1512,6 +1761,9 @@ final class SimWorldDirector {
             data.set(b + ".actions", f.actionCounter);
             data.set(b + ".members", new ArrayList<String>(f.members));
         }
+
+        data.set("rivalries", null);
+        for (Map.Entry<String,Integer> e : rivalries.entrySet()) data.set("rivalries." + e.getKey(), e.getValue());
 
         data.set("meta.schema", 4);
         data.set("meta.sotw-ticks", sotwTicks);

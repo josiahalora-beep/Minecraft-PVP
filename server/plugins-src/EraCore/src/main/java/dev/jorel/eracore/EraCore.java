@@ -109,6 +109,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         loadFactions();
         warpManager = new WarpManager(this);
         warpManager.bootstrapDefaults();
+        configureWorldBorders();
         simWorld = new SimWorldDirector(this);
         simChat = new SimChatDirector(this, simWorld);
         spawnPresence = new SpawnPresenceDirector(this, warpManager);
@@ -836,6 +837,33 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             else p.getInventory().setItem(slot, i);
         }
         return left == 0;
+    }
+
+    private void configureWorldBorders() {
+        if (!getConfig().getBoolean("map.manage-world-border", true)) return;
+        try {
+            List<World> worlds = Bukkit.getWorlds();
+            if (worlds.isEmpty()) return;
+
+            World overworld = worlds.get(0);
+            Location center = overworld.getSpawnLocation();
+            WorldBorder border = overworld.getWorldBorder();
+            border.setCenter(center.getX(), center.getZ());
+            border.setSize(Math.max(512.0, getConfig().getDouble("map.world-border", 3000.0)));
+
+            World nether = Bukkit.getWorld("world_nether");
+            if (nether != null) {
+                WorldBorder nb = nether.getWorldBorder();
+                nb.setCenter(center.getX() / 8.0, center.getZ() / 8.0);
+                nb.setSize(Math.max(256.0, getConfig().getDouble("map.nether-border", 1000.0)));
+            }
+
+            getLogger().info("World borders configured around spawn: overworld=" +
+                (int)border.getSize() + " nether=" +
+                (nether == null ? "n/a" : Integer.toString((int)nether.getWorldBorder().getSize())));
+        } catch (Throwable t) {
+            getLogger().warning("Could not configure world border: " + t.getMessage());
+        }
     }
 
     private boolean cmdRank(CommandSender s, String[] a) {

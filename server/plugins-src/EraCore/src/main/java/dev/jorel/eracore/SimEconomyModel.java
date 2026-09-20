@@ -123,6 +123,21 @@ final class SimEconomyModel {
         addStock(p, stockKey, produced);
         p.farmCycles++;
 
+        // Faction farmers reserve actual cane for class kits/enchanting before
+        // selling surplus. This is an item transfer, not duplicated production.
+        if ("cane".equals(stockKey) && !p.faction.isEmpty()) {
+            SimWorldDirector.SimFaction f = factions.get(p.faction.toLowerCase(Locale.ENGLISH));
+            if (f != null) {
+                int reserveTarget = Math.max(48, f.members.size() * 24);
+                int available = stock(p, stockKey);
+                int move = Math.min(available, Math.max(0, reserveTarget - f.cane));
+                if (move > 0) {
+                    setStock(p, stockKey, available - move);
+                    f.cane += move;
+                }
+            }
+        }
+
         // Smart farmers keep some inventory for player demand and liquidate the rest.
         int keep = p.economicIq >= 90 ? Math.min(256, p.farmCells * 2) : Math.min(128, p.farmCells);
         int current = stock(p, stockKey);

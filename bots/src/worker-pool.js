@@ -281,13 +281,37 @@ function commandTagged(state) {
   return Date.now() < (state.combatTaggedUntil || 0) || String(state.job?.tagged || '0') === '1'
 }
 
-function kitForRank(rank) {
+function kitsForRank(rank) {
   const r = String(rank || '').toUpperCase()
-  if (r === 'TITAN') return 'titan'
-  if (r === 'LEGEND') return 'legend'
-  if (r === 'ELITE') return 'elite'
-  if (r === 'VIP') return 'vip'
-  return null
+  const all=['titan','legend','elite','vip','member']
+  if (r === 'TITAN') return all
+  if (r === 'LEGEND') return all.slice(1)
+  if (r === 'ELITE') return all.slice(2)
+  if (r === 'VIP') return all.slice(3)
+  if (r === 'MEMBER') return ['member']
+  return []
+}
+
+function starterForState(state) {
+  const cls=String(state.job?.class || 'DIAMOND').toLowerCase()
+  if (['bard','archer','miner','rogue'].includes(cls)) return cls
+  return 'diamond'
+}
+
+function dimensionZone(bot) {
+  const d=String(bot?.game?.dimension || bot?.entity?.dimension || '').toLowerCase()
+  if(d.includes('nether')) return 'nether'
+  if(d.includes('end')) return 'end'
+  return 'spawn'
+}
+
+function nearAssignedHome(state, radius=55) {
+  const bot=state.bot
+  if(!bot?.entity || dimensionZone(bot)!=='spawn') return false
+  const x=Number(state.job?.x), z=Number(state.job?.z)
+  if(!Number.isFinite(x) || !Number.isFinite(z)) return true
+  const dx=bot.entity.position.x-x, dz=bot.entity.position.z-z
+  return dx*dx+dz*dz <= radius*radius
 }
 
 function parseTagSeconds(text) {
@@ -314,45 +338,91 @@ async function commandBrain(state) {
   const action = state.job?.action || 'idle'
   const faction = String(state.job?.faction || state.faction || 'none')
   const tagged = commandTagged(state)
+  const now=Date.now()
 
-  // Donor players actually use their highest available rank kit. Server-side
-  // cooldowns are authoritative, so reconnects cannot duplicate the source.
-  const kit = kitForRank(state.rank)
-  if (kit && !tagged && Date.now() - (state.lastKitAttempt || 0) > 20 * 60 * 1000) {
-    state.lastKitAttempt = Date.now()
-    await tryCommand(state, '/kit ' + kit, 900)
+  // Donor value is faction value: safely return home, claim the highest kit
+  // first, equip what is useful, stash excess, then work down through every
+  // lower donor rank. Server cooldowns decide whether each attempt succeeds.
+  const donorKits=kitsForRank(state.rank)
+  if (donorKits.length && !tagged && faction !== 'none' && now >= (state.nextKitSweepAt || 0)) {
+    if (!nearAssignedHome(state) && now - (state.lastTeleportAttempt || 0) > 12000) {
+      state.lastTeleportAttempt=now
+      await tryCommand(state,'/f home',900)
+      return
+    }
+
+    if (nearAssignedHome(state) && now >= (state.nextDonorKitAt || 0)) {
+      const idx=Math.max(0,Math.min(donorKits.length-1,state.donorKitIndex || 0))
+      const kit=donorKits[idx]
+      state.pendingDonorKit=kit
+      state.donorKitIndex=idx+1
+      state.nextDonorKitAt=now+2600
+      await tryCommand(state,'/kit '+kit,900)
+
+      if(state.donorKitIndex>=donorKits.length) {
+        state.donorKitIndex=0
+        state.nextKitSweepAt=now+30*60*1000
+      }
+      return
+    }
+  }
+
+  // Member identities also use the shared archetype starter source. It is one
+  // shared cooldown, so they cannot farm five starter variants.
+  if (String(state.rank || '').toUpperCase()==='MEMBER' && !tagged &&
+      now-(state.lastStarterAttempt || 0)>30*60*1000) {
+    state.lastStarterAttempt=now
+    await tryCommand(state,'/kit starter '+starterForState(state),900)
     return
   }
 
   // DTR recovery means get safely home if teleporting is legal.
   if (action === 'safe' && !tagged && faction !== 'none' &&
-      Date.now() - (state.lastTeleportAttempt || 0) > 20000) {
-    state.lastTeleportAttempt = Date.now()
+      now - (state.lastTeleportAttempt || 0) > 20000) {
+    state.lastTeleportAttempt = now
     await tryCommand(state, '/f home', 900)
     return
   }
 
-  // Recruitment happens at spawn. This is deliberate command knowledge, not
-  // server-side snapping, and is never attempted through an active PvP tag.
+  // Recruitment happens at spawn.
   if (action === 'recruit' && !tagged &&
-      Date.now() - (state.lastTeleportAttempt || 0) > 60000) {
-    state.lastTeleportAttempt = Date.now()
+      now - (state.lastTeleportAttempt || 0) > 60000) {
+    state.lastTeleportAttempt = now
     await tryCommand(state, '/spawn', 900)
     return
   }
 
-  // Brewing/gearing should happen at the faction base. If a worker has drifted
-  // far away and is not tagged, use faction home rather than walking hundreds
-  // of blocks for no gameplay reason.
+  // PvP-ready bodies move between real HCF hot spots rather than orbiting base.
+  // pvp = outside the Overworld Safezone; nether/end are their world hubs.
+  if (action === 'patrol' && !tagged) {
+    const zone=String(state.job?.zone || 'spawn').toLowerCase()
+    const current=dimensionZone(bot)
+    const changed=state.lastPatrolZone!==zone
+    const wrongDimension=(zone==='nether' && current!=='nether') ||
+      (zone==='end' && current!=='end') ||
+      (zone==='spawn' && current!=='spawn')
+
+    if ((changed || wrongDimension) && now-(state.lastTeleportAttempt || 0)>8000) {
+      const warp=zone==='nether'?'nether':(zone==='end'?'end':'pvp')
+      state.lastTeleportAttempt=now
+      state.lastPatrolZone=zone
+      state.zoneArrivalAt=now
+      await tryCommand(state,'/warp '+warp,900)
+      return
+    }
+  }
+
+  // Brewing/gearing should happen at the faction base.
   if ((action === 'brew' || action === 'gear') && !tagged && faction !== 'none') {
     const x = Number(state.job?.x)
     const z = Number(state.job?.z)
     if (Number.isFinite(x) && Number.isFinite(z)) {
       const dx = bot.entity.position.x - x
       const dz = bot.entity.position.z - z
-      if (dx * dx + dz * dz > 45 * 45 &&
-          Date.now() - (state.lastTeleportAttempt || 0) > 45000) {
-        state.lastTeleportAttempt = Date.now()
+      if ((dimensionZone(bot)!=='spawn' || dx * dx + dz * dz > 45 * 45) &&
+          now - (state.lastTeleportAttempt || 0) > 45000) {
+        state.lastTeleportAttempt = now
+        state.lastPatrolZone=''
         await tryCommand(state, '/f home', 900)
       }
     }
@@ -456,7 +526,11 @@ async function equipBestWeapon(state) {
   const bot=state.bot
   if (!bot?.entity) return false
   const names=['diamond_sword','iron_sword','stone_sword','golden_sword','gold_sword','wooden_sword','wood_sword']
-  const item=bot.inventory.items().find(i=>names.includes(i.name))
+  let item=null
+  for(const name of names) {
+    item=bot.inventory.items().find(i=>i.name===name)
+    if(item) break
+  }
   if (!item) return false
   try { await bot.equip(item,'hand'); return true } catch { return false }
 }
@@ -590,35 +664,58 @@ async function doPhysicalWork(state, action) {
   return false
 }
 
+function nearestRoamStranger(state, radius=48) {
+  const bot=state.bot
+  if(!bot?.entity) return null
+  const allies=new Set(String(state.job?.allies || '').split(',').filter(Boolean).map(x=>x.toLowerCase()))
+  allies.add(String(state.name || '').toLowerCase())
+  let best=null,bestDist=Infinity
+  for(const [name,rec] of Object.entries(bot.players || {})) {
+    if(allies.has(String(name).toLowerCase())) continue
+    const e=rec?.entity
+    if(!e) continue
+    const d=bot.entity.position.distanceTo(e.position)
+    if(d<=radius && d<bestDist){best=e;bestDist=d}
+  }
+  return best
+}
+
 async function localMotion(state, action) {
   const bot = state.bot
   if (!bot?.entity) return
 
   bot.physicsEnabled = true
   const mobile = ['patrol', 'scout', 'mine', 'gather', 'supply', 'farm', 'build'].includes(action)
-  const totalMs = mobile ? rand(1800, 4200) : rand(900, 2200)
+  const totalMs = action==='patrol' ? rand(4500, 8500) : (mobile ? rand(1800, 4200) : rand(900, 2200))
   const endAt = Date.now() + totalMs
 
   while (Date.now() < endAt && state.bot?.entity && !state.combat) {
     stopMovement(bot)
 
-    // Human movement is mostly forward travel with occasional strafes and
-    // pauses, not a permanent diagonal input.
-    const moving = Math.random() < (mobile ? 0.90 : 0.58)
-    const sprintChance = (action === 'patrol' || action === 'scout') ? 0.80 : 0.30
+    const stranger=action==='patrol' ? nearestRoamStranger(state,48) : null
+    const leavingHub=action==='patrol' && Date.now()-(state.zoneArrivalAt || 0)<10000
+
+    // Patrols actively seek visible non-faction players. Immediately after a
+    // zone warp they also make a sustained sprint out of the Safezone.
+    const moving = stranger || leavingHub || Math.random() < (mobile ? 0.90 : 0.58)
+    const sprintChance = (action === 'patrol' || action === 'scout') ? 0.90 : 0.30
     const strafeRoll = Math.random()
 
     if (moving) {
       bot.setControlState('forward', true)
-      bot.setControlState('sprint', Math.random() < sprintChance)
-      if (strafeRoll < 0.14) bot.setControlState('left', true)
-      else if (strafeRoll > 0.86) bot.setControlState('right', true)
+      bot.setControlState('sprint', stranger || leavingHub || Math.random() < sprintChance)
+      if (!leavingHub && strafeRoll < 0.14) bot.setControlState('left', true)
+      else if (!leavingHub && strafeRoll > 0.86) bot.setControlState('right', true)
     }
 
     try {
-      const yawChange = mobile ? rand(-0.34, 0.34) : rand(-0.70, 0.70)
-      const pitch = action === 'mine' ? rand(0.15, 0.58) : rand(-0.12, 0.20)
-      await bot.look(bot.entity.yaw + yawChange, pitch, false)
+      if(stranger) {
+        await bot.lookAt(stranger.position.offset(0,1.2,0),false)
+      } else {
+        const yawChange = leavingHub ? rand(-0.08,0.08) : (mobile ? rand(-0.34, 0.34) : rand(-0.70, 0.70))
+        const pitch = action === 'mine' ? rand(0.15, 0.58) : rand(-0.12, 0.20)
+        await bot.look(bot.entity.yaw + yawChange, pitch, false)
+      }
     } catch {}
 
     // Step/jump responses make terrain movement much less robotic.
@@ -775,6 +872,13 @@ async function connectIdentity(candidate, settings) {
     rank: 'MEMBER',
     combatTaggedUntil: 0,
     lastKitAttempt: 0,
+    lastStarterAttempt: 0,
+    donorKitIndex: 0,
+    nextDonorKitAt: 0,
+    nextKitSweepAt: 0,
+    pendingDonorKit: '',
+    lastPatrolZone: '',
+    zoneArrivalAt: 0,
     lastTeleportAttempt: 0,
     lastCommandAt: 0,
     lastCommandBrainAt: 0,
@@ -805,7 +909,16 @@ async function connectIdentity(candidate, settings) {
       }
       if (low.includes('claimed ') && low.includes(' kit')) {
         state.lastKitAttempt = Date.now()
-        setTimeout(() => maintainSurvival(state,true).catch(() => {}), 250)
+        const starter=low.includes('starter')
+        setTimeout(async () => {
+          await maintainSurvival(state,true).catch(() => {})
+          // Donor kit overflow belongs to the faction. Keep one usable loadout,
+          // stash duplicates and excess consumables into the organized vault.
+          if(!starter && state.bot?.entity) {
+            await sleep(450)
+            try { state.bot.chat('/simworker stash') } catch {}
+          }
+        }, 250)
       }
     })
 

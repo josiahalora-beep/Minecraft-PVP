@@ -1056,6 +1056,15 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             return true;
         }
 
+        if (a[0].equalsIgnoreCase("stash")) {
+            if (!simIdentity) {
+                p.sendMessage(color("&cSimulation identities only."));
+                return true;
+            }
+            p.sendMessage("SIMSTASH " + simWorld.stashEmbodiedWorker(p));
+            return true;
+        }
+
         if (a[0].equalsIgnoreCase("status")) {
             if (!ownerOnly(p)) return true;
             p.sendMessage(color("&7Worker candidates: &f" + simWorld.workerCandidateCount() +
@@ -1064,7 +1073,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             return true;
         }
 
-        p.sendMessage("/simworker <sync|deposit|status>");
+        p.sendMessage("/simworker <sync|deposit|stash|status>");
         return true;
     }
 
@@ -1396,8 +1405,13 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     private boolean cmdKit(Player p, String[] a) {
+        if (a.length >= 1 && a[0].equalsIgnoreCase("starter")) {
+            String archetype=a.length>=2?a[1]:"diamond";
+            return claimStarterKit(p,archetype);
+        }
+
         if (a.length != 1) {
-            p.sendMessage("/kit <member|vip|elite|legend|titan>");
+            p.sendMessage("/kit <starter [diamond|bard|archer|miner|rogue]|member|vip|elite|legend|titan>");
             return true;
         }
         Rank requested = Rank.parse(a[0]);
@@ -1422,13 +1436,42 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (simWorld != null && simWorld.contains(p.getName())) simWorld.applyDonorKitClaim(p.getName(), requested.level);
         if (own != Rank.OWNER) kitsData.set(key, now + requested.cooldownHours * 3600000L);
         saveYaml(kitsData, kitsFile);
-        p.sendMessage(color("&aClaimed " + requested.prefix + " &akit. If you die, the gear is gone until the cooldown ends."));
+        p.sendMessage(color("&aClaimed " + requested.prefix + " &akit. Higher ranks may also claim every lower donor kit."));
+        return true;
+    }
+
+    private boolean claimStarterKit(Player p,String archetype) {
+        String type=archetype==null?"diamond":archetype.toLowerCase(Locale.ENGLISH);
+        if(!Arrays.asList("diamond","bard","archer","miner","rogue").contains(type)) {
+            p.sendMessage(color("&cStarter types: &fdiamond, bard, archer, miner, rogue"));
+            return true;
+        }
+
+        String key=p.getName().toLowerCase(Locale.ENGLISH)+".starter";
+        long now=System.currentTimeMillis();
+        long next=kitsData.getLong(key,0L);
+        Rank own=effectiveRank(p.getName());
+        if(own!=Rank.OWNER && now<next) {
+            long mins=Math.max(1,(next-now)/60000L);
+            p.sendMessage(color("&cStarter kit is on cooldown for ~"+mins+" minutes."));
+            return true;
+        }
+
+        grantStarterKit(p,type);
+        int hours=Math.max(1,getConfig().getInt("kits.starter-cooldown-hours",6));
+        if(own!=Rank.OWNER) kitsData.set(key,now+hours*3600000L);
+        saveYaml(kitsData,kitsFile);
+        p.sendMessage(color("&aClaimed &f"+type+" &astarter kit."));
         return true;
     }
 
     private boolean cmdKits(Player p) {
         Rank own = effectiveRank(p.getName());
         p.sendMessage(color("&6--- Kit Cooldowns ---"));
+        long starterNext=kitsData.getLong(p.getName().toLowerCase(Locale.ENGLISH)+".starter",0L);
+        String starterStatus=own==Rank.OWNER || System.currentTimeMillis()>=starterNext ? "&aReady" :
+            "&e"+Math.max(1,(starterNext-System.currentTimeMillis())/60000L)+"m";
+        p.sendMessage(color("&fStarter &7- "+Math.max(1,getConfig().getInt("kits.starter-cooldown-hours",6))+"h - "+starterStatus));
         for (Rank r : new Rank[]{Rank.MEMBER,Rank.VIP,Rank.ELITE,Rank.LEGEND,Rank.TITAN}) {
             boolean eligible = own == Rank.OWNER || own.level >= r.level;
             String key = p.getName().toLowerCase(Locale.ENGLISH) + "." + r.name().toLowerCase(Locale.ENGLISH);
@@ -1465,6 +1508,59 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         add(p,new ItemStack(Material.ENDER_PEARL,pearls));
         add(p,new ItemStack(Material.COOKED_BEEF,32));
         for (int i=0;i<pots;i++) add(p,new ItemStack(Material.POTION,1,(short)16421));
+    }
+
+    private void grantStarterKit(Player p,String type) {
+        if("bard".equals(type)) {
+            add(p,armor(Material.GOLD_HELMET,1));
+            add(p,armor(Material.GOLD_CHESTPLATE,1));
+            add(p,armor(Material.GOLD_LEGGINGS,1));
+            add(p,armor(Material.GOLD_BOOTS,1));
+            add(p,sword(Material.IRON_SWORD,1));
+            add(p,new ItemStack(Material.BLAZE_ROD,1));
+            add(p,new ItemStack(Material.GHAST_TEAR,1));
+            add(p,new ItemStack(Material.FEATHER,1));
+            add(p,new ItemStack(Material.MAGMA_CREAM,1));
+        } else if("archer".equals(type)) {
+            add(p,armor(Material.LEATHER_HELMET,2));
+            add(p,armor(Material.LEATHER_CHESTPLATE,2));
+            add(p,armor(Material.LEATHER_LEGGINGS,2));
+            add(p,armor(Material.LEATHER_BOOTS,2));
+            ItemStack bow=new ItemStack(Material.BOW);
+            bow.addUnsafeEnchantment(Enchantment.ARROW_DAMAGE,2);
+            add(p,bow);
+            add(p,new ItemStack(Material.ARROW,64));
+            add(p,sword(Material.IRON_SWORD,1));
+        } else if("miner".equals(type)) {
+            add(p,armor(Material.IRON_HELMET,1));
+            add(p,armor(Material.IRON_CHESTPLATE,1));
+            add(p,armor(Material.IRON_LEGGINGS,1));
+            add(p,armor(Material.IRON_BOOTS,1));
+            ItemStack pick=new ItemStack(Material.IRON_PICKAXE);
+            pick.addUnsafeEnchantment(Enchantment.DIG_SPEED,2);
+            add(p,pick);
+            add(p,sword(Material.IRON_SWORD,1));
+        } else if("rogue".equals(type)) {
+            add(p,armor(Material.CHAINMAIL_HELMET,1));
+            add(p,armor(Material.CHAINMAIL_CHESTPLATE,1));
+            add(p,armor(Material.CHAINMAIL_LEGGINGS,1));
+            add(p,armor(Material.CHAINMAIL_BOOTS,1));
+            add(p,sword(Material.GOLD_SWORD,2));
+        } else {
+            add(p,armor(Material.IRON_HELMET,1));
+            add(p,armor(Material.IRON_CHESTPLATE,1));
+            add(p,armor(Material.IRON_LEGGINGS,1));
+            add(p,armor(Material.IRON_BOOTS,1));
+            add(p,sword(Material.DIAMOND_SWORD,1));
+        }
+
+        add(p,new ItemStack(Material.ENDER_PEARL,"miner".equals(type)?2:4));
+        add(p,new ItemStack(Material.COOKED_BEEF,32));
+        int heals="miner".equals(type)?6:10;
+        for(int i=0;i<heals;i++) add(p,new ItemStack(Material.POTION,1,(short)16421));
+        add(p,new ItemStack(Material.POTION,1,(short)8226));
+        if(!"miner".equals(type)) add(p,new ItemStack(Material.POTION,1,(short)8226));
+        if("rogue".equals(type) || "diamond".equals(type)) add(p,new ItemStack(Material.POTION,1,(short)8259));
     }
 
     private ItemStack armor(Material m,int prot) {

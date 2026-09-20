@@ -834,7 +834,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (a[0].equalsIgnoreCase("status")) {
             if (!ownerOnly(p)) return true;
             p.sendMessage(color("&7Worker candidates: &f" + simWorld.workerCandidateCount() +
-                " &7adaptive body budget: &f" + adaptiveWorkerBudget(getConfig().getInt("worker-pool.max-bodies",12)) +
+                " &7adaptive body budget: &f" + adaptiveWorkerBudget(getConfig().getInt("worker-pool.max-bodies",16)) +
                 " &7creator bodies: &f" + getConfig().getStringList("worker-pool.creator-bodies").size()));
             return true;
         }
@@ -850,18 +850,18 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     private int adaptiveWorkerBudget(int configured) {
-        configured = Math.max(1, Math.min(12, configured));
+        configured = Math.max(1, Math.min(16, configured));
         int creatorFloor = Math.max(1, Math.min(configured,
             getConfig().getStringList("worker-pool.creator-bodies").size()));
 
         double[] s = tickStats();
-        if (s == null) return Math.max(creatorFloor, Math.min(8, configured));
+        if (s == null) return Math.max(creatorFloor, Math.min(10, configured));
 
         double p95 = s[1];
         if (p95 >= 42.0) return creatorFloor;
-        if (p95 >= 32.0) return Math.max(creatorFloor, Math.min(6, configured));
-        if (p95 >= 24.0) return Math.max(creatorFloor, Math.min(8, configured));
-        if (p95 >= 16.0) return Math.max(creatorFloor, Math.min(10, configured));
+        if (p95 >= 32.0) return Math.max(creatorFloor, Math.min(7, configured));
+        if (p95 >= 24.0) return Math.max(creatorFloor, Math.min(9, configured));
+        if (p95 >= 16.0) return Math.max(creatorFloor, Math.min(12, configured));
         return configured;
     }
 

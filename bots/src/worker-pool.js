@@ -647,6 +647,8 @@ async function reconcile() {
       state.combatController?.stop()
       state.combat = null
       if (state.bot) {
+        try { state.bot.chat('/simcombat release') } catch {}
+        await sleep(180)
         try { state.bot.chat('/simworker sync') } catch {}
       }
     }

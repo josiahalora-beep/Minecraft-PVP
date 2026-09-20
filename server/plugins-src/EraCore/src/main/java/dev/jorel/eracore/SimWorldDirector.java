@@ -186,6 +186,11 @@ final class SimWorldDirector {
         int homeX;
         int homeY;
         int homeZ;
+        int trapX;
+        int trapY;
+        int trapZ;
+        String trapType = "none";
+        String focus = "";
         final List<String> enemies = new ArrayList<String>();
         final List<String> allies = new ArrayList<String>();
 
@@ -200,6 +205,9 @@ final class SimWorldDirector {
                 " risk=" + risk +
                 " x=" + x + " y=" + y + " z=" + z +
                 " homeX=" + homeX + " homeY=" + homeY + " homeZ=" + homeZ +
+                " trapX=" + trapX + " trapY=" + trapY + " trapZ=" + trapZ +
+                " trapType=" + trapType +
+                " focus=" + focus +
                 " enemies=" + joinNames(enemies) +
                 " allies=" + joinNames(allies);
         }
@@ -304,22 +312,24 @@ final class SimWorldDirector {
     }
 
     void repairExistingBaseTerrainAndClaims() {
+        if (data.getInt("meta.terrain-repair-version",0) >= 1) return;
+
         org.bukkit.World world=Bukkit.getWorlds().get(0);
         if(world==null) return;
 
         for(SimFaction f : factions.values()) {
             if(f.baseX==0 && f.baseZ==0) continue;
 
-            // Fill support below already-built structures; do not clear the
-            // existing base itself.
+            // Fill support below already-built structures and reapply the
+            // chosen preset exactly once for this migration.
             plugin.queueSimFoundationRepair(f.name,f.basePreset,f.trapPreset,f.baseX,f.baseY,f.baseZ);
 
-            // Expand old 3x3 simulation claims to the real footprint when
-            // neighboring claims allow it.
+            // Expand legacy claims to the complete base/farm/trap footprint.
             List<String> desired=baseFootprintClaims(world.getName(),f);
             org.bukkit.Location home=new org.bukkit.Location(world,f.baseX+0.5,f.baseY+1,f.baseZ+0.5);
             plugin.setSimFactionHomeAndClaims(f.name,home,desired);
         }
+        data.set("meta.terrain-repair-version",1);
         save();
     }
 
@@ -597,8 +607,34 @@ final class SimWorldDirector {
         return "SKIRMISH_"+a+"v"+b;
     }
 
+    private SimPlayer chooseFocusTarget(List<SimPlayer> enemies) {
+        SimPlayer best=null;
+        int bestScore=Integer.MAX_VALUE;
+        for(SimPlayer p:enemies) {
+            int score=p.skill + p.teamwork/3;
+            if(p.combatClass==CombatClass.BARD) score-=32;
+            else if(p.combatClass==CombatClass.ARCHER) score-=16;
+            else if(p.combatClass==CombatClass.ROGUE) score-=8;
+            score += p.riskTolerance/5;
+            if(best==null || score<bestScore) {
+                best=p;
+                bestScore=score;
+            }
+        }
+        return best;
+    }
+
+    private int[] trapPoint(SimFaction f) {
+        if("fall_trap".equalsIgnoreCase(f.trapPreset)) return new int[]{f.baseX+9,f.baseY+1,f.baseZ-16};
+        if("fence_gate_bow".equalsIgnoreCase(f.trapPreset)) return new int[]{f.baseX,f.baseY+1,f.baseZ-18};
+        if("drop_chute".equalsIgnoreCase(f.trapPreset)) return new int[]{f.baseX-10,f.baseY+1,f.baseZ-17};
+        return new int[]{f.baseX,f.baseY+1,f.baseZ};
+    }
+
     private void addAssignments(VisibleFight fight,SimFaction own,SimFaction enemy,
                                 List<SimPlayer> allies,List<SimPlayer> enemies,boolean defenderTrap) {
+        SimPlayer focusTarget=chooseFocusTarget(enemies);
+        int[] trap=trapPoint(own);
         for(int i=0;i<allies.size();i++) {
             SimPlayer p=allies.get(i);
             CombatAssignment ca=new CombatAssignment();
@@ -611,6 +647,9 @@ final class SimWorldDirector {
             ca.aggression=p.aggression;
             ca.risk=p.riskTolerance;
             ca.homeX=own.baseX; ca.homeY=own.baseY+1; ca.homeZ=own.baseZ;
+            ca.trapX=trap[0]; ca.trapY=trap[1]; ca.trapZ=trap[2];
+            ca.trapType=own.trapPreset == null ? "none" : own.trapPreset;
+            ca.focus=focusTarget == null ? "" : focusTarget.name;
 
             int side=own.name.equalsIgnoreCase(fight.anchorFaction)?1:-1;
             ca.x=fight.centerX + side*(7+i*2);
@@ -679,6 +718,11 @@ final class SimWorldDirector {
                 y.set(b+".home-x",ca.homeX);
                 y.set(b+".home-y",ca.homeY);
                 y.set(b+".home-z",ca.homeZ);
+                y.set(b+".trap-x",ca.trapX);
+                y.set(b+".trap-y",ca.trapY);
+                y.set(b+".trap-z",ca.trapZ);
+                y.set(b+".trap-type",ca.trapType);
+                y.set(b+".focus",ca.focus);
                 y.set(b+".enemies",ca.enemies);
                 y.set(b+".allies",ca.allies);
             }
@@ -2574,7 +2618,10 @@ final class SimWorldDirector {
         boolean compact = f.targetSize <= 3;
 
         if ((f.underdog || weakerPvP) && rng.nextInt(100) < 58) {
-            f.trapPreset = "fall_trap";
+            if (f.trapPreset == null || "none".equalsIgnoreCase(f.trapPreset)) {
+                int tr=rng.nextInt(100);
+                f.trapPreset = tr < 45 ? "fall_trap" : (tr < 80 ? "fence_gate_bow" : "drop_chute");
+            }
             return "hcf_trap_base";
         }
         if (archers >= 2 && rng.nextInt(100) < 70) return "hcf_archer_tower";

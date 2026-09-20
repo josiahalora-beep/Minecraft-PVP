@@ -58,6 +58,8 @@ final class HcfBaseBuilder {
         else buildGlassBox(world,cx,y,cz,false);
 
         if ("fall_trap".equalsIgnoreCase(trapPreset)) buildFallTrap(world,cx,y,cz);
+        else if ("fence_gate_bow".equalsIgnoreCase(trapPreset)) buildFenceGateBowTrap(world,cx,y,cz);
+        else if ("drop_chute".equalsIgnoreCase(trapPreset)) buildDropChute(world,cx,y,cz);
         ensureRunner();
     }
 
@@ -173,7 +175,7 @@ final class HcfBaseBuilder {
         else if ("hcf_archer_tower".equalsIgnoreCase(preset)) r=16;
         else if ("hcf_split_level".equalsIgnoreCase(preset)) r=15;
         else if ("hcf_glass_box".equalsIgnoreCase(preset) || "hcf_brewer_base".equalsIgnoreCase(preset) || "hcf_trap_base".equalsIgnoreCase(preset)) r=16;
-        if ("fall_trap".equalsIgnoreCase(trapPreset)) r=Math.max(r,20);
+        if (!"none".equalsIgnoreCase(trapPreset)) r=Math.max(r,22);
         return r;
     }
 
@@ -533,6 +535,59 @@ final class HcfBaseBuilder {
             queue.add(new Op(w,bx+i,y+1,bz+3,Material.REDSTONE_BLOCK));
             queue.add(new Op(w,bx+i,y+2,bz+3,Material.SMOOTH_BRICK));
         }
+    }
+
+    private void buildFenceGateBowTrap(World w,int cx,int y,int cz) {
+        int bx=cx;
+        int front=cz-18;
+
+        // Narrow chase corridor with repeated fence-gate pinch points.
+        for(int z=front-7;z<=front+7;z++) {
+            for(int x=bx-2;x<=bx+2;x++) {
+                queue.add(new Op(w,x,y,z,Material.SMOOTH_BRICK));
+                if(x==bx-2||x==bx+2) {
+                    queue.add(new Op(w,x,y+1,z,Material.SMOOTH_BRICK));
+                    queue.add(new Op(w,x,y+2,z,Material.GLASS));
+                } else {
+                    queue.add(new Op(w,x,y+1,z,Material.AIR));
+                    queue.add(new Op(w,x,y+2,z,Material.AIR));
+                }
+            }
+        }
+        for(int z=front-5;z<=front+5;z+=2) {
+            queue.add(new Op(w,bx,y+1,z,Material.FENCE_GATE));
+        }
+
+        // Protected bow lane offset from the corridor.
+        for(int z=front-6;z<=front+6;z++) {
+            queue.add(new Op(w,bx+4,y,z,Material.SMOOTH_BRICK));
+            queue.add(new Op(w,bx+4,y+1,z,Material.IRON_FENCE));
+            queue.add(new Op(w,bx+5,y+1,z,Material.SMOOTH_BRICK));
+        }
+    }
+
+    private void buildDropChute(World w,int cx,int y,int cz) {
+        int tx=cx-10;
+        int tz=cz-17;
+        int bottom=Math.max(7,y-32);
+
+        for(int x=tx-1;x<=tx+1;x++) {
+            for(int z=tz-1;z<=tz+1;z++) {
+                for(int yy=bottom;yy<=y;yy++) queue.add(new Op(w,x,yy,z,Material.AIR));
+                queue.add(new Op(w,x,bottom-1,z,Material.OBSIDIAN));
+            }
+        }
+        for(int x=tx-2;x<=tx+2;x++) {
+            queue.add(new Op(w,x,y,tz-2,Material.SMOOTH_BRICK));
+            queue.add(new Op(w,x,y,tz+2,Material.SMOOTH_BRICK));
+        }
+        for(int z=tz-2;z<=tz+2;z++) {
+            queue.add(new Op(w,tx-2,y,z,Material.SMOOTH_BRICK));
+            queue.add(new Op(w,tx+2,y,z,Material.SMOOTH_BRICK));
+        }
+        // Trapdoors make the lip look like a deliberate HCF drop entrance.
+        queue.add(new Op(w,tx,y,tz-2,Material.TRAP_DOOR));
+        queue.add(new Op(w,tx,y,tz+2,Material.TRAP_DOOR));
     }
 
     private void buildFallTrap(World w, int cx, int y, int cz) {

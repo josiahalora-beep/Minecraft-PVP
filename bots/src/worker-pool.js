@@ -410,6 +410,117 @@ function stopMovement(bot) {
   }
 }
 
+const HEAL_META = 16421
+
+function gearScore(name) {
+  const n=String(name || '')
+  if (n.startsWith('diamond_')) return 500
+  if (n.startsWith('iron_')) return 400
+  if (n.startsWith('chainmail_')) return 320
+  if (n.startsWith('golden_') || n.startsWith('gold_')) return 240
+  if (n.startsWith('leather_')) return 160
+  return 0
+}
+
+function bestInventoryItem(bot, suffix) {
+  let best=null,bestScore=-1
+  for (const item of bot.inventory.items()) {
+    if (!String(item.name || '').endsWith(suffix)) continue
+    const score=gearScore(item.name)
+    if (score>bestScore) { best=item; bestScore=score }
+  }
+  return best
+}
+
+async function equipBestArmor(state) {
+  const bot=state.bot
+  if (!bot?.entity) return false
+  const pieces=[
+    ['_helmet','head',5],
+    ['_chestplate','torso',6],
+    ['_leggings','legs',7],
+    ['_boots','feet',8]
+  ]
+  let changed=false
+  for (const [suffix,dest,slot] of pieces) {
+    const best=bestInventoryItem(bot,suffix)
+    if (!best) continue
+    const current=bot.inventory.slots?.[slot]
+    if (gearScore(current?.name) >= gearScore(best.name)) continue
+    try { await bot.equip(best,dest); changed=true; await sleep(45) } catch {}
+  }
+  return changed
+}
+
+async function equipBestWeapon(state) {
+  const bot=state.bot
+  if (!bot?.entity) return false
+  const names=['diamond_sword','iron_sword','stone_sword','golden_sword','gold_sword','wooden_sword','wood_sword']
+  const item=bot.inventory.items().find(i=>names.includes(i.name))
+  if (!item) return false
+  try { await bot.equip(item,'hand'); return true } catch { return false }
+}
+
+function healingPotion(bot) {
+  return bot.inventory.items().find(i=>i.name==='potion' && Number(i.metadata)===HEAL_META) || null
+}
+
+async function splashHealOutsideCombat(state) {
+  const bot=state.bot
+  if (!bot?.entity || state.combat || bot.health<=0 || bot.health>13.5) return false
+  if (Date.now()-(state.lastSurvivalPot || 0)<900) return false
+  const pot=healingPotion(bot)
+  if (!pot) return false
+  try {
+    stopMovement(bot)
+    await bot.equip(pot,'hand')
+    await bot.look(bot.entity.yaw,-Math.PI/2,true)
+    bot.activateItem()
+    await sleep(95)
+    bot.deactivateItem()
+    state.lastSurvivalPot=Date.now()
+    return true
+  } catch { return false }
+}
+
+async function eatIfNeeded(state) {
+  const bot=state.bot
+  if (!bot?.entity || state.combat || bot.food==null || bot.food>14) return false
+  const foods=['golden_apple','cooked_beef','cooked_porkchop','cooked_chicken','bread','baked_potato','apple']
+  const food=bot.inventory.items().find(i=>foods.includes(i.name))
+  if (!food) return false
+  try {
+    stopMovement(bot)
+    await bot.equip(food,'hand')
+    await bot.consume()
+    return true
+  } catch { return false }
+}
+
+async function maintainSurvival(state, urgent = false) {
+  const bot=state.bot
+  if (!bot?.entity || state.combat || state.survivalBusy) return false
+  if (!urgent && Date.now()-(state.lastSurvivalAt || 0)<1400) return false
+  state.survivalBusy=true
+  state.lastSurvivalAt=Date.now()
+  try {
+    await equipBestArmor(state)
+    if (await splashHealOutsideCombat(state)) {
+      await equipBestWeapon(state)
+      return true
+    }
+    if (await eatIfNeeded(state)) {
+      await equipBestWeapon(state)
+      return true
+    }
+    const action=String(state.job?.action || '')
+    if (!['mine','gather','farm','build','supply','brew'].includes(action)) await equipBestWeapon(state)
+    return false
+  } finally {
+    state.survivalBusy=false
+  }
+}
+
 function blockId(bot, name) {
   return bot.registry?.blocksByName?.[name]?.id ?? null
 }
@@ -584,6 +695,11 @@ function startWorkLoop(state, settings) {
       }
 
       if (Date.now() - state.lastSyncAt >= settings.syncMs) await sync(state)
+      const survivalAction = await maintainSurvival(state)
+      if (survivalAction) {
+        await sleep(Math.round(rand(180,420)))
+        continue
+      }
       if (Date.now() - (state.lastCommandBrainAt || 0) >= 2200) {
         state.lastCommandBrainAt = Date.now()
         await commandBrain(state)
@@ -661,7 +777,10 @@ async function connectIdentity(candidate, settings) {
     lastKitAttempt: 0,
     lastTeleportAttempt: 0,
     lastCommandAt: 0,
-    lastCommandBrainAt: 0
+    lastCommandBrainAt: 0,
+    lastSurvivalAt: 0,
+    lastSurvivalPot: 0,
+    survivalBusy: false
   }
   live.set(name, state)
 
@@ -686,6 +805,7 @@ async function connectIdentity(candidate, settings) {
       }
       if (low.includes('claimed ') && low.includes(' kit')) {
         state.lastKitAttempt = Date.now()
+        setTimeout(() => maintainSurvival(state,true).catch(() => {}), 250)
       }
     })
 
@@ -697,8 +817,12 @@ async function connectIdentity(candidate, settings) {
     })
 
     bot.on('health', () => {
-      if (bot.health > 0 && bot.health <= 7 && state.job?.action !== 'safe') {
-        emergencyRetreat(state).catch(() => {})
+      if (bot.health > 0 && bot.health <= 13.5 && !state.combat) {
+        maintainSurvival(state,true).then(healed => {
+          if (!healed && bot.health <= 7 && state.job?.action !== 'safe') {
+            emergencyRetreat(state).catch(() => {})
+          }
+        }).catch(() => {})
       }
     })
 
@@ -728,6 +852,8 @@ async function connectIdentity(candidate, settings) {
       await sync(state)
       await sleep(350)
       await commandBrain(state)
+      await sleep(300)
+      await maintainSurvival(state,true)
     }
     startWorkLoop(state, settings)
   } catch (err) {

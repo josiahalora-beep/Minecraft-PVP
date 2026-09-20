@@ -1968,10 +1968,6 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         }
         q.add(new BlockOp(200,y,0,Material.GOLD_BLOCK));
 
-        for(int x=480;x<=520;x++) for(int z=480;z<=520;z++) q.add(new BlockOp(x,y,z,Material.STONE));
-        for(int x=490;x<=510;x++) for(int z=490;z<=510;z++) q.add(new BlockOp(x,y,z,Material.SMOOTH_BRICK));
-        q.add(new BlockOp(500,y,500,Material.GOLD_BLOCK));
-
         for(int x=-340;x<=-260;x++) for(int z=-35;z<=35;z++) {
             boolean water=((z+35)%4)==0;
             q.add(new BlockOp(x,y,z,water?Material.STATIONARY_WATER:Material.SAND));

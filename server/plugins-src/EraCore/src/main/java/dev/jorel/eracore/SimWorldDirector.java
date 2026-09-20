@@ -93,6 +93,7 @@ final class SimWorldDirector {
         boolean recoveryMode;
         String archetype = "BALANCED";
         String campTarget = "";
+        boolean specialTrapBuilt;
         int baseX;
         int baseY = 64;
         int baseZ;
@@ -2047,6 +2048,7 @@ final class SimWorldDirector {
         sotwTicks++;
         updateLogicalSessionsAndGoals();
         formationTick();
+        applyCreatorFactionSpecializations();
         updateCampTargets();
         economy.tickAll(logicallyOnlinePlayers(), factions, sotwTicks);
 
@@ -2707,6 +2709,7 @@ final class SimWorldDirector {
                 f.recoveryMode = s.getBoolean("recovery-mode", false);
                 f.archetype = s.getString("archetype", "");
                 f.campTarget = s.getString("camp-target", "");
+                f.specialTrapBuilt = s.getBoolean("special-trap-built", false);
                 f.powerFaction = s.getBoolean("power-faction", false);
                 f.underdog = s.getBoolean("underdog", false);
                 if (f.archetype == null || f.archetype.isEmpty()) f.archetype = inferArchetype(f);
@@ -2880,11 +2883,36 @@ final class SimWorldDirector {
     }
 
     private String inferArchetype(SimFaction f) {
+        if (f != null) {
+            for (String member : f.members) {
+                if (key(member).equals("lolitsalex")) return "TRAPPER";
+            }
+        }
         SimPlayer leader=players.get(key(f.leader));
         if (leader!=null && key(leader.name).equals("lolitsalex")) return "TRAPPER";
         if (f.underdog) return "UNDERDOG";
         if (leader!=null) return archetypeForLeader(leader);
         return f.powerFaction?"BALANCED":"UNDERDOG";
+    }
+
+    private void applyCreatorFactionSpecializations() {
+        SimPlayer alex=players.get("lolitsalex");
+        if (alex==null || alex.faction==null || alex.faction.isEmpty()) return;
+        SimFaction f=factions.get(key(alex.faction));
+        if(f==null) return;
+
+        f.archetype="TRAPPER";
+        if(f.trapPreset==null || "none".equalsIgnoreCase(f.trapPreset)) {
+            int tr=rng.nextInt(100);
+            f.trapPreset = tr < 38 ? "fall_trap" : (tr < 82 ? "fence_gate_bow" : "drop_chute");
+        }
+
+        // Existing live SOTW bases get only the trap add-on, not a destructive
+        // full-base replacement.
+        if(f.storage && f.baseX!=0 && !f.specialTrapBuilt) {
+            plugin.queueSimTrapAddon(f.name,f.trapPreset,f.baseX,f.baseY,f.baseZ);
+            f.specialTrapBuilt=true;
+        }
     }
 
     private void updateCampTargets() {
@@ -3626,6 +3654,7 @@ final class SimWorldDirector {
             data.set(b + ".recovery-mode", f.recoveryMode);
             data.set(b + ".archetype", f.archetype);
             data.set(b + ".camp-target", f.campTarget);
+            data.set(b + ".special-trap-built", f.specialTrapBuilt);
             data.set(b + ".power-faction", f.powerFaction);
             data.set(b + ".underdog", f.underdog);
             data.set(b + ".claimed", f.claimed);

@@ -233,6 +233,27 @@ final class SimWorldDirector {
         }, 20L * 8L, period);
     }
 
+    void repairExistingBaseTerrainAndClaims() {
+        org.bukkit.World world=Bukkit.getWorlds().get(0);
+        if(world==null) return;
+
+        for(SimFaction f : factions.values()) {
+            if(f.baseX==0 && f.baseZ==0) continue;
+
+            // Fill support below already-built structures; do not clear the
+            // existing base itself.
+            plugin.queueSimFoundationRepair(f.name,f.basePreset,f.trapPreset,f.baseX,f.baseY,f.baseZ);
+
+            // Expand old 3x3 simulation claims to the real footprint when
+            // neighboring claims allow it.
+            List<String> desired=baseFootprintClaims(world.getName(),f);
+            org.bukkit.Location home=new org.bukkit.Location(world,f.baseX+0.5,f.baseY+1,f.baseZ+0.5);
+            plugin.setSimFactionHomeAndClaims(f.name,home,desired);
+        }
+        save();
+    }
+
+
     void stop() {
         if (task != null) task.cancel();
         task = null;
@@ -1989,26 +2010,98 @@ final class SimWorldDirector {
         if (world == null) return false;
 
         if (f.basePreset == null || f.basePreset.isEmpty()) f.basePreset = chooseBasePreset(f);
-        int[] point = chooseBasePoint(f);
-        f.baseX = point[0];
-        f.baseZ = point[1];
 
-        // Normal-world aware placement: build on the actual terrain surface
-        // instead of assuming the old superflat Y=64 benchmark world.
-        int surfaceY = world.getHighestBlockYAt(f.baseX, f.baseZ);
+        int terrainRadius = baseTerrainRadius(f);
+        int maxRelief = Math.max(2, plugin.getConfig().getInt("sim-world.max-base-site-relief", 6));
+        int maxLiquids = Math.max(0, plugin.getConfig().getInt("sim-world.max-base-site-liquid-samples", 1));
+
+        int[] bestPoint = null;
+        int[] bestEval = null;
+        int bestScore = Integer.MAX_VALUE;
+
+        // Evaluate several nearby candidates instead of accepting the first hill/ravine.
+        for (int attempt=0; attempt<14; attempt++) {
+            int[] raw = chooseBasePoint(f);
+            int x = alignChunkCenter(raw[0]);
+            int z = alignChunkCenter(raw[1]);
+            int[] eval = plugin.evaluateSimBaseSite(x,z,terrainRadius); // medianY, relief, liquid samples
+
+            int minY = Math.max(50, plugin.getConfig().getInt("sim-world.min-base-y", 50));
+            int maxY = Math.min(110, plugin.getConfig().getInt("sim-world.max-base-y", 110));
+            if (eval[0] < minY || eval[0] > maxY) continue;
+
+            int score = eval[1] * 20 + eval[2] * 100;
+            if (score < bestScore) {
+                bestScore = score;
+                bestPoint = new int[]{x,z};
+                bestEval = eval;
+            }
+
+            if (eval[1] <= maxRelief && eval[2] <= maxLiquids) break;
+        }
+
+        if (bestPoint == null || bestEval == null) return false;
+
+        f.baseX = bestPoint[0];
+        f.baseZ = bestPoint[1];
+
         int minY = Math.max(50, plugin.getConfig().getInt("sim-world.min-base-y", 50));
         int maxY = Math.min(110, plugin.getConfig().getInt("sim-world.max-base-y", 110));
-        f.baseY = Math.max(minY, Math.min(maxY, surfaceY));
-        f.claimRadiusChunks = 1;
+        f.baseY = Math.max(minY, Math.min(maxY, bestEval[0]));
 
         org.bukkit.Location home = new org.bukkit.Location(world, f.baseX + 0.5, f.baseY + 1, f.baseZ + 0.5);
-        List<String> claims = squareClaims(world.getName(), f.baseX >> 4, f.baseZ >> 4, f.claimRadiusChunks);
+        List<String> claims = baseFootprintClaims(world.getName(),f);
+        f.claimRadiusChunks = Math.max(1,(int)Math.ceil(Math.sqrt(claims.size())/2.0));
+
         if (!plugin.setSimFactionHomeAndClaims(f.name, home, claims)) {
             f.baseX = 0;
             f.baseZ = 0;
             return false;
         }
         return true;
+    }
+
+    private int alignChunkCenter(int block) {
+        return ((block >> 4) << 4) + 8;
+    }
+
+    private int baseTerrainRadius(SimFaction f) {
+        int r=16;
+        if ("hcf_courtyard".equalsIgnoreCase(f.basePreset)) r=18;
+        else if ("hcf_double_layer".equalsIgnoreCase(f.basePreset)) r=17;
+        else if ("hcf_split_level".equalsIgnoreCase(f.basePreset)) r=15;
+        if ("fall_trap".equalsIgnoreCase(f.trapPreset)) r=Math.max(r,20);
+        return r;
+    }
+
+    private List<String> baseFootprintClaims(String world, SimFaction f) {
+        int r=baseTerrainRadius(f);
+        int minX=f.baseX-r;
+        int maxX=f.baseX+r;
+        int minZ=f.baseZ-r;
+        int maxZ=f.baseZ+r;
+
+        // Reserve the standard farm pad too so faction infrastructure never
+        // hangs outside the protected base claim.
+        minX=Math.min(minX,f.baseX-26);
+        maxX=Math.max(maxX,f.baseX+20);
+        minZ=Math.min(minZ,f.baseZ-20);
+        maxZ=Math.max(maxZ,f.baseZ+22);
+
+        int minCx=minX >> 4;
+        int maxCx=maxX >> 4;
+        int minCz=minZ >> 4;
+        int maxCz=maxZ >> 4;
+
+        List<String> out=new ArrayList<String>();
+        int cap=Math.max(4,plugin.getConfig().getInt("claims.max-cap",12));
+        for(int cx=minCx;cx<=maxCx;cx++) {
+            for(int cz=minCz;cz<=maxCz;cz++) {
+                if(out.size()>=cap) return out;
+                out.add(world+":"+cx+":"+cz);
+            }
+        }
+        return out;
     }
 
     private int[] chooseBasePoint(SimFaction f) {

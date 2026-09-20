@@ -555,7 +555,7 @@ function disconnectIdentity(name, reason = 'rotation') {
   console.log(name + ' COLD (' + reason + ')')
 }
 
-function effectiveTarget(settings, data) {
+function effectiveTarget(settings, data, combat = null) {
   const creatorsPresent = settings.creatorBodies
     .map(n => candidateForName(data, n, true))
     .filter(Boolean).length
@@ -571,6 +571,10 @@ function effectiveTarget(settings, data) {
   else if (nodeCpuPct >= 82) target = Math.max(creatorsPresent, target - 2)
   else if (nodeCpuPct >= 72) target = Math.max(creatorsPresent, target - 1)
 
+  // Owner-triggered 5v5 is a deliberate capacity test. Represent all ten
+  // fighters even if the normal adaptive budget is currently lower.
+  if (String(combat?.fight?.type || '') === 'TEST_5V5') target = Math.max(target, 10)
+
   return clamp(target, creatorsPresent || 1, settings.maxBodies)
 }
 
@@ -581,7 +585,7 @@ async function reconcile() {
   const settings = runtimeSettings()
   const combat = readYaml(combatFile) || {}
   sampleCpu()
-  const target = effectiveTarget(settings, data)
+  const target = effectiveTarget(settings, data, combat)
   const desired = chooseActive(data, settings, target, combat)
   const wanted = new Set(desired.map(x => x.name.toLowerCase()))
 

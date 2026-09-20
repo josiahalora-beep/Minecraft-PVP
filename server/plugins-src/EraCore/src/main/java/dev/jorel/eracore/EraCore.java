@@ -555,6 +555,10 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         return false;
     }
 
+    boolean isHcfSafezone(Location location) {
+        return hcfZones != null ? hcfZones.isSafe(location) : isSafezone(location);
+    }
+
     boolean simWorldProtectionActive() {
         return simWorld != null && simWorld.sotwProtectionActive();
     }
@@ -813,7 +817,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             combatPreparedFight.put(k,ca.fightId);
         }
 
-        World world = Bukkit.getWorlds().get(0);
+        World world = Bukkit.getWorld(ca.world);
+        if (world == null) world = Bukkit.getWorlds().get(0);
         if (world != null) {
             Location target = new Location(world,ca.x + 0.5,ca.y,ca.z + 0.5);
             if (!p.getWorld().equals(world) || p.getLocation().distanceSquared(target) > 28.0*28.0) {

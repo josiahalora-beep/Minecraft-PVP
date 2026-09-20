@@ -80,6 +80,26 @@ function countNearby(bot, names, radius) {
   return n
 }
 
+async function useNearbyFenceGate(bot, radius = 3) {
+  if (!bot.entity) return false
+  const ids = ['fence_gate', 'spruce_fence_gate', 'birch_fence_gate', 'jungle_fence_gate', 'acacia_fence_gate', 'dark_oak_fence_gate']
+    .map(n => bot.registry?.blocksByName?.[n]?.id)
+    .filter(Number.isInteger)
+  if (!ids.length) return false
+
+  try {
+    const pos = bot.findBlock({ matching: ids, maxDistance: radius })
+    if (!pos) return false
+    const block = bot.blockAt(pos)
+    if (!block) return false
+    await bot.lookAt(block.position.offset(0.5,0.5,0.5), true)
+    await bot.activateBlock(block)
+    return true
+  } catch {
+    return false
+  }
+}
+
 function pointDistance(pos, x, z) {
   const dx = pos.x - x
   const dz = pos.z - z
@@ -256,6 +276,9 @@ export function createTeamCombatController(bot, assignmentProvider) {
         }
 
         moveToward(bot, tx, tz, true)
+        if (a.action === 'BAIT_GATE' && trapDist <= 4.5 && Math.random() < 0.38) {
+          await useNearbyFenceGate(bot, 4)
+        }
         if (bot.health <= profile.potHealth && dist >= profile.potGap) await potAtFeet()
         if (dist < 2.6 && bot.health > profile.potHealth) await aimAndAttack(target.entity, dist)
         return

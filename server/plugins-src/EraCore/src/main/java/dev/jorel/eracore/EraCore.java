@@ -46,6 +46,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     private WarpManager warpManager;
     private SimWorldDirector simWorld;
     private SimChatDirector simChat;
+    private SpawnPresenceDirector spawnPresence;
+    private HcfClassDirector hcfClasses;
 
     enum Rank {
         MEMBER(0, "&7[Member]", 24),
@@ -104,6 +106,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         warpManager.bootstrapDefaults();
         simWorld = new SimWorldDirector(this);
         simChat = new SimChatDirector(this, simWorld);
+        spawnPresence = new SpawnPresenceDirector(this, warpManager);
+        hcfClasses = new HcfClassDirector(this);
         bindCommands();
         getServer().getPluginManager().registerEvents(this, this);
         hookTickTimes();
@@ -111,6 +115,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         startPowerRegen();
         simWorld.start();
         simChat.start();
+        hcfClasses.start();
+        spawnPresence.start();
 
         if (getConfig().getBoolean("map.auto-bootstrap", true) && !getConfig().getBoolean("map.complete", false)) {
             new BukkitRunnable() {
@@ -124,6 +130,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     @Override public void onDisable() {
+        if (spawnPresence != null) spawnPresence.stop();
+        if (hcfClasses != null) hcfClasses.stop();
         if (simChat != null) simChat.stop();
         if (simWorld != null) simWorld.stop();
         saveAll();
@@ -131,7 +139,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     private void bindCommands() {
-        String[] cmds = {"rank","kit","kits","balance","pay","sell","buy","shop","f","spawn","setspawn","warp","warps","setwarp","delwarp","spawnpreset","msg","r","simchat","simprobe","simmap","simstate","duelprep"};
+        String[] cmds = {"rank","kit","kits","balance","pay","sell","buy","shop","f","spawn","setspawn","warp","warps","setwarp","delwarp","spawnpreset","msg","r","simchat","sotw","bard","archer","miner","rogue","simprobe","simmap","simstate","duelprep"};
         for (String c : cmds) getCommand(c).setExecutor(this);
     }
 
@@ -182,6 +190,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         p.setPlayerListName(color(identityPrefix(p.getName(), r) + "&f" + p.getName()));
         e.setJoinMessage(color("&8[&a+&8] " + identityPrefix(p.getName(), r) + "&f" + p.getName()));
         if (simChat != null) simChat.onJoin(p);
+        if (spawnPresence != null) spawnPresence.showTo(p);
     }
 
     @EventHandler(priority=EventPriority.HIGHEST) public void onQuit(PlayerQuitEvent e) {
@@ -375,6 +384,22 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         }
     }
 
+    boolean sameFactionForClasses(String a, String b) {
+        Faction fa = factionOf(a);
+        Faction fb = factionOf(b);
+        if (fa != null && fb != null && fa.name.equalsIgnoreCase(fb.name)) return true;
+        if (simWorld != null) {
+            String sa = simWorld.factionOf(a);
+            String sb = simWorld.factionOf(b);
+            return !sa.isEmpty() && sa.equalsIgnoreCase(sb);
+        }
+        return false;
+    }
+
+    static String colorText(String s) {
+        return color(s);
+    }
+
     private double balance(String name) {
         String key = "balances." + name.toLowerCase(Locale.ENGLISH);
         if (!economyData.contains(key)) economyData.set(key, getConfig().getDouble("economy.starting-balance", 500.0));
@@ -416,6 +441,11 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (c.equals("msg")) return cmdMessage(p,args);
         if (c.equals("r")) return cmdReply(p,args);
         if (c.equals("simchat")) return cmdSimChat(p,args);
+        if (c.equals("sotw")) return cmdSotw(p,args);
+        if (c.equals("bard")) return cmdClassInfo(p,"bard");
+        if (c.equals("archer")) return cmdClassInfo(p,"archer");
+        if (c.equals("miner")) return cmdClassInfo(p,"miner");
+        if (c.equals("rogue")) return cmdClassInfo(p,"rogue");
         if (c.equals("simprobe")) {
             p.sendMessage(color("&e" + probeString()));
             return true;
@@ -495,6 +525,37 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         warpManager.applyPlayman2013Preset(p.getWorld());
         p.sendMessage(color("&a2013 DaeGonner-inspired spawn preset applied."));
         p.sendMessage(color("&7Spawn is set to 260.5, 70, 180.5. Finalize the interior shop/enchant points with /setwarp after the schematic is pasted."));
+        return true;
+    }
+
+    private boolean cmdSotw(Player p, String[] a) {
+        if (a.length == 0 || a[0].equalsIgnoreCase("status")) {
+            p.sendMessage(color("&7" + simWorld.sotwStatus()));
+            return true;
+        }
+        if (a[0].equalsIgnoreCase("reset")) {
+            if (!ownerOnly(p)) return true;
+            simWorld.resetForSotw();
+            Bukkit.broadcastMessage(color("&6SOTW started. &7Everyone is factionless and recruiting is open."));
+            return true;
+        }
+        p.sendMessage("/sotw <status|reset>");
+        return true;
+    }
+
+    private boolean cmdClassInfo(Player p, String which) {
+        if (which.equals("bard")) {
+            p.sendMessage(color("&6Bard &7- full gold armor. Support aura class."));
+            p.sendMessage(color("&7Hold blaze rod=strength, ghast tear=regen, feather=jump, magma cream=fire resistance."));
+            p.sendMessage(color("&7Right-click support items spends Bard energy for stronger short buffs."));
+        } else if (which.equals("archer")) {
+            p.sendMessage(color("&eArcher &7- full leather armor. Speed III and ranged pressure."));
+            p.sendMessage(color("&7Bow damage scales modestly with distance."));
+        } else if (which.equals("miner")) {
+            p.sendMessage(color("&fMiner &7- full iron armor. Haste II + night vision; invisibility below the configured mining Y."));
+        } else if (which.equals("rogue")) {
+            p.sendMessage(color("&7Rogue - full chainmail. Speed III + Jump II; gold-sword backstab with cooldown."));
+        }
         return true;
     }
 

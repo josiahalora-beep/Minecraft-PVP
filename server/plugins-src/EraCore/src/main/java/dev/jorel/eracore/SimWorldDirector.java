@@ -339,7 +339,7 @@ final class SimWorldDirector {
     }
 
     void repairExistingBaseTerrainAndClaims() {
-        if (data.getInt("meta.terrain-repair-version",0) >= 2) return;
+        if (data.getInt("meta.terrain-repair-version",0) >= 3) return;
 
         org.bukkit.World world=Bukkit.getWorlds().get(0);
         if(world==null) return;
@@ -356,7 +356,7 @@ final class SimWorldDirector {
             org.bukkit.Location home=new org.bukkit.Location(world,f.baseX+0.5,f.baseY+1,f.baseZ+0.5);
             plugin.setSimFactionHomeAndClaims(f.name,home,desired);
         }
-        data.set("meta.terrain-repair-version",2);
+        data.set("meta.terrain-repair-version",3);
         save();
     }
 

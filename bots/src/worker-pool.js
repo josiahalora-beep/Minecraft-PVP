@@ -2,16 +2,18 @@ import fs from 'node:fs'
 import path from 'node:path'
 import YAML from 'yaml'
 import { createBot, sleep, waitForSpawn } from './common.js'
+import { createTeamCombatController } from './team-combat.js'
 
 const root = path.resolve('..')
 const simulationFile = process.env.SIMULATION_FILE || path.join(root, 'server', 'plugins', 'EraCore', 'simulation.yml')
 const configFile = process.env.ERACORE_CONFIG || path.join(root, 'server', 'plugins', 'EraCore', 'config.yml')
+const combatFile = process.env.COMBAT_HOT_FILE || path.join(root, 'server', 'plugins', 'EraCore', 'combat-hot.yml')
 
 const FALLBACK_CREATORS = ['Stimpypvp', 'Marcel', 'PainfulPvP', 'lolitsalex', 'Skimpy']
 
 const live = new Map()
 let humanCount = 0
-let serverBudget = 12
+let serverBudget = 16
 let shuttingDown = false
 let lastCpu = process.cpuUsage()
 let lastCpuAt = process.hrtime.bigint()
@@ -37,8 +39,8 @@ function runtimeSettings() {
     : FALLBACK_CREATORS
 
   return {
-    maxBodies: clamp(Number(process.env.WORKER_MAX || w['max-bodies'] || 12), 1, 12),
-    offlineBodies: clamp(Number(process.env.WORKER_OFFLINE || w['offline-bodies'] || 8), 1, 12),
+    maxBodies: clamp(Number(process.env.WORKER_MAX || w['max-bodies'] || 16), 1, 16),
+    offlineBodies: clamp(Number(process.env.WORKER_OFFLINE || w['offline-bodies'] || 10), 1, 16),
     maxPerFaction: clamp(Number(process.env.WORKER_MAX_PER_FACTION || w['max-per-faction'] || 3), 1, 5),
     reassessMs: clamp(Number(process.env.WORKER_REASSESS_MS || (w['reassess-seconds'] || 8) * 1000), 3000, 60000),
     syncMs: clamp(Number(process.env.WORKER_SYNC_MS || (w['sync-seconds'] || 10) * 1000), 4000, 60000),
@@ -124,15 +126,56 @@ function candidateForName(data, name, pinned = false) {
   }
 }
 
-function candidatesFrom(data, settings) {
+function combatCandidatesFrom(combat) {
+  const parts = combat?.participants || {}
+  const out = []
+
+  for (const p of Object.values(parts)) {
+    if (!p?.name) continue
+    out.push({
+      name: String(p.name),
+      faction: String(p.faction || 'none'),
+      stage: 'COMBAT',
+      score: 500000 + Number(p.skill || 50),
+      recovery: false,
+      pinned: false,
+      combat: true,
+      assignment: {
+        fightId: String(combat?.fight?.id || ''),
+        type: String(combat?.fight?.type || ''),
+        faction: String(p.faction || ''),
+        enemyFaction: String(p['enemy-faction'] || ''),
+        class: String(p.class || 'DIAMOND'),
+        action: String(p.action || 'FOCUS'),
+        skill: Number(p.skill || 50),
+        aggression: Number(p.aggression || 50),
+        risk: Number(p.risk || 50),
+        x: Number(p.x || 0),
+        y: Number(p.y || 64),
+        z: Number(p.z || 0),
+        homeX: Number(p['home-x'] || 0),
+        homeY: Number(p['home-y'] || 64),
+        homeZ: Number(p['home-z'] || 0),
+        enemies: Array.isArray(p.enemies) ? p.enemies.map(String) : [],
+        allies: Array.isArray(p.allies) ? p.allies.map(String) : []
+      }
+    })
+  }
+  return out
+}
+
+function candidatesFrom(data, settings, combat = null) {
   const players = data?.players || {}
   const factions = data?.factions || {}
   const pinnedNames = new Set(settings.creatorBodies.map(x => x.toLowerCase()))
   const out = []
+  const combatCandidates = combatCandidatesFrom(combat)
+  const combatNames = new Set(combatCandidates.map(x => x.name.toLowerCase()))
+  out.push(...combatCandidates)
 
   for (const creator of settings.creatorBodies) {
     const c = candidateForName(data, creator, true)
-    if (c) out.push(c)
+    if (c && !combatNames.has(c.name.toLowerCase())) out.push(c)
   }
 
   for (const [fk, faction] of Object.entries(factions)) {
@@ -142,7 +185,7 @@ function candidatesFrom(data, settings) {
     if (!members.length) continue
 
     for (const name of members) {
-      if (pinnedNames.has(String(name).toLowerCase())) continue
+      if (pinnedNames.has(String(name).toLowerCase()) || combatNames.has(String(name).toLowerCase())) continue
       const p = players[String(name).toLowerCase()] || players[name] || null
       if (!p || p['logical-online'] === false) continue
       const score = roleScore(stage, p)
@@ -159,6 +202,7 @@ function candidatesFrom(data, settings) {
   }
 
   out.sort((a, b) => {
+    if (Boolean(a.combat) !== Boolean(b.combat)) return a.combat ? -1 : 1
     if (a.pinned !== b.pinned) return a.pinned ? -1 : 1
     if (a.recovery !== b.recovery) return a.recovery ? 1 : -1
     return b.score - a.score
@@ -166,12 +210,20 @@ function candidatesFrom(data, settings) {
   return out
 }
 
-function chooseActive(data, settings, targetCount) {
-  const candidates = candidatesFrom(data, settings)
+function chooseActive(data, settings, targetCount, combat = null) {
+  const candidates = candidatesFrom(data, settings, combat)
   const chosen = []
   const perFaction = new Map()
 
-  // Creator bodies are hard-reserved and do not compete for ordinary faction worker slots.
+  // Visible combat identities take first priority. They are the people the
+  // human can actually see fighting, so represent them physically whenever possible.
+  for (const cand of candidates.filter(c => c.combat)) {
+    if (chosen.length >= targetCount) break
+    chosen.push(cand)
+    if (cand.faction !== 'none') perFaction.set(cand.faction, (perFaction.get(cand.faction) || 0) + 1)
+  }
+
+  // Creator bodies remain reserved after visible combat slots.
   for (const cand of candidates.filter(c => c.pinned)) {
     if (chosen.length >= targetCount) break
     chosen.push(cand)
@@ -184,7 +236,7 @@ function chooseActive(data, settings, targetCount) {
     const cand = candidates.find(c => c.name.toLowerCase() === name.toLowerCase())
     if (!cand || cand.pinned) continue
     const n = perFaction.get(cand.faction) || 0
-    if (cand.faction !== 'none' && n >= settings.maxPerFaction) continue
+    if (!cand.combat && cand.faction !== 'none' && n >= settings.maxPerFaction) continue
     chosen.push(cand)
     if (cand.faction !== 'none') perFaction.set(cand.faction, n + 1)
   }
@@ -349,6 +401,11 @@ function startWorkLoop(state, settings) {
       const job = state.job || {}
       const action = job.action || 'idle'
 
+      if (state.combat) {
+        await sleep(250)
+        continue
+      }
+
       if (Date.now() - state.lastSyncAt >= settings.syncMs) await sync(state)
 
       const passive = action === 'idle' || action === 'recruit' || action === 'safe' || action === 'brew' || action === 'gear'
@@ -414,7 +471,10 @@ async function connectIdentity(candidate, settings) {
     physicalOps: 0,
     connectedAt: Date.now(),
     missingCycles: 0,
-    lastCandidateScore: candidate.score || 0
+    lastCandidateScore: candidate.score || 0,
+    combat: candidate.combat ? candidate.assignment : null,
+    combatController: null,
+    lastCombatFightId: ''
   }
   live.set(name, state)
 
@@ -428,7 +488,14 @@ async function connectIdentity(candidate, settings) {
       if (parsed) {
         state.job = parsed
         if (parsed.humans != null) humanCount = Math.max(0, Number(parsed.humans) || 0)
-        if (parsed.budget != null) serverBudget = clamp(Number(parsed.budget) || 1, 1, 12)
+        if (parsed.budget != null) serverBudget = clamp(Number(parsed.budget) || 1, 1, 16)
+      }
+    })
+
+    state.combatController = createTeamCombatController(bot, () => state.combat)
+    bot.on('physicsTick', () => {
+      if (state.combatController && state.combat) {
+        state.combatController.tick().catch(() => {})
       }
     })
 
@@ -456,7 +523,13 @@ async function connectIdentity(candidate, settings) {
       ' connected for ' + candidate.faction + ' (' + candidate.stage + ')'
     )
     await sleep(500)
-    await sync(state)
+    if (candidate.combat) {
+      state.combat = candidate.assignment
+      state.lastCombatFightId = candidate.assignment?.fightId || ''
+      try { bot.chat('/simcombat sync') } catch {}
+    } else {
+      await sync(state)
+    }
     startWorkLoop(state, settings)
   } catch (err) {
     console.log(name + ' connect failed: ' + err.message)
@@ -501,12 +574,13 @@ async function reconcile() {
   if (!data) return
 
   const settings = runtimeSettings()
+  const combat = readYaml(combatFile) || {}
   sampleCpu()
   const target = effectiveTarget(settings, data)
-  const desired = chooseActive(data, settings, target)
+  const desired = chooseActive(data, settings, target, combat)
   const wanted = new Set(desired.map(x => x.name.toLowerCase()))
 
-  const candidateMap = new Map(candidatesFrom(data, settings).map(c => [c.name.toLowerCase(), c]))
+  const candidateMap = new Map(candidatesFrom(data, settings, combat).map(c => [c.name.toLowerCase(), c]))
 
   for (const name of [...live.keys()]) {
     const state = live.get(name)
@@ -556,6 +630,22 @@ async function reconcile() {
     state.missingCycles = 0
     state.lastCandidateScore = cand.score || state.lastCandidateScore || 0
 
+    const previousFight = state.combat?.fightId || ''
+    const nextFight = cand.combat ? (cand.assignment?.fightId || '') : ''
+    if (nextFight) {
+      state.combat = cand.assignment
+      if (state.bot && previousFight !== nextFight) {
+        state.lastCombatFightId = nextFight
+        try { state.bot.chat('/simcombat sync') } catch {}
+      }
+    } else if (state.combat) {
+      state.combatController?.stop()
+      state.combat = null
+      if (state.bot) {
+        try { state.bot.chat('/simworker sync') } catch {}
+      }
+    }
+
     if (!state.bot && Date.now() >= state.reconnectAt) {
       live.delete(current)
       await connectIdentity(cand, settings)
@@ -570,7 +660,8 @@ async function reconcile() {
     ' serverBudget=' + serverBudget +
     ' nodeCPU=' + nodeCpuPct.toFixed(1) + '%' +
     ' rssMB=' + rss +
-    ' candidates=' + candidatesFrom(data, settings).length
+    ' candidates=' + candidatesFrom(data, settings, combat).length +
+    ' combat=' + combatCandidatesFrom(combat).length
   )
 
   return settings.reassessMs

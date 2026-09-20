@@ -148,7 +148,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     private void bindCommands() {
-        String[] cmds = {"rank","kit","kits","balance","pay","sell","buy","shop","f","spawn","setspawn","warp","warps","setwarp","delwarp","spawnpreset","msg","r","simchat","sotw","bard","archer","miner","rogue","simprobe","simmap","simstate","duelprep"};
+        String[] cmds = {"rank","kit","kits","balance","pay","sell","buy","shop","f","spawn","setspawn","warp","warps","setwarp","delwarp","spawnpreset","msg","r","simchat","sotw","simworker","bard","archer","miner","rogue","simprobe","simmap","simstate","duelprep"};
         for (String c : cmds) getCommand(c).setExecutor(this);
     }
 
@@ -387,9 +387,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             }
             return;
         }
-        for (String prefix : getConfig().getStringList("owner.ignored-prefixes")) {
-            if (p.getName().toLowerCase(Locale.ENGLISH).startsWith(prefix.toLowerCase(Locale.ENGLISH))) return;
-        }
+        if (isBotIdentity(p.getName())) return;
         getConfig().set("owner.uuid", p.getUniqueId().toString());
         getConfig().set("owner.name", p.getName());
         saveConfig();
@@ -440,6 +438,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     boolean isBotIdentity(String name) {
+        if (simWorld != null && simWorld.contains(name)) return true;
         for (String prefix : getConfig().getStringList("owner.ignored-prefixes")) {
             if (name.toLowerCase(Locale.ENGLISH).startsWith(prefix.toLowerCase(Locale.ENGLISH))) return true;
         }
@@ -551,6 +550,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (c.equals("r")) return cmdReply(p,args);
         if (c.equals("simchat")) return cmdSimChat(p,args);
         if (c.equals("sotw")) return cmdSotw(p,args);
+        if (c.equals("simworker")) return cmdSimWorker(p,args);
         if (c.equals("bard")) return cmdClassInfo(p,"bard");
         if (c.equals("archer")) return cmdClassInfo(p,"archer");
         if (c.equals("miner")) return cmdClassInfo(p,"miner");
@@ -635,6 +635,84 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         p.sendMessage(color("&a2013 DaeGonner-inspired spawn preset applied."));
         p.sendMessage(color("&7Spawn is set to 260.5, 70, 180.5. Finalize the interior shop/enchant points with /setwarp after the schematic is pasted."));
         return true;
+    }
+
+    private boolean cmdSimWorker(Player p, String[] a) {
+        boolean simIdentity = simWorld != null && simWorld.contains(p.getName());
+
+        if (a.length == 0 || a[0].equalsIgnoreCase("sync")) {
+            if (!simIdentity) {
+                if (!ownerOnly(p)) return true;
+                p.sendMessage(color("&7Physical worker candidates: &f" + simWorld.workerCandidateCount() +
+                    " &7hot budget: &f" + adaptiveHotBodyBudget(getConfig().getInt("combat-director.hot-body-budget",8))));
+                return true;
+            }
+
+            SimWorldDirector.WorkerTask task = simWorld.workerTaskFor(p.getName());
+            prepareWorkerProjection(p,task);
+            int humans = humanOnlineCount();
+            int workerBudget = adaptiveWorkerBudget(getConfig().getInt("worker-pool.max-bodies",4));
+            p.sendMessage("SIMWORKER " + task.wire() + " humans=" + humans + " budget=" + workerBudget);
+            return true;
+        }
+
+        if (a[0].equalsIgnoreCase("status")) {
+            if (!ownerOnly(p)) return true;
+            p.sendMessage(color("&7Worker candidates: &f" + simWorld.workerCandidateCount() +
+                " &7adaptive body budget: &f" + adaptiveWorkerBudget(getConfig().getInt("worker-pool.max-bodies",4))));
+            return true;
+        }
+
+        p.sendMessage("/simworker <sync|status>");
+        return true;
+    }
+
+    private int humanOnlineCount() {
+        int n = 0;
+        for (Player x : Bukkit.getOnlinePlayers()) if (!isBotIdentity(x.getName())) n++;
+        return n;
+    }
+
+    private int adaptiveWorkerBudget(int configured) {
+        configured = Math.max(1, Math.min(6, configured));
+        double[] s = tickStats();
+        if (s == null) return Math.min(2, configured);
+        double p95 = s[1];
+        if (p95 >= 35.0) return 1;
+        if (p95 >= 25.0) return Math.min(2, configured);
+        if (p95 >= 15.0) return Math.min(3, configured);
+        return configured;
+    }
+
+    private void prepareWorkerProjection(Player p, SimWorldDirector.WorkerTask task) {
+        World world = Bukkit.getWorlds().get(0);
+        if (world == null) return;
+
+        int y = Math.max(3, task.y);
+        Location target = new Location(world,task.x + 0.5,y,task.z + 0.5);
+
+        // Never repeatedly snap a worker while it is already doing the job locally.
+        if (!p.getWorld().equals(world) || p.getLocation().distanceSquared(target) > 48.0 * 48.0) {
+            p.teleport(target);
+        }
+
+        Material tool = Material.WOOD_PICKAXE;
+        if ("mine".equals(task.action) || "gather".equals(task.action) || "supply".equals(task.action)) tool = Material.IRON_PICKAXE;
+        else if ("build".equals(task.action)) tool = Material.STONE;
+        else if ("farm".equals(task.action)) tool = Material.IRON_HOE;
+        else if ("brew".equals(task.action)) tool = Material.BREWING_STAND_ITEM;
+        else if ("gear".equals(task.action)) tool = Material.BOOK;
+        else if ("patrol".equals(task.action)) tool = Material.DIAMOND_SWORD;
+        else if ("safe".equals(task.action)) tool = Material.COOKED_BEEF;
+        else if ("scout".equals(task.action)) tool = Material.COMPASS;
+
+        ItemStack hand = p.getInventory().getItem(0);
+        if (hand == null || hand.getType() != tool) {
+            p.getInventory().setItem(0,new ItemStack(tool,1));
+        }
+        p.getInventory().setHeldItemSlot(0);
+        p.setFoodLevel(20);
+        if (p.getHealth() < 20.0) p.setHealth(20.0);
     }
 
     private boolean cmdSotw(Player p, String[] a) {

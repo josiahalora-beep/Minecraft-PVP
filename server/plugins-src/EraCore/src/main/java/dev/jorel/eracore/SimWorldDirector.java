@@ -582,8 +582,9 @@ final class SimWorldDirector {
         Vector dir=ol.getDirection().setY(0);
         if(dir.lengthSquared()<0.01) dir=new Vector(1,0,0);
         dir.normalize();
-        int cx=(int)Math.round(ol.getX()+dir.getX()*34);
-        int cz=(int)Math.round(ol.getZ()+dir.getZ()*34);
+        double testDistance=plugin.isHcfSafezone(ol)?88.0:34.0;
+        int cx=(int)Math.round(ol.getX()+dir.getX()*testDistance);
+        int cz=(int)Math.round(ol.getZ()+dir.getZ()*testDistance);
         World w=observer.getWorld();
         int cy=Math.max(4,w.getHighestBlockYAt(cx,cz)+1);
 
@@ -634,7 +635,16 @@ final class SimWorldDirector {
             public int compare(SimPlayer a,SimPlayer b){return Integer.compare(b.skill,a.skill);}
         });
 
-        SimPlayer focus=chooseTestFocus(enemies);
+        SimPlayer enemyBard=bestSupport(enemies,true,null);
+        SimPlayer enemyArcher=bestSupport(enemies,false,enemyBard);
+        SimPlayer focus;
+        // These are deliberately the strongest five-man factions available,
+        // so test their ability to kit-snipe support instead of just tunneling
+        // the nearest Diamond.
+        if(enemyBard!=null && enemyArcher!=null) focus=rng.nextInt(100)<65?enemyBard:enemyArcher;
+        else if(enemyBard!=null) focus=enemyBard;
+        else if(enemyArcher!=null) focus=enemyArcher;
+        else focus=chooseTestFocus(enemies);
         int index=0;
         for(SimPlayer p:allies) {
             CombatAssignment ca=new CombatAssignment();

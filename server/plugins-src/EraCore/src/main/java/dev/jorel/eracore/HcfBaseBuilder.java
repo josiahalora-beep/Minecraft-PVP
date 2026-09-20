@@ -45,6 +45,9 @@ final class HcfBaseBuilder {
         World world = Bukkit.getWorlds().get(0);
         if (world == null) return;
 
+        int radius = basePadRadius(preset, trapPreset);
+        prepareTerrainPad(world,cx,y,cz,radius,radius);
+
         if ("hcf_courtyard".equalsIgnoreCase(preset)) buildCourtyard(world,cx,y,cz);
         else if ("hcf_brewer_base".equalsIgnoreCase(preset)) buildGlassBox(world,cx,y,cz,true);
         else if ("hcf_trap_base".equalsIgnoreCase(preset)) buildTrapHouse(world,cx,y,cz);
@@ -65,10 +68,12 @@ final class HcfBaseBuilder {
         if (world == null) return;
 
         String type = crop == null ? "cane" : crop.toLowerCase();
-        if ("cactus".equals(type)) buildCactusFarm(world,cx-18,y,cz+14);
-        else if ("pumpkin".equals(type)) buildPumpkinFarm(world,cx-18,y,cz+14);
-        else if ("melon".equals(type)) buildMelonFarm(world,cx-18,y,cz+14);
-        else buildCaneFarm(world,cx-18,y,cz+14);
+        int fx=cx-18, fz=cz+14;
+        prepareTerrainPad(world,fx,y,fz,7,7);
+        if ("cactus".equals(type)) buildCactusFarm(world,fx,y,fz);
+        else if ("pumpkin".equals(type)) buildPumpkinFarm(world,fx,y,fz);
+        else if ("melon".equals(type)) buildMelonFarm(world,fx,y,fz);
+        else buildCaneFarm(world,fx,y,fz);
         ensureRunner();
     }
 
@@ -79,6 +84,86 @@ final class HcfBaseBuilder {
         if (world == null) return;
         buildBrewerRoom(world,cx,y,cz);
         ensureRunner();
+    }
+
+    void queueTerrainRepair(String faction, String preset, String trapPreset, int cx, int y, int cz) {
+        String key = "terrain:" + faction.toLowerCase();
+        if (!completed.add(key)) return;
+        World world = Bukkit.getWorlds().get(0);
+        if (world == null) return;
+
+        int radius = basePadRadius(preset,trapPreset);
+        prepareTerrainPad(world,cx,y,cz,radius,radius);
+        ensureRunner();
+    }
+
+    private int basePadRadius(String preset, String trapPreset) {
+        int r=16;
+        if ("hcf_courtyard".equalsIgnoreCase(preset)) r=18;
+        else if ("hcf_double_layer".equalsIgnoreCase(preset)) r=17;
+        else if ("hcf_archer_tower".equalsIgnoreCase(preset)) r=16;
+        else if ("hcf_split_level".equalsIgnoreCase(preset)) r=15;
+        else if ("hcf_glass_box".equalsIgnoreCase(preset) || "hcf_brewer_base".equalsIgnoreCase(preset) || "hcf_trap_base".equalsIgnoreCase(preset)) r=16;
+        if ("fall_trap".equalsIgnoreCase(trapPreset)) r=Math.max(r,20);
+        return r;
+    }
+
+    /**
+     * Terraform first, build second.
+     *
+     * Every column becomes solid through target Y and clear for 16 blocks above
+     * grade. This prevents floating floors, terrain clipping through walls and
+     * trees/leaves being trapped inside bases.
+     */
+    private void prepareTerrainPad(World w,int cx,int y,int cz,int rx,int rz) {
+        int clearTop=Math.min(w.getMaxHeight()-1,y+16);
+        for(int x=cx-rx;x<=cx+rx;x++) {
+            for(int z=cz-rz;z<=cz+rz;z++) {
+                int surface=solidSurfaceY(w,x,z);
+
+                // Cut hills and vegetation above grade.
+                if(surface>y) {
+                    for(int yy=y+1;yy<=Math.min(clearTop,surface+6);yy++)
+                        queue.add(new Op(w,x,yy,z,Material.AIR));
+                } else {
+                    // Still clear tree canopies / overhangs above a low surface.
+                    for(int yy=y+1;yy<=clearTop;yy++) {
+                        Material m=w.getBlockAt(x,yy,z).getType();
+                        if(isVegetationOrLiquid(m)) queue.add(new Op(w,x,yy,z,Material.AIR));
+                    }
+                }
+
+                // Fill every gap up to grade. Use stone deeper down and dirt near top.
+                int from=Math.max(2,surface+1);
+                if(surface<y) {
+                    for(int yy=from;yy<y;yy++) {
+                        Material fill=(yy>=y-3)?Material.DIRT:Material.STONE;
+                        queue.add(new Op(w,x,yy,z,fill));
+                    }
+                }
+
+                // Natural flat grade outside the actual structure footprint.
+                queue.add(new Op(w,x,y,z,Material.GRASS));
+            }
+        }
+    }
+
+    private int solidSurfaceY(World w,int x,int z) {
+        int start=Math.min(w.getMaxHeight()-1,Math.max(1,w.getHighestBlockYAt(x,z)+6));
+        for(int y=start;y>=1;y--) {
+            Material m=w.getBlockAt(x,y,z).getType();
+            if(m==Material.AIR || isVegetationOrLiquid(m)) continue;
+            return y;
+        }
+        return 1;
+    }
+
+    private boolean isVegetationOrLiquid(Material m) {
+        return m==Material.LEAVES || m==Material.LEAVES_2 || m==Material.LOG || m==Material.LOG_2 ||
+               m==Material.LONG_GRASS || m==Material.YELLOW_FLOWER || m==Material.RED_ROSE ||
+               m==Material.VINE || m==Material.SNOW || m==Material.SNOW_BLOCK ||
+               m==Material.WATER || m==Material.STATIONARY_WATER ||
+               m==Material.LAVA || m==Material.STATIONARY_LAVA;
     }
 
     void stop() {

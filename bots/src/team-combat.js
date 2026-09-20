@@ -98,8 +98,8 @@ function bestNearbyLoot(bot, radius=11) {
   let best=null
   for(const e of Object.values(bot.entities || {})) {
     if (!e || e === bot.entity) continue
-    const kind=String(e.name || e.displayName || '').toLowerCase()
-    if (kind !== 'item' && kind !== 'item_stack' && kind !== 'dropped_item') continue
+    const kind=String(e.name || e.displayName || e.objectType || '').toLowerCase()
+    if (!kind.includes('item')) continue
     const dist=bot.entity.position.distanceTo(e.position)
     if (dist>radius) continue
     const name=itemNameFromDrop(bot,e)

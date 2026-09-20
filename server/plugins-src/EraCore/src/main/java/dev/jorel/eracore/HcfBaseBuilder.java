@@ -86,6 +86,34 @@ final class HcfBaseBuilder {
         ensureRunner();
     }
 
+    int[] evaluateSite(int cx,int cz,int radius) {
+        World world=Bukkit.getWorlds().get(0);
+        if(world==null) return new int[]{64,999,999};
+
+        java.util.List<Integer> ys=new java.util.ArrayList<Integer>();
+        int min=Integer.MAX_VALUE, max=Integer.MIN_VALUE, liquid=0;
+        int step=4;
+
+        for(int x=cx-radius;x<=cx+radius;x+=step) {
+            for(int z=cz-radius;z<=cz+radius;z+=step) {
+                int sy=solidSurfaceY(world,x,z);
+                ys.add(sy);
+                min=Math.min(min,sy);
+                max=Math.max(max,sy);
+
+                int top=Math.max(1,world.getHighestBlockYAt(x,z));
+                Material topMat=world.getBlockAt(x,top,z).getType();
+                if(topMat==Material.WATER||topMat==Material.STATIONARY_WATER||
+                   topMat==Material.LAVA||topMat==Material.STATIONARY_LAVA) liquid++;
+            }
+        }
+
+        java.util.Collections.sort(ys);
+        int median=ys.isEmpty()?64:ys.get(ys.size()/2);
+        int relief=(min==Integer.MAX_VALUE||max==Integer.MIN_VALUE)?999:(max-min);
+        return new int[]{median,relief,liquid};
+    }
+
     void queueTerrainRepair(String faction, String preset, String trapPreset, int cx, int y, int cz) {
         String key = "terrain:" + faction.toLowerCase();
         if (!completed.add(key)) return;

@@ -2207,8 +2207,13 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         double[] s=tickStats();
         Runtime r=Runtime.getRuntime();
         long used=(r.totalMemory()-r.freeMemory())/1048576L;
-        if(s==null) return "SIMPROBE mspt=n/a players="+Bukkit.getOnlinePlayers().size()+" jvmUsedMB="+used;
-        return String.format(Locale.US,"SIMPROBE avgMSPT=%.2f p95MSPT=%.2f maxMSPT=%.2f samples=%d players=%d jvmUsedMB=%d",s[0],s[1],s[2],(int)s[3],Bukkit.getOnlinePlayers().size(),used);
+        int physical=Bukkit.getOnlinePlayers().size();
+        int logical=simWorld==null?0:simWorld.logicalOnlineCount();
+        int population=simWorld==null?0:simWorld.allIdentityNames().size();
+        if(s==null) return "SIMPROBE mspt=n/a physical="+physical+" logical="+logical+" population="+population+" jvmUsedMB="+used;
+        return String.format(Locale.US,
+            "SIMPROBE avgMSPT=%.2f p95MSPT=%.2f maxMSPT=%.2f samples=%d physical=%d logical=%d population=%d jvmUsedMB=%d",
+            s[0],s[1],s[2],(int)s[3],physical,logical,population,used);
     }
 
     private void startMetrics() {

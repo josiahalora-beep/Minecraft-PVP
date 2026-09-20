@@ -1153,6 +1153,10 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (hcfBaseBuilder != null) hcfBaseBuilder.queueFarm(faction,crop,x,y,z);
     }
 
+    void queueSimTrapAddon(String faction, String trapPreset, int x, int y, int z) {
+        if (hcfBaseBuilder != null) hcfBaseBuilder.queueTrapAddon(faction,trapPreset,x,y,z);
+    }
+
     double balanceForSimTrade(String name) {
         return balance(name);
     }

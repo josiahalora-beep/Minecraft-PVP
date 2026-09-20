@@ -52,7 +52,9 @@ commands:
   sotw:
     usage: /sotw <status|reset|end>
   simworker:
-    usage: /simworker <sync|status>
+    usage: /simworker <sync|deposit|status>
+  simcombat:
+    usage: /simcombat <sync|status>
   bard:
     usage: /bard
   archer:

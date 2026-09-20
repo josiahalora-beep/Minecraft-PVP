@@ -32,6 +32,19 @@ final class WarpManager {
             int y = plugin.getConfig().getInt("map.surface-y", 63) + 1;
             setWarp("pvp", new Location(world, 200.5, y, 0.5, 90f, 0f), false);
         }
+
+        World nether=firstWorld(World.Environment.NETHER);
+        if(nether!=null && !data.contains("warps.nether.world")) {
+            Location s=nether.getSpawnLocation().clone().add(0.5,1.0,0.5);
+            setWarp("nether",s,false);
+        }
+
+        World end=firstWorld(World.Environment.THE_END);
+        if(end!=null && !data.contains("warps.end.world")) {
+            Location s=end.getSpawnLocation().clone().add(0.5,1.0,0.5);
+            setWarp("end",s,false);
+        }
+
         // KoTH is intentionally not part of this HCF map. Remove legacy test warp.
         data.set("warps.koth", null);
         save();
@@ -48,6 +61,11 @@ final class WarpManager {
         setWarp("enchant", center, false);
 
         save();
+    }
+
+    private World firstWorld(World.Environment env) {
+        for(World w:Bukkit.getWorlds()) if(w.getEnvironment()==env) return w;
+        return null;
     }
 
     Location getSpawn() {

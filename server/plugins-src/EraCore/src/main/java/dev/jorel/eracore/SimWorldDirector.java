@@ -140,6 +140,24 @@ final class SimWorldDirector {
         long last;
     }
 
+
+    static final class WorkerTask {
+        String identity;
+        String faction;
+        String action;
+        int x;
+        int y;
+        int z;
+        int priority;
+
+        String wire() {
+            return "action=" + action +
+                " faction=" + (faction == null || faction.isEmpty() ? "none" : faction) +
+                " x=" + x + " y=" + y + " z=" + z +
+                " priority=" + priority;
+        }
+    }
+
     private final EraCore plugin;
     private final SimEconomyModel economy;
     private final Random rng = new Random(881994L);
@@ -226,6 +244,143 @@ final class SimWorldDirector {
         SimFaction f = factions.get(key(faction));
         if (f == null) return Collections.emptyList();
         return new ArrayList<String>(f.members);
+    }
+
+
+    WorkerTask workerTaskFor(String name) {
+        SimPlayer p = players.get(key(name));
+        WorkerTask t = new WorkerTask();
+        t.identity = name;
+        t.action = "idle";
+        t.faction = "";
+        org.bukkit.World world = Bukkit.getWorlds().get(0);
+        org.bukkit.Location spawn = world == null ? null : world.getSpawnLocation();
+        t.x = spawn == null ? 0 : spawn.getBlockX();
+        t.y = spawn == null ? 64 : spawn.getBlockY() + 1;
+        t.z = spawn == null ? 0 : spawn.getBlockZ();
+        t.priority = 0;
+
+        if (p == null || p.faction.isEmpty()) return t;
+        SimFaction f = factions.get(key(p.faction));
+        if (f == null) return t;
+
+        t.faction = f.name;
+        int bx = f.baseX;
+        int by = f.baseY > 0 ? f.baseY + 1 : t.y;
+        int bz = f.baseZ;
+
+        if (f.recoveryMode) {
+            t.action = "safe";
+            t.x = bx;
+            t.y = by;
+            t.z = bz;
+            t.priority = 95;
+            return t;
+        }
+
+        switch (f.stage) {
+            case RECRUITING:
+                t.action = "recruit";
+                t.priority = "leader".equals(p.role) ? 35 : 10;
+                break;
+
+            case SCOUT_CLAIM:
+                t.action = "scout";
+                t.x = bx == 0 ? t.x : bx;
+                t.y = by;
+                t.z = bz == 0 ? t.z : bz;
+                t.priority = "leader".equals(p.role) ? 60 : 20;
+                break;
+
+            case GATHER_STARTER:
+                t.action = "miner".equals(p.preferredJob) ? "mine" : "gather";
+                t.x = bx + 7;
+                t.y = by;
+                t.z = bz + 7;
+                t.priority = "miner".equals(p.preferredJob) ? 92 : 55;
+                break;
+
+            case BUILD_STARTER:
+                t.action = "build";
+                t.x = bx;
+                t.y = by;
+                t.z = bz;
+                t.priority = "builder".equals(p.preferredJob) ? 100 :
+                    ("miner".equals(p.preferredJob) ? 90 : 72);
+                break;
+
+            case ECONOMY:
+                if ("farmer".equals(p.preferredJob)) {
+                    t.action = "farm";
+                    t.x = bx - 8;
+                    t.y = by;
+                    t.z = bz + 8;
+                    t.priority = 88;
+                } else {
+                    t.action = "supply";
+                    t.x = bx;
+                    t.y = by;
+                    t.z = bz;
+                    t.priority = "miner".equals(p.preferredJob) ? 72 : 45;
+                }
+                break;
+
+            case BREWER:
+                if ("brewer".equals(p.preferredJob)) {
+                    t.action = "brew";
+                    t.x = bx + 6;
+                    t.y = by + 1;
+                    t.z = bz - 5;
+                    t.priority = 96;
+                } else {
+                    t.action = "supply";
+                    t.x = bx;
+                    t.y = by;
+                    t.z = bz;
+                    t.priority = 55;
+                }
+                break;
+
+            case GEARING:
+                t.action = "gear";
+                t.x = bx + 5;
+                t.y = by;
+                t.z = bz + 5;
+                t.priority = ("miner".equals(p.preferredJob) || "brewer".equals(p.preferredJob)) ? 82 : 60;
+                break;
+
+            case PVP_READY:
+                if ("farmer".equals(p.preferredJob)) {
+                    t.action = "farm";
+                    t.x = bx - 8;
+                    t.y = by;
+                    t.z = bz + 8;
+                    t.priority = 66;
+                } else if ("brewer".equals(p.preferredJob)) {
+                    t.action = "brew";
+                    t.x = bx + 6;
+                    t.y = by + 1;
+                    t.z = bz - 5;
+                    t.priority = 70;
+                } else {
+                    t.action = "patrol";
+                    t.x = bx;
+                    t.y = by;
+                    t.z = bz;
+                    t.priority = 35;
+                }
+                break;
+        }
+        return t;
+    }
+
+    int workerCandidateCount() {
+        int n = 0;
+        for (SimPlayer p : players.values()) {
+            WorkerTask t = workerTaskFor(p.name);
+            if (t.priority > 0) n++;
+        }
+        return n;
     }
 
     ChatEvent nextChatEvent() {

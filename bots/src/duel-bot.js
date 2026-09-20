@@ -36,6 +36,8 @@ let refillCount = 0
 let wTapUntil = 0
 let currentTargetName = ''
 let targetReadyAt = 0
+let lastPearlAt = 0
+let nextPearlDecisionAt = 0
 let buffing = false
 const buffUntil = { speed: 0, fire: 0 }
 
@@ -159,6 +161,82 @@ async function refillHotbar() {
   }
 }
 
+
+
+function pearlItem() {
+  return bot.inventory.items().find(i => i.name === 'ender_pearl')
+}
+
+async function throwPearlToward(target, reason) {
+  const pearl = pearlItem()
+  if (!pearl || potting || refilling || buffing) return false
+  if (Date.now() - lastPearlAt < profile.pearlCooldownMs) return false
+  if (!canEngage(target)) return false
+
+  try {
+    bot.clearControlStates()
+    await bot.equip(pearl, 'hand')
+
+    const v = target.velocity || { x: 0, y: 0, z: 0 }
+    const lead = profile.tier === 'elite' ? 4.0 : 2.5
+    const predicted = target.position.offset(
+      Number(v.x || 0) * lead,
+      0.55 + Math.max(0, Number(v.y || 0)) * 1.5,
+      Number(v.z || 0) * lead
+    )
+
+    await bot.lookAt(predicted, true)
+    await sleep(Math.round(rand(30, 70) + profile.simulatedReactionJitter))
+    bot.activateItem()
+    await sleep(Math.round(rand(55, 95)))
+    bot.deactivateItem()
+    lastPearlAt = Date.now()
+    nextPearlDecisionAt = lastPearlAt + 650
+    log('pearl', {
+      reason,
+      cooldownMs: profile.pearlCooldownMs,
+      target: currentTargetName,
+      dist: Number(bot.entity.position.distanceTo(target.position).toFixed(3))
+    })
+    selectSword()
+    return true
+  } catch (e) {
+    log('pearl_error', { reason, message: e.message })
+    selectSword()
+    return false
+  }
+}
+
+async function maybeAggressivePearl(target, dist) {
+  if (!profile.canAggressivePearl) return false
+  const now = Date.now()
+  if (now < nextPearlDecisionAt) return false
+  if (now - lastPearlAt < profile.pearlCooldownMs) return false
+  if (bot.health <= profile.potHealth + 1.0) return false
+
+  const comboPressure = now - lastAttack <= 700
+  const targetEscapingRange = dist >= 4.4 && dist <= 11.5
+  if (!comboPressure || !targetEscapingRange) return false
+
+  nextPearlDecisionAt = now + Math.round(rand(350, 700))
+  if (Math.random() > profile.aggressivePearlChance) return false
+
+  return throwPearlToward(target, 'aggressive_combo_extension')
+}
+
+async function maybeDefensivePearl(target, dist) {
+  const now = Date.now()
+  if (now < nextPearlDecisionAt) return false
+  if (now - lastPearlAt < profile.pearlCooldownMs) return false
+  if (now - lastDamageAt > 350) return false
+  if (dist < 1.7 || dist > 4.5) return false
+  if (bot.health <= 4.0) return false
+
+  nextPearlDecisionAt = now + Math.round(rand(400, 800))
+  if (Math.random() > profile.defensivePearlChance) return false
+
+  return throwPearlToward(target, 'defensive_combo_break')
+}
 
 function potionByMeta(meta) {
   return bot.inventory.items().find(i => i.name === 'potion' && Number(i.metadata) === meta)
@@ -445,6 +523,9 @@ bot.on('physicsTick', async () => {
   if (potting || refilling || buffing) return
 
   if (await maintainBuffs(dist)) return
+
+  if (await maybeDefensivePearl(target, dist)) return
+  if (await maybeAggressivePearl(target, dist)) return
 
   await maybeAim(target)
   applyCombatMovement(target, dist)

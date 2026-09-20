@@ -191,8 +191,14 @@ combat-director:
   brawl-radius: 420
 
 worker-pool:
-  max-bodies: 4
-  offline-bodies: 2
-  max-per-faction: 2
-  reassess-seconds: 10
-  sync-seconds: 12
+  max-bodies: 12
+  offline-bodies: 8
+  max-per-faction: 3
+  reassess-seconds: 8
+  sync-seconds: 10
+  creator-bodies:
+    - Stimpypvp
+    - Marcel
+    - PainfulPvP
+    - lolitsalex
+    - Skimpy

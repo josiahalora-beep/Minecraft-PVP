@@ -58,6 +58,20 @@ final class HcfBaseBuilder {
         ensureRunner();
     }
 
+    void queueFarm(String faction, String crop, int cx, int y, int cz) {
+        String key = "farm:" + faction.toLowerCase();
+        if (!completed.add(key)) return;
+        World world = Bukkit.getWorlds().get(0);
+        if (world == null) return;
+
+        String type = crop == null ? "cane" : crop.toLowerCase();
+        if ("cactus".equals(type)) buildCactusFarm(world,cx-18,y,cz+14);
+        else if ("pumpkin".equals(type)) buildPumpkinFarm(world,cx-18,y,cz+14);
+        else if ("melon".equals(type)) buildMelonFarm(world,cx-18,y,cz+14);
+        else buildCaneFarm(world,cx-18,y,cz+14);
+        ensureRunner();
+    }
+
     void queueBrewer(String faction, int cx, int y, int cz) {
         String key = "brewer:" + faction.toLowerCase();
         if (!completed.add(key)) return;
@@ -297,6 +311,51 @@ final class HcfBaseBuilder {
                 if(edge) queue.add(new Op(w,x,yy,z,yy%3==0?Material.SMOOTH_BRICK:Material.GLASS));
             }
             queue.add(new Op(w,x,y+height,z,Material.SMOOTH_BRICK));
+        }
+    }
+
+    private void buildCaneFarm(World w,int cx,int y,int cz) {
+        for(int x=cx-6;x<=cx+6;x++) {
+            for(int z=cz-5;z<=cz+5;z++) {
+                boolean water=((z-(cz-5))%4)==1;
+                queue.add(new Op(w,x,y,z,water?Material.STATIONARY_WATER:Material.SAND));
+                if(!water) {
+                    queue.add(new Op(w,x,y+1,z,Material.SUGAR_CANE_BLOCK));
+                    if((x+z)%3==0) queue.add(new Op(w,x,y+2,z,Material.SUGAR_CANE_BLOCK));
+                }
+            }
+        }
+    }
+
+    private void buildCactusFarm(World w,int cx,int y,int cz) {
+        for(int x=cx-6;x<=cx+6;x+=2) {
+            for(int z=cz-5;z<=cz+5;z+=2) {
+                queue.add(new Op(w,x,y,z,Material.SAND));
+                queue.add(new Op(w,x,y+1,z,Material.CACTUS));
+                if((x+z)%4==0) queue.add(new Op(w,x,y+2,z,Material.CACTUS));
+            }
+        }
+    }
+
+    private void buildPumpkinFarm(World w,int cx,int y,int cz) {
+        for(int x=cx-6;x<=cx+6;x++) {
+            for(int z=cz-5;z<=cz+5;z++) {
+                boolean water=(x==cx);
+                queue.add(new Op(w,x,y,z,water?Material.STATIONARY_WATER:Material.SOIL));
+                if(!water && ((x+z)&1)==0) queue.add(new Op(w,x,y+1,z,Material.PUMPKIN_STEM,(byte)7));
+                else if(!water) queue.add(new Op(w,x,y+1,z,Material.PUMPKIN));
+            }
+        }
+    }
+
+    private void buildMelonFarm(World w,int cx,int y,int cz) {
+        for(int x=cx-6;x<=cx+6;x++) {
+            for(int z=cz-5;z<=cz+5;z++) {
+                boolean water=(x==cx);
+                queue.add(new Op(w,x,y,z,water?Material.STATIONARY_WATER:Material.SOIL));
+                if(!water && ((x+z)&1)==0) queue.add(new Op(w,x,y+1,z,Material.MELON_STEM,(byte)7));
+                else if(!water) queue.add(new Op(w,x,y+1,z,Material.MELON_BLOCK));
+            }
         }
     }
 

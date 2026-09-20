@@ -50,7 +50,6 @@ final class ContextChatBrain {
         if (isFactionQuestion(m)) return factionReply(s, m);
         if (isPvpQuestion(m)) return pvpReply(s, m);
         if (isDtrRaidQuestion(m)) return dtrReply(s, m);
-        if (isKoth(m)) return kothReply(s, m);
         if (isBaseQuestion(m)) return baseReply(s, m);
         if (isEconomyQuestion(m)) return economyReply(s, m);
         if (isArgument(m)) return argumentReply(s, m);
@@ -91,7 +90,6 @@ final class ContextChatBrain {
         if (m.contains("dtr")) return formatDtr(s);
         if (m.contains("pvp") || m.contains("fight")) return pvpReply(s,m);
         if (m.contains("base")) return baseReply(s,m);
-        if (m.contains("koth")) return kothReply(s,m);
         if (m.contains("rich") || m.contains("money") || m.contains("farm")) return economyReply(s,m);
         return oneOf("yeah?","what","whats up","yo");
     }
@@ -153,13 +151,6 @@ final class ContextChatBrain {
         if (s.recovery) return "we are regening " + formatDtr(s);
         if (m.contains("what") || m.contains("how much") || m.contains("dtr")) return formatDtr(s);
         return s.dtr <= 1.5 ? "our dtr is low rn" : "dtr is fine";
-    }
-
-    private String kothReply(Snapshot s, String m) {
-        if (s.recovery || s.raidable) return "not going with our dtr rn";
-        if (!s.pvpReady) return oneOf("not geared for it yet","probably not this one");
-        if (m.contains("where")) return oneOf("check the coords","idk coords yet","someone drop coords");
-        return s.responderAggression >= 60 ? oneOf("we are probably going","our fac might go","yeah we might pull up") : "maybe";
     }
 
     private String baseReply(Snapshot s, String m) {
@@ -275,10 +266,6 @@ final class ContextChatBrain {
 
     private boolean isDtrRaidQuestion(String m) {
         return m.contains("dtr") || m.contains("raidable") || m.contains("raid");
-    }
-
-    private boolean isKoth(String m) {
-        return m.contains("koth");
     }
 
     private boolean isBaseQuestion(String m) {

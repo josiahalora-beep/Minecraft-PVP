@@ -814,8 +814,10 @@ final class SimWorldDirector {
             trapFight=!"none".equalsIgnoreCase(a.trapPreset) && rng.nextInt(100)<trapBaitChance(a);
         } else {
             // Stage the visible part of an already-roaming encounter around the observer.
+            // If the observer is inside a spawn Safezone, force the fight beyond
+            // the protected boundary so it appears in Warzone, not inside spawn.
             double angle=rng.nextDouble()*Math.PI*2.0;
-            double dist=32+rng.nextInt(36);
+            double dist=plugin.isHcfSafezone(ol) ? (78+rng.nextInt(35)) : (32+rng.nextInt(36));
             cx=(int)Math.round(ol.getX()+Math.cos(angle)*dist);
             cz=(int)Math.round(ol.getZ()+Math.sin(angle)*dist);
         }
@@ -900,7 +902,7 @@ final class SimWorldDirector {
             cz=anchor.baseZ-30;
         } else {
             double angle=rng.nextDouble()*Math.PI*2.0;
-            double dist=38+rng.nextInt(30);
+            double dist=plugin.isHcfSafezone(ol) ? (82+rng.nextInt(36)) : (38+rng.nextInt(30));
             cx=(int)Math.round(ol.getX()+Math.cos(angle)*dist);
             cz=(int)Math.round(ol.getZ()+Math.sin(angle)*dist);
         }

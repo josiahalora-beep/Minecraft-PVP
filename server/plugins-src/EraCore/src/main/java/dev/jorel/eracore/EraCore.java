@@ -42,11 +42,11 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     enum Rank {
         MEMBER(0, "&7[Member]", 24),
-        VIP(1, "&a[VIP]", 24),
+        VIP(1, "&a[Vip]", 24),
         ELITE(2, "&b[Elite]", 36),
         LEGEND(3, "&d[Legend]", 48),
         TITAN(4, "&6[Titan]", 72),
-        OWNER(99, "&4&l[Owner]", 0);
+        OWNER(99, "&4[Owner]", 0);
         final int level;
         final String prefix;
         final int cooldownHours;
@@ -163,14 +163,15 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         maybeClaimOwner(p);
         ensurePlayerData(p);
         Rank r = getRank(p.getName());
-        p.setPlayerListName(color(r.prefix + " &f" + p.getName()));
-        e.setJoinMessage(color("&8[&a+&8] " + r.prefix + " &f" + p.getName()));
+        applyCreatorTag(p);
+        p.setPlayerListName(color(identityPrefix(p.getName(), r) + "&f" + p.getName()));
+        e.setJoinMessage(color("&8[&a+&8] " + identityPrefix(p.getName(), r) + "&f" + p.getName()));
     }
 
     @EventHandler(priority=EventPriority.HIGHEST) public void onQuit(PlayerQuitEvent e) {
         Player p = e.getPlayer();
         Rank r = getRank(p.getName());
-        e.setQuitMessage(color("&8[&c-&8] " + r.prefix + " &f" + p.getName()));
+        e.setQuitMessage(color("&8[&c-&8] " + identityPrefix(p.getName(), r) + "&f" + p.getName()));
     }
 
     @EventHandler(priority=EventPriority.HIGHEST) public void onChat(AsyncPlayerChatEvent e) {
@@ -190,7 +191,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             return;
         }
         Rank r = getRank(p.getName());
-        e.setFormat(color(r.prefix + " &f" + p.getName() + "&7: &f") + "%2$s");
+        e.setFormat(color(identityPrefix(p.getName(), r) + "&f" + p.getName() + "&7: &f") + "%2$s");
     }
 
     @EventHandler(priority=EventPriority.HIGHEST, ignoreCancelled=true) public void onDamage(EntityDamageByEntityEvent e) {
@@ -231,8 +232,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         saveConfig();
         setRank(p.getName(), Rank.OWNER);
         p.setOp(true);
-        Bukkit.broadcastMessage(color("&4&lSERVER OWNER CLAIMED: &f" + p.getName()));
-        p.sendMessage(color("&aYou are now the permanent &4&lOwner&a for this local server."));
+        Bukkit.broadcastMessage(color("&7Server owner: &4" + p.getName()));
+        p.sendMessage(color("&7You are now the permanent &4[Owner]&7 for this local server."));
     }
 
     private void ensurePlayerData(Player p) {
@@ -255,7 +256,35 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         ranksData.set(name.toLowerCase(Locale.ENGLISH), rank.name());
         saveYaml(ranksData, ranksFile);
         Player p = Bukkit.getPlayerExact(name);
-        if (p != null) p.setPlayerListName(color(rank.prefix + " &f" + p.getName()));
+        if (p != null) {
+            applyCreatorTag(p);
+            p.setPlayerListName(color(identityPrefix(p.getName(), rank) + "&f" + p.getName()));
+        }
+    }
+
+    private boolean isCreator(String name) {
+        for (String creator : getConfig().getStringList("creator-tag.creators")) {
+            if (creator.equalsIgnoreCase(name)) return true;
+        }
+        return false;
+    }
+
+    private String identityPrefix(String name, Rank rank) {
+        String creator = isCreator(name) ? getConfig().getString("creator-tag.chat-prefix", "&c[YT] ") : "";
+        return creator + rank.prefix + " ";
+    }
+
+    private void applyCreatorTag(Player p) {
+        if (!getConfig().getBoolean("creator-tag.enabled", true)) return;
+        Scoreboard board = Bukkit.getScoreboardManager().getMainScoreboard();
+        Team team = board.getTeam("youtube");
+        if (team == null) team = board.registerNewTeam("youtube");
+        team.setPrefix(color(getConfig().getString("creator-tag.head-prefix", "&c[YT] &f")));
+        if (isCreator(p.getName())) {
+            team.addPlayer(p);
+        } else if (team.hasPlayer(p)) {
+            team.removePlayer(p);
+        }
     }
 
     private double balance(String name) {
@@ -725,10 +754,10 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
         if(sub.equals("c")) {
             String k=p.getName().toLowerCase(Locale.ENGLISH);
-            if(factionChat.remove(k)) p.sendMessage(color("&eFaction chat OFF"));
+            if(factionChat.remove(k)) p.sendMessage(color("&7Faction chat disabled."));
             else {
                 factionChat.add(k);
-                p.sendMessage(color("&aFaction chat ON"));
+                p.sendMessage(color("&7Faction chat enabled."));
             }
             return true;
         }

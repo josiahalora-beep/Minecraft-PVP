@@ -110,6 +110,7 @@ export function combatProfileFor(username, forcedTier = '') {
     tier,
     canStrafe,
     canWTap,
+    wTapChance: base.wTapChance,
     cpsMin: between(rng, [base.cps[0], (base.cps[0] + base.cps[1]) / 2]),
     cpsMax: between(rng, [(base.cps[0] + base.cps[1]) / 2, base.cps[1]]),
     aimIntervalMin: Math.round(between(rng, [base.aimInterval[0], (base.aimInterval[0] + base.aimInterval[1]) / 2])),

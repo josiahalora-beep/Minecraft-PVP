@@ -494,7 +494,11 @@ final class SimWorldDirector {
             SimPlayer bait=bestBaiter(sideA);
             if(bait!=null) {
                 CombatAssignment ba=fight.assignments.get(key(bait.name));
-                if(ba!=null) ba.action="fall_trap".equalsIgnoreCase(a.trapPreset)?"BAIT_FALL":"BAIT_GATE";
+                if(ba!=null) {
+                    if("fall_trap".equalsIgnoreCase(a.trapPreset)) ba.action="BAIT_FALL";
+                    else if("drop_chute".equalsIgnoreCase(a.trapPreset)) ba.action="BAIT_DROP";
+                    else ba.action="BAIT_GATE";
+                }
             }
         }
 
@@ -2345,7 +2349,12 @@ final class SimWorldDirector {
         f.basePreset = BASE_PRESETS[rng.nextInt(BASE_PRESETS.length)];
         f.powerFaction = !best.underdogLeader;
         f.underdog = best.underdogLeader;
-        f.trapPreset = (best.skill < 72 || best.underdogLeader) && rng.nextInt(100) < 65 ? "fall_trap" : "none";
+        if ((best.skill < 72 || best.underdogLeader) && rng.nextInt(100) < 68) {
+            int tr=rng.nextInt(100);
+            f.trapPreset = tr < 45 ? "fall_trap" : (tr < 80 ? "fence_gate_bow" : "drop_chute");
+        } else {
+            f.trapPreset = "none";
+        }
         f.treasury = 0.0;
         f.members.add(best.name);
 

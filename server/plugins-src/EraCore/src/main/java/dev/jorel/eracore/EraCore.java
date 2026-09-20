@@ -122,6 +122,11 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         startPowerRegen();
         startDtrRegen();
         simWorld.start();
+        new BukkitRunnable() {
+            public void run() {
+                if (simWorld != null) simWorld.refreshVisibleCombat();
+            }
+        }.runTaskTimer(this, 80L, 40L);
         simChat.start();
         hcfClasses.start();
         spawnPresence.start();
@@ -156,7 +161,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     private void bindCommands() {
-        String[] cmds = {"rank","kit","kits","balance","pay","sell","buy","shop","f","spawn","setspawn","warp","warps","setwarp","delwarp","spawnpreset","msg","r","simchat","sotw","simworker","bard","archer","miner","rogue","simprobe","simmap","simstate","duelprep"};
+        String[] cmds = {"rank","kit","kits","balance","pay","sell","buy","shop","f","spawn","setspawn","warp","warps","setwarp","delwarp","spawnpreset","msg","r","simchat","sotw","simworker","simcombat","bard","archer","miner","rogue","simprobe","simmap","simstate","duelprep"};
         for (String c : cmds) getCommand(c).setExecutor(this);
     }
 
@@ -580,6 +585,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (c.equals("simchat")) return cmdSimChat(p,args);
         if (c.equals("sotw")) return cmdSotw(p,args);
         if (c.equals("simworker")) return cmdSimWorker(p,args);
+        if (c.equals("simcombat")) return cmdSimCombat(p,args);
         if (c.equals("bard")) return cmdClassInfo(p,"bard");
         if (c.equals("archer")) return cmdClassInfo(p,"archer");
         if (c.equals("miner")) return cmdClassInfo(p,"miner");
@@ -666,6 +672,135 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         p.sendMessage(color("&a2013 DaeGonner-inspired spawn preset applied."));
         p.sendMessage(color("&7Spawn is set to 260.5, 70, 180.5. Finalize the interior shop/enchant points with /setwarp after the schematic is pasted."));
         return true;
+    }
+
+    private boolean cmdSimCombat(Player p, String[] a) {
+        if (simWorld == null) return true;
+
+        if (a.length == 0 || a[0].equalsIgnoreCase("sync")) {
+            SimWorldDirector.CombatAssignment ca = simWorld.combatAssignmentFor(p.getName());
+            if (ca == null) {
+                p.sendMessage("SIMCOMBAT none");
+                return true;
+            }
+
+            prepareCombatProjection(p,ca);
+            p.sendMessage("SIMCOMBAT " + ca.wire());
+            return true;
+        }
+
+        if (a[0].equalsIgnoreCase("status")) {
+            if (!ownerOnly(p)) return true;
+            p.sendMessage(color("&7Visible fight: &f" + simWorld.visibleFightSummary()));
+            return true;
+        }
+
+        p.sendMessage("/simcombat <sync|status>");
+        return true;
+    }
+
+    private void prepareCombatProjection(Player p, SimWorldDirector.CombatAssignment ca) {
+        String k = p.getName().toLowerCase(Locale.ENGLISH);
+        String prepared = combatPreparedFight.get(k);
+
+        if (!ca.fightId.equals(prepared)) {
+            prepareHcfCombatKit(p,ca.combatClass);
+            combatPreparedFight.put(k,ca.fightId);
+        }
+
+        World world = Bukkit.getWorlds().get(0);
+        if (world != null) {
+            Location target = new Location(world,ca.x + 0.5,ca.y,ca.z + 0.5);
+            if (!p.getWorld().equals(world) || p.getLocation().distanceSquared(target) > 28.0*28.0) {
+                p.teleport(target);
+            }
+        }
+
+        p.setFoodLevel(20);
+        if (p.getHealth() < 16.0) p.setHealth(20.0);
+    }
+
+    private void prepareHcfCombatKit(Player p, SimWorldDirector.CombatClass type) {
+        PlayerInventory inv=p.getInventory();
+        inv.clear();
+        inv.setArmorContents(new ItemStack[4]);
+
+        if (type == SimWorldDirector.CombatClass.BARD) {
+            inv.setHelmet(armor(Material.GOLD_HELMET,2));
+            inv.setChestplate(armor(Material.GOLD_CHESTPLATE,2));
+            inv.setLeggings(armor(Material.GOLD_LEGGINGS,2));
+            inv.setBoots(armor(Material.GOLD_BOOTS,2));
+            inv.setItem(0,sword(Material.IRON_SWORD,2));
+            inv.setItem(1,new ItemStack(Material.BLAZE_ROD,1));
+            inv.setItem(2,new ItemStack(Material.GHAST_TEAR,1));
+            inv.setItem(3,new ItemStack(Material.FEATHER,1));
+            inv.setItem(4,new ItemStack(Material.MAGMA_CREAM,1));
+            inv.setItem(5,new ItemStack(Material.BLAZE_POWDER,8));
+            inv.setItem(6,new ItemStack(Material.SUGAR,16));
+            inv.setItem(7,new ItemStack(Material.POTION,1,(short)8259));
+            inv.setItem(8,new ItemStack(Material.ENDER_PEARL,12));
+            for(int slot=9;slot<31;slot++) inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
+            inv.setItem(31,new ItemStack(Material.POTION,1,(short)8226));
+            inv.setItem(32,new ItemStack(Material.POTION,1,(short)8226));
+            inv.setItem(33,new ItemStack(Material.POTION,1,(short)8259));
+        } else if (type == SimWorldDirector.CombatClass.ARCHER) {
+            inv.setHelmet(armor(Material.LEATHER_HELMET,3));
+            inv.setChestplate(armor(Material.LEATHER_CHESTPLATE,3));
+            inv.setLeggings(armor(Material.LEATHER_LEGGINGS,3));
+            inv.setBoots(armor(Material.LEATHER_BOOTS,3));
+            inv.setItem(0,sword(Material.DIAMOND_SWORD,2));
+            ItemStack bow=new ItemStack(Material.BOW,1);
+            bow.addUnsafeEnchantment(Enchantment.ARROW_DAMAGE,4);
+            bow.addUnsafeEnchantment(Enchantment.ARROW_FIRE,1);
+            bow.addUnsafeEnchantment(Enchantment.ARROW_KNOCKBACK,1);
+            inv.setItem(1,bow);
+            inv.setItem(2,new ItemStack(Material.ARROW,64));
+            for(int slot=3;slot<=6;slot++) inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
+            inv.setItem(7,new ItemStack(Material.POTION,1,(short)8226));
+            inv.setItem(8,new ItemStack(Material.ENDER_PEARL,12));
+            for(int slot=9;slot<31;slot++) inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
+            inv.setItem(31,new ItemStack(Material.POTION,1,(short)8226));
+            inv.setItem(32,new ItemStack(Material.POTION,1,(short)8259));
+        } else if (type == SimWorldDirector.CombatClass.ROGUE) {
+            inv.setHelmet(armor(Material.CHAINMAIL_HELMET,2));
+            inv.setChestplate(armor(Material.CHAINMAIL_CHESTPLATE,2));
+            inv.setLeggings(armor(Material.CHAINMAIL_LEGGINGS,2));
+            inv.setBoots(armor(Material.CHAINMAIL_BOOTS,2));
+            inv.setItem(0,sword(Material.DIAMOND_SWORD,2));
+            for(int slot=1;slot<=5;slot++) inv.setItem(slot,new ItemStack(Material.GOLD_SWORD,1));
+            inv.setItem(6,new ItemStack(Material.POTION,1,(short)16421));
+            inv.setItem(7,new ItemStack(Material.POTION,1,(short)8226));
+            inv.setItem(8,new ItemStack(Material.ENDER_PEARL,12));
+            for(int slot=9;slot<32;slot++) inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
+            inv.setItem(32,new ItemStack(Material.POTION,1,(short)8259));
+        } else if (type == SimWorldDirector.CombatClass.MINER) {
+            inv.setHelmet(armor(Material.IRON_HELMET,2));
+            inv.setChestplate(armor(Material.IRON_CHESTPLATE,2));
+            inv.setLeggings(armor(Material.IRON_LEGGINGS,2));
+            inv.setBoots(armor(Material.IRON_BOOTS,2));
+            inv.setItem(0,sword(Material.DIAMOND_SWORD,2));
+            for(int slot=1;slot<=5;slot++) inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
+            inv.setItem(7,new ItemStack(Material.POTION,1,(short)8226));
+            inv.setItem(8,new ItemStack(Material.ENDER_PEARL,8));
+            for(int slot=9;slot<28;slot++) inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
+        } else {
+            inv.setHelmet(armor(Material.DIAMOND_HELMET,4));
+            inv.setChestplate(armor(Material.DIAMOND_CHESTPLATE,4));
+            inv.setLeggings(armor(Material.DIAMOND_LEGGINGS,4));
+            inv.setBoots(armor(Material.DIAMOND_BOOTS,4));
+            inv.setItem(0,pvpSword(Material.DIAMOND_SWORD,4,2));
+            for(int slot=1;slot<=5;slot++) inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
+            inv.setItem(6,new ItemStack(Material.POTION,1,(short)8259));
+            inv.setItem(7,new ItemStack(Material.POTION,1,(short)8226));
+            inv.setItem(8,new ItemStack(Material.ENDER_PEARL,16));
+            for(int slot=9;slot<33;slot++) inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
+            inv.setItem(33,new ItemStack(Material.POTION,1,(short)8259));
+            inv.setItem(34,new ItemStack(Material.POTION,1,(short)8226));
+            inv.setItem(35,new ItemStack(Material.POTION,1,(short)8226));
+        }
+
+        p.setHealth(20.0);
+        p.setFoodLevel(20);
     }
 
     private boolean cmdSimWorker(Player p, String[] a) {

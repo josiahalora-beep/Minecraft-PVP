@@ -58,7 +58,7 @@ commands:
   safezone:
     usage: /safezone <info|set [radius]|build>
   teamfight:
-    usage: /teamfight <test|stop|status>
+    usage: /teamfight <test [3|4|5]|stop|status>
   bard:
     usage: /bard
   archer:

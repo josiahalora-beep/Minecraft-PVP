@@ -43,6 +43,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     private final Map<String, ShopItem> buyItems = new LinkedHashMap<String, ShopItem>();
     private long[] tickTimes;
     private int metricsTask = -1;
+    private WarpManager warpManager;
+    private SimChatDirector simChat;
 
     enum Rank {
         MEMBER(0, "&7[Member]", 24),
@@ -97,11 +99,15 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         initFiles();
         initShops();
         loadFactions();
+        warpManager = new WarpManager(this);
+        warpManager.bootstrapDefaults();
+        simChat = new SimChatDirector(this);
         bindCommands();
         getServer().getPluginManager().registerEvents(this, this);
         hookTickTimes();
         startMetrics();
         startPowerRegen();
+        simChat.start();
 
         if (getConfig().getBoolean("map.auto-bootstrap", true) && !getConfig().getBoolean("map.complete", false)) {
             new BukkitRunnable() {
@@ -111,16 +117,17 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
                 }
             }.runTaskLater(this, 80L);
         }
-        getLogger().info("EraCore 0.1 enabled: owner/ranks/kits/economy/factions/map/metrics baseline ready.");
+        getLogger().info("EraCore 0.2 enabled: classic warps, paced sim chat, factions, economy and PvP baseline ready.");
     }
 
     @Override public void onDisable() {
+        if (simChat != null) simChat.stop();
         saveAll();
         if (metricsTask != -1) Bukkit.getScheduler().cancelTask(metricsTask);
     }
 
     private void bindCommands() {
-        String[] cmds = {"rank","kit","kits","balance","pay","sell","buy","shop","f","simprobe","simmap","simstate","duelprep"};
+        String[] cmds = {"rank","kit","kits","balance","pay","sell","buy","shop","f","spawn","setspawn","warp","warps","setwarp","delwarp","spawnpreset","simchat","simprobe","simmap","simstate","duelprep"};
         for (String c : cmds) getCommand(c).setExecutor(this);
     }
 
@@ -170,6 +177,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         applyCreatorTag(p);
         p.setPlayerListName(color(identityPrefix(p.getName(), r) + "&f" + p.getName()));
         e.setJoinMessage(color("&8[&a+&8] " + identityPrefix(p.getName(), r) + "&f" + p.getName()));
+        if (simChat != null) simChat.onJoin(p);
     }
 
     @EventHandler(priority=EventPriority.HIGHEST) public void onQuit(PlayerQuitEvent e) {
@@ -196,6 +204,12 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         }
         Rank r = getRank(p.getName());
         e.setFormat(color(identityPrefix(p.getName(), r) + "&f" + p.getName() + "&7: &f") + "%2$s");
+        final String chatText = e.getMessage();
+        if (simChat != null) {
+            Bukkit.getScheduler().runTask(this, new Runnable() {
+                public void run() { simChat.onHumanChat(p, chatText); }
+            });
+        }
     }
 
     @EventHandler(priority=EventPriority.HIGHEST, ignoreCancelled=true) public void onPearlUse(PlayerInteractEvent e) {
@@ -239,6 +253,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         power.put(n, Math.max(-10.0, getPower(n) - 2.0));
         e.getEntity().sendMessage(color("&cFaction power: " + fmtPower(getPower(n)) + "/10"));
         saveFactions();
+        if (simChat != null) simChat.onDeath(e);
     }
 
     private void maybeClaimOwner(Player p) {
@@ -288,7 +303,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         }
     }
 
-    private boolean isCreator(String name) {
+    boolean isCreatorIdentity(String name) {
         for (String creator : getConfig().getStringList("creator-tag.creators")) {
             if (creator.equalsIgnoreCase(name)) return true;
         }
@@ -296,8 +311,43 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     private String identityPrefix(String name, Rank rank) {
-        String creator = isCreator(name) ? getConfig().getString("creator-tag.chat-prefix", "&c[YT] ") : "";
-        return creator + rank.prefix + " ";
+        String creator = isCreatorIdentity(name) ? getConfig().getString("creator-tag.chat-prefix", "&c[YT] ") : "";
+        creator = creator.replace("&l", "").replace("&L", "");
+        String rankPrefix = rank.prefix.replace("&l", "").replace("&L", "");
+        return creator + rankPrefix + " ";
+    }
+
+    boolean isBotIdentity(String name) {
+        for (String prefix : getConfig().getStringList("owner.ignored-prefixes")) {
+            if (name.toLowerCase(Locale.ENGLISH).startsWith(prefix.toLowerCase(Locale.ENGLISH))) return true;
+        }
+        return false;
+    }
+
+    boolean hasHumanOnline() {
+        for (Player p : Bukkit.getOnlinePlayers()) {
+            if (!isBotIdentity(p.getName())) return true;
+        }
+        return false;
+    }
+
+    private Rank simRankFor(String name) {
+        int roll = Math.abs(name.toLowerCase(Locale.ENGLISH).hashCode()) % 100;
+        if (roll < 66) return Rank.MEMBER;
+        if (roll < 82) return Rank.VIP;
+        if (roll < 92) return Rank.ELITE;
+        if (roll < 98) return Rank.LEGEND;
+        return Rank.TITAN;
+    }
+
+    void broadcastSimulatedChat(String name, String message) {
+        Rank rank = simRankFor(name);
+        Bukkit.broadcastMessage(color(identityPrefix(name, rank) + "&f" + name + "&7: &f" + message));
+    }
+
+    void sendSimulatedPrivate(Player target, String from, String message) {
+        Rank rank = simRankFor(from);
+        target.sendMessage(color("&8[&7From " + identityPrefix(from, rank) + "&f" + from + "&8] &f" + message));
     }
 
     private void applyCreatorTag(Player p) {
@@ -305,8 +355,9 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         Scoreboard board = Bukkit.getScoreboardManager().getMainScoreboard();
         Team team = board.getTeam("youtube");
         if (team == null) team = board.registerNewTeam("youtube");
-        team.setPrefix(color(getConfig().getString("creator-tag.head-prefix", "&c[YT] &f")));
-        if (isCreator(p.getName())) {
+        String headPrefix = getConfig().getString("creator-tag.head-prefix", "&c[YT] &f").replace("&l", "").replace("&L", "");
+        team.setPrefix(color(headPrefix));
+        if (isCreatorIdentity(p.getName())) {
             team.addPlayer(p);
         } else if (team.hasPlayer(p)) {
             team.removePlayer(p);
@@ -344,6 +395,14 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (c.equals("buy")) return cmdBuy(p,args);
         if (c.equals("shop")) return cmdShop(p);
         if (c.equals("f")) return cmdFaction(p,args);
+        if (c.equals("spawn")) return cmdSpawn(p);
+        if (c.equals("setspawn")) return cmdSetSpawn(p);
+        if (c.equals("warp")) return cmdWarp(p,args);
+        if (c.equals("warps")) return cmdWarps(p);
+        if (c.equals("setwarp")) return cmdSetWarp(p,args);
+        if (c.equals("delwarp")) return cmdDelWarp(p,args);
+        if (c.equals("spawnpreset")) return cmdSpawnPreset(p,args);
+        if (c.equals("simchat")) return cmdSimChat(p,args);
         if (c.equals("simprobe")) {
             p.sendMessage(color("&e" + probeString()));
             return true;
@@ -352,6 +411,102 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (c.equals("simstate")) return cmdSimState(p,args);
         if (c.equals("duelprep")) return cmdDuelPrep(p);
         return false;
+    }
+
+    private boolean ownerOnly(Player p) {
+        if (getRank(p.getName()) == Rank.OWNER || p.hasPermission("eracore.owner")) return true;
+        p.sendMessage(color("&cOwner only."));
+        return false;
+    }
+
+    private boolean cmdSpawn(Player p) {
+        p.teleport(warpManager.getSpawn());
+        p.sendMessage(color("&7Teleported to spawn."));
+        return true;
+    }
+
+    private boolean cmdSetSpawn(Player p) {
+        if (!ownerOnly(p)) return true;
+        warpManager.setSpawn(p.getLocation());
+        warpManager.setWarp("spawn", p.getLocation());
+        p.sendMessage(color("&aSpawn set."));
+        return true;
+    }
+
+    private boolean cmdWarp(Player p, String[] a) {
+        if (a.length != 1) return cmdWarps(p);
+        Location l = warpManager.getWarp(a[0]);
+        if (l == null) {
+            p.sendMessage(color("&cWarp not found. &7Use /warps."));
+            return true;
+        }
+        p.teleport(l);
+        p.sendMessage(color("&7Warped to &f" + a[0].toLowerCase(Locale.ENGLISH) + "&7."));
+        return true;
+    }
+
+    private boolean cmdWarps(Player p) {
+        List<String> names = warpManager.names();
+        p.sendMessage(color("&6Warps: &fspawn" + (names.isEmpty() ? "" : ", " + join(names, ", "))));
+        return true;
+    }
+
+    private boolean cmdSetWarp(Player p, String[] a) {
+        if (!ownerOnly(p)) return true;
+        if (a.length != 1) {
+            p.sendMessage("/setwarp <name>");
+            return true;
+        }
+        warpManager.setWarp(a[0], p.getLocation());
+        p.sendMessage(color("&aWarp set: &f" + a[0].toLowerCase(Locale.ENGLISH)));
+        return true;
+    }
+
+    private boolean cmdDelWarp(Player p, String[] a) {
+        if (!ownerOnly(p)) return true;
+        if (a.length != 1) {
+            p.sendMessage("/delwarp <name>");
+            return true;
+        }
+        if (!warpManager.deleteWarp(a[0])) p.sendMessage(color("&cWarp not found."));
+        else p.sendMessage(color("&aWarp removed: &f" + a[0].toLowerCase(Locale.ENGLISH)));
+        return true;
+    }
+
+    private boolean cmdSpawnPreset(Player p, String[] a) {
+        if (!ownerOnly(p)) return true;
+        if (a.length != 1 || !a[0].equalsIgnoreCase("playman2013")) {
+            p.sendMessage("/spawnpreset playman2013");
+            return true;
+        }
+        warpManager.applyPlayman2013Preset(p.getWorld());
+        p.sendMessage(color("&a2013 DaeGonner-inspired spawn preset applied."));
+        p.sendMessage(color("&7Spawn is set to 260.5, 70, 180.5. Finalize the interior shop/enchant points with /setwarp after the schematic is pasted."));
+        return true;
+    }
+
+    private boolean cmdSimChat(Player p, String[] a) {
+        if (!ownerOnly(p)) return true;
+        if (a.length == 0 || a[0].equalsIgnoreCase("status")) {
+            p.sendMessage(color("&7Sim chat: " + (simChat.enabled() ? "&aenabled" : "&cdisabled")));
+            return true;
+        }
+        if (a[0].equalsIgnoreCase("on")) {
+            simChat.setEnabled(true);
+            p.sendMessage(color("&aSim chat enabled."));
+            return true;
+        }
+        if (a[0].equalsIgnoreCase("off")) {
+            simChat.setEnabled(false);
+            p.sendMessage(color("&cSim chat disabled."));
+            return true;
+        }
+        if (a[0].equalsIgnoreCase("pulse")) {
+            simChat.pulse();
+            return true;
+        }
+        p.sendMessage("/simchat <on|off|status|pulse>");
+        return true;
     }
 
     private boolean cmdRank(CommandSender s, String[] a) {
@@ -1193,6 +1348,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         saveYaml(kitsData,kitsFile);
         saveYaml(economyData,economyFile);
         saveFactions();
+        if (warpManager != null) warpManager.save();
     }
 
     private void saveYaml(YamlConfiguration y,File f) {

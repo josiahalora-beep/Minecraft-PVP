@@ -21,6 +21,7 @@ final class HcfClassDirector implements Listener {
     private final EraCore plugin;
     private final Map<String,Double> bardEnergy = new HashMap<String,Double>();
     private final Map<String,Long> rogueBackstab = new HashMap<String,Long>();
+    private final Map<String,Long> archerTagged = new HashMap<String,Long>();
     private BukkitTask task;
 
     HcfClassDirector(EraCore plugin) {
@@ -162,6 +163,33 @@ final class HcfClassDirector implements Listener {
         double maxBonus = plugin.getConfig().getDouble("hcf-classes.archer-max-bonus-damage", 4.0);
         double bonus = Math.min(maxBonus, Math.max(0.0, dist - 5.0) * perBlock);
         e.setDamage(e.getDamage() + bonus);
+
+        Player target=(Player)e.getEntity();
+        long seconds=Math.max(3L,plugin.getConfig().getLong("safezones.archer-tag-seconds",10L));
+        archerTagged.put(target.getName().toLowerCase(Locale.ENGLISH),System.currentTimeMillis()+seconds*1000L);
+    }
+
+    @EventHandler(priority=EventPriority.HIGHEST, ignoreCancelled=true)
+    public void onArcherTaggedDamage(EntityDamageByEntityEvent e) {
+        if (!(e.getEntity() instanceof Player)) return;
+        Player victim=(Player)e.getEntity();
+        Long until=archerTagged.get(victim.getName().toLowerCase(Locale.ENGLISH));
+        if(until==null) return;
+        if(until<=System.currentTimeMillis()) {
+            archerTagged.remove(victim.getName().toLowerCase(Locale.ENGLISH));
+            return;
+        }
+
+        Player attacker=null;
+        if(e.getDamager() instanceof Player) attacker=(Player)e.getDamager();
+        else if(e.getDamager() instanceof Arrow) {
+            Object shooter=((Arrow)e.getDamager()).getShooter();
+            if(shooter instanceof Player) attacker=(Player)shooter;
+        }
+        if(attacker==null || plugin.sameFactionForClasses(attacker.getName(),victim.getName())) return;
+
+        double mult=Math.max(1.0,plugin.getConfig().getDouble("safezones.archer-tag-damage-multiplier",1.20));
+        e.setDamage(e.getDamage()*mult);
     }
 
     @EventHandler(priority=EventPriority.HIGH, ignoreCancelled=true)

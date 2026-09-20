@@ -32,10 +32,8 @@ final class WarpManager {
             int y = plugin.getConfig().getInt("map.surface-y", 63) + 1;
             setWarp("pvp", new Location(world, 200.5, y, 0.5, 90f, 0f), false);
         }
-        if (!data.contains("warps.koth.world")) {
-            int y = plugin.getConfig().getInt("map.surface-y", 63) + 1;
-            setWarp("koth", new Location(world, 500.5, y, 500.5, 0f, 0f), false);
-        }
+        // KoTH is intentionally not part of this HCF map. Remove legacy test warp.
+        data.set("warps.koth", null);
         save();
     }
 

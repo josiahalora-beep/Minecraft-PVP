@@ -5,7 +5,7 @@ commands:
   rank:
     usage: /rank set <player> <rank>
   kit:
-    usage: /kit <member|vip|elite|legend|titan>
+    usage: /kit <starter [diamond|bard|archer|miner|rogue]|member|vip|elite|legend|titan>
   kits:
     usage: /kits
   balance:
@@ -52,7 +52,7 @@ commands:
   sotw:
     usage: /sotw <status|reset|end>
   simworker:
-    usage: /simworker <sync|deposit|status>
+    usage: /simworker <sync|deposit|stash|status>
   simcombat:
     usage: /simcombat <sync|release|status>
   safezone:

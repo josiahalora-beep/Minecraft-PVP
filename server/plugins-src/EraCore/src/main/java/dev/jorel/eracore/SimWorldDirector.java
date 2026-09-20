@@ -470,7 +470,7 @@ final class SimWorldDirector {
     private void tick() {
         sotwTicks++;
         formationTick();
-        economy.tickAll(players, factions, sotwTicks);
+        economy.tickAll(players.values(), factions, sotwTicks);
 
         if (factions.isEmpty()) {
             save();

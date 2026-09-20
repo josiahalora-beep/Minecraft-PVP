@@ -861,6 +861,15 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (hcfBaseBuilder != null) hcfBaseBuilder.queueBase(faction,preset,trapPreset,x,y,z);
     }
 
+    void queueSimTerrainRepair(String faction, String preset, String trapPreset, int x, int y, int z) {
+        if (hcfBaseBuilder != null) hcfBaseBuilder.queueTerrainRepair(faction,preset,trapPreset,x,y,z);
+    }
+
+    int[] evaluateSimBaseSite(int x, int z, int radius) {
+        if (hcfBaseBuilder == null) return new int[]{64,999,999};
+        return hcfBaseBuilder.evaluateSite(x,z,radius);
+    }
+
     void queueSimBrewerBuild(String faction, int x, int y, int z) {
         if (hcfBaseBuilder != null) hcfBaseBuilder.queueBrewer(faction,x,y,z);
     }

@@ -167,7 +167,7 @@ function pearlItem() {
   return bot.inventory.items().find(i => i.name === 'ender_pearl')
 }
 
-async function throwPearlToward(target, reason) {
+async function throwPearlAt(target, aimPoint, reason) {
   const pearl = pearlItem()
   if (!pearl || potting || refilling || buffing) return false
   if (Date.now() - lastPearlAt < profile.pearlCooldownMs) return false
@@ -176,20 +176,12 @@ async function throwPearlToward(target, reason) {
   try {
     bot.clearControlStates()
     await bot.equip(pearl, 'hand')
-
-    const v = target.velocity || { x: 0, y: 0, z: 0 }
-    const lead = profile.tier === 'elite' ? 4.0 : 2.5
-    const predicted = target.position.offset(
-      Number(v.x || 0) * lead,
-      0.55 + Math.max(0, Number(v.y || 0)) * 1.5,
-      Number(v.z || 0) * lead
-    )
-
-    await bot.lookAt(predicted, true)
+    await bot.lookAt(aimPoint, true)
     await sleep(Math.round(rand(30, 70) + profile.simulatedReactionJitter))
     bot.activateItem()
     await sleep(Math.round(rand(55, 95)))
     bot.deactivateItem()
+
     lastPearlAt = Date.now()
     nextPearlDecisionAt = lastPearlAt + 650
     log('pearl', {
@@ -205,6 +197,27 @@ async function throwPearlToward(target, reason) {
     selectSword()
     return false
   }
+}
+
+async function throwPearlToward(target, reason) {
+  const v = target.velocity || { x: 0, y: 0, z: 0 }
+  const lead = profile.tier === 'elite' ? 4.0 : 2.5
+  const predicted = target.position.offset(
+    Number(v.x || 0) * lead,
+    0.55 + Math.max(0, Number(v.y || 0)) * 1.5,
+    Number(v.z || 0) * lead
+  )
+  return throwPearlAt(target, predicted, reason)
+}
+
+async function throwPearlAway(target, reason) {
+  const me = bot.entity.position
+  const dx = me.x - target.position.x
+  const dz = me.z - target.position.z
+  const mag = Math.max(0.001, Math.sqrt(dx * dx + dz * dz))
+  const distance = profile.tier === 'elite' ? 12.0 : 9.5
+  const escapePoint = me.offset((dx / mag) * distance, 1.8, (dz / mag) * distance)
+  return throwPearlAt(target, escapePoint, reason)
 }
 
 async function maybeAggressivePearl(target, dist) {
@@ -230,12 +243,15 @@ async function maybeDefensivePearl(target, dist) {
   if (now - lastPearlAt < profile.pearlCooldownMs) return false
   if (now - lastDamageAt > 350) return false
   if (dist < 1.7 || dist > 4.5) return false
-  if (bot.health <= 4.0) return false
+  if (bot.health <= 7.0) return false
 
   nextPearlDecisionAt = now + Math.round(rand(400, 800))
   if (Math.random() > profile.defensivePearlChance) return false
 
-  return throwPearlToward(target, 'defensive_combo_break')
+  if (bot.health >= profile.potHealth + 2.0) {
+    return throwPearlToward(target, 'counter_pearl_into_combo')
+  }
+  return throwPearlAway(target, 'defensive_escape_pearl')
 }
 
 function potionByMeta(meta) {

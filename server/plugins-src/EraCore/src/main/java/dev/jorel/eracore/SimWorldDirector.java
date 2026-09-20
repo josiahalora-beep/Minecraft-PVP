@@ -66,11 +66,17 @@ final class SimWorldDirector {
         int targetSize;
         Stage stage = Stage.RECRUITING;
         String basePreset;
+        String trapPreset = "none";
         boolean powerFaction;
         boolean underdog;
         boolean claimed;
         boolean storage;
         boolean brewer;
+        boolean recoveryMode;
+        int baseX;
+        int baseY = 64;
+        int baseZ;
+        int claimRadiusChunks = 1;
         int p4Sets;
         int sharp4Swords;
         int bardSets;
@@ -133,6 +139,7 @@ final class SimWorldDirector {
     private int factionCursor;
     private int factionNameCursor;
     private long sotwTicks;
+    private long sotwStartedAt;
 
     private static final Pattern MONEY = Pattern.compile("(?:\\$\\s*)?(\\d{2,7})");
 
@@ -157,10 +164,10 @@ final class SimWorldDirector {
     };
 
     private static final String[] BASE_PRESETS = {
-        "compact_vault",
-        "underground_grinder",
-        "cane_compound",
-        "hill_fort"
+        "hcf_glass_box",
+        "hcf_courtyard",
+        "hcf_brewer_base",
+        "hcf_trap_base"
     };
 
     SimWorldDirector(EraCore plugin) {
@@ -228,6 +235,7 @@ final class SimWorldDirector {
         SimFaction f = p.faction.isEmpty() ? null : factions.get(key(p.faction));
 
         if (f != null) {
+            if (f.recoveryMode) return new ChatEvent(p.name, rng.nextBoolean() ? "we are regening dtr" : "staying in base till dtr regens");
             if (f.stage == Stage.SCOUT_CLAIM) return new ChatEvent(p.name, "looking for a spot to claim");
             if (f.stage == Stage.GATHER_STARTER && "miner".equals(p.role)) return new ChatEvent(p.name, "mining for the base rn");
             if (f.stage == Stage.BREWER && !f.brewer) return new ChatEvent(p.name, "buying redstone stuff for an auto brewer");
@@ -395,7 +403,9 @@ final class SimWorldDirector {
         List<SimFaction> list = new ArrayList<SimFaction>(factions.values());
         for (int i = 0; i < work; i++) {
             if (factionCursor >= list.size()) factionCursor = 0;
-            advance(list.get(factionCursor++));
+            SimFaction f = list.get(factionCursor++);
+            updateDtrStrategy(f);
+            advance(f);
         }
 
         save();
@@ -413,7 +423,7 @@ final class SimWorldDirector {
                 break;
 
             case SCOUT_CLAIM:
-                if (f.actionCounter % 2 == 0) {
+                if (f.actionCounter % 2 == 0 && planAndClaimBase(f)) {
                     f.claimed = true;
                     f.stage = Stage.GATHER_STARTER;
                 }
@@ -430,6 +440,7 @@ final class SimWorldDirector {
 
             case BUILD_STARTER:
                 if (f.actionCounter % 3 == 0) {
+                    if (!f.storage) plugin.queueSimBaseBuild(f.name, f.basePreset, f.trapPreset, f.baseX, f.baseY, f.baseZ);
                     f.storage = true;
                     f.stage = Stage.ECONOMY;
                 }
@@ -451,6 +462,7 @@ final class SimWorldDirector {
                         f.iron -= 35;
                         f.stone -= 96;
                         f.brewer = true;
+                        plugin.queueSimBrewerBuild(f.name, f.baseX, f.baseY, f.baseZ);
                     }
                 }
                 if (f.brewer) f.stage = Stage.GEARING;
@@ -621,6 +633,8 @@ final class SimWorldDirector {
         if (p == null || p.faction.isEmpty()) return false;
         SimFaction f = factions.get(key(p.faction));
         if (f == null) return false;
+        if (sotwProtectionActive()) return false;
+        if (f.recoveryMode || plugin.factionRaidable(f.name) || plugin.factionDtr(f.name) <= getDtrSafetyFloor(f)) return false;
         if (f.stage == Stage.PVP_READY) return true;
         // Elite/strong players may defend or take a favorable local fight earlier,
         // but are not told to roam undergeared.
@@ -630,6 +644,12 @@ final class SimWorldDirector {
     String tacticalDecision(String name, int enemiesNearby, int alliesNearby, boolean nearHome, boolean bardNearby) {
         SimPlayer p = players.get(key(name));
         if (p == null) return "DISENGAGE";
+
+        SimFaction faction = p.faction.isEmpty() ? null : factions.get(key(p.faction));
+        if (faction != null && faction.recoveryMode) {
+            if (nearHome) return "HOLD_SAFE_ROOM";
+            return "KITE_HOME_FOR_DTR";
+        }
 
         boolean top = p.skill >= 92;
         int disadvantage = enemiesNearby - alliesNearby;
@@ -762,6 +782,7 @@ final class SimWorldDirector {
         }
 
         sotwTicks = data.getLong("meta.sotw-ticks", 0L);
+        sotwStartedAt = data.getLong("meta.sotw-started-at", System.currentTimeMillis());
         factionNameCursor = data.getInt("meta.faction-name-cursor", 0);
 
         ConfigurationSection fs = data.getConfigurationSection("factions");
@@ -773,7 +794,13 @@ final class SimWorldDirector {
                 f.leader = s.getString("leader", "");
                 f.targetSize = Math.min(MAX_FACTION_MEMBERS, s.getInt("target-size", 3));
                 try { f.stage = Stage.valueOf(s.getString("stage", "SCOUT_CLAIM")); } catch (Exception ignored) {}
-                f.basePreset = s.getString("base-preset", "compact_vault");
+                f.basePreset = s.getString("base-preset", "hcf_glass_box");
+                f.trapPreset = s.getString("trap-preset", "none");
+                f.baseX = s.getInt("base-x", 0);
+                f.baseY = s.getInt("base-y", 64);
+                f.baseZ = s.getInt("base-z", 0);
+                f.claimRadiusChunks = s.getInt("claim-radius-chunks", 1);
+                f.recoveryMode = s.getBoolean("recovery-mode", false);
                 f.powerFaction = s.getBoolean("power-faction", false);
                 f.underdog = s.getBoolean("underdog", false);
                 f.claimed = s.getBoolean("claimed");
@@ -821,6 +848,7 @@ final class SimWorldDirector {
         players.clear();
         factions.clear();
         sotwTicks = 0;
+        sotwStartedAt = System.currentTimeMillis();
         factionNameCursor = 0;
 
         int target = Math.max(30, Math.min(100, plugin.getConfig().getInt("sim-world.population", 90)));
@@ -876,6 +904,17 @@ final class SimWorldDirector {
         save();
     }
 
+    void endSotwProtection() {
+        long mins = plugin.getConfig().getLong("sotw.protection-minutes", 60L);
+        sotwStartedAt = System.currentTimeMillis() - (mins * 60L * 1000L) - 1000L;
+        save();
+    }
+
+    boolean sotwProtectionActive() {
+        long mins = plugin.getConfig().getLong("sotw.protection-minutes", 60L);
+        return System.currentTimeMillis() - sotwStartedAt < mins * 60L * 1000L;
+    }
+
     boolean sotwRecruitingActive() {
         int unaffiliated = 0;
         for (SimPlayer p : players.values()) if (p.faction.isEmpty()) unaffiliated++;
@@ -886,7 +925,8 @@ final class SimWorldDirector {
     String sotwStatus() {
         int solo = 0;
         for (SimPlayer p : players.values()) if (p.faction.isEmpty()) solo++;
-        return "SOTW factions=" + factions.size() + " solo=" + solo + " population=" + players.size();
+        long left = Math.max(0L, plugin.getConfig().getLong("sotw.protection-minutes",60L)*60L*1000L - (System.currentTimeMillis()-sotwStartedAt));
+        return "SOTW factions=" + factions.size() + " solo=" + solo + " population=" + players.size() + " protection=" + (left/60000L) + "m";
     }
 
     private boolean hasUnformedLeader() {
@@ -931,6 +971,7 @@ final class SimWorldDirector {
         f.basePreset = BASE_PRESETS[rng.nextInt(BASE_PRESETS.length)];
         f.powerFaction = !best.underdogLeader;
         f.underdog = best.underdogLeader;
+        f.trapPreset = (best.skill < 72 || best.underdogLeader) && rng.nextInt(100) < 65 ? "fall_trap" : "none";
         f.treasury = 250 + rng.nextInt(best.underdogLeader ? 900 : 1500);
         f.members.add(best.name);
 
@@ -1066,6 +1107,120 @@ final class SimWorldDirector {
         return b.toString();
     }
 
+    void onAuthorityDeath(String playerName, String factionName, double dtr, boolean raidable) {
+        if (factionName == null || factionName.isEmpty()) return;
+        SimFaction f = factions.get(key(factionName));
+        if (f == null) return;
+        updateDtrStrategy(f);
+        save();
+    }
+
+    private void updateDtrStrategy(SimFaction f) {
+        double dtr = plugin.factionDtr(f.name);
+        double max = plugin.factionMaxDtr(f.name);
+        double floor = getDtrSafetyFloor(f);
+        boolean danger = plugin.factionRaidable(f.name) || dtr <= floor;
+
+        // Factions protect map progress when DTR is in danger instead of feeding.
+        f.recoveryMode = danger;
+
+        if (!danger && max > 0 && dtr >= Math.min(max, floor + 1.0)) {
+            f.recoveryMode = false;
+        }
+    }
+
+    private double getDtrSafetyFloor(SimFaction f) {
+        // Better leaders become cautious slightly earlier; elite players still
+        // may defend at home, but the faction does not deliberately roam.
+        SimPlayer leader = players.get(key(f.leader));
+        if (leader != null && leader.leadership >= 75) return 1.5;
+        return 1.0;
+    }
+
+    private boolean planAndClaimBase(SimFaction f) {
+        if (f.baseX != 0 || f.baseZ != 0) return true;
+
+        org.bukkit.World world = Bukkit.getWorlds().get(0);
+        if (world == null) return false;
+
+        int[] point = chooseBasePoint(f);
+        f.baseX = point[0];
+        f.baseY = Math.max(64, plugin.getConfig().getInt("sim-world.base-y", 64));
+        f.baseZ = point[1];
+        f.claimRadiusChunks = f.targetSize >= 5 ? 1 : (rng.nextInt(100) < 22 ? 1 : 0);
+
+        org.bukkit.Location home = new org.bukkit.Location(world, f.baseX + 0.5, f.baseY + 1, f.baseZ + 0.5);
+        List<String> claims = squareClaims(world.getName(), f.baseX >> 4, f.baseZ >> 4, f.claimRadiusChunks);
+        if (!plugin.setSimFactionHomeAndClaims(f.name, home, claims)) {
+            f.baseX = 0;
+            f.baseZ = 0;
+            return false;
+        }
+        return true;
+    }
+
+    private int[] chooseBasePoint(SimFaction f) {
+        org.bukkit.Location spawn = Bukkit.getWorlds().get(0).getSpawnLocation();
+        List<SimFaction> creatorAnchors = new ArrayList<SimFaction>();
+        for (SimFaction x : factions.values()) {
+            if (x.baseX == 0 && x.baseZ == 0) continue;
+            SimPlayer leader = players.get(key(x.leader));
+            if (leader != null && plugin.isCreatorIdentity(leader.name)) creatorAnchors.add(x);
+        }
+
+        SimPlayer leader = players.get(key(f.leader));
+        boolean creatorLed = leader != null && plugin.isCreatorIdentity(leader.name);
+
+        if (!creatorLed && !creatorAnchors.isEmpty() && rng.nextInt(100) < (f.powerFaction ? 78 : 52)) {
+            SimFaction anchor = creatorAnchors.get(rng.nextInt(creatorAnchors.size()));
+            double angle = rng.nextDouble() * Math.PI * 2.0;
+            int distance = (f.powerFaction ? 140 : 220) + rng.nextInt(f.powerFaction ? 160 : 260);
+            return new int[]{
+                anchor.baseX + (int)Math.round(Math.cos(angle) * distance),
+                anchor.baseZ + (int)Math.round(Math.sin(angle) * distance)
+            };
+        }
+
+        double angle = rng.nextDouble() * Math.PI * 2.0;
+        int radius = creatorLed ? 500 + rng.nextInt(350) : 650 + rng.nextInt(650);
+        return new int[]{
+            spawn.getBlockX() + (int)Math.round(Math.cos(angle) * radius),
+            spawn.getBlockZ() + (int)Math.round(Math.sin(angle) * radius)
+        };
+    }
+
+    private List<String> squareClaims(String world, int cx, int cz, int radius) {
+        List<String> out = new ArrayList<String>();
+        for (int x = cx - radius; x <= cx + radius; x++) {
+            for (int z = cz - radius; z <= cz + radius; z++) {
+                out.add(world + ":" + x + ":" + z);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * CPU-aware visible combat budget.
+     *
+     * A strategic fight can contain any number of identities, but only this
+     * many should be promoted to real combat clients at once. Remaining
+     * participants stay WARM/COLD until a HOT slot becomes relevant.
+     */
+    int hotCombatBudget() {
+        return Math.max(4, Math.min(12, plugin.getConfig().getInt("combat-director.hot-body-budget", 8)));
+    }
+
+    int hotCombatPerFactionCap() {
+        return Math.max(1, Math.min(4, plugin.getConfig().getInt("combat-director.max-hot-per-faction", 3)));
+    }
+
+    String brawlPolicy(int factionsNearby, int totalParticipants, boolean ownerObserving) {
+        int budget = hotCombatBudget();
+        if (totalParticipants <= budget) return "ALL_HOT";
+        if (ownerObserving) return "OWNER_BUBBLE_PRIORITY_" + budget;
+        return factionsNearby >= 3 ? "COLD_RESOLVE_WITH_" + Math.min(4, budget) + "_REPRESENTATIVES" : "ROTATE_HOT_" + budget;
+    }
+
     private void seedStock(SimPlayer p) {
         if ("farmer".equals(p.role) || "trader".equals(p.role)) p.stock.put("cane", 64 + rng.nextInt(512));
         if ("miner".equals(p.role)) p.stock.put("iron", 8 + rng.nextInt(48));
@@ -1151,6 +1306,12 @@ final class SimWorldDirector {
             data.set(b + ".target-size", f.targetSize);
             data.set(b + ".stage", f.stage.name());
             data.set(b + ".base-preset", f.basePreset);
+            data.set(b + ".trap-preset", f.trapPreset);
+            data.set(b + ".base-x", f.baseX);
+            data.set(b + ".base-y", f.baseY);
+            data.set(b + ".base-z", f.baseZ);
+            data.set(b + ".claim-radius-chunks", f.claimRadiusChunks);
+            data.set(b + ".recovery-mode", f.recoveryMode);
             data.set(b + ".power-faction", f.powerFaction);
             data.set(b + ".underdog", f.underdog);
             data.set(b + ".claimed", f.claimed);
@@ -1180,6 +1341,7 @@ final class SimWorldDirector {
         }
 
         data.set("meta.sotw-ticks", sotwTicks);
+        data.set("meta.sotw-started-at", sotwStartedAt);
         data.set("meta.faction-name-cursor", factionNameCursor);
 
         try {

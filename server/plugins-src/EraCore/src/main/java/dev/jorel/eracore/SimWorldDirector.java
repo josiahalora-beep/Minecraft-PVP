@@ -58,6 +58,14 @@ final class SimWorldDirector {
         int leadership;     // 0..100
         int teamwork;       // 0..100
         int economicIq;      // 0..100
+        int loyalty;         // 0..100
+        int riskTolerance;   // 0..100
+        int sociability;     // 0..100
+        int patience;        // 0..100
+        boolean logicalOnline;
+        int sessionTicksLeft;
+        long nextGoalTick;
+        String currentGoal = "idle";
         String farmCrop = "";
         int farmCells;
         double farmInvestment;
@@ -290,6 +298,7 @@ final class SimWorldDirector {
         t.priority = 0;
 
         if (p == null || p.faction.isEmpty()) return t;
+        if (!p.logicalOnline && !plugin.isCreatorIdentity(p.name)) return t;
         SimFaction f = factions.get(key(p.faction));
         if (f == null) return t;
 
@@ -400,7 +409,30 @@ final class SimWorldDirector {
                 }
                 break;
         }
+
+        if (p.logicalOnline && p.currentGoal != null && !p.currentGoal.isEmpty()) {
+            String g=p.currentGoal;
+            if ("mine".equals(g) || "gather".equals(g) || "supply".equals(g) || "build".equals(g) ||
+                "farm".equals(g) || "brew".equals(g) || "gear".equals(g) || "patrol".equals(g) ||
+                "scout".equals(g) || "safe".equals(g) || "recruit".equals(g)) {
+                t.action=g;
+                t.priority=Math.max(t.priority,goalPriority(p,g));
+            }
+        }
         return t;
+    }
+
+    private int goalPriority(SimPlayer p,String goal) {
+        if ("safe".equals(goal)) return 110;
+        if ("build".equals(goal)) return "builder".equals(p.preferredJob)?108:82;
+        if ("mine".equals(goal)) return "miner".equals(p.preferredJob)?104:70;
+        if ("farm".equals(goal)) return "farmer".equals(p.preferredJob)?102:64;
+        if ("brew".equals(goal)) return "brewer".equals(p.preferredJob)?103:65;
+        if ("gear".equals(goal)) return 82;
+        if ("scout".equals(goal)) return "leader".equals(p.role)?86:52;
+        if ("patrol".equals(goal)) return 64 + p.aggression/4;
+        if ("recruit".equals(goal)) return 48 + p.sociability/3;
+        return 50;
     }
 
     private SimPlayer firstJobMember(SimFaction f, String job) {
@@ -514,7 +546,7 @@ final class SimWorldDirector {
             }
         }
 
-        SimPlayer p = randomPlayer();
+        SimPlayer p = randomOnlinePlayer();
         if (p == null) return null;
         SimFaction f = p.faction.isEmpty() ? null : factions.get(key(p.faction));
 
@@ -613,7 +645,7 @@ final class SimWorldDirector {
     private SimPlayer chooseContextResponder(String humanName, String lower) {
         // Direct name mention wins.
         for (SimPlayer p : players.values()) {
-            if (lower.contains(p.name.toLowerCase(Locale.ENGLISH))) return p;
+            if (lower.contains(p.name.toLowerCase(Locale.ENGLISH)) && (p.logicalOnline || plugin.isCreatorIdentity(p.name))) return p;
         }
 
         // Faction mention should pull a member of that faction.
@@ -630,7 +662,7 @@ final class SimWorldDirector {
 
         List<SimPlayer> candidates = new ArrayList<SimPlayer>();
         for (SimPlayer p : players.values()) {
-            if (p.name.equalsIgnoreCase(humanName)) continue;
+            if (p.name.equalsIgnoreCase(humanName) || !p.logicalOnline) continue;
             if (lower.contains("faction") || lower.contains("lff") || lower.contains("recruit")) {
                 if (!p.faction.isEmpty()) candidates.add(p);
             } else if (lower.contains("pvp") || lower.contains("fight") || lower.contains("1v1") || lower.contains("koth")) {
@@ -928,10 +960,144 @@ final class SimWorldDirector {
         return "yeah";
     }
 
+    private Collection<SimPlayer> logicallyOnlinePlayers() {
+        List<SimPlayer> out=new ArrayList<SimPlayer>();
+        for(SimPlayer p:players.values()) if(p.logicalOnline) out.add(p);
+        return out;
+    }
+
+    private SimPlayer randomOnlinePlayer() {
+        List<SimPlayer> xs=new ArrayList<SimPlayer>();
+        for(SimPlayer p:players.values()) if(p.logicalOnline) xs.add(p);
+        if(xs.isEmpty()) return null;
+        return xs.get(rng.nextInt(xs.size()));
+    }
+
+    private int logicalOnlineTarget() {
+        Calendar cal=Calendar.getInstance();
+        int hour=cal.get(Calendar.HOUR_OF_DAY);
+        int min=Math.max(6,plugin.getConfig().getInt("sim-world.logical-online-min",18));
+        int peak=Math.max(min,plugin.getConfig().getInt("sim-world.logical-online-peak",46));
+        int late=Math.max(4,plugin.getConfig().getInt("sim-world.logical-online-late-night",12));
+
+        if(hour>=1 && hour<7) return Math.min(players.size(),late+rng.nextInt(4));
+        if(hour>=17 && hour<24) return Math.min(players.size(),peak-3+rng.nextInt(7));
+        if(hour>=12 && hour<17) return Math.min(players.size(),min+(peak-min)*2/3+rng.nextInt(5));
+        return Math.min(players.size(),min+rng.nextInt(Math.max(2,(peak-min)/3+1)));
+    }
+
+    private int newSessionTicks(SimPlayer p) {
+        int minM=Math.max(10,plugin.getConfig().getInt("sim-world.session-min-minutes",25));
+        int maxM=Math.max(minM,plugin.getConfig().getInt("sim-world.session-max-minutes",140));
+        int minutes=minM+rng.nextInt(maxM-minM+1);
+        minutes += p.sociability/8;
+        if(plugin.isCreatorIdentity(p.name)) minutes += 30;
+        long tickSeconds=Math.max(10L,plugin.getConfig().getLong("sim-world.tick-seconds",30L));
+        return Math.max(2,(int)Math.ceil((minutes*60.0)/tickSeconds));
+    }
+
+    private void updateLogicalSessionsAndGoals() {
+        int target=logicalOnlineTarget();
+        int online=0;
+        List<SimPlayer> offline=new ArrayList<SimPlayer>();
+
+        for(SimPlayer p:players.values()) {
+            if(p.logicalOnline) {
+                online++;
+                p.sessionTicksLeft--;
+                if(p.sessionTicksLeft<=0 && online>target && !plugin.isCreatorIdentity(p.name)) {
+                    p.logicalOnline=false;
+                    p.currentGoal="offline";
+                    online--;
+                    offline.add(p);
+                } else if(p.sessionTicksLeft<=0) {
+                    p.sessionTicksLeft=newSessionTicks(p);
+                }
+            } else {
+                offline.add(p);
+            }
+        }
+
+        Collections.shuffle(offline,rng);
+        for(SimPlayer p:offline) {
+            if(online>=target) break;
+            if(p.logicalOnline) continue;
+            int loginBias=20+p.sociability/2+(p.faction.isEmpty()?15:0);
+            if(plugin.isCreatorIdentity(p.name)) loginBias+=20;
+            if(rng.nextInt(100)>=Math.min(95,loginBias) && online>=target-3) continue;
+            p.logicalOnline=true;
+            p.sessionTicksLeft=newSessionTicks(p);
+            p.nextGoalTick=sotwTicks;
+            online++;
+        }
+
+        for(SimPlayer p:players.values()) {
+            if(!p.logicalOnline) continue;
+            if(sotwTicks>=p.nextGoalTick) {
+                p.currentGoal=chooseGoal(p);
+                p.nextGoalTick=sotwTicks+2+rng.nextInt(6);
+            }
+        }
+    }
+
+    private String chooseGoal(SimPlayer p) {
+        if(p.faction.isEmpty()) {
+            if(p.leaderCandidate) return p.sociability>=45?"recruit":"gather";
+            if(p.sociability>=65) return "recruit";
+            if("miner".equals(p.preferredJob)) return "mine";
+            if("farmer".equals(p.preferredJob)) return "gather";
+            return rng.nextBoolean()?"gather":"social";
+        }
+
+        SimFaction f=factions.get(key(p.faction));
+        if(f==null) return "idle";
+        if(f.recoveryMode) return p.riskTolerance<80?"safe":"defend";
+
+        switch(f.stage) {
+            case RECRUITING:
+                if("leader".equals(p.role) || p.sociability>=65) return "recruit";
+                return "miner".equals(p.preferredJob)?"mine":"gather";
+            case SCOUT_CLAIM:
+                return "leader".equals(p.role)?"scout":("miner".equals(p.preferredJob)?"mine":"gather");
+            case GATHER_STARTER:
+                if("miner".equals(p.preferredJob)) return "mine";
+                if("builder".equals(p.preferredJob)) return rng.nextInt(100)<70?"gather":"scout";
+                return "gather";
+            case BUILD_STARTER:
+                return (p.patience>=35 || "builder".equals(p.preferredJob))?"build":"gather";
+            case ECONOMY:
+                if("farmer".equals(p.preferredJob)) return "farm";
+                if("miner".equals(p.preferredJob)) return "mine";
+                if("brewer".equals(p.preferredJob)) return "supply";
+                if(p.economicIq>=75) return "trade";
+                return rng.nextBoolean()?"gather":"social";
+            case BREWER:
+                if("brewer".equals(p.preferredJob)) return "brew";
+                if("miner".equals(p.preferredJob)) return "mine";
+                return "supply";
+            case GEARING:
+                if("miner".equals(p.preferredJob)) return "mine";
+                if("brewer".equals(p.preferredJob)) return "brew";
+                return "gear";
+            case PVP_READY:
+                int rivalryHeat=0;
+                String rival=strongestRival(f.name);
+                if(!rival.isEmpty()) rivalryHeat=rivalryScore(f.name,rival);
+                int roam=p.aggression+p.riskTolerance+p.skill/2+rivalryHeat/2;
+                if("farmer".equals(p.preferredJob) && p.economicIq>=70 && rng.nextInt(100)<55) return "farm";
+                if("brewer".equals(p.preferredJob) && rng.nextInt(100)<45) return "brew";
+                if(roam>=170) return "patrol";
+                if(p.economicIq>=78 && rng.nextInt(100)<35) return "trade";
+                return rng.nextBoolean()?"patrol":"social";
+        }
+        return "idle";
+    }
+
     private void tick() {
         sotwTicks++;
+        updateLogicalSessionsAndGoals();
         formationTick();
-        economy.tickAll(players.values(), factions, sotwTicks);
+        economy.tickAll(logicallyOnlinePlayers(), factions, sotwTicks);
 
         if (factions.isEmpty()) {
             save();
@@ -1036,26 +1202,32 @@ final class SimWorldDirector {
     private void produce(SimFaction f) {
         for (String member : f.members) {
             SimPlayer p = players.get(key(member));
-            if (p == null) continue;
+            if (p == null || !p.logicalOnline) continue;
 
             // A connected simulated identity is embodied. Its physical work is
             // deposited from the real inventory instead of also receiving the
             // offscreen production roll.
             if (Bukkit.getPlayerExact(p.name) != null) continue;
 
-            if ("miner".equals(p.role)) {
-                f.stone += 28 + rng.nextInt(22);
-                f.iron += 3 + rng.nextInt(5);
-                f.xp += 3 + rng.nextInt(5);
-                if (rng.nextInt(100) < 22) f.diamonds += 1 + rng.nextInt(2);
-                if (rng.nextInt(100) < 30) f.obsidian += 1 + rng.nextInt(3);
-            } else if ("farmer".equals(p.role)) {
+            if ("mine".equals(p.currentGoal) || "gather".equals(p.currentGoal) || "supply".equals(p.currentGoal)) {
+                int minerBonus = "miner".equals(p.preferredJob) ? 8 : 0;
+                f.stone += 20 + minerBonus + rng.nextInt(18);
+                f.iron += 2 + ("miner".equals(p.preferredJob) ? 2 : 0) + rng.nextInt(4);
+                f.xp += 2 + rng.nextInt(4);
+                if (rng.nextInt(100) < (12 + p.economicIq / 6)) f.diamonds += 1;
+                if (rng.nextInt(100) < (18 + p.economicIq / 7)) f.obsidian += 1 + rng.nextInt(2);
+            } else if ("farm".equals(p.currentGoal)) {
                 // Farming is handled by SimEconomyModel so cash/items are conserved.
-            } else if ("brewer".equals(p.role)) {
-                // Brewing stock is created only by brewCombatStock(), which charges ingredients.
+            } else if ("brew".equals(p.currentGoal) || "gear".equals(p.currentGoal)) {
+                // Brewing/gearing consume explicit resources in their dedicated models.
+            } else if ("build".equals(p.currentGoal)) {
+                f.wood += 8 + rng.nextInt(10);
+                f.stone += 8 + rng.nextInt(14);
+            } else if ("recruit".equals(p.currentGoal) || "social".equals(p.currentGoal) || "trade".equals(p.currentGoal)) {
+                // Social/economic actions intentionally produce no free materials.
             } else {
-                f.wood += 10 + rng.nextInt(15);
-                f.stone += 8 + rng.nextInt(18);
+                f.wood += 4 + rng.nextInt(8);
+                f.stone += 4 + rng.nextInt(10);
             }
         }
 
@@ -1538,6 +1710,14 @@ final class SimWorldDirector {
             p.leadership = s.getInt("leadership", 50);
             p.teamwork = s.getInt("teamwork", 50);
             p.economicIq = s.getInt("economic-iq", 0);
+            p.loyalty = s.getInt("loyalty", 45 + rng.nextInt(51));
+            p.riskTolerance = s.getInt("risk-tolerance", 25 + rng.nextInt(71));
+            p.sociability = s.getInt("sociability", 25 + rng.nextInt(71));
+            p.patience = s.getInt("patience", 25 + rng.nextInt(71));
+            p.logicalOnline = s.getBoolean("logical-online", rng.nextInt(100)<45);
+            p.sessionTicksLeft = s.getInt("session-ticks-left", Math.max(2,5+rng.nextInt(20)));
+            p.nextGoalTick = s.getLong("next-goal-tick", 0L);
+            p.currentGoal = s.getString("current-goal", "idle");
             p.farmCrop = s.getString("farm-crop", "");
             p.farmCells = s.getInt("farm-cells", 0);
             p.farmInvestment = s.getDouble("farm-investment", 0.0);
@@ -1641,6 +1821,13 @@ final class SimWorldDirector {
             p.bargaining = 25 + rng.nextInt(66);
             p.leadership = 25 + rng.nextInt(71);
             p.teamwork = 35 + rng.nextInt(61);
+            p.loyalty = 40 + rng.nextInt(61);
+            p.riskTolerance = 20 + rng.nextInt(81);
+            p.sociability = 20 + rng.nextInt(81);
+            p.patience = 20 + rng.nextInt(81);
+            p.logicalOnline = rng.nextInt(100) < 48;
+            p.sessionTicksLeft = 5 + rng.nextInt(20);
+            p.currentGoal = "idle";
             p.preferredJob = randomJob();
             p.role = p.preferredJob;
             p.combatClass = classFor(p);
@@ -1728,7 +1915,7 @@ final class SimWorldDirector {
     private void createNextLeaderFaction() {
         SimPlayer best = null;
         for (SimPlayer p : players.values()) {
-            if (!p.leaderCandidate || !p.faction.isEmpty()) continue;
+            if (!p.leaderCandidate || !p.faction.isEmpty() || !p.logicalOnline) continue;
             if (best == null) best = p;
             else {
                 int ps = p.skill + p.leadership + (p.underdogLeader ? -18 : 20);
@@ -1776,7 +1963,7 @@ final class SimWorldDirector {
         int bestScore = Integer.MIN_VALUE;
 
         for (SimPlayer p : players.values()) {
-            if (!p.faction.isEmpty() || p.leaderCandidate) continue;
+            if (!p.faction.isEmpty() || p.leaderCandidate || !p.logicalOnline) continue;
 
             int score = candidateScore(f, p);
             score += rng.nextInt(17) - 8;
@@ -1970,13 +2157,14 @@ final class SimWorldDirector {
         int work = 0;
         for (String member : f.members) {
             SimPlayer p = players.get(key(member));
-            if (p == null) continue;
-            if ("builder".equals(p.preferredJob)) work += 5;
-            else if ("miner".equals(p.preferredJob)) work += 3;
-            else if ("leader".equals(p.role)) work += 2;
-            else work += 1;
+            if (p == null || !p.logicalOnline) continue;
+            int contribution = "build".equals(p.currentGoal) ? 2 : 1;
+            if ("builder".equals(p.preferredJob)) contribution += 5;
+            else if ("miner".equals(p.preferredJob)) contribution += 3;
+            else if ("leader".equals(p.role)) contribution += 2;
+            work += contribution;
         }
-        return Math.max(1, Math.min(16, work));
+        return Math.max(1, Math.min(20, work));
     }
 
     private int[] baseMaterialCost(String preset) {
@@ -2358,6 +2546,14 @@ final class SimWorldDirector {
             data.set(b + ".leadership", p.leadership);
             data.set(b + ".teamwork", p.teamwork);
             data.set(b + ".economic-iq", p.economicIq);
+            data.set(b + ".loyalty", p.loyalty);
+            data.set(b + ".risk-tolerance", p.riskTolerance);
+            data.set(b + ".sociability", p.sociability);
+            data.set(b + ".patience", p.patience);
+            data.set(b + ".logical-online", p.logicalOnline);
+            data.set(b + ".session-ticks-left", p.sessionTicksLeft);
+            data.set(b + ".next-goal-tick", p.nextGoalTick);
+            data.set(b + ".current-goal", p.currentGoal);
             data.set(b + ".farm-crop", p.farmCrop);
             data.set(b + ".farm-cells", p.farmCells);
             data.set(b + ".farm-investment", p.farmInvestment);

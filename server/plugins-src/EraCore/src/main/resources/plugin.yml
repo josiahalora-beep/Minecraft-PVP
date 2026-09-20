@@ -1,6 +1,6 @@
 name: EraCore
 main: dev.jorel.eracore.EraCore
-version: 0.1.0
+version: 0.2.0
 commands:
   rank:
     usage: /rank set <player> <rank>
@@ -28,6 +28,22 @@ commands:
     usage: /simmap [rebuild]
   simstate:
     usage: /simstate prepare
+  spawn:
+    usage: /spawn
+  setspawn:
+    usage: /setspawn
+  warp:
+    usage: /warp <name>
+  warps:
+    usage: /warps
+  setwarp:
+    usage: /setwarp <name>
+  delwarp:
+    usage: /delwarp <name>
+  spawnpreset:
+    usage: /spawnpreset playman2013
+  simchat:
+    usage: /simchat <on|off|status|pulse>
   duelprep:
     usage: /duelprep
 permissions:

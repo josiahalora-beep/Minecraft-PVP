@@ -281,6 +281,7 @@ final class SimWorldDirector {
     private long nextVisibleFightAt;
     private final Map<String,CombatReservation> combatReservations = new HashMap<String,CombatReservation>();
     private final Set<String> projectedCombatDeaths = new HashSet<String>();
+    private final Map<String,org.bukkit.Location> storageChestCache = new HashMap<String,org.bukkit.Location>();
     private BukkitTask task;
     private int factionCursor;
     private int factionNameCursor;
@@ -3488,9 +3489,20 @@ final class SimWorldDirector {
     }
 
     private org.bukkit.inventory.Inventory factionStorageInventory(SimFaction f) {
-        if(f==null || f.baseX==0 && f.baseZ==0) return null;
+        if(f==null || (f.baseX==0 && f.baseZ==0)) return null;
         org.bukkit.World w=Bukkit.getWorlds().get(0);
         if(w==null) return null;
+
+        String cacheKey=key(f.name);
+        org.bukkit.Location cached=storageChestCache.get(cacheKey);
+        if(cached!=null && cached.getWorld()!=null) {
+            org.bukkit.block.Block cb=cached.getBlock();
+            if((cb.getType()==Material.CHEST || cb.getType()==Material.TRAPPED_CHEST) &&
+               cb.getState() instanceof org.bukkit.block.Chest) {
+                return ((org.bukkit.block.Chest)cb.getState()).getInventory();
+            }
+            storageChestCache.remove(cacheKey);
+        }
 
         org.bukkit.block.Chest best=null;
         double bestD=Double.MAX_VALUE;
@@ -3505,7 +3517,9 @@ final class SimWorldDirector {
                 }
             }
         }
-        return best==null?null:best.getInventory();
+        if(best==null) return null;
+        storageChestCache.put(cacheKey,best.getLocation());
+        return best.getInventory();
     }
 
     private void mirrorDepositToStorage(SimFaction f,Material material,int amount) {

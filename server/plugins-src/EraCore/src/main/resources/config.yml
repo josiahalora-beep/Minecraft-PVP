@@ -42,6 +42,9 @@ creator-tag:
 
 sim-chat:
   enabled: true
+  contextual-chat: true
+  max-conversation-memory: 12
+  second-responder-chance-percent: 22
   min-delay-seconds: 18
   max-delay-seconds: 42
   quiet-min-delay-seconds: 55

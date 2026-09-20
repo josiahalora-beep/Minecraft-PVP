@@ -298,7 +298,13 @@ final class SimWorldDirector {
         t.priority = 0;
 
         if (p == null || p.faction.isEmpty()) return t;
-        if (!p.logicalOnline && !plugin.isCreatorIdentity(p.name)) return t;
+        if (!p.logicalOnline) {
+            if (!plugin.isCreatorIdentity(p.name)) return t;
+            t.faction = p.faction;
+            t.action = "idle";
+            t.priority = 1;
+            return t;
+        }
         SimFaction f = factions.get(key(p.faction));
         if (f == null) return t;
 

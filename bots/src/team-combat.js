@@ -106,16 +106,87 @@ function pointDistance(pos, x, z) {
   return Math.sqrt(dx * dx + dz * dz)
 }
 
+function blockName(bot, x, y, z) {
+  try { return String(bot.blockAt({ x: Math.floor(x), y: Math.floor(y), z: Math.floor(z) })?.name || '') }
+  catch { return '' }
+}
+
+function isLiquidName(name) {
+  return name === 'water' || name === 'flowing_water' || name === 'lava' || name === 'flowing_lava'
+}
+
+function inLiquid(bot) {
+  if (!bot.entity) return false
+  if (bot.entity.isInWater || bot.entity.isInLava) return true
+  const p = bot.entity.position
+  return isLiquidName(blockName(bot,p.x,p.y,p.z)) || isLiquidName(blockName(bot,p.x,p.y+0.8,p.z))
+}
+
+function isWater(bot) {
+  if (!bot.entity) return false
+  if (bot.entity.isInWater) return true
+  const p=bot.entity.position
+  const a=blockName(bot,p.x,p.y,p.z), b=blockName(bot,p.x,p.y+0.8,p.z)
+  return a.includes('water') || b.includes('water')
+}
+
+function passableName(name) {
+  return !name || name === 'air' || name.includes('grass') || name.includes('flower') ||
+    name === 'snow' || name === 'vine' || name.includes('torch')
+}
+
+function dryEscapePoint(bot, preferredEntity = null, radius = 8) {
+  if (!bot.entity) return null
+  const me=bot.entity.position
+  let best=null
+  for (let i=0;i<16;i++) {
+    const angle=(Math.PI*2*i)/16
+    const r=radius*(0.55 + (i%3)*0.2)
+    const x=me.x+Math.cos(angle)*r
+    const z=me.z+Math.sin(angle)*r
+    const feet=blockName(bot,x,me.y,z)
+    const head=blockName(bot,x,me.y+1,z)
+    const below=blockName(bot,x,me.y-1,z)
+    if (isLiquidName(feet) || isLiquidName(head) || isLiquidName(below)) continue
+    if (!passableName(feet) || !passableName(head) || passableName(below)) continue
+    let score=r
+    if (preferredEntity) {
+      const dx=x-preferredEntity.position.x, dz=z-preferredEntity.position.z
+      score += Math.sqrt(dx*dx+dz*dz)*0.7
+    }
+    if (!best || score>best.score) best={x,y:me.y+1.2,z,score}
+  }
+  return best
+}
+
+function aheadBlocked(bot, x, z) {
+  if (!bot.entity) return false
+  const me=bot.entity.position
+  const dx=x-me.x, dz=z-me.z
+  const mag=Math.max(0.001,Math.sqrt(dx*dx+dz*dz))
+  const fx=me.x+dx/mag*0.85
+  const fz=me.z+dz/mag*0.85
+  const feet=blockName(bot,fx,me.y,fz)
+  const head=blockName(bot,fx,me.y+1,fz)
+  return !passableName(feet) && passableName(head)
+}
+
+function predictedTarget(entity, lead = 0.30) {
+  const v=entity?.velocity
+  if (!entity?.position || !v) return entity?.position
+  return entity.position.offset(v.x*lead,v.y*lead,v.z*lead)
+}
+
 function moveToward(bot, x, z, sprint = true) {
   if (!bot.entity) return
   const me = bot.entity.position
   const yaw = Math.atan2(-(x - me.x), -(z - me.z))
   bot.look(yaw, 0, false).catch(() => {})
   bot.setControlState('back', false)
-  bot.setControlState('left', false)
-  bot.setControlState('right', false)
   bot.setControlState('forward', true)
   bot.setControlState('sprint', sprint)
+  if (inLiquid(bot) || aheadBlocked(bot,x,z)) bot.setControlState('jump', true)
+  else bot.setControlState('jump', false)
 }
 
 function moveAway(bot, entity) {
@@ -144,6 +215,11 @@ export function createTeamCombatController(bot, assignmentProvider) {
   let lastBowShot = 0
   let lastRogueTry = 0
   let lastFightId = ''
+  let liquidSince = 0
+  let stuckSince = 0
+  let lastMoveSampleAt = 0
+  let lastMoveSample = null
+  let lastEscapeAt = 0
 
   function ensureProfile(a) {
     const key = String(a?.skill || 50) + ':' + String(a?.aggression || 50)
@@ -186,7 +262,10 @@ export function createTeamCombatController(bot, assignmentProvider) {
 
   async function potAtFeet() {
     if (Date.now() - lastPot < 650) return false
-    if (Date.now() - lastDamageAt < profile.potSafeMs) return false
+    // At critical health, refusing to pot simply because damage is continuous
+    // is fatal. Safe-gap timing remains for normal healing, but emergencies pot now.
+    const critical = bot.health <= Math.min(8.0, profile.potHealth - 2.0)
+    if (!critical && Date.now() - lastDamageAt < profile.potSafeMs) return false
 
     let pots = hotbarPotions(bot)
     if (!pots.length) {
@@ -216,27 +295,19 @@ export function createTeamCombatController(bot, assignmentProvider) {
     }
   }
 
-  async function pearlToward(entity, away = false) {
-    if (!entity || Date.now() - lastPearl < 16000) return false
+  async function pearlToPoint(x,y,z, reason = 'tactical') {
+    if (!bot.entity || Date.now() - lastPearl < Number(profile?.pearlCooldownMs || 16000)) return false
     const pearl = itemByName(bot, ['ender_pearl'])
     if (!pearl) return false
     try {
       await bot.equip(pearl, 'hand')
-      const me = bot.entity.position
-      let x = entity.position.x
-      let y = entity.position.y + 0.8
-      let z = entity.position.z
-      if (away) {
-        const dx = me.x - entity.position.x
-        const dz = me.z - entity.position.z
-        const mag = Math.max(0.001, Math.sqrt(dx*dx + dz*dz))
-        x = me.x + dx / mag * 10
-        z = me.z + dz / mag * 10
-        y = me.y + 1.5
-      }
-      await bot.lookAt(entity.position.offset(x - entity.position.x, y - entity.position.y, z - entity.position.z), true)
+      await bot.lookAt(bot.entity.position.offset(
+        x-bot.entity.position.x,
+        y-bot.entity.position.y,
+        z-bot.entity.position.z
+      ), true)
       bot.activateItem()
-      await sleep(80)
+      await sleep(reason === 'escape' ? 55 : 80)
       bot.deactivateItem()
       lastPearl = Date.now()
       await equipNamed(['diamond_sword','iron_sword'])
@@ -244,6 +315,76 @@ export function createTeamCombatController(bot, assignmentProvider) {
     } catch {
       return false
     }
+  }
+
+  async function pearlToward(entity, away = false) {
+    if (!entity || !bot.entity) return false
+    const me = bot.entity.position
+    if (away) {
+      const dry=dryEscapePoint(bot,entity,10)
+      if (dry) return pearlToPoint(dry.x,dry.y,dry.z,'escape')
+      const dx = me.x - entity.position.x
+      const dz = me.z - entity.position.z
+      const mag = Math.max(0.001, Math.sqrt(dx*dx + dz*dz))
+      return pearlToPoint(me.x + dx/mag*11, me.y+1.4, me.z + dz/mag*11,'escape')
+    }
+    const predicted=predictedTarget(entity,0.45) || entity.position
+    return pearlToPoint(predicted.x,predicted.y+0.8,predicted.z,'tactical')
+  }
+
+  async function terrainEscapeTick(a,target) {
+    if (!bot.entity) return false
+    const now=Date.now()
+    const liquid=inLiquid(bot)
+
+    if (liquid) {
+      if (!liquidSince) liquidSince=now
+      stop(bot)
+      bot.setControlState('jump',true)
+      bot.setControlState('forward',true)
+      bot.setControlState('sprint',true)
+
+      const dry=dryEscapePoint(bot,target?.entity || null,9)
+      if (dry) moveToward(bot,dry.x,dry.z,true)
+
+      // Do not let support classes drown in a water fight. Swim first, then
+      // spend a pearl if movement has not solved it quickly.
+      if (now-liquidSince>1100 && now-lastEscapeAt>1200) {
+        lastEscapeAt=now
+        if (dry && await pearlToPoint(dry.x,dry.y,dry.z,'escape')) return true
+        if (target && await pearlToward(target.entity,true)) return true
+      }
+      return true
+    }
+    liquidSince=0
+
+    if (now-lastMoveSampleAt>450) {
+      const p=bot.entity.position
+      if (lastMoveSample) {
+        const dx=p.x-lastMoveSample.x,dz=p.z-lastMoveSample.z
+        const moved=Math.sqrt(dx*dx+dz*dz)
+        const trying=Boolean(bot.controlState?.forward || bot.controlState?.back || bot.controlState?.left || bot.controlState?.right)
+        if (trying && moved<0.10) {
+          if (!stuckSince) stuckSince=now
+        } else stuckSince=0
+      }
+      lastMoveSample={x:p.x,z:p.z}
+      lastMoveSampleAt=now
+    }
+
+    if (stuckSince && now-stuckSince>850) {
+      bot.setControlState('jump',true)
+      if (Math.random()<0.5) bot.setControlState('left',true)
+      else bot.setControlState('right',true)
+      if (now-stuckSince>2200 && target && now-lastEscapeAt>1400) {
+        lastEscapeAt=now
+        if (await pearlToward(target.entity,bot.health<=profile.potHealth)) {
+          stuckSince=0
+          return true
+        }
+      }
+    }
+    return false
   }
 
   async function diamondTick(a, target) {
@@ -318,6 +459,12 @@ export function createTeamCombatController(bot, assignmentProvider) {
       }
     }
 
+    // Lead a moving target instead of repeatedly steering toward where it used
+    // to be. This materially improves chase pressure and makes fights less static.
+    if (dist > 3.1) {
+      const lead=predictedTarget(target.entity,0.30)
+      if (lead) moveToward(bot,lead.x,lead.z,true)
+    }
     applyMeleeMovement(target.entity, dist)
     await aimAndAttack(target.entity, dist)
   }
@@ -364,14 +511,23 @@ export function createTeamCombatController(bot, assignmentProvider) {
     const enemiesNear = countNearby(bot, a.enemies, 14)
 
     // Bard is a support/survival role, not a melee role.
-    if (target && target.dist < 7.0) {
+    if (target && target.dist < 8.5) {
       moveAway(bot, target.entity)
-      if (bot.health <= profile.potHealth && target.dist >= profile.potGap) await potAtFeet()
+      // Support should keep orbiting rather than backpedal into the same obstacle.
+      const dir=(Math.floor(Date.now()/900)%2===0)?'left':'right'
+      bot.setControlState(dir,true)
+      if (bot.health <= profile.potHealth) await potAtFeet()
     } else if (ally) {
       const d = bot.entity.position.distanceTo(ally.entity.position)
-      if (d > 15) moveToward(bot, ally.entity.position.x, ally.entity.position.z, true)
-      else if (d < 6 && target) moveAway(bot, target.entity)
-      else stop(bot)
+      if (d > 13) moveToward(bot, ally.entity.position.x, ally.entity.position.z, true)
+      else if (d < 5 && target) moveAway(bot, target.entity)
+      else {
+        // Maintain a moving support ring instead of standing motionless.
+        const angle=(Date.now()/1100)%(Math.PI*2)
+        moveToward(bot,ally.entity.position.x+Math.cos(angle)*7,ally.entity.position.z+Math.sin(angle)*7,false)
+      }
+    } else if (target) {
+      moveAway(bot,target.entity)
     } else {
       stop(bot)
     }
@@ -414,18 +570,29 @@ export function createTeamCombatController(bot, assignmentProvider) {
       if (await potAtFeet()) return
     }
 
-    if (dist < 7) {
+    if (dist < 7.5) {
       moveAway(bot, target.entity)
+      bot.setControlState((Math.floor(Date.now()/700)%2===0)?'left':'right',true)
       if (dist < 3) await aimAndAttack(target.entity, dist)
+      if (dist < 4.5 && bot.health <= 9) await pearlToward(target.entity,true)
       return
     }
 
-    // Archer uses Speed III to keep fleeing targets tagged without taking
-    // point-blank Diamond trades.
-    if (dist > 18) moveToward(bot, target.entity.position.x, target.entity.position.z, true)
-    else if (dist < 8.5) moveAway(bot, target.entity)
-    else if (dist > 13.5) moveToward(bot, target.entity.position.x, target.entity.position.z, true)
-    else stop(bot)
+    // Keep a 10-14 block moving firing ring. Standing perfectly still made
+    // Archers easy to collapse on and look inactive.
+    const lead=predictedTarget(target.entity,0.35) || target.entity.position
+    if (dist > 17) moveToward(bot, lead.x, lead.z, true)
+    else if (dist < 9.5) moveAway(bot, target.entity)
+    else if (dist > 14) moveToward(bot, lead.x, lead.z, true)
+    else {
+      const side=(Math.floor(Date.now()/850)%2===0)?1:-1
+      const dx=lead.x-bot.entity.position.x,dz=lead.z-bot.entity.position.z
+      const mag=Math.max(0.001,Math.sqrt(dx*dx+dz*dz))
+      moveToward(bot,
+        bot.entity.position.x + (-dz/mag)*side*4,
+        bot.entity.position.z + (dx/mag)*side*4,
+        false)
+    }
 
     if (Date.now() - lastBowShot < 1100) return
     lastBowShot = Date.now()
@@ -491,11 +658,13 @@ export function createTeamCombatController(bot, assignmentProvider) {
         const focusEntity = bot.players?.[a.focus]?.entity
         if (focusEntity && bot.entity) {
           const d = bot.entity.position.distanceTo(focusEntity.position)
-          if (d <= 22) target = { name: a.focus, entity: focusEntity, dist: d }
+          if (d <= 26) target = { name: a.focus, entity: focusEntity, dist: d }
         }
       }
       if (!target) target = nearestNamedEntity(bot, a.enemies || [])
       const cls = String(a.class || 'DIAMOND').toUpperCase()
+
+      if (await terrainEscapeTick(a,target)) return
 
       if (cls === 'BARD') await bardTick(a, target)
       else if (cls === 'ARCHER') await archerTick(a, target)

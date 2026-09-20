@@ -5,6 +5,7 @@ import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.block.Block;
+import org.bukkit.block.Sign;
 import org.bukkit.scheduler.BukkitRunnable;
 
 import java.util.ArrayDeque;
@@ -21,11 +22,15 @@ final class HcfBaseBuilder {
         final int x,y,z;
         final Material material;
         final byte data;
+        final String label;
         Op(World world, int x, int y, int z, Material material) {
-            this(world,x,y,z,material,(byte)0);
+            this(world,x,y,z,material,(byte)0,null);
         }
         Op(World world, int x, int y, int z, Material material, byte data) {
-            this.world=world; this.x=x; this.y=y; this.z=z; this.material=material; this.data=data;
+            this(world,x,y,z,material,data,null);
+        }
+        Op(World world, int x, int y, int z, Material material, byte data, String label) {
+            this.world=world; this.x=x; this.y=y; this.z=z; this.material=material; this.data=data; this.label=label;
         }
     }
 
@@ -58,6 +63,7 @@ final class HcfBaseBuilder {
         else buildGlassBox(world,cx,y,cz,false);
 
         addDistinctExterior(world,faction,preset,cx,y,cz);
+        buildOrganizedVault(world,cx,y,cz);
 
         if ("fall_trap".equalsIgnoreCase(trapPreset)) buildFallTrap(world,cx,y,cz);
         else if ("fence_gate_bow".equalsIgnoreCase(trapPreset)) buildFenceGateBowTrap(world,cx,y,cz);
@@ -150,6 +156,7 @@ final class HcfBaseBuilder {
         clearHomePocket(world,cx,y,cz);
         doorway(world,cx,y,frontZForPreset(preset,cz));
         addDistinctExterior(world,faction,preset,cx,y,cz);
+        buildOrganizedVault(world,cx,y,cz);
         rescueEmbeddedPlayers(world,cx,y,cz,radius);
         ensureRunner();
     }
@@ -273,6 +280,11 @@ final class HcfBaseBuilder {
                     Block b = op.world.getBlockAt(op.x,op.y,op.z);
                     b.setType(op.material);
                     if (op.data != 0) b.setData(op.data);
+                    if (op.label != null && b.getState() instanceof Sign) {
+                        Sign sign=(Sign)b.getState();
+                        sign.setLine(0, op.label.length()>15 ? op.label.substring(0,15) : op.label);
+                        sign.update(true);
+                    }
                     n++;
                 }
                 if (queue.isEmpty()) {
@@ -282,6 +294,39 @@ final class HcfBaseBuilder {
             }
         };
         runner.runTaskTimer(plugin,1L,1L);
+    }
+
+    private void buildOrganizedVault(World w,int cx,int y,int cz) {
+        // Every faction gets the same readable storage convention even though
+        // the surrounding base preset is different. Chests are spaced so they
+        // remain singles rather than merging into accidental doubles.
+        String[] north={"Pots","Pearls","Valuables","Blocks","Brewing","Farm","Overflow"};
+        String[] south={"Helmets","Chestplates","Leggings","Boots","Swords","Bows","Kits"};
+        int[] xs={-6,-4,-2,0,2,4,6};
+
+        // Clear a compact rear vault lane; never overwrite a live player because
+        // the runner's occupancy guard still applies to every queued block.
+        for(int x=cx-7;x<=cx+7;x++) {
+            for(int z=cz+5;z<=cz+9;z++) {
+                queue.add(new Op(w,x,y,z,Material.SMOOTH_BRICK));
+                for(int yy=y+1;yy<=y+3;yy++) queue.add(new Op(w,x,yy,z,Material.AIR));
+            }
+        }
+
+        for(int i=0;i<xs.length;i++) {
+            int x=cx+xs[i];
+
+            queue.add(new Op(w,x,y+1,cz+6,Material.CHEST));
+            queue.add(new Op(w,x,y+2,cz+6,Material.SIGN_POST,(byte)8,north[i]));
+
+            queue.add(new Op(w,x,y+1,cz+8,Material.CHEST));
+            queue.add(new Op(w,x,y+2,cz+8,Material.SIGN_POST,(byte)0,south[i]));
+        }
+
+        // Lighting keeps the vault usable without making every base look like
+        // the same glass box.
+        queue.add(new Op(w,cx-7,y+2,cz+7,Material.GLOWSTONE));
+        queue.add(new Op(w,cx+7,y+2,cz+7,Material.GLOWSTONE));
     }
 
     private void buildGlassBox(World w, int cx, int y, int cz, boolean brewerWing) {

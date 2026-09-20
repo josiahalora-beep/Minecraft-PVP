@@ -8,6 +8,7 @@ import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitTask;
+import org.bukkit.util.Vector;
 
 import java.io.File;
 import java.io.IOException;
@@ -2722,6 +2723,7 @@ final class SimWorldDirector {
             }
         }
 
+        normalizeFactionClasses();
         syncFactionAuthority();
     }
 
@@ -2974,6 +2976,7 @@ final class SimWorldDirector {
         best.role = best.preferredJob;
         f.members.add(best.name);
         contributeToFaction(best, f, 0.12);
+        normalizeFactionClasses(f);
         return true;
     }
 
@@ -3006,6 +3009,33 @@ final class SimWorldDirector {
         }
 
         return score;
+    }
+
+    private void normalizeFactionClasses() {
+        for(SimFaction f:factions.values()) normalizeFactionClasses(f);
+    }
+
+    private void normalizeFactionClasses(SimFaction f) {
+        if(f==null) return;
+        limitSupportClass(f,CombatClass.BARD);
+        limitSupportClass(f,CombatClass.ARCHER);
+    }
+
+    private void limitSupportClass(SimFaction f,CombatClass type) {
+        List<SimPlayer> same=new ArrayList<SimPlayer>();
+        for(String n:f.members) {
+            SimPlayer p=players.get(key(n));
+            if(p!=null && p.combatClass==type) same.add(p);
+        }
+        if(same.size()<=1) return;
+        Collections.sort(same,new Comparator<SimPlayer>() {
+            public int compare(SimPlayer a,SimPlayer b) {
+                int sa=a.skill+a.teamwork+a.riskTolerance/2;
+                int sb=b.skill+b.teamwork+b.riskTolerance/2;
+                return Integer.compare(sb,sa);
+            }
+        });
+        for(int i=1;i<same.size();i++) same.get(i).combatClass=CombatClass.DIAMOND;
     }
 
     private int classCount(SimFaction f, CombatClass type) {

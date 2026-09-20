@@ -238,13 +238,33 @@ export function createTeamCombatController(bot, assignmentProvider) {
 
     if (a.action === 'KITE_HOME' || a.action === 'BAIT' || a.action === 'BAIT_FALL' ||
         a.action === 'BAIT_GATE' || a.action === 'BAIT_DROP') {
-      const shouldBait = a.action.startsWith('BAIT') && bot.health > profile.potHealth + 2 && dist < 6.5
-      if (!shouldBait || bot.health <= profile.potHealth || enemiesNear > alliesNear + 1) {
+      const isBait = a.action.startsWith('BAIT')
+      const shouldKeepEnemyInterested = isBait && bot.health > profile.potHealth + 2 && dist >= 3.0 && dist < 7.5
+
+      if (isBait) {
+        const tx = Number(a.trapX ?? a.homeX)
+        const tz = Number(a.trapZ ?? a.homeZ)
+        const trapDist = pointDistance(bot.entity.position, tx, tz)
+
+        // Stay hittable enough to sell the chase, then accelerate into the
+        // faction's actual trap entrance. Weak trap factions should not turn
+        // around and take a fair 1v2/1v3 in the open.
+        if (shouldKeepEnemyInterested && trapDist > 5.0 && Math.random() < 0.20) {
+          stop(bot)
+          await aimAndAttack(target.entity, dist)
+          return
+        }
+
+        moveToward(bot, tx, tz, true)
+        if (bot.health <= profile.potHealth && dist >= profile.potGap) await potAtFeet()
+        if (dist < 2.6 && bot.health > profile.potHealth) await aimAndAttack(target.entity, dist)
+        return
+      }
+
+      if (bot.health <= profile.potHealth || enemiesNear > alliesNear + 1) {
         moveToward(bot, Number(a.homeX), Number(a.homeZ), true)
         if (bot.health <= profile.potHealth && dist >= profile.potGap) await potAtFeet()
-        if (dist < 2.8) {
-          await aimAndAttack(target.entity, dist)
-        }
+        if (dist < 2.8) await aimAndAttack(target.entity, dist)
         return
       }
     }
@@ -429,7 +449,15 @@ export function createTeamCombatController(bot, assignmentProvider) {
         previousHealth = bot.health
       }
 
-      const target = nearestNamedEntity(bot, a.enemies || [])
+      let target = null
+      if (a.focus) {
+        const focusEntity = bot.players?.[a.focus]?.entity
+        if (focusEntity && bot.entity) {
+          const d = bot.entity.position.distanceTo(focusEntity.position)
+          if (d <= 22) target = { name: a.focus, entity: focusEntity, dist: d }
+        }
+      }
+      if (!target) target = nearestNamedEntity(bot, a.enemies || [])
       const cls = String(a.class || 'DIAMOND').toUpperCase()
 
       if (cls === 'BARD') await bardTick(a, target)

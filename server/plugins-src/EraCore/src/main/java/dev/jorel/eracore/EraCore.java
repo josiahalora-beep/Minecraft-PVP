@@ -51,6 +51,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     private SpawnPresenceDirector spawnPresence;
     private HcfClassDirector hcfClasses;
     private HcfBaseBuilder hcfBaseBuilder;
+    private HcfZoneDisplayDirector hcfZones;
 
     enum Rank {
         MEMBER(0, "&7[Member]", 24),
@@ -116,6 +117,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         spawnPresence = new SpawnPresenceDirector(this, warpManager);
         hcfClasses = new HcfClassDirector(this);
         hcfBaseBuilder = new HcfBaseBuilder(this);
+        hcfZones = new HcfZoneDisplayDirector(this, warpManager);
         bindCommands();
         getServer().getPluginManager().registerEvents(this, this);
         hookTickTimes();
@@ -130,6 +132,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         }.runTaskTimer(this, 80L, 40L);
         simChat.start();
         hcfClasses.start();
+        hcfZones.start();
         spawnPresence.start();
 
         if (getConfig().getBoolean("base-builder.repair-existing-on-start", true)) {
@@ -153,6 +156,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     @Override public void onDisable() {
         if (spawnPresence != null) spawnPresence.stop();
+        if (hcfZones != null) hcfZones.stop();
         if (hcfClasses != null) hcfClasses.stop();
         if (hcfBaseBuilder != null) hcfBaseBuilder.stop();
         if (simChat != null) simChat.stop();
@@ -162,7 +166,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     private void bindCommands() {
-        String[] cmds = {"rank","kit","kits","balance","pay","sell","buy","shop","f","spawn","setspawn","warp","warps","setwarp","delwarp","spawnpreset","msg","r","simchat","sotw","simworker","simcombat","bard","archer","miner","rogue","simprobe","simmap","simstate","duelprep"};
+        String[] cmds = {"rank","kit","kits","balance","pay","sell","buy","shop","f","spawn","setspawn","warp","warps","setwarp","delwarp","spawnpreset","msg","r","simchat","sotw","simworker","simcombat","safezone","teamfight","bard","archer","miner","rogue","simprobe","simmap","simstate","duelprep"};
         for (String c : cmds) getCommand(c).setExecutor(this);
     }
 
@@ -363,15 +367,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     @EventHandler(priority=EventPriority.HIGHEST, ignoreCancelled=true) public void onDamage(EntityDamageByEntityEvent e) {
-        if (!(e.getEntity() instanceof Player)) return;
-        Player victim = (Player)e.getEntity();
-        if (isSafezone(victim.getLocation())) {
-            e.setCancelled(true);
-            return;
-        }
-        if (simWorld != null && simWorld.sotwProtectionActive()) {
-            e.setCancelled(true);
-        }
+        if(hcfZones!=null && hcfZones.handleDamage(e)) return;
+        if (simWorld != null && simWorld.sotwProtectionActive()) e.setCancelled(true);
     }
 
     @EventHandler(priority=EventPriority.HIGHEST, ignoreCancelled=true) public void onExplosion(EntityExplodeEvent e) {
@@ -546,6 +543,33 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         return false;
     }
 
+    boolean simWorldProtectionActive() {
+        return simWorld != null && simWorld.sotwProtectionActive();
+    }
+
+    boolean isOwnerPlayer(Player p) {
+        return p != null && (getRank(p.getName()) == Rank.OWNER || p.hasPermission("eracore.owner"));
+    }
+
+    String factionNameFor(String player) {
+        Faction real=factionOf(player);
+        if(real!=null) return real.name;
+        return simWorld==null?"":simWorld.factionOf(player);
+    }
+
+    String factionDtrDisplay(String player) {
+        String name=factionNameFor(player);
+        if(name==null || name.isEmpty()) return "";
+        Faction f=factions.get(name.toLowerCase(Locale.ENGLISH));
+        if(f==null) return "&7"+name;
+        String state=isRaidable(f)?" &c[RAIDABLE]":" "+dtrColor(f)+"["+fmtDtr(f.dtr)+" DTR]";
+        return dtrColor(f)+f.name+state;
+    }
+
+    int simulatedDonorLevel(String name) {
+        return simRankFor(name).level;
+    }
+
     static String colorText(String s) {
         return color(s);
     }
@@ -594,6 +618,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (c.equals("sotw")) return cmdSotw(p,args);
         if (c.equals("simworker")) return cmdSimWorker(p,args);
         if (c.equals("simcombat")) return cmdSimCombat(p,args);
+        if (c.equals("safezone")) return hcfZones != null && hcfZones.command(p,args);
+        if (c.equals("teamfight")) return cmdTeamFight(p,args);
         if (c.equals("bard")) return cmdClassInfo(p,"bard");
         if (c.equals("archer")) return cmdClassInfo(p,"archer");
         if (c.equals("miner")) return cmdClassInfo(p,"miner");
@@ -615,7 +641,12 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     private boolean cmdSpawn(Player p) {
-        p.teleport(warpManager.getSpawn());
+        Location target=warpManager.getSpawn();
+        if(hcfZones!=null && hcfZones.blocksTeleport(p,target)) {
+            p.sendMessage(color("&cYou cannot /spawn while combat tagged. &7"+hcfZones.tagSeconds(p)+"s remaining."));
+            return true;
+        }
+        p.teleport(target);
         p.sendMessage(color("&7Teleported to spawn."));
         return true;
     }
@@ -626,7 +657,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         warpManager.setWarp("spawn", p.getLocation());
         p.getWorld().setSpawnLocation(p.getLocation().getBlockX(),p.getLocation().getBlockY(),p.getLocation().getBlockZ());
         configureWorldBorders();
-        p.sendMessage(color("&aSpawn set. World borders re-centered here."));
+        if(hcfZones!=null) hcfZones.syncMainSpawn(p.getLocation());
+        p.sendMessage(color("&aSpawn set. World borders and Safezone re-centered here."));
         return true;
     }
 
@@ -635,6 +667,10 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         Location l = warpManager.getWarp(a[0]);
         if (l == null) {
             p.sendMessage(color("&cWarp not found. &7Use /warps."));
+            return true;
+        }
+        if(hcfZones!=null && hcfZones.blocksTeleport(p,l)) {
+            p.sendMessage(color("&cYou cannot enter Safezone while combat tagged. &7"+hcfZones.tagSeconds(p)+"s remaining."));
             return true;
         }
         p.teleport(l);
@@ -1848,6 +1884,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     private boolean isSafezone(Location l) {
+        if(hcfZones!=null) return hcfZones.isSafe(l);
         Location s=l.getWorld().getSpawnLocation();
         double dx=l.getX()-s.getX(),dz=l.getZ()-s.getZ();
         double r=getConfig().getDouble("map.safezone-radius",60);

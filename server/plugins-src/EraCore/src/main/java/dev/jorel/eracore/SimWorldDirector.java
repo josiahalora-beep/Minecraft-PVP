@@ -1465,6 +1465,79 @@ final class SimWorldDirector {
             " pumpkin="+pumpkin+" melon="+melon;
     }
 
+    String stashEmbodiedWorker(Player body) {
+        SimPlayer p=players.get(key(body.getName()));
+        if(p==null || p.faction.isEmpty()) return "no-sim-player";
+        SimFaction f=factions.get(key(p.faction));
+        if(f==null || !f.storage) return "no-storage";
+
+        org.bukkit.inventory.PlayerInventory inv=body.getInventory();
+        int moved=0;
+        int healsKept=0, pearlsKept=0, foodKept=0;
+        boolean swordKept=false;
+
+        for(int slot=0;slot<36;slot++) {
+            org.bukkit.inventory.ItemStack item=inv.getItem(slot);
+            if(item==null || item.getType()==Material.AIR) continue;
+            Material m=item.getType();
+            boolean stash=false;
+            String category=null;
+
+            if(m.name().endsWith("_HELMET") || m.name().endsWith("_CHESTPLATE") ||
+               m.name().endsWith("_LEGGINGS") || m.name().endsWith("_BOOTS")) {
+                // Equipped armor lives outside these main slots, so inventory armor is spare.
+                stash=true;
+            } else if(m.name().endsWith("_SWORD")) {
+                if(!swordKept) swordKept=true;
+                else stash=true;
+            } else if(m==Material.BOW || m==Material.ARROW) {
+                stash=true;
+            } else if(m==Material.ENDER_PEARL) {
+                int keep=Math.max(0,8-pearlsKept);
+                if(item.getAmount()<=keep) { pearlsKept+=item.getAmount(); continue; }
+                if(keep>0) {
+                    org.bukkit.inventory.ItemStack excess=item.clone();
+                    excess.setAmount(item.getAmount()-keep);
+                    item.setAmount(keep);
+                    inv.setItem(slot,item);
+                    if(putVisibleStorage(f,excess,"pearls")) moved+=excess.getAmount();
+                    pearlsKept+=keep;
+                    continue;
+                }
+                stash=true;
+            } else if(m==Material.POTION && item.getDurability()==(short)16421) {
+                if(healsKept<20) { healsKept++; continue; }
+                stash=true;
+            } else if(m==Material.COOKED_BEEF) {
+                int keep=Math.max(0,32-foodKept);
+                if(item.getAmount()<=keep){foodKept+=item.getAmount();continue;}
+                if(keep>0){
+                    org.bukkit.inventory.ItemStack excess=item.clone();
+                    excess.setAmount(item.getAmount()-keep);
+                    item.setAmount(keep);
+                    inv.setItem(slot,item);
+                    if(putVisibleStorage(f,excess,"overflow")) moved+=excess.getAmount();
+                    foodKept+=keep;
+                    continue;
+                }
+                stash=true;
+            } else if(m==Material.POTION) {
+                // Spare speed/fire/utility pots are faction stock after the first few slots.
+                stash=true;
+            }
+
+            if(!stash) continue;
+            org.bukkit.inventory.ItemStack copy=item.clone();
+            if(putVisibleStorage(f,copy,category)) {
+                moved+=copy.getAmount();
+                inv.setItem(slot,null);
+            }
+        }
+
+        body.updateInventory();
+        return "moved="+moved;
+    }
+
     void applyDonorKitClaim(String name,int rankLevel) {
         SimPlayer p=players.get(key(name));
         if(p==null || p.faction.isEmpty() || rankLevel<=0) return;
@@ -3488,12 +3561,28 @@ final class SimWorldDirector {
         mirrorConsumeFromStorage(f,Material.OBSIDIAN,cost[3]);
     }
 
-    private org.bukkit.inventory.Inventory factionStorageInventory(SimFaction f) {
+    private org.bukkit.inventory.Inventory factionStorageInventory(SimFaction f,String category) {
         if(f==null || (f.baseX==0 && f.baseZ==0)) return null;
         org.bukkit.World w=Bukkit.getWorlds().get(0);
         if(w==null) return null;
 
-        String cacheKey=key(f.name);
+        String cat=category==null?"overflow":category.toLowerCase(Locale.ENGLISH);
+        int dx=6,dz=6;
+        if("pots".equals(cat)){dx=-6;dz=6;}
+        else if("pearls".equals(cat)){dx=-4;dz=6;}
+        else if("valuables".equals(cat)){dx=-2;dz=6;}
+        else if("blocks".equals(cat)){dx=0;dz=6;}
+        else if("brewing".equals(cat)){dx=2;dz=6;}
+        else if("farm".equals(cat)){dx=4;dz=6;}
+        else if("helmets".equals(cat)){dx=-6;dz=8;}
+        else if("chestplates".equals(cat)){dx=-4;dz=8;}
+        else if("leggings".equals(cat)){dx=-2;dz=8;}
+        else if("boots".equals(cat)){dx=0;dz=8;}
+        else if("swords".equals(cat)){dx=2;dz=8;}
+        else if("bows".equals(cat)){dx=4;dz=8;}
+        else if("kits".equals(cat)){dx=6;dz=8;}
+
+        String cacheKey=key(f.name)+":"+cat;
         org.bukkit.Location cached=storageChestCache.get(cacheKey);
         if(cached!=null && cached.getWorld()!=null) {
             org.bukkit.block.Block cb=cached.getBlock();
@@ -3504,6 +3593,14 @@ final class SimWorldDirector {
             storageChestCache.remove(cacheKey);
         }
 
+        org.bukkit.block.Block exact=w.getBlockAt(f.baseX+dx,f.baseY+1,f.baseZ+dz);
+        if((exact.getType()==Material.CHEST || exact.getType()==Material.TRAPPED_CHEST) &&
+           exact.getState() instanceof org.bukkit.block.Chest) {
+            storageChestCache.put(cacheKey,exact.getLocation());
+            return ((org.bukkit.block.Chest)exact.getState()).getInventory();
+        }
+
+        // Compatibility fallback for a base whose retrofit has not materialized yet.
         org.bukkit.block.Chest best=null;
         double bestD=Double.MAX_VALUE;
         for(int x=f.baseX-14;x<=f.baseX+14;x++) {
@@ -3512,7 +3609,9 @@ final class SimWorldDirector {
                     org.bukkit.block.Block b=w.getBlockAt(x,y,z);
                     if(b.getType()!=Material.CHEST && b.getType()!=Material.TRAPPED_CHEST) continue;
                     if(!(b.getState() instanceof org.bukkit.block.Chest)) continue;
-                    double d=(x-f.baseX)*(x-f.baseX)+(z-f.baseZ)*(z-f.baseZ)+(y-f.baseY)*(y-f.baseY);
+                    double d=(x-(f.baseX+dx))*(x-(f.baseX+dx))+
+                             (z-(f.baseZ+dz))*(z-(f.baseZ+dz))+
+                             (y-(f.baseY+1))*(y-(f.baseY+1));
                     if(d<bestD) { best=(org.bukkit.block.Chest)b.getState(); bestD=d; }
                 }
             }
@@ -3522,9 +3621,47 @@ final class SimWorldDirector {
         return best.getInventory();
     }
 
+    private String storageCategory(Material material) {
+        if(material==null) return "overflow";
+        String n=material.name();
+        if(n.endsWith("_HELMET")) return "helmets";
+        if(n.endsWith("_CHESTPLATE")) return "chestplates";
+        if(n.endsWith("_LEGGINGS")) return "leggings";
+        if(n.endsWith("_BOOTS")) return "boots";
+        if(n.endsWith("_SWORD")) return "swords";
+        if(material==Material.BOW || material==Material.ARROW) return "bows";
+        if(material==Material.POTION) return "pots";
+        if(material==Material.ENDER_PEARL) return "pearls";
+        if(material==Material.DIAMOND || material==Material.DIAMOND_ORE ||
+           material==Material.IRON_INGOT || material==Material.IRON_ORE ||
+           material==Material.GOLD_INGOT || material==Material.GOLD_ORE ||
+           material==Material.OBSIDIAN || material==Material.EMERALD) return "valuables";
+        if(material==Material.COBBLESTONE || material==Material.STONE ||
+           material==Material.LOG || material==Material.LOG_2 || material==Material.WOOD ||
+           material==Material.DIRT || material==Material.SAND || material==Material.GLASS) return "blocks";
+        if(material==Material.NETHER_STALK || material==Material.GLOWSTONE_DUST ||
+           material==Material.SUGAR || material==Material.MAGMA_CREAM ||
+           material==Material.SULPHUR || material==Material.SPECKLED_MELON ||
+           material==Material.BLAZE_ROD || material==Material.GHAST_TEAR) return "brewing";
+        if(material==Material.SUGAR_CANE || material==Material.SUGAR_CANE_BLOCK ||
+           material==Material.CACTUS || material==Material.PUMPKIN ||
+           material==Material.MELON || material==Material.MELON_BLOCK ||
+           material==Material.WHEAT || material==Material.CARROT_ITEM ||
+           material==Material.POTATO_ITEM) return "farm";
+        return "overflow";
+    }
+
+    private boolean putVisibleStorage(SimFaction f,org.bukkit.inventory.ItemStack item,String overrideCategory) {
+        if(item==null || item.getType()==Material.AIR || item.getAmount()<=0) return false;
+        String cat=overrideCategory==null?storageCategory(item.getType()):overrideCategory;
+        org.bukkit.inventory.Inventory inv=factionStorageInventory(f,cat);
+        if(inv==null) return false;
+        return inv.addItem(item.clone()).isEmpty();
+    }
+
     private void mirrorDepositToStorage(SimFaction f,Material material,int amount) {
         if(!f.storage || amount<=0 || material==null) return;
-        org.bukkit.inventory.Inventory inv=factionStorageInventory(f);
+        org.bukkit.inventory.Inventory inv=factionStorageInventory(f,storageCategory(material));
         if(inv==null) return;
         int left=amount;
         while(left>0) {
@@ -3538,7 +3675,7 @@ final class SimWorldDirector {
 
     private int mirrorConsumeFromStorage(SimFaction f,Material material,int amount) {
         if(amount<=0 || material==null) return 0;
-        org.bukkit.inventory.Inventory inv=factionStorageInventory(f);
+        org.bukkit.inventory.Inventory inv=factionStorageInventory(f,storageCategory(material));
         if(inv==null) return 0;
         int left=amount,removed=0;
         org.bukkit.inventory.ItemStack[] contents=inv.getContents();

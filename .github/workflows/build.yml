@@ -21,6 +21,9 @@ jobs:
           node --check bots/src/duel-bot.js
           node --check bots/src/idle-benchmark.js
           node --check bots/src/state-handoff.js
+          node --check bots/src/team-combat.js
+          node --check bots/src/worker-pool.js
+          node --check bots/src/combat-profiles.js
       - name: Build PolyMC import zip
         run: |
           cd polymc-instance

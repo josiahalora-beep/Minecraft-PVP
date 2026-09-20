@@ -126,6 +126,14 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         hcfClasses.start();
         spawnPresence.start();
 
+        if (getConfig().getBoolean("base-builder.repair-existing-on-start", true)) {
+            new BukkitRunnable() {
+                public void run() {
+                    if (simWorld != null) simWorld.repairExistingBaseTerrainAndClaims();
+                }
+            }.runTaskLater(this, 120L);
+        }
+
         if (getConfig().getBoolean("map.auto-bootstrap", true) && !getConfig().getBoolean("map.complete", false)) {
             new BukkitRunnable() {
                 public void run() {

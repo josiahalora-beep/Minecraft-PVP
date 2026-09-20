@@ -6,9 +6,11 @@
   "scripts": {
     "idle": "node src/idle-benchmark.js",
     "state": "node src/state-handoff.js",
-    "duel": "node src/duel-bot.js"
+    "duel": "node src/duel-bot.js",
+    "workers": "node src/worker-pool.js"
   },
   "dependencies": {
-    "mineflayer": "4.39.0"
+    "mineflayer": "4.39.0",
+    "yaml": "2.9.1"
   }
 }

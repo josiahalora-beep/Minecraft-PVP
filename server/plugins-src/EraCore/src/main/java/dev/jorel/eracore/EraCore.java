@@ -395,6 +395,18 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     @EventHandler public void onDeath(PlayerDeathEvent e) {
         String n = e.getEntity().getName().toLowerCase(Locale.ENGLISH);
+        String preparedFight=combatPreparedFight.get(n);
+        boolean testFight=preparedFight!=null && preparedFight.startsWith("TEST5V5_");
+
+        if(testFight) {
+            combatPreparedFight.remove(n);
+            e.getDrops().clear();
+            e.setDroppedExp(0);
+            if(simWorld!=null) simWorld.onLiveDeath(e.getEntity().getName(),
+                e.getEntity().getKiller()==null?"":e.getEntity().getKiller().getName());
+            return;
+        }
+
         if (simWorld != null && simWorld.settleCombatDeath(e.getEntity())) {
             combatPreparedFight.remove(n);
         }
@@ -718,6 +730,33 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         return true;
     }
 
+    private boolean cmdTeamFight(Player p,String[] a) {
+        if(!ownerOnly(p)) return true;
+        if(simWorld==null) return true;
+
+        if(a.length==0 || a[0].equalsIgnoreCase("test") || a[0].equalsIgnoreCase("start")) {
+            if(!p.getWorld().equals(Bukkit.getWorlds().get(0))) {
+                p.sendMessage(color("&cRun the 5v5 test in the Overworld."));
+                return true;
+            }
+            if(simWorld.startFiveVFiveTest(p)) {
+                p.sendMessage(color("&a5v5 test queued. &73 Diamond + 1 Archer + 1 Bard per side."));
+                p.sendMessage(color("&7Watch &f/simcombat status &7and &f/simprobe&7 during the fight."));
+            } else {
+                p.sendMessage(color("&cNeed at least two five-player simulated factions for the test."));
+            }
+            return true;
+        }
+
+        if(a[0].equalsIgnoreCase("status")) {
+            p.sendMessage(color("&7Visible fight: &f"+simWorld.visibleFightSummary()));
+            return true;
+        }
+
+        p.sendMessage("/teamfight <test|status>");
+        return true;
+    }
+
     private boolean cmdSimCombat(Player p, String[] a) {
         if (simWorld == null) return true;
 
@@ -730,7 +769,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
             String k=p.getName().toLowerCase(Locale.ENGLISH);
             String prepared=combatPreparedFight.get(k);
-            if (!ca.fightId.equals(prepared)) {
+            if (!ca.fightId.equals(prepared) && !ca.fightId.startsWith("TEST5V5_")) {
                 if (!simWorld.reserveCombatLoadout(p.getName(),ca.combatClass,ca.fightId)) {
                     p.sendMessage("SIMCOMBAT none reason=stock");
                     return true;

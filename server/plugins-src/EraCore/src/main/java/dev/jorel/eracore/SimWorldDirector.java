@@ -167,11 +167,68 @@ final class SimWorldDirector {
         }
     }
 
+
+    static final class CombatAssignment {
+        String fightId;
+        String name;
+        String faction;
+        String enemyFaction;
+        CombatClass combatClass;
+        String action;
+        int skill;
+        int aggression;
+        int risk;
+        int x;
+        int y;
+        int z;
+        int homeX;
+        int homeY;
+        int homeZ;
+        final List<String> enemies = new ArrayList<String>();
+        final List<String> allies = new ArrayList<String>();
+
+        String wire() {
+            return "fight=" + fightId +
+                " faction=" + faction +
+                " enemyFaction=" + enemyFaction +
+                " class=" + combatClass.name() +
+                " action=" + action +
+                " skill=" + skill +
+                " aggression=" + aggression +
+                " risk=" + risk +
+                " x=" + x + " y=" + y + " z=" + z +
+                " homeX=" + homeX + " homeY=" + homeY + " homeZ=" + homeZ +
+                " enemies=" + joinNames(enemies) +
+                " allies=" + joinNames(allies);
+        }
+
+        private static String joinNames(List<String> xs) {
+            StringBuilder b=new StringBuilder();
+            for(String x:xs) {
+                if(b.length()>0) b.append(',');
+                b.append(x);
+            }
+            return b.toString();
+        }
+    }
+
+    static final class VisibleFight {
+        String id;
+        long expiresAt;
+        String type;
+        int centerX;
+        int centerY;
+        int centerZ;
+        String anchorFaction="";
+        final Map<String,CombatAssignment> assignments = new LinkedHashMap<String,CombatAssignment>();
+    }
+
     private final EraCore plugin;
     private final SimEconomyModel economy;
     private final ContextChatBrain chatBrain;
     private final Random rng = new Random(881994L);
     private final File file;
+    private final File combatFile;
     private final YamlConfiguration data;
     private final Map<String,SimPlayer> players = new LinkedHashMap<String,SimPlayer>();
     private final Map<String,SimFaction> factions = new LinkedHashMap<String,SimFaction>();
@@ -185,6 +242,8 @@ final class SimWorldDirector {
     private final Map<String,String> lastPublicLineBySpeaker = new HashMap<String,String>();
     private String recentKiller = "";
     private String recentVictim = "";
+    private VisibleFight visibleFight;
+    private long nextVisibleFightAt;
     private BukkitTask task;
     private int factionCursor;
     private int factionNameCursor;
@@ -229,6 +288,7 @@ final class SimWorldDirector {
         this.economy = new SimEconomyModel(plugin);
         this.chatBrain = new ContextChatBrain();
         this.file = new File(plugin.getDataFolder(), "simulation.yml");
+        this.combatFile = new File(plugin.getDataFolder(), "combat-hot.yml");
         this.data = YamlConfiguration.loadConfiguration(file);
         loadOrSeed();
     }
@@ -283,6 +343,327 @@ final class SimWorldDirector {
         return new ArrayList<String>(f.members);
     }
 
+
+    CombatAssignment combatAssignmentFor(String name) {
+        if (visibleFight == null) return null;
+        return visibleFight.assignments.get(key(name));
+    }
+
+    void refreshVisibleCombat() {
+        if (sotwProtectionActive()) {
+            clearVisibleFight();
+            return;
+        }
+
+        Player observer = nearestHumanObserver();
+        if (observer == null) {
+            clearVisibleFight();
+            return;
+        }
+
+        long now=System.currentTimeMillis();
+        if (visibleFight != null) {
+            if (now >= visibleFight.expiresAt || !fightStillRelevant(observer,visibleFight)) {
+                visibleFight=null;
+                writeCombatFile();
+            } else {
+                writeCombatFile();
+                return;
+            }
+        }
+
+        if (now < nextVisibleFightAt) return;
+
+        int minS=Math.max(12,plugin.getConfig().getInt("combat-director.visible-fight-min-seconds",25));
+        int maxS=Math.max(minS,plugin.getConfig().getInt("combat-director.visible-fight-max-seconds",55));
+        nextVisibleFightAt=now+(minS+rng.nextInt(maxS-minS+1))*1000L;
+
+        if (rng.nextInt(100) >= plugin.getConfig().getInt("combat-director.visible-fight-chance-percent",62)) return;
+
+        VisibleFight fight=createVisibleFight(observer);
+        if(fight!=null) {
+            visibleFight=fight;
+            writeCombatFile();
+        }
+    }
+
+    private Player nearestHumanObserver() {
+        Player best=null;
+        for(Player p:Bukkit.getOnlinePlayers()) {
+            if(plugin.isBotIdentity(p.getName())) continue;
+            if(best==null) best=p;
+        }
+        return best;
+    }
+
+    private boolean fightStillRelevant(Player observer, VisibleFight f) {
+        if(observer==null || f==null) return false;
+        if(!observer.getWorld().equals(Bukkit.getWorlds().get(0))) return false;
+        int radius=Math.max(80,plugin.getConfig().getInt("combat-director.observation-radius",160));
+        double dx=observer.getLocation().getX()-f.centerX;
+        double dz=observer.getLocation().getZ()-f.centerZ;
+        return dx*dx+dz*dz <= (double)(radius*2)*(radius*2);
+    }
+
+    private VisibleFight createVisibleFight(Player observer) {
+        List<SimFaction> ready=new ArrayList<SimFaction>();
+        for(SimFaction f:factions.values()) {
+            if(f.stage!=Stage.PVP_READY || f.recoveryMode || plugin.factionRaidable(f.name)) continue;
+            int active=0;
+            for(String member:f.members) {
+                SimPlayer p=players.get(key(member));
+                if(p!=null && p.logicalOnline && shouldSeekPvp(p.name)) active++;
+            }
+            if(active>0) ready.add(f);
+        }
+        if(ready.size()<2) return null;
+
+        final Location ol=observer.getLocation();
+        Collections.sort(ready,new Comparator<SimFaction>() {
+            public int compare(SimFaction a,SimFaction b) {
+                double da=distSq(ol.getX(),ol.getZ(),a.baseX,a.baseZ);
+                double db=distSq(ol.getX(),ol.getZ(),b.baseX,b.baseZ);
+                return Double.compare(da,db);
+            }
+        });
+
+        SimFaction a=ready.get(0);
+        SimFaction b=null;
+
+        // Prefer real neighbors/rivals before teleporting a distant rivalry into view.
+        int neighborRadius=Math.max(250,plugin.getConfig().getInt("combat-director.brawl-radius",420)*2);
+        for(int i=1;i<ready.size();i++) {
+            SimFaction candidate=ready.get(i);
+            if(distSq(a.baseX,a.baseZ,candidate.baseX,candidate.baseZ)<=neighborRadius*neighborRadius) {
+                b=candidate;
+                break;
+            }
+        }
+        if(b==null) b=ready.get(1);
+
+        boolean atBase=distSq(ol.getX(),ol.getZ(),a.baseX,a.baseZ) <=
+            Math.pow(plugin.getConfig().getInt("combat-director.observation-radius",160)*1.6,2);
+
+        int[] sizes=rollFightSizes(a,b);
+        List<SimPlayer> sideA=pickFightMembers(a,sizes[0]);
+        List<SimPlayer> sideB=pickFightMembers(b,sizes[1]);
+        if(sideA.isEmpty() || sideB.isEmpty()) return null;
+
+        int cx,cz;
+        String anchor="";
+        boolean trapFight=false;
+        if(atBase) {
+            cx=a.baseX;
+            cz=a.baseZ-26;
+            anchor=a.name;
+            trapFight=!"none".equalsIgnoreCase(a.trapPreset) && rng.nextInt(100)<trapBaitChance(a);
+        } else {
+            // Stage the visible part of an already-roaming encounter around the observer.
+            double angle=rng.nextDouble()*Math.PI*2.0;
+            double dist=32+rng.nextInt(36);
+            cx=(int)Math.round(ol.getX()+Math.cos(angle)*dist);
+            cz=(int)Math.round(ol.getZ()+Math.sin(angle)*dist);
+        }
+
+        World w=observer.getWorld();
+        int cy=Math.max(4,w.getHighestBlockYAt(cx,cz)+1);
+
+        VisibleFight fight=new VisibleFight();
+        fight.id="F"+System.currentTimeMillis();
+        fight.type=fightType(sizes[0],sizes[1],trapFight);
+        fight.centerX=cx; fight.centerY=cy; fight.centerZ=cz;
+        fight.anchorFaction=anchor;
+        int duration=Math.max(35,plugin.getConfig().getInt("combat-director.visible-fight-duration-seconds",95));
+        fight.expiresAt=System.currentTimeMillis()+duration*1000L;
+
+        addAssignments(fight,a,b,sideA,sideB,trapFight && a==a);
+        addAssignments(fight,b,a,sideB,sideA,false);
+
+        if(trapFight) {
+            recordRivalry(a.name,b.name,3);
+            SimPlayer bait=bestBaiter(sideA);
+            if(bait!=null) {
+                CombatAssignment ba=fight.assignments.get(key(bait.name));
+                if(ba!=null) ba.action="fall_trap".equalsIgnoreCase(a.trapPreset)?"BAIT_FALL":"BAIT_GATE";
+            }
+        }
+
+        return fight;
+    }
+
+    private static double distSq(double ax,double az,double bx,double bz) {
+        double dx=ax-bx,dz=az-bz;
+        return dx*dx+dz*dz;
+    }
+
+    private int[] rollFightSizes(SimFaction a,SimFaction b) {
+        int maxA=Math.max(1,activeFightMembers(a));
+        int maxB=Math.max(1,activeFightMembers(b));
+        int r=rng.nextInt(100);
+        int sa,sb;
+        if(r<18) { sa=1; sb=1; }
+        else if(r<34) { sa=1; sb=2; }
+        else if(r<56) { sa=2; sb=2; }
+        else if(r<70) { sa=2; sb=3; }
+        else if(r<84) { sa=3; sb=3; }
+        else if(r<92) { sa=3; sb=4; }
+        else if(r<97) { sa=4; sb=4; }
+        else { sa=1; sb=5; } // rare outnumbered clip / attempted trap / clutch
+        sa=Math.min(sa,maxA);
+        sb=Math.min(sb,maxB);
+        return new int[]{Math.max(1,sa),Math.max(1,sb)};
+    }
+
+    private int activeFightMembers(SimFaction f) {
+        int n=0;
+        for(String member:f.members) {
+            SimPlayer p=players.get(key(member));
+            if(p!=null && p.logicalOnline && shouldSeekPvp(p.name)) n++;
+        }
+        return n;
+    }
+
+    private List<SimPlayer> pickFightMembers(SimFaction f,int count) {
+        List<SimPlayer> xs=new ArrayList<SimPlayer>();
+        for(String member:f.members) {
+            SimPlayer p=players.get(key(member));
+            if(p==null || !p.logicalOnline || !shouldSeekPvp(p.name)) continue;
+            xs.add(p);
+        }
+        Collections.sort(xs,new Comparator<SimPlayer>() {
+            public int compare(SimPlayer a,SimPlayer b) {
+                int aa=("patrol".equals(a.currentGoal)?30:0)+a.aggression+a.skill/2+a.riskTolerance/3;
+                int bb=("patrol".equals(b.currentGoal)?30:0)+b.aggression+b.skill/2+b.riskTolerance/3;
+                return Integer.compare(bb,aa);
+            }
+        });
+
+        List<SimPlayer> chosen=new ArrayList<SimPlayer>();
+        // Prefer one Bard and one Archer in larger groups if the faction has them.
+        if(count>=3) {
+            addFirstClass(xs,chosen,CombatClass.BARD);
+            addFirstClass(xs,chosen,CombatClass.ARCHER);
+        }
+        for(SimPlayer p:xs) {
+            if(chosen.size()>=count) break;
+            if(!chosen.contains(p)) chosen.add(p);
+        }
+        while(chosen.size()>count) chosen.remove(chosen.size()-1);
+        return chosen;
+    }
+
+    private void addFirstClass(List<SimPlayer> xs,List<SimPlayer> out,CombatClass type) {
+        for(SimPlayer p:xs) {
+            if(p.combatClass==type) {
+                out.add(p);
+                return;
+            }
+        }
+    }
+
+    private int trapBaitChance(SimFaction f) {
+        SimPlayer leader=players.get(key(f.leader));
+        int base=25;
+        if(f.underdog) base+=25;
+        if(leader!=null && leader.skill<72) base+=18;
+        return Math.min(75,base);
+    }
+
+    private String fightType(int a,int b,boolean trap) {
+        if(trap) return "TRAP_BAIT_"+a+"v"+b;
+        if(a+b>=7) return "BRAWL_"+a+"v"+b;
+        return "SKIRMISH_"+a+"v"+b;
+    }
+
+    private void addAssignments(VisibleFight fight,SimFaction own,SimFaction enemy,
+                                List<SimPlayer> allies,List<SimPlayer> enemies,boolean defenderTrap) {
+        for(int i=0;i<allies.size();i++) {
+            SimPlayer p=allies.get(i);
+            CombatAssignment ca=new CombatAssignment();
+            ca.fightId=fight.id;
+            ca.name=p.name;
+            ca.faction=own.name;
+            ca.enemyFaction=enemy.name;
+            ca.combatClass=p.combatClass;
+            ca.skill=p.skill;
+            ca.aggression=p.aggression;
+            ca.risk=p.riskTolerance;
+            ca.homeX=own.baseX; ca.homeY=own.baseY+1; ca.homeZ=own.baseZ;
+
+            int side=own.name.equalsIgnoreCase(fight.anchorFaction)?1:-1;
+            ca.x=fight.centerX + side*(7+i*2);
+            ca.z=fight.centerZ + (i-allies.size()/2)*3;
+            ca.y=Math.max(4,Bukkit.getWorlds().get(0).getHighestBlockYAt(ca.x,ca.z)+1);
+
+            for(SimPlayer e:enemies) ca.enemies.add(e.name);
+            for(SimPlayer a:allies) if(!a.name.equalsIgnoreCase(p.name)) ca.allies.add(a.name);
+
+            if(defenderTrap && i==0) ca.action="BAIT";
+            else if(p.combatClass==CombatClass.BARD) ca.action="BARD_SUPPORT";
+            else if(p.combatClass==CombatClass.ARCHER) ca.action="ARCHER_RANGE";
+            else if(p.combatClass==CombatClass.ROGUE) ca.action="ROGUE_FLANK";
+            else if(enemies.size()>=allies.size()+2 && p.skill<92) ca.action="KITE_HOME";
+            else if(enemies.size()>=allies.size()+2) ca.action="CLUTCH";
+            else ca.action="FOCUS";
+
+            fight.assignments.put(key(p.name),ca);
+        }
+    }
+
+    private SimPlayer bestBaiter(List<SimPlayer> xs) {
+        SimPlayer best=null;
+        for(SimPlayer p:xs) {
+            if(best==null) best=p;
+            else {
+                int s=p.riskTolerance+p.skill+p.aggression;
+                int b=best.riskTolerance+best.skill+best.aggression;
+                if(s>b) best=p;
+            }
+        }
+        return best;
+    }
+
+    private void clearVisibleFight() {
+        if(visibleFight!=null) {
+            visibleFight=null;
+            writeCombatFile();
+        }
+    }
+
+    private void writeCombatFile() {
+        YamlConfiguration y=new YamlConfiguration();
+        if(visibleFight!=null) {
+            y.set("fight.id",visibleFight.id);
+            y.set("fight.type",visibleFight.type);
+            y.set("fight.expires-at",visibleFight.expiresAt);
+            y.set("fight.center-x",visibleFight.centerX);
+            y.set("fight.center-y",visibleFight.centerY);
+            y.set("fight.center-z",visibleFight.centerZ);
+            y.set("fight.anchor-faction",visibleFight.anchorFaction);
+
+            for(CombatAssignment ca:visibleFight.assignments.values()) {
+                String b="participants."+key(ca.name);
+                y.set(b+".name",ca.name);
+                y.set(b+".faction",ca.faction);
+                y.set(b+".enemy-faction",ca.enemyFaction);
+                y.set(b+".class",ca.combatClass.name());
+                y.set(b+".action",ca.action);
+                y.set(b+".skill",ca.skill);
+                y.set(b+".aggression",ca.aggression);
+                y.set(b+".risk",ca.risk);
+                y.set(b+".x",ca.x);
+                y.set(b+".y",ca.y);
+                y.set(b+".z",ca.z);
+                y.set(b+".home-x",ca.homeX);
+                y.set(b+".home-y",ca.homeY);
+                y.set(b+".home-z",ca.homeZ);
+                y.set(b+".enemies",ca.enemies);
+                y.set(b+".allies",ca.allies);
+            }
+        }
+        try { y.save(combatFile); }
+        catch(IOException e) { plugin.getLogger().warning("Could not save combat-hot.yml: "+e.getMessage()); }
+    }
 
     WorkerTask workerTaskFor(String name) {
         SimPlayer p = players.get(key(name));

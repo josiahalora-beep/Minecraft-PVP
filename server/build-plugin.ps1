@@ -16,8 +16,10 @@ if ($JavaHome) {
   $jarTool = 'jar'
 }
 
-$source = Join-Path $plugin 'src\main\java\dev\jorel\eracore\EraCore.java'
-& $javac -encoding UTF-8 -source 8 -target 8 -cp $SpigotJar -d $classes $source
+$sourceDir = Join-Path $plugin 'src\main\java\dev\jorel\eracore'
+$sources = Get-ChildItem $sourceDir -Filter '*.java' | ForEach-Object { $_.FullName }
+if (!$sources -or $sources.Count -eq 0) { throw 'No EraCore Java sources found.' }
+& $javac -encoding UTF-8 -source 8 -target 8 -cp $SpigotJar -d $classes $sources
 if ($LASTEXITCODE -ne 0) { throw 'EraCore javac failed.' }
 Copy-Item (Join-Path $plugin 'src\main\resources\plugin.yml') $classes -Force
 Copy-Item (Join-Path $plugin 'src\main\resources\config.yml') $classes -Force

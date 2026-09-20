@@ -1118,8 +1118,9 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             p.getInventory().setItem(0,new ItemStack(tool,1));
         }
         p.getInventory().setHeldItemSlot(0);
-        p.setFoodLevel(20);
-        if (p.getHealth() < 20.0) p.setHealth(20.0);
+        // Ordinary worker sync must not magically heal/refeed the physical body.
+        // Survival is handled by the Mineflayer inventory/food/potion layer.
+        // Combat projection still receives its deliberate benchmark loadout.
     }
 
     private boolean cmdSotw(Player p, String[] a) {

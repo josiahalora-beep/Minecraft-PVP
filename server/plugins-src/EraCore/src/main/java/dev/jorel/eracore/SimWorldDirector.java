@@ -436,8 +436,6 @@ final class SimWorldDirector {
         f.iron += iron;
         f.diamonds += diamond;
         f.obsidian += obsidian;
-        f.cane += cane;
-
         if (cane > 0) p.stock.put("cane", getStock(p,"cane") + cane);
         if (cactus > 0) p.stock.put("cactus", getStock(p,"cactus") + cactus);
         if (pumpkin > 0) p.stock.put("pumpkin", getStock(p,"pumpkin") + pumpkin);

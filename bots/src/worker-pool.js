@@ -156,6 +156,11 @@ function combatCandidatesFrom(combat) {
         homeX: Number(p['home-x'] || 0),
         homeY: Number(p['home-y'] || 64),
         homeZ: Number(p['home-z'] || 0),
+        trapX: Number(p['trap-x'] || p['home-x'] || 0),
+        trapY: Number(p['trap-y'] || p['home-y'] || 64),
+        trapZ: Number(p['trap-z'] || p['home-z'] || 0),
+        trapType: String(p['trap-type'] || 'none'),
+        focus: String(p.focus || ''),
         enemies: Array.isArray(p.enemies) ? p.enemies.map(String) : [],
         allies: Array.isArray(p.allies) ? p.allies.map(String) : []
       }

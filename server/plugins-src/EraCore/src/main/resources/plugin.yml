@@ -54,7 +54,7 @@ commands:
   simworker:
     usage: /simworker <sync|deposit|status>
   simcombat:
-    usage: /simcombat <sync|status>
+    usage: /simcombat <sync|release|status>
   bard:
     usage: /bard
   archer:

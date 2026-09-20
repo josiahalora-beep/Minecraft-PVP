@@ -1271,10 +1271,11 @@ final class SimWorldDirector {
         f.powerFaction = !best.underdogLeader;
         f.underdog = best.underdogLeader;
         f.trapPreset = (best.skill < 72 || best.underdogLeader) && rng.nextInt(100) < 65 ? "fall_trap" : "none";
-        f.treasury = 250 + rng.nextInt(best.underdogLeader ? 900 : 1500);
+        f.treasury = 0.0;
         f.members.add(best.name);
 
         if (!plugin.createSimFactionAuthority(f.name, best.name)) return;
+        contributeToFaction(best, f, 0.15);
         best.faction = f.name;
         best.role = "leader";
         factions.put(key(f.name), f);
@@ -1308,7 +1309,18 @@ final class SimWorldDirector {
         best.faction = f.name;
         best.role = best.preferredJob;
         f.members.add(best.name);
+        contributeToFaction(best, f, 0.12);
         return true;
+    }
+
+    private void contributeToFaction(SimPlayer p, SimFaction f, double fraction) {
+        if (p == null || f == null || fraction <= 0) return;
+        double reserve = 120.0;
+        double available = Math.max(0.0, p.balance - reserve);
+        double contribution = Math.min(available, p.balance * fraction);
+        if (contribution <= 0) return;
+        p.balance -= contribution;
+        f.treasury += contribution;
     }
 
     private int candidateScore(SimFaction f, SimPlayer p) {

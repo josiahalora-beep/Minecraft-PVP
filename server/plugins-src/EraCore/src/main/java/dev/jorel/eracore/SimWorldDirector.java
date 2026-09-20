@@ -456,6 +456,16 @@ final class SimWorldDirector {
         });
 
         SimFaction a=ready.get(0);
+
+        // Power/creator neighborhoods can occasionally turn into the messy
+        // three-faction brawls that old HCF maps were known for. Keep the HOT
+        // representation capped at eight bodies; the rest stays authoritative COLD.
+        if (ready.size() >= 3 && rng.nextInt(100) <
+                plugin.getConfig().getInt("combat-director.three-way-brawl-chance-percent",14)) {
+            VisibleFight multi=createThreeWayFight(observer,ready,a);
+            if(multi!=null) return multi;
+        }
+
         SimFaction b=null;
 
         // Prefer real neighbors/rivals before teleporting a distant rivalry into view.
@@ -526,6 +536,121 @@ final class SimWorldDirector {
     private static double distSq(double ax,double az,double bx,double bz) {
         double dx=ax-bx,dz=az-bz;
         return dx*dx+dz*dz;
+    }
+
+    private VisibleFight createThreeWayFight(Player observer,List<SimFaction> ready,SimFaction anchor) {
+        List<SimFaction> nearby=new ArrayList<SimFaction>();
+        int radius=Math.max(300,plugin.getConfig().getInt("combat-director.brawl-radius",420)*2);
+
+        for(SimFaction f:ready) {
+            if(f==anchor) continue;
+            if(distSq(anchor.baseX,anchor.baseZ,f.baseX,f.baseZ)<=radius*radius) nearby.add(f);
+        }
+        if(nearby.size()<2) return null;
+
+        Collections.sort(nearby,new Comparator<SimFaction>() {
+            public int compare(SimFaction x,SimFaction y) {
+                int rx=rivalryScore(anchor.name,x.name);
+                int ry=rivalryScore(anchor.name,y.name);
+                return Integer.compare(ry,rx);
+            }
+        });
+
+        SimFaction b=nearby.get(0);
+        SimFaction d=nearby.get(1);
+
+        List<SimPlayer> aa=pickFightMembers(anchor,Math.min(3,activeFightMembers(anchor)));
+        List<SimPlayer> bb=pickFightMembers(b,Math.min(3,activeFightMembers(b)));
+        List<SimPlayer> dd=pickFightMembers(d,Math.min(2,activeFightMembers(d)));
+        if(aa.isEmpty()||bb.isEmpty()||dd.isEmpty()) return null;
+
+        // Hard physical ceiling for a three-way: 8 represented fighters.
+        while(aa.size()+bb.size()+dd.size()>8) {
+            if(aa.size()>=bb.size() && aa.size()>=dd.size() && aa.size()>1) aa.remove(aa.size()-1);
+            else if(bb.size()>=dd.size() && bb.size()>1) bb.remove(bb.size()-1);
+            else if(dd.size()>1) dd.remove(dd.size()-1);
+            else break;
+        }
+
+        Location ol=observer.getLocation();
+        boolean nearAnchor=distSq(ol.getX(),ol.getZ(),anchor.baseX,anchor.baseZ) <=
+            Math.pow(plugin.getConfig().getInt("combat-director.observation-radius",160)*1.7,2);
+
+        int cx,cz;
+        if(nearAnchor) {
+            cx=anchor.baseX;
+            cz=anchor.baseZ-30;
+        } else {
+            double angle=rng.nextDouble()*Math.PI*2.0;
+            double dist=38+rng.nextInt(30);
+            cx=(int)Math.round(ol.getX()+Math.cos(angle)*dist);
+            cz=(int)Math.round(ol.getZ()+Math.sin(angle)*dist);
+        }
+
+        World w=observer.getWorld();
+        int cy=Math.max(4,w.getHighestBlockYAt(cx,cz)+1);
+
+        VisibleFight fight=new VisibleFight();
+        fight.id="M"+System.currentTimeMillis();
+        fight.type="BRAWL_3WAY_"+aa.size()+"v"+bb.size()+"v"+dd.size();
+        fight.centerX=cx; fight.centerY=cy; fight.centerZ=cz;
+        fight.anchorFaction=nearAnchor?anchor.name:"";
+        fight.expiresAt=System.currentTimeMillis()+
+            Math.max(70,plugin.getConfig().getInt("combat-director.visible-fight-duration-seconds",95))*1000L;
+
+        addMultiAssignments(fight,anchor,aa,bb,dd,0);
+        addMultiAssignments(fight,b,bb,aa,dd,1);
+        addMultiAssignments(fight,d,dd,aa,bb,2);
+
+        recordRivalry(anchor.name,b.name,4+rng.nextInt(5));
+        recordRivalry(anchor.name,d.name,3+rng.nextInt(5));
+        recordRivalry(b.name,d.name,2+rng.nextInt(4));
+        return fight;
+    }
+
+    private void addMultiAssignments(VisibleFight fight,SimFaction own,List<SimPlayer> allies,
+                                     List<SimPlayer> enemyA,List<SimPlayer> enemyB,int side) {
+        List<SimPlayer> enemies=new ArrayList<SimPlayer>();
+        enemies.addAll(enemyA);
+        enemies.addAll(enemyB);
+        SimPlayer focusTarget=chooseFocusTarget(enemies);
+        int[] trap=trapPoint(own);
+
+        double theta=(Math.PI*2.0/3.0)*side;
+        int sx=(int)Math.round(Math.cos(theta)*9);
+        int sz=(int)Math.round(Math.sin(theta)*9);
+
+        for(int i=0;i<allies.size();i++) {
+            SimPlayer p=allies.get(i);
+            CombatAssignment ca=new CombatAssignment();
+            ca.fightId=fight.id;
+            ca.name=p.name;
+            ca.faction=own.name;
+            ca.enemyFaction="MULTI";
+            ca.combatClass=p.combatClass;
+            ca.skill=p.skill;
+            ca.aggression=p.aggression;
+            ca.risk=p.riskTolerance;
+            ca.homeX=own.baseX; ca.homeY=own.baseY+1; ca.homeZ=own.baseZ;
+            ca.trapX=trap[0]; ca.trapY=trap[1]; ca.trapZ=trap[2];
+            ca.trapType=own.trapPreset==null?"none":own.trapPreset;
+            ca.focus=focusTarget==null?"":focusTarget.name;
+
+            ca.x=fight.centerX+sx+(i-allies.size()/2)*2;
+            ca.z=fight.centerZ+sz+(i-allies.size()/2)*2;
+            ca.y=Math.max(4,Bukkit.getWorlds().get(0).getHighestBlockYAt(ca.x,ca.z)+1);
+
+            for(SimPlayer e:enemies) ca.enemies.add(e.name);
+            for(SimPlayer a:allies) if(!a.name.equalsIgnoreCase(p.name)) ca.allies.add(a.name);
+
+            if(p.combatClass==CombatClass.BARD) ca.action="BARD_SUPPORT";
+            else if(p.combatClass==CombatClass.ARCHER) ca.action="ARCHER_RANGE";
+            else if(p.combatClass==CombatClass.ROGUE) ca.action="ROGUE_FLANK";
+            else if(enemies.size()>=allies.size()+3 && p.skill<92) ca.action="KITE_HOME";
+            else if(enemies.size()>=allies.size()+3) ca.action="CLUTCH";
+            else ca.action="FOCUS";
+            fight.assignments.put(key(p.name),ca);
+        }
     }
 
     private int[] rollFightSizes(SimFaction a,SimFaction b) {

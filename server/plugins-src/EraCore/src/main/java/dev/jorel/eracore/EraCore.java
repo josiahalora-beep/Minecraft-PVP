@@ -12,6 +12,7 @@ import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
+import org.bukkit.event.entity.EntityExplodeEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.*;
 import org.bukkit.inventory.ItemStack;
@@ -85,6 +86,9 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         final Set<String> invites = new LinkedHashSet<String>();
         final Set<String> claims = new LinkedHashSet<String>();
         Location home;
+        double dtr = 1.1;
+        long dtrFrozenUntil = 0L;
+        boolean wasRaidable = false;
     }
 
     static final class BlockOp {
@@ -113,6 +117,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         hookTickTimes();
         startMetrics();
         startPowerRegen();
+        startDtrRegen();
         simWorld.start();
         simChat.start();
         hcfClasses.start();
@@ -253,6 +258,20 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (isSafezone(victim.getLocation())) e.setCancelled(true);
     }
 
+    @EventHandler(priority=EventPriority.HIGHEST, ignoreCancelled=true) public void onExplosion(EntityExplodeEvent e) {
+        Iterator<Block> it = e.blockList().iterator();
+        while (it.hasNext()) {
+            Block b = it.next();
+            String owner = claimOwners.get(claimKey(b.getLocation()));
+            if (owner == null) continue;
+            Faction target = factions.get(owner.toLowerCase(Locale.ENGLISH));
+            if (target != null) {
+                // HCF raids are opened by DTR, never by TNT/cannoning.
+                it.remove();
+            }
+        }
+    }
+
     @EventHandler(priority=EventPriority.HIGHEST, ignoreCancelled=true) public void onBreak(BlockBreakEvent e) {
         if (!canBuild(e.getPlayer(), e.getBlock().getLocation())) e.setCancelled(true);
     }
@@ -264,8 +283,21 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     @EventHandler public void onDeath(PlayerDeathEvent e) {
         String n = e.getEntity().getName().toLowerCase(Locale.ENGLISH);
         power.put(n, Math.max(-10.0, getPower(n) - 2.0));
-        e.getEntity().sendMessage(color("&cFaction power: " + fmtPower(getPower(n)) + "/10"));
+
+        Faction f = factionOf(e.getEntity().getName());
+        if (f != null) {
+            f.dtr -= getConfig().getDouble("dtr.loss-per-death", 1.0);
+            f.dtrFrozenUntil = System.currentTimeMillis() + getConfig().getLong("dtr.freeze-seconds-after-death", 180L) * 1000L;
+            boolean nowRaidable = isRaidable(f);
+            if (nowRaidable && !f.wasRaidable) {
+                Bukkit.broadcastMessage(color("&c" + f.name + " is now raidable."));
+            }
+            f.wasRaidable = nowRaidable;
+            e.getEntity().sendMessage(color("&7DTR: " + dtrColor(f) + fmtDtr(f.dtr) + "&7/&f" + fmtDtr(maxDtr(f))));
+        }
+
         saveFactions();
+        if (simWorld != null) simWorld.onAuthorityDeath(e.getEntity().getName(), f == null ? "" : f.name, f == null ? 0.0 : f.dtr, f != null && isRaidable(f));
         if (simChat != null) simChat.onDeath(e);
     }
 
@@ -973,6 +1005,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             f.name=a[1];
             f.leader=p.getName();
             f.members.add(p.getName());
+            f.dtr = maxDtr(f);
             factions.put(key,f);
             saveFactions();
             p.sendMessage(color("&aCreated faction &f"+f.name));
@@ -1001,6 +1034,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             }
             target.invites.remove(p.getName().toLowerCase(Locale.ENGLISH));
             target.members.add(p.getName());
+            target.dtr = Math.min(maxDtr(target), Math.max(target.dtr, 0.1));
             saveFactions();
             p.sendMessage(color("&aJoined &f"+target.name));
             return true;
@@ -1009,7 +1043,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if(sub.equals("list")) {
             p.sendMessage(color("&6--- Factions ---"));
             for(Faction x:factions.values()) {
-                p.sendMessage(color("&e"+x.name+" &7members="+x.members.size()+" claims="+x.claims.size()+" power="+fmtPower(totalPower(x))));
+                p.sendMessage(color("&e"+x.name+" &7members="+x.members.size()+" claims="+x.claims.size()+" dtr="+dtrColor(x)+fmtDtr(x.dtr)+"&7/"+fmtDtr(maxDtr(x))));
             }
             return true;
         }
@@ -1149,7 +1183,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
                     return true;
                 }
             }
-            p.sendMessage(color("&6"+q.name+" &7Leader: &f"+q.leader+" &7Power: &f"+fmtPower(totalPower(q))+" &7Claims: &f"+q.claims.size()));
+            p.sendMessage(color("&6"+q.name+" &7Leader: &f"+q.leader+" &7DTR: "+dtrColor(q)+fmtDtr(q.dtr)+"&7/&f"+fmtDtr(maxDtr(q))+" &7Claims: &f"+q.claims.size()));
             p.sendMessage(color("&7Members: &f"+join(q.members,", ")));
             return true;
         }
@@ -1186,6 +1220,154 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         return null;
     }
 
+    synchronized boolean createSimFactionAuthority(String factionName, String leaderName) {
+        String fk = factionName.toLowerCase(Locale.ENGLISH);
+        Faction existing = factions.get(fk);
+        if (existing != null) {
+            if (!existing.members.contains(leaderName)) existing.members.add(leaderName);
+            if (existing.leader == null || existing.leader.isEmpty()) existing.leader = leaderName;
+            existing.dtr = Math.min(existing.dtr <= 0 ? maxDtr(existing) : existing.dtr, maxDtr(existing));
+            saveFactions();
+            return true;
+        }
+        if (factionOf(leaderName) != null) return false;
+        Faction f = new Faction();
+        f.name = factionName;
+        f.leader = leaderName;
+        f.members.add(leaderName);
+        f.dtr = maxDtr(f);
+        factions.put(fk, f);
+        saveFactions();
+        return true;
+    }
+
+    synchronized boolean joinSimFactionAuthority(String factionName, String memberName) {
+        Faction f = factions.get(factionName.toLowerCase(Locale.ENGLISH));
+        if (f == null || f.members.size() >= SimWorldDirector.MAX_FACTION_MEMBERS) return false;
+        Faction old = factionOf(memberName);
+        if (old != null && !old.name.equalsIgnoreCase(f.name)) return false;
+        f.members.add(memberName);
+        f.dtr = Math.min(maxDtr(f), Math.max(0.1, f.dtr));
+        saveFactions();
+        return true;
+    }
+
+    synchronized void resetSimFactionAuthority(List<String> simKeys) {
+        Set<String> keys = new HashSet<String>();
+        for (String s : simKeys) keys.add(s.toLowerCase(Locale.ENGLISH));
+
+        List<Faction> remove = new ArrayList<Faction>();
+        for (Faction f : factions.values()) {
+            boolean allSim = true;
+            for (String member : f.members) {
+                if (!keys.contains(member.toLowerCase(Locale.ENGLISH))) {
+                    allSim = false;
+                    break;
+                }
+            }
+            if (allSim) remove.add(f);
+            else {
+                Iterator<String> it = f.members.iterator();
+                while (it.hasNext()) {
+                    String member = it.next();
+                    if (keys.contains(member.toLowerCase(Locale.ENGLISH))) it.remove();
+                }
+                if (f.members.isEmpty()) remove.add(f);
+                else {
+                    if (!f.members.contains(f.leader)) f.leader = f.members.iterator().next();
+                    f.dtr = Math.min(f.dtr, maxDtr(f));
+                }
+            }
+        }
+        for (Faction f : remove) removeFaction(f);
+        saveFactions();
+    }
+
+    synchronized boolean setSimFactionHomeAndClaims(String factionName, Location home, Collection<String> claims) {
+        Faction f = factions.get(factionName.toLowerCase(Locale.ENGLISH));
+        if (f == null) return false;
+        f.home = home == null ? null : home.clone();
+        if (claims != null) {
+            for (String old : new ArrayList<String>(f.claims)) claimOwners.remove(old);
+            f.claims.clear();
+            for (String ck : claims) {
+                if (claimOwners.containsKey(ck) && !claimOwners.get(ck).equalsIgnoreCase(f.name)) return false;
+            }
+            for (String ck : claims) {
+                f.claims.add(ck);
+                claimOwners.put(ck, f.name);
+            }
+        }
+        saveFactions();
+        return true;
+    }
+
+    synchronized double factionDtr(String factionName) {
+        Faction f = factions.get(factionName.toLowerCase(Locale.ENGLISH));
+        return f == null ? 0.0 : f.dtr;
+    }
+
+    synchronized double factionMaxDtr(String factionName) {
+        Faction f = factions.get(factionName.toLowerCase(Locale.ENGLISH));
+        return f == null ? 0.0 : maxDtr(f);
+    }
+
+    synchronized boolean factionRaidable(String factionName) {
+        Faction f = factions.get(factionName.toLowerCase(Locale.ENGLISH));
+        return f != null && isRaidable(f);
+    }
+
+    private double maxDtr(Faction f) {
+        double per = getConfig().getDouble("dtr.max-per-member", 1.1);
+        double cap = getConfig().getDouble("dtr.max-cap", 5.5);
+        return Math.min(cap, Math.max(per, f.members.size() * per));
+    }
+
+    private boolean isRaidable(Faction f) {
+        return f.dtr <= getConfig().getDouble("dtr.raidable-at", 0.0);
+    }
+
+    private String dtrColor(Faction f) {
+        if (isRaidable(f)) return "&c";
+        if (f.dtr <= 1.1) return "&e";
+        return "&a";
+    }
+
+    private String fmtDtr(double d) {
+        return new DecimalFormat("0.0").format(d);
+    }
+
+    private void startDtrRegen() {
+        long periodSeconds = Math.max(15L, getConfig().getLong("dtr.regen-interval-seconds", 60L));
+        Bukkit.getScheduler().runTaskTimer(this, new Runnable() {
+            public void run() {
+                long now = System.currentTimeMillis();
+                double amount = getConfig().getDouble("dtr.regen-per-interval", 0.25);
+                boolean changed = false;
+
+                for (Faction f : factions.values()) {
+                    double max = maxDtr(f);
+                    if (f.dtr > max) {
+                        f.dtr = max;
+                        changed = true;
+                    }
+                    if (now < f.dtrFrozenUntil || f.dtr >= max) continue;
+
+                    boolean was = isRaidable(f);
+                    f.dtr = Math.min(max, f.dtr + amount);
+                    boolean nowRaidable = isRaidable(f);
+                    if (was && !nowRaidable) {
+                        Bukkit.broadcastMessage(color("&a" + f.name + " is no longer raidable."));
+                    }
+                    f.wasRaidable = nowRaidable;
+                    changed = true;
+                }
+
+                if (changed) saveFactions();
+            }
+        }, periodSeconds * 20L, periodSeconds * 20L);
+    }
+
     private String claimKey(Location l) {
         return l.getWorld().getName()+":"+l.getChunk().getX()+":"+l.getChunk().getZ();
     }
@@ -1216,7 +1398,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         Faction own=factionOf(p.getName());
         if(own!=null&&own.name.equalsIgnoreCase(owner)) return true;
         Faction target=factions.get(owner.toLowerCase(Locale.ENGLISH));
-        if(target!=null&&totalPower(target)<target.claims.size()) return true;
+        if(target!=null&&isRaidable(target)) return true;
         p.sendMessage(color("&cThis land belongs to "+owner+"."));
         return false;
     }
@@ -1541,6 +1723,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             factionsData.set(base+".name",f.name);
             factionsData.set(base+".leader",f.leader);
             factionsData.set(base+".members",new ArrayList<String>(f.members));
+            factionsData.set(base+".dtr",f.dtr);
+            factionsData.set(base+".dtr-frozen-until",f.dtrFrozenUntil);
             factionsData.set(base+".invites",new ArrayList<String>(f.invites));
             factionsData.set(base+".claims",new ArrayList<String>(f.claims));
             if(f.home!=null) {

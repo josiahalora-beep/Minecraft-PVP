@@ -566,7 +566,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             boolean eligible = own == Rank.OWNER || own.level >= r.level;
             String key = p.getName().toLowerCase(Locale.ENGLISH) + "." + r.name().toLowerCase(Locale.ENGLISH);
             long next = kitsData.getLong(key,0L);
-            String status = !eligible ? "&cLOCKED" : (System.currentTimeMillis()>=next ? "&aREADY" : "&e" + Math.max(1,(next-System.currentTimeMillis())/60000L) + "m");
+            String status = !eligible ? "&cLocked" : (System.currentTimeMillis()>=next ? "&aReady" : "&e" + Math.max(1,(next-System.currentTimeMillis())/60000L) + "m");
             p.sendMessage(color(r.prefix + " &7- " + r.cooldownHours + "h - " + status));
         }
         return true;

@@ -1565,6 +1565,10 @@ final class SimWorldDirector {
     void onLiveDeath(String victimName, String killerName) {
         recentVictim = victimName == null ? "" : victimName;
         recentKiller = killerName == null ? "" : killerName;
+        if (visibleFight != null && victimName != null) {
+            visibleFight.assignments.remove(key(victimName));
+            writeCombatFile();
+        }
         SimPlayer victim = players.get(key(victimName));
         SimPlayer killer = players.get(key(killerName));
 

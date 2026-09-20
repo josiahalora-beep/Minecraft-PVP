@@ -1,0 +1,35 @@
+name: EraCore
+main: dev.jorel.eracore.EraCore
+version: 0.1.0
+commands:
+  rank:
+    usage: /rank set <player> <rank>
+  kit:
+    usage: /kit <member|vip|elite|legend|titan>
+  kits:
+    usage: /kits
+  balance:
+    aliases: [bal, money]
+    usage: /balance [player]
+  pay:
+    usage: /pay <player> <amount>
+  sell:
+    usage: /sell <hand|all>
+  buy:
+    usage: /buy <item> <amount>
+  shop:
+    usage: /shop
+  f:
+    aliases: [faction, factions]
+    usage: /f <create|invite|join|leave|kick|disband|claim|unclaim|sethome|home|who|list|c>
+  simprobe:
+    usage: /simprobe
+  simmap:
+    usage: /simmap [rebuild]
+  simstate:
+    usage: /simstate prepare
+  duelprep:
+    usage: /duelprep
+permissions:
+  eracore.owner:
+    default: op

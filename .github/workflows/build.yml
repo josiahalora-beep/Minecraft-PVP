@@ -1,0 +1,31 @@
+name: build-phase0
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '8'
+      - name: Build EraCore
+        working-directory: server/plugins-src/EraCore
+        run: mvn -B package
+      - name: Build PolyMC import zip
+        run: |
+          cd polymc-instance
+          zip -r ../Daegon-Reborn-PolyMC-1.8.8.zip .
+      - name: Build server skeleton zip
+        run: |
+          zip -r Daegon-Reborn-Server-Skeleton.zip server setup-windows.ps1 bots docs README.md .gitignore -x 'bots/node_modules/*' 'bots/logs/*' 'server/buildtools/*' 'server/world*/*' 'server/plugins/*'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phase0-builds
+          path: |
+            server/plugins-src/EraCore/target/EraCore.jar
+            Daegon-Reborn-PolyMC-1.8.8.zip
+            Daegon-Reborn-Server-Skeleton.zip

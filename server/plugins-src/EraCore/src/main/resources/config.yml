@@ -1,0 +1,22 @@
+owner:
+  claim-first-human: true
+  uuid: ''
+  name: ''
+  ignored-prefixes:
+    - Bench
+    - DuelBot
+    - StateBot
+    - Sim
+    - Fake
+map:
+  auto-bootstrap: true
+  complete: false
+  surface-y: 63
+  world-border: 3000
+  safezone-radius: 60
+  warzone-radius: 250
+economy:
+  starting-balance: 500.0
+metrics:
+  enabled: true
+  interval-seconds: 5

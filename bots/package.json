@@ -1,0 +1,14 @@
+{
+  "name": "minecraft-pvp-bot-spikes",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "idle": "node src/idle-benchmark.js",
+    "state": "node src/state-handoff.js",
+    "duel": "node src/duel-bot.js"
+  },
+  "dependencies": {
+    "mineflayer": "4.39.0"
+  }
+}

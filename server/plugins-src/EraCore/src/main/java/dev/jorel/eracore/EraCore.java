@@ -402,7 +402,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             combatPreparedFight.remove(n);
             e.getDrops().clear();
             e.setDroppedExp(0);
-            if(simWorld!=null) simWorld.onLiveDeath(e.getEntity().getName(),
+            if(simWorld!=null) simWorld.onTestFightDeath(e.getEntity().getName(),
                 e.getEntity().getKiller()==null?"":e.getEntity().getKiller().getName());
             return;
         }
@@ -748,12 +748,18 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             return true;
         }
 
+        if(a[0].equalsIgnoreCase("stop")) {
+            simWorld.stopVisibleFightTest();
+            p.sendMessage(color("&e5v5 test stopped. &7Bodies will return to normal faction work."));
+            return true;
+        }
+
         if(a[0].equalsIgnoreCase("status")) {
             p.sendMessage(color("&7Visible fight: &f"+simWorld.visibleFightSummary()));
             return true;
         }
 
-        p.sendMessage("/teamfight <test|status>");
+        p.sendMessage("/teamfight <test|stop|status>");
         return true;
     }
 

@@ -42,6 +42,9 @@ function runtimeSettings() {
     maxPerFaction: clamp(Number(process.env.WORKER_MAX_PER_FACTION || w['max-per-faction'] || 3), 1, 5),
     reassessMs: clamp(Number(process.env.WORKER_REASSESS_MS || (w['reassess-seconds'] || 8) * 1000), 3000, 60000),
     syncMs: clamp(Number(process.env.WORKER_SYNC_MS || (w['sync-seconds'] || 10) * 1000), 4000, 60000),
+    minimumLeaseMs: clamp(Number(process.env.WORKER_MIN_LEASE_MS || (w['minimum-lease-seconds'] || 120) * 1000), 30000, 600000),
+    missingGraceCycles: clamp(Number(w['missing-candidate-grace-cycles'] || 4), 1, 20),
+    rotationScoreMargin: clamp(Number(w['rotation-score-margin'] || 18), 0, 100),
     creatorBodies
   }
 }
@@ -408,7 +411,10 @@ async function connectIdentity(candidate, settings) {
     depositing: false,
     workLoop: false,
     closing: false,
-    physicalOps: 0
+    physicalOps: 0,
+    connectedAt: Date.now(),
+    missingCycles: 0,
+    lastCandidateScore: candidate.score || 0
   }
   live.set(name, state)
 
@@ -500,9 +506,36 @@ async function reconcile() {
   const desired = chooseActive(data, settings, target)
   const wanted = new Set(desired.map(x => x.name.toLowerCase()))
 
+  const candidateMap = new Map(candidatesFrom(data, settings).map(c => [c.name.toLowerCase(), c]))
+
   for (const name of [...live.keys()]) {
     const state = live.get(name)
-    if (!wanted.has(name.toLowerCase()) && !state?.pinned) disconnectIdentity(name, 'worker rotation')
+    const lower = name.toLowerCase()
+    const currentCandidate = candidateMap.get(lower)
+
+    if (currentCandidate) {
+      state.missingCycles = 0
+      state.lastCandidateScore = currentCandidate.score || state.lastCandidateScore || 0
+    } else {
+      state.missingCycles = (state.missingCycles || 0) + 1
+    }
+
+    if (state?.pinned) continue
+    if (wanted.has(lower)) continue
+
+    const leaseExpired = Date.now() - (state.connectedAt || 0) >= settings.minimumLeaseMs
+    const missingLongEnough = state.missingCycles >= settings.missingGraceCycles
+
+    // Do not churn a useful body just because simulation.yml was momentarily
+    // incomplete during a save or priorities changed by a tiny amount.
+    if (!leaseExpired || !missingLongEnough) continue
+
+    const replacement = desired.find(c => !live.has(c.name))
+    const replacementScore = replacement?.score || 0
+    const oldScore = state.lastCandidateScore || 0
+    if (replacement && replacementScore < oldScore + settings.rotationScoreMargin) continue
+
+    disconnectIdentity(name, 'stable rotation')
   }
 
   for (const cand of desired) {
@@ -517,6 +550,8 @@ async function reconcile() {
     state.faction = cand.faction
     state.stage = cand.stage
     state.pinned = cand.pinned
+    state.missingCycles = 0
+    state.lastCandidateScore = cand.score || state.lastCandidateScore || 0
 
     if (!state.bot && Date.now() >= state.reconnectAt) {
       live.delete(current)

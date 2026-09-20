@@ -514,6 +514,8 @@ final class SimWorldDirector {
         String lower = message.toLowerCase(Locale.ENGLISH);
         rememberPublic(human.getName(), message);
 
+        if (!plugin.getConfig().getBoolean("sim-chat.contextual-chat", true)) return;
+
         // Transaction intent remains authoritative and creates real orders.
         String item = itemFromText(lower);
         if (item != null && (lower.contains("selling") || lower.startsWith("sell ") || lower.contains("wts"))) {
@@ -550,7 +552,7 @@ final class SimWorldDirector {
                 rememberPublic(respondent.name, reply);
 
                 // Occasionally another relevant player joins the same thread.
-                if (rng.nextInt(100) < 22) {
+                if (rng.nextInt(100) < plugin.getConfig().getInt("sim-chat.second-responder-chance-percent",22)) {
                     SimPlayer second = chooseSecondResponder(respondent, lower);
                     if (second != null) {
                         ContextChatBrain.Snapshot secondSnap = chatSnapshot(human.getName(), second, message);
@@ -582,8 +584,9 @@ final class SimWorldDirector {
         recentPublicSpeakers.addLast(speaker);
         recentPublicMessages.addLast(message);
         lastPublicLineBySpeaker.put(key(speaker), message);
-        while (recentPublicSpeakers.size() > 12) recentPublicSpeakers.removeFirst();
-        while (recentPublicMessages.size() > 12) recentPublicMessages.removeFirst();
+        int maxMemory = Math.max(4, Math.min(40, plugin.getConfig().getInt("sim-chat.max-conversation-memory",12)));
+        while (recentPublicSpeakers.size() > maxMemory) recentPublicSpeakers.removeFirst();
+        while (recentPublicMessages.size() > maxMemory) recentPublicMessages.removeFirst();
     }
 
     private SimPlayer chooseContextResponder(String humanName, String lower) {

@@ -54,10 +54,6 @@ final class SimChatDirector {
         String m = message.toLowerCase(Locale.ENGLISH);
         world.onHumanPublicChat(player,message);
 
-        if (m.contains("faction") && (m.contains("join") || m.contains("recruit") || m.contains("inv"))) {
-            scheduleRecruitmentReplies(player);
-        }
-
         if (plugin.isCreatorIdentity(player.getName())) {
             scheduleFanReaction(player.getName(), "chat");
         }

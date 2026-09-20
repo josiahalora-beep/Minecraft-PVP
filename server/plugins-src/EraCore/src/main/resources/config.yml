@@ -135,6 +135,8 @@ sim-world:
   factions-per-tick: 4
   underdog-leaders: 2
   base-y: 64
+  min-base-y: 50
+  max-base-y: 110
 
 spawn-presence:
   enabled: true

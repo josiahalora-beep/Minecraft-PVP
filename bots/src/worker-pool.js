@@ -143,6 +143,7 @@ function combatCandidatesFrom(combat) {
       assignment: {
         fightId: String(combat?.fight?.id || ''),
         type: String(combat?.fight?.type || ''),
+        world: String(p.world || combat?.fight?.world || 'world'),
         faction: String(p.faction || ''),
         enemyFaction: String(p['enemy-faction'] || ''),
         class: String(p.class || 'DIAMOND'),

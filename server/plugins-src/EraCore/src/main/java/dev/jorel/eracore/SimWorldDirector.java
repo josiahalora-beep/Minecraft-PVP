@@ -65,6 +65,9 @@ final class SimWorldDirector {
         int riskTolerance;   // 0..100
         int sociability;     // 0..100
         int patience;        // 0..100
+        int reputation;      // persistent PvP reputation, 0+
+        int kills;
+        int deaths;
         boolean logicalOnline;
         int sessionTicksLeft;
         long nextGoalTick;
@@ -1023,8 +1026,8 @@ final class SimWorldDirector {
         }
         Collections.sort(xs,new Comparator<SimPlayer>() {
             public int compare(SimPlayer a,SimPlayer b) {
-                int aa=("patrol".equals(a.currentGoal)?30:0)+a.aggression+a.skill/2+a.riskTolerance/3;
-                int bb=("patrol".equals(b.currentGoal)?30:0)+b.aggression+b.skill/2+b.riskTolerance/3;
+                int aa=("patrol".equals(a.currentGoal)?30:0)+a.aggression+a.skill/2+a.riskTolerance/3+a.reputation/3;
+                int bb=("patrol".equals(b.currentGoal)?30:0)+b.aggression+b.skill/2+b.riskTolerance/3+b.reputation/3;
                 return Integer.compare(bb,aa);
             }
         });
@@ -1750,24 +1753,55 @@ final class SimWorldDirector {
                 // COLD deaths approximate lost inventory here. HOT projected
                 // deaths already withdrew the exact physical loadout on promotion.
                 if(!projectedDeath) {
-                    vf.healPots = Math.max(0, vf.healPots - 10 - rng.nextInt(11));
-                    vf.pearls = Math.max(0, vf.pearls - 2 - rng.nextInt(5));
-                    vf.speedPots = Math.max(0, vf.speedPots - 1);
-                    vf.firePots = Math.max(0, vf.firePots - 1);
+                    int lostHeals=Math.min(vf.healPots,10+rng.nextInt(11));
+                    int lostPearls=Math.min(vf.pearls,2+rng.nextInt(5));
+                    int lostSpeed=Math.min(vf.speedPots,1);
+                    int lostFire=Math.min(vf.firePots,1);
+                    vf.healPots -= lostHeals;
+                    vf.pearls -= lostPearls;
+                    vf.speedPots -= lostSpeed;
+                    vf.firePots -= lostFire;
 
+                    boolean lostMainSet=false;
                     if (victim.combatClass == CombatClass.DIAMOND) {
-                        vf.p4Sets = Math.max(0, vf.p4Sets - 1);
-                        vf.sharp4Swords = Math.max(0, vf.sharp4Swords - 1);
+                        if(vf.p4Sets>0){vf.p4Sets--;lostMainSet=true;}
+                        if(vf.sharp4Swords>0) vf.sharp4Swords--;
                     } else if (victim.combatClass == CombatClass.BARD) {
-                        vf.bardSets = Math.max(0, vf.bardSets - 1);
+                        if(vf.bardSets>0){vf.bardSets--;lostMainSet=true;}
                     } else if (victim.combatClass == CombatClass.ARCHER) {
-                        vf.archerSets = Math.max(0, vf.archerSets - 1);
+                        if(vf.archerSets>0){vf.archerSets--;lostMainSet=true;}
                     } else if (victim.combatClass == CombatClass.ROGUE) {
-                        vf.rogueSets = Math.max(0, vf.rogueSets - 1);
+                        if(vf.rogueSets>0){vf.rogueSets--;lostMainSet=true;}
+                    }
+
+                    if(killer!=null && !killer.faction.isEmpty() && !killer.faction.equalsIgnoreCase(victim.faction)) {
+                        SimFaction kf=factions.get(key(killer.faction));
+                        if(kf!=null) {
+                            // Simulate what survives on the ground and is actually picked up.
+                            kf.healPots += (int)Math.floor(lostHeals*0.70);
+                            kf.pearls += (int)Math.floor(lostPearls*0.85);
+                            kf.speedPots += lostSpeed;
+                            kf.firePots += lostFire;
+                            if(lostMainSet && rng.nextInt(100)<78) {
+                                if(victim.combatClass==CombatClass.DIAMOND){kf.p4Sets++;kf.sharp4Swords++;}
+                                else if(victim.combatClass==CombatClass.BARD) kf.bardSets++;
+                                else if(victim.combatClass==CombatClass.ARCHER) kf.archerSets++;
+                                else if(victim.combatClass==CombatClass.ROGUE) kf.rogueSets++;
+                            }
+                        }
                     }
                 }
                 updateDtrStrategy(vf);
             }
+        }
+
+        if(victim!=null) {
+            victim.deaths++;
+            victim.reputation=Math.max(0,victim.reputation-2);
+        }
+        if(killer!=null && victim!=null && !killer.name.equalsIgnoreCase(victim.name)) {
+            killer.kills++;
+            killer.reputation=Math.min(999,killer.reputation+5+victim.skill/18+rng.nextInt(5));
         }
 
         if (victim != null && killer != null && !victim.faction.isEmpty() && !killer.faction.isEmpty()
@@ -2071,20 +2105,29 @@ final class SimWorldDirector {
                 if("brewer".equals(p.preferredJob)) return "brew";
                 return "gear";
             case PVP_READY:
-                if ("PVP".equals(f.archetype) || "TRAPPER".equals(f.archetype)) {
-                    if ("farmer".equals(p.preferredJob) && rng.nextInt(100)<18) return "farm";
-                    if ("brewer".equals(p.preferredJob) && rng.nextInt(100)<28) return "brew";
-                    return rng.nextInt(100)<78 ? "patrol" : "social";
+                if (!combatReady(f)) {
+                    if ("brewer".equals(p.preferredJob)) return "brew";
+                    if ("miner".equals(p.preferredJob)) return "mine";
+                    if ("farmer".equals(p.preferredJob)) return "farm";
+                    return "gear";
                 }
+
                 int rivalryHeat=0;
                 String rival=strongestRival(f.name);
                 if(!rival.isEmpty()) rivalryHeat=rivalryScore(f.name,rival);
-                int roam=p.aggression+p.riskTolerance+p.skill/2+rivalryHeat/2;
-                if("farmer".equals(p.preferredJob) && p.economicIq>=70 && rng.nextInt(100)<55) return "farm";
-                if("brewer".equals(p.preferredJob) && rng.nextInt(100)<45) return "brew";
-                if(roam>=170) return "patrol";
-                if(p.economicIq>=78 && rng.nextInt(100)<35) return "trade";
-                return rng.nextBoolean()?"patrol":"social";
+                int rewardDrive=p.aggression+p.riskTolerance+p.skill/2+p.reputation/3+rivalryHeat/2;
+
+                if ("PVP".equals(f.archetype) || "TRAPPER".equals(f.archetype)) {
+                    if ("farmer".equals(p.preferredJob) && rng.nextInt(100)<12) return "farm";
+                    if ("brewer".equals(p.preferredJob) && rng.nextInt(100)<20) return "brew";
+                    return rng.nextInt(100)<88 ? "patrol" : "social";
+                }
+
+                if("farmer".equals(p.preferredJob) && p.economicIq>=70 && rng.nextInt(100)<38) return "farm";
+                if("brewer".equals(p.preferredJob) && rng.nextInt(100)<32) return "brew";
+                if(rewardDrive>=145) return "patrol";
+                if(p.economicIq>=78 && rng.nextInt(100)<28) return "trade";
+                return rng.nextInt(100)<58?"patrol":"social";
         }
         return "idle";
     }
@@ -2398,9 +2441,13 @@ final class SimWorldDirector {
         if (f == null) return false;
         if (sotwProtectionActive()) return false;
         if (f.recoveryMode || plugin.factionRaidable(f.name) || plugin.factionDtr(f.name) <= getDtrSafetyFloor(f)) return false;
-        if (f.stage == Stage.PVP_READY) return true;
-        // Elite/strong players may defend or take a favorable local fight earlier,
-        // but are not told to roam undergeared.
+        if (f.stage == Stage.PVP_READY) {
+            if (!combatReady(f)) return false;
+            int motive=p.aggression+p.riskTolerance+p.skill/2+p.reputation/2;
+            if ("PVP".equals(f.archetype) || "TRAPPER".equals(f.archetype)) motive+=35;
+            if (f.campTarget!=null && !f.campTarget.isEmpty()) motive+=25;
+            return motive>=125;
+        }
         return false;
     }
 
@@ -2485,8 +2532,10 @@ final class SimWorldDirector {
 
     private void queueDeathConversation(SimPlayer victim, SimPlayer killer) {
         if (rng.nextInt(100) < 45) {
-            String[] a = {"you guys jumped me","gg i had no pots","why were all of you there","i was trying to kite"};
-            String[] b = {"gg","you pushed us first","we saw you outside","shouldve went home"};
+            String[] a = {"you guys jumped me","gg i had no pots","why were all of you there","i was trying to kite","rip my set"};
+            String[] b = killer.reputation>=35
+                ? new String[]{"gg","thanks for the set","another set lol","you pushed us first","we saw you outside"}
+                : new String[]{"gg","you pushed us first","we saw you outside","shouldve went home","got the set"};
             enqueue(victim.name,a[rng.nextInt(a.length)],true);
             enqueue(killer.name,b[rng.nextInt(b.length)],true);
         }
@@ -2712,6 +2761,9 @@ final class SimWorldDirector {
             p.riskTolerance = s.getInt("risk-tolerance", 25 + rng.nextInt(71));
             p.sociability = s.getInt("sociability", 25 + rng.nextInt(71));
             p.patience = s.getInt("patience", 25 + rng.nextInt(71));
+            p.reputation = s.getInt("reputation", 0);
+            p.kills = s.getInt("kills", 0);
+            p.deaths = s.getInt("deaths", 0);
             p.logicalOnline = s.getBoolean("logical-online", rng.nextInt(100)<45);
             p.sessionTicksLeft = s.getInt("session-ticks-left", Math.max(2,5+rng.nextInt(20)));
             p.nextGoalTick = s.getLong("next-goal-tick", 0L);
@@ -2828,6 +2880,9 @@ final class SimWorldDirector {
             p.riskTolerance = 20 + rng.nextInt(81);
             p.sociability = 20 + rng.nextInt(81);
             p.patience = 20 + rng.nextInt(81);
+            p.reputation = plugin.isCreatorIdentity(p.name) ? 12 + rng.nextInt(10) : rng.nextInt(6);
+            p.kills = 0;
+            p.deaths = 0;
             p.logicalOnline = rng.nextInt(100) < 48;
             p.sessionTicksLeft = 5 + rng.nextInt(20);
             p.currentGoal = "idle";
@@ -3525,19 +3580,50 @@ final class SimWorldDirector {
         }
 
         plugin.applySimulatedFactionDeath(loser.name, victim.name);
+        SimPlayer killer = null;
         if (winner != null) {
             recordRivalry(loser.name,winner.name,12 + rng.nextInt(10));
-            SimPlayer killer = players.get(key(winner.leader));
+            killer = players.get(key(winner.leader));
             if (killer != null) queueDeathConversation(victim,killer);
             if (killer != null && plugin.isCreatorIdentity(killer.name)) queueCreatorKillReactions(killer.name);
         }
         if (plugin.isCreatorIdentity(victim.name)) queueCreatorDeathReactions(victim.name);
 
-        // A death also consumes some combat stock rather than duplicating gear/pots.
-        loser.healPots = Math.max(0, loser.healPots - 10 - rng.nextInt(10));
-        loser.pearls = Math.max(0, loser.pearls - 2 - rng.nextInt(4));
-        if (victim.combatClass == CombatClass.DIAMOND && loser.p4Sets > 0) loser.p4Sets--;
-        if (loser.sharp4Swords > 0 && victim.combatClass == CombatClass.DIAMOND) loser.sharp4Swords--;
+        victim.deaths++;
+        victim.reputation=Math.max(0,victim.reputation-2);
+        if(killer!=null) {
+            killer.kills++;
+            killer.reputation=Math.min(999,killer.reputation+5+victim.skill/18+rng.nextInt(5));
+        }
+
+        int lostHeals=Math.min(loser.healPots,10+rng.nextInt(10));
+        int lostPearls=Math.min(loser.pearls,2+rng.nextInt(4));
+        loser.healPots-=lostHeals;
+        loser.pearls-=lostPearls;
+
+        boolean setLost=false;
+        if (victim.combatClass == CombatClass.DIAMOND && loser.p4Sets > 0) {
+            loser.p4Sets--;
+            setLost=true;
+            if(loser.sharp4Swords>0) loser.sharp4Swords--;
+        } else if(victim.combatClass==CombatClass.BARD && loser.bardSets>0) {
+            loser.bardSets--;setLost=true;
+        } else if(victim.combatClass==CombatClass.ARCHER && loser.archerSets>0) {
+            loser.archerSets--;setLost=true;
+        } else if(victim.combatClass==CombatClass.ROGUE && loser.rogueSets>0) {
+            loser.rogueSets--;setLost=true;
+        }
+
+        if(winner!=null) {
+            winner.healPots+=(int)Math.floor(lostHeals*0.70);
+            winner.pearls+=(int)Math.floor(lostPearls*0.85);
+            if(setLost && rng.nextInt(100)<78) {
+                if(victim.combatClass==CombatClass.DIAMOND){winner.p4Sets++;winner.sharp4Swords++;}
+                else if(victim.combatClass==CombatClass.BARD) winner.bardSets++;
+                else if(victim.combatClass==CombatClass.ARCHER) winner.archerSets++;
+                else if(victim.combatClass==CombatClass.ROGUE) winner.rogueSets++;
+            }
+        }
 
     }
 
@@ -3668,6 +3754,9 @@ final class SimWorldDirector {
             data.set(b + ".risk-tolerance", p.riskTolerance);
             data.set(b + ".sociability", p.sociability);
             data.set(b + ".patience", p.patience);
+            data.set(b + ".reputation", p.reputation);
+            data.set(b + ".kills", p.kills);
+            data.set(b + ".deaths", p.deaths);
             data.set(b + ".logical-online", p.logicalOnline);
             data.set(b + ".session-ticks-left", p.sessionTicksLeft);
             data.set(b + ".next-goal-tick", p.nextGoalTick);

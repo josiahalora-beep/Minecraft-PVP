@@ -1688,6 +1688,23 @@ final class SimWorldDirector {
         return false;
     }
 
+    void onTestFightDeath(String victimName, String killerName) {
+        recentVictim = victimName == null ? "" : victimName;
+        recentKiller = killerName == null ? "" : killerName;
+        if (visibleFight != null && victimName != null) {
+            visibleFight.assignments.remove(key(victimName));
+            writeCombatFile();
+        }
+    }
+
+    void stopVisibleFightTest() {
+        if (visibleFight == null) return;
+        if (visibleFight.id != null && visibleFight.id.startsWith("TEST5V5_")) {
+            visibleFight = null;
+            writeCombatFile();
+        }
+    }
+
     void onLiveDeath(String victimName, String killerName) {
         recentVictim = victimName == null ? "" : victimName;
         recentKiller = killerName == null ? "" : killerName;

@@ -348,6 +348,16 @@ async function reconcile() {
   )
 }
 
+process.on('SIGINT', () => {
+  shuttingDown = true
+  for (const name of [...live.keys()]) disconnectIdentity(name, 'shutdown')
+})
+
+process.on('SIGTERM', () => {
+  shuttingDown = true
+  for (const name of [...live.keys()]) disconnectIdentity(name, 'shutdown')
+})
+
 console.log('Persistent shared worker pool starting.')
 console.log('Simulation state: ' + simulationFile)
 console.log('Maximum physical workers: ' + MAX_BODIES + '; offline floor: ' + OFFLINE_BODIES)
@@ -356,9 +366,3 @@ while (!shuttingDown) {
   try { await reconcile() } catch (err) { console.log('reconcile: ' + err.message) }
   await sleep(REASSESS_MS)
 }
-
-process.on('SIGINT', () => {
-  shuttingDown = true
-  for (const name of [...live.keys()]) disconnectIdentity(name, 'shutdown')
-  process.exit(0)
-})

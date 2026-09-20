@@ -133,6 +133,7 @@ sim-world:
   tick-seconds: 30
   factions-per-tick: 4
   underdog-leaders: 2
+  base-y: 64
 
 spawn-presence:
   enabled: true
@@ -155,3 +156,29 @@ hcf-classes:
   miner-invisibility-y: 20
   rogue-backstab-cooldown-seconds: 20
   rogue-backstab-bonus-damage: 7.0
+
+dtr:
+  max-per-member: 1.1
+  max-cap: 5.5
+  loss-per-death: 1.0
+  raidable-at: 0.0
+  freeze-seconds-after-death: 120
+  regen-interval-seconds: 60
+  regen-per-interval: 0.35
+
+claims:
+  base: 4
+  per-member: 2
+  max-cap: 12
+
+sotw:
+  protection-minutes: 60
+
+base-builder:
+  blocks-per-tick: 450
+
+combat-director:
+  hot-body-budget: 8
+  max-hot-per-faction: 3
+  observation-radius: 160
+  offscreen-resolution-seconds: 5

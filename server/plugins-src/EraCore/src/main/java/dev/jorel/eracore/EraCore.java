@@ -1127,8 +1127,9 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
                 p.sendMessage(color("&cLeader only for now."));
                 return true;
             }
-            if(f.claims.size()+1>Math.floor(totalPower(f))) {
-                p.sendMessage(color("&cNot enough faction power. Claims="+f.claims.size()+" power="+fmtPower(totalPower(f))));
+            int maxClaims=Math.min(getConfig().getInt("claims.max-cap",12), getConfig().getInt("claims.base",4)+f.members.size()*getConfig().getInt("claims.per-member",2));
+            if(f.claims.size()+1>maxClaims) {
+                p.sendMessage(color("&cYour faction claim limit is "+maxClaims+" chunks."));
                 return true;
             }
             f.claims.add(ck);
@@ -1698,6 +1699,9 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
                 f.name=s.getString("name",k);
                 f.leader=s.getString("leader","");
                 f.members.addAll(s.getStringList("members"));
+                f.dtr=s.getDouble("dtr", Math.min(getConfig().getDouble("dtr.max-cap",5.5), Math.max(getConfig().getDouble("dtr.max-per-member",1.1), f.members.size()*getConfig().getDouble("dtr.max-per-member",1.1))));
+                f.dtrFrozenUntil=s.getLong("dtr-frozen-until",0L);
+                f.wasRaidable=isRaidable(f);
                 f.invites.addAll(s.getStringList("invites"));
                 f.claims.addAll(s.getStringList("claims"));
                 if(s.isConfigurationSection("home")) {

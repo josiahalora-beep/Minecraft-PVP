@@ -408,6 +408,7 @@ final class SimWorldDirector {
             advance(f);
         }
 
+        maybeResolveOffscreenBrawl();
         save();
     }
 
@@ -1207,7 +1208,8 @@ final class SimWorldDirector {
      * participants stay WARM/COLD until a HOT slot becomes relevant.
      */
     int hotCombatBudget() {
-        return Math.max(4, Math.min(12, plugin.getConfig().getInt("combat-director.hot-body-budget", 8)));
+        int configured = Math.max(4, Math.min(12, plugin.getConfig().getInt("combat-director.hot-body-budget", 8)));
+        return plugin.adaptiveHotBodyBudget(configured);
     }
 
     int hotCombatPerFactionCap() {
@@ -1219,6 +1221,111 @@ final class SimWorldDirector {
         if (totalParticipants <= budget) return "ALL_HOT";
         if (ownerObserving) return "OWNER_BUBBLE_PRIORITY_" + budget;
         return factionsNearby >= 3 ? "COLD_RESOLVE_WITH_" + Math.min(4, budget) + "_REPRESENTATIVES" : "ROTATE_HOT_" + budget;
+    }
+
+    private void maybeResolveOffscreenBrawl() {
+        if (sotwProtectionActive() || rng.nextInt(100) >= plugin.getConfig().getInt("combat-director.offscreen-brawl-chance-percent", 12)) return;
+
+        List<SimFaction> ready = new ArrayList<SimFaction>();
+        for (SimFaction f : factions.values()) {
+            if (f.stage != Stage.PVP_READY || f.recoveryMode || plugin.factionRaidable(f.name)) continue;
+            ready.add(f);
+        }
+        if (ready.size() < 2) return;
+
+        // Prefer fights near creator/power-faction neighborhoods.
+        SimFaction anchor = ready.get(rng.nextInt(ready.size()));
+        for (SimFaction f : ready) {
+            SimPlayer leader = players.get(key(f.leader));
+            if (leader != null && plugin.isCreatorIdentity(leader.name) && rng.nextInt(100) < 70) {
+                anchor = f;
+                break;
+            }
+        }
+
+        int radius = plugin.getConfig().getInt("combat-director.brawl-radius", 420);
+        List<SimFaction> cluster = new ArrayList<SimFaction>();
+        for (SimFaction f : ready) {
+            long dx = (long)f.baseX - anchor.baseX;
+            long dz = (long)f.baseZ - anchor.baseZ;
+            if (dx*dx + dz*dz <= (long)radius*radius) cluster.add(f);
+        }
+        if (cluster.size() < 2) return;
+
+        Collections.shuffle(cluster, rng);
+        while (cluster.size() > 4) cluster.remove(cluster.size()-1);
+
+        // Recovery factions never get dragged back into a brawl.
+        SimFaction loser = weightedBrawlLoser(cluster);
+        if (loser == null) return;
+
+        SimPlayer victim = weakestExposedMember(loser);
+        if (victim == null) return;
+
+        plugin.applySimulatedFactionDeath(loser.name, victim.name);
+
+        // A death also consumes some combat stock rather than duplicating gear/pots.
+        loser.healPots = Math.max(0, loser.healPots - 10 - rng.nextInt(10));
+        loser.pearls = Math.max(0, loser.pearls - 2 - rng.nextInt(4));
+        if (victim.combatClass == CombatClass.DIAMOND && loser.p4Sets > 0) loser.p4Sets--;
+        if (loser.sharp4Swords > 0 && victim.combatClass == CombatClass.DIAMOND) loser.sharp4Swords--;
+
+        ChatEvent event = new ChatEvent(victim.name, rng.nextBoolean() ? "gg" : "got jumped");
+        // Reuse chat cooldown path naturally on the next pulse by storing no synthetic loot.
+    }
+
+    private SimFaction weightedBrawlLoser(List<SimFaction> cluster) {
+        double totalInverse = 0.0;
+        List<Double> weights = new ArrayList<Double>();
+        for (SimFaction f : cluster) {
+            double strength = factionFightStrength(f);
+            double w = 1.0 / Math.max(1.0, strength);
+            weights.add(w);
+            totalInverse += w;
+        }
+        if (totalInverse <= 0) return null;
+        double roll = rng.nextDouble() * totalInverse;
+        for (int i=0;i<cluster.size();i++) {
+            roll -= weights.get(i);
+            if (roll <= 0) return cluster.get(i);
+        }
+        return cluster.get(cluster.size()-1);
+    }
+
+    private double factionFightStrength(SimFaction f) {
+        double score = 0;
+        int n = 0;
+        for (String member : f.members) {
+            SimPlayer p = players.get(key(member));
+            if (p == null) continue;
+            score += p.skill * 1.0 + p.teamwork * 0.35 + p.aggression * 0.12;
+            if (p.combatClass == CombatClass.BARD) score += 16;
+            else if (p.combatClass == CombatClass.ARCHER) score += 9;
+            else if (p.combatClass == CombatClass.ROGUE) score += 6;
+            n++;
+        }
+        if (n == 0) return 1;
+        score /= n;
+        score += Math.min(f.members.size(),3) * 7;
+        if (f.healPots >= f.members.size()*20) score += 8;
+        if (f.pearls >= f.members.size()*6) score += 5;
+        return score;
+    }
+
+    private SimPlayer weakestExposedMember(SimFaction f) {
+        List<SimPlayer> candidates = new ArrayList<SimPlayer>();
+        for (String member : f.members) {
+            SimPlayer p = players.get(key(member));
+            if (p != null) candidates.add(p);
+        }
+        if (candidates.isEmpty()) return null;
+        Collections.sort(candidates, new Comparator<SimPlayer>() {
+            public int compare(SimPlayer a, SimPlayer b) {
+                return Integer.compare(a.skill + a.teamwork/3, b.skill + b.teamwork/3);
+            }
+        });
+        int bound = Math.min(2, candidates.size());
+        return candidates.get(rng.nextInt(bound));
     }
 
     private void seedStock(SimPlayer p) {

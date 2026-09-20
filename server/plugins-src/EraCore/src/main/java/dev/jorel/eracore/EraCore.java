@@ -52,6 +52,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     private HcfClassDirector hcfClasses;
     private HcfBaseBuilder hcfBaseBuilder;
     private HcfZoneDisplayDirector hcfZones;
+    private LogicalTabListDirector logicalTab;
 
     enum Rank {
         MEMBER(0, "&7[Member]", 24),
@@ -118,6 +119,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         hcfClasses = new HcfClassDirector(this);
         hcfBaseBuilder = new HcfBaseBuilder(this);
         hcfZones = new HcfZoneDisplayDirector(this, warpManager);
+        logicalTab = new LogicalTabListDirector(this, simWorld);
         bindCommands();
         getServer().getPluginManager().registerEvents(this, this);
         hookTickTimes();
@@ -125,6 +127,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         startPowerRegen();
         startDtrRegen();
         simWorld.start();
+        logicalTab.start();
         new BukkitRunnable() {
             public void run() {
                 if (simWorld != null) simWorld.refreshVisibleCombat();
@@ -156,6 +159,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     @Override public void onDisable() {
         if (spawnPresence != null) spawnPresence.stop();
+        if (logicalTab != null) logicalTab.stop();
         if (hcfZones != null) hcfZones.stop();
         if (hcfClasses != null) hcfClasses.stop();
         if (hcfBaseBuilder != null) hcfBaseBuilder.stop();
@@ -254,9 +258,10 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
         maybeClaimOwner(p);
         ensurePlayerData(p);
-        Rank r = getRank(p.getName());
+        Rank r = bot ? simRankFor(p.getName()) : getRank(p.getName());
         applyCreatorTag(p);
         p.setPlayerListName(color(identityPrefix(p.getName(), r) + "&f" + p.getName()));
+        if (bot && logicalTab != null) logicalTab.onPhysicalJoin(p);
 
         // HOT/COLD body promotion is an implementation detail, not a logical
         // login. Suppress those technical join messages and fan reactions.
@@ -268,6 +273,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         }
 
         if (spawnPresence != null) spawnPresence.showTo(p);
+        if (logicalTab != null && !bot) logicalTab.showTo(p);
     }
 
     @EventHandler(priority=EventPriority.HIGHEST) public void onQuit(PlayerQuitEvent e) {
@@ -278,6 +284,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
                 combatPreparedFight.remove(p.getName().toLowerCase(Locale.ENGLISH));
             }
             e.setQuitMessage(null);
+            if (logicalTab != null) logicalTab.onPhysicalQuit(p.getName());
             return;
         }
         Rank r = getRank(p.getName());
@@ -307,7 +314,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             if (owner != null && !f.members.contains(owner.getName())) owner.sendMessage(msg);
             return;
         }
-        Rank r = getRank(p.getName());
+        Rank r = isBotIdentity(p.getName()) ? simRankFor(p.getName()) : getRank(p.getName());
         e.setFormat(color(identityPrefix(p.getName(), r) + "&f" + p.getName() + factionSuffix(p.getName()) + "&7: &f") + "%2$s");
         final String chatText = e.getMessage();
         if (simChat != null) {
@@ -584,6 +591,15 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     int simulatedDonorLevel(String name) {
         return simRankFor(name).level;
+    }
+
+    String simulatedPrimaryPrefix(String name) {
+        if (isCreatorIdentity(name)) return "&c[YT] ";
+        return simRankFor(name).prefix + " ";
+    }
+
+    int logicalPopulationCount() {
+        return simWorld == null ? 0 : simWorld.allIdentityNames().size();
     }
 
     static String colorText(String s) {

@@ -581,7 +581,9 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (!ownerOnly(p)) return true;
         warpManager.setSpawn(p.getLocation());
         warpManager.setWarp("spawn", p.getLocation());
-        p.sendMessage(color("&aSpawn set."));
+        p.getWorld().setSpawnLocation(p.getLocation().getBlockX(),p.getLocation().getBlockY(),p.getLocation().getBlockZ());
+        configureWorldBorders();
+        p.sendMessage(color("&aSpawn set. World borders re-centered here."));
         return true;
     }
 
@@ -924,7 +926,9 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             if (worlds.isEmpty()) return;
 
             World overworld = worlds.get(0);
-            Location center = overworld.getSpawnLocation();
+            Location center = (warpManager != null && warpManager.getSpawn() != null)
+                ? warpManager.getSpawn()
+                : overworld.getSpawnLocation();
             WorldBorder border = overworld.getWorldBorder();
             border.setCenter(center.getX(), center.getZ());
             border.setSize(Math.max(512.0, getConfig().getDouble("map.world-border", 3000.0)));

@@ -272,7 +272,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     void broadcastSimulatedPresence(String name, boolean joining) {
         if (!hasHumanOnline()) return;
-        Rank rank = simRank(name);
+        Rank rank = simRankFor(name);
         String marker = joining ? "&8[&a+&8] " : "&8[&c-&8] ";
         Bukkit.broadcastMessage(color(marker + identityPrefix(name,rank) + "&f" + name + factionSuffix(name)));
     }

@@ -114,6 +114,47 @@ final class HcfBaseBuilder {
         return new int[]{median,relief,liquid};
     }
 
+    void queueFoundationRepair(String faction, String preset, String trapPreset, int cx, int y, int cz) {
+        String key = "foundation:" + faction.toLowerCase();
+        if (!completed.add(key)) return;
+
+        World world = Bukkit.getWorlds().get(0);
+        if (world == null) return;
+
+        int radius = basePadRadius(preset,trapPreset);
+        fillFoundationOnly(world,cx,y,cz,radius,radius);
+
+        // Reapply the selected preset after the foundation has been repaired.
+        // This restores missing/clipped structure blocks without re-terraforming
+        // the already-built interior from scratch.
+        if ("hcf_courtyard".equalsIgnoreCase(preset)) buildCourtyard(world,cx,y,cz);
+        else if ("hcf_brewer_base".equalsIgnoreCase(preset)) buildGlassBox(world,cx,y,cz,true);
+        else if ("hcf_trap_base".equalsIgnoreCase(preset)) buildTrapHouse(world,cx,y,cz);
+        else if ("hcf_compact_2015".equalsIgnoreCase(preset)) buildCompact2015(world,cx,y,cz);
+        else if ("hcf_split_level".equalsIgnoreCase(preset)) buildSplitLevel(world,cx,y,cz);
+        else if ("hcf_archer_tower".equalsIgnoreCase(preset)) buildArcherTower(world,cx,y,cz);
+        else if ("hcf_double_layer".equalsIgnoreCase(preset)) buildDoubleLayer(world,cx,y,cz);
+        else buildGlassBox(world,cx,y,cz,false);
+
+        if ("fall_trap".equalsIgnoreCase(trapPreset)) buildFallTrap(world,cx,y,cz);
+        ensureRunner();
+    }
+
+    private void fillFoundationOnly(World w,int cx,int y,int cz,int rx,int rz) {
+        for(int x=cx-rx;x<=cx+rx;x++) {
+            for(int z=cz-rz;z<=cz+rz;z++) {
+                int surface=solidSurfaceY(w,x,z);
+                if(surface>=y-1) continue;
+
+                int from=Math.max(2,surface+1);
+                for(int yy=from;yy<y;yy++) {
+                    Material fill=(yy>=y-3)?Material.DIRT:Material.STONE;
+                    queue.add(new Op(w,x,yy,z,fill));
+                }
+            }
+        }
+    }
+
     void queueTerrainRepair(String faction, String preset, String trapPreset, int cx, int y, int cz) {
         String key = "terrain:" + faction.toLowerCase();
         if (!completed.add(key)) return;

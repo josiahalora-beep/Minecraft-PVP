@@ -142,19 +142,12 @@ final class HcfBaseBuilder {
         int radius = basePadRadius(preset,trapPreset);
         fillFoundationOnly(world,cx,y,cz,radius,radius);
 
-        // Reapply the selected preset after the foundation has been repaired.
-        // This restores missing/clipped structure blocks without re-terraforming
-        // the already-built interior from scratch.
-        if ("hcf_courtyard".equalsIgnoreCase(preset)) buildCourtyard(world,cx,y,cz);
-        else if ("hcf_brewer_base".equalsIgnoreCase(preset)) buildGlassBox(world,cx,y,cz,true);
-        else if ("hcf_trap_base".equalsIgnoreCase(preset)) buildTrapHouse(world,cx,y,cz);
-        else if ("hcf_compact_2015".equalsIgnoreCase(preset)) buildCompact2015(world,cx,y,cz);
-        else if ("hcf_split_level".equalsIgnoreCase(preset)) buildSplitLevel(world,cx,y,cz);
-        else if ("hcf_archer_tower".equalsIgnoreCase(preset)) buildArcherTower(world,cx,y,cz);
-        else if ("hcf_double_layer".equalsIgnoreCase(preset)) buildDoubleLayer(world,cx,y,cz);
-        else buildGlassBox(world,cx,y,cz,false);
-
-        if ("fall_trap".equalsIgnoreCase(trapPreset)) buildFallTrap(world,cx,y,cz);
+        // Repairs must never rebuild live walls around online players. Only fill
+        // missing support below grade, retrofit a guaranteed walkable home pocket,
+        // and install/clear the canonical fence-gate entrance.
+        clearHomePocket(world,cx,y,cz);
+        doorway(world,cx,y,frontZForPreset(preset,cz));
+        rescueEmbeddedPlayers(world,cx,y,cz,radius);
         ensureRunner();
     }
 
@@ -267,6 +260,13 @@ final class HcfBaseBuilder {
                 int n = 0;
                 while (n < budget && !queue.isEmpty()) {
                     Op op = queue.poll();
+                    // Never materialize a solid repair/build block through a live
+                    // player's feet or head. Skipping one cosmetic/support block is
+                    // preferable to suffocating or trapping a player in a wall.
+                    if (op.material != Material.AIR && intersectsPlayer(op)) {
+                        n++;
+                        continue;
+                    }
                     Block b = op.world.getBlockAt(op.x,op.y,op.z);
                     b.setType(op.material);
                     if (op.data != 0) b.setData(op.data);
@@ -301,10 +301,9 @@ final class HcfBaseBuilder {
             }
         }
 
-        // Front entrance.
-        for (int yy=y+1;yy<=y+3;yy++) {
-            for (int x=cx-1;x<=cx+1;x++) queue.add(new Op(w,x,yy,cz-half,Material.AIR));
-        }
+        // Front entrance: a real three-wide HCF fence-gate doorway with
+        // guaranteed headroom and approach clearance.
+        doorway(w,cx,y,cz-half);
 
         // Inner secure room / panic room.
         for (int x=cx-4;x<=cx+4;x++) {
@@ -315,7 +314,7 @@ final class HcfBaseBuilder {
                 }
             }
         }
-        for (int yy=y+1;yy<=y+2;yy++) queue.add(new Op(w,cx,yy,cz-4,Material.AIR));
+        doorway(w,cx,y,cz-4);
 
         // Storage room chests.
         for (int x=cx-8;x<=cx-5;x++) {
@@ -358,6 +357,9 @@ final class HcfBaseBuilder {
             }
         }
         for(int yy=y+1;yy<=y+2;yy++) queue.add(new Op(w,cx,yy,cz-5,Material.AIR));
+
+        doorway(w,cx,y,cz-half);
+        doorway(w,cx,y,cz-5);
 
         // cane strip in courtyard
         for(int x=cx-11;x<=cx-7;x++) {
@@ -437,7 +439,7 @@ final class HcfBaseBuilder {
                 if(edge) queue.add(new Op(w,x,yy,z,Material.SMOOTH_BRICK));
             }
         }
-        for(int yy=y+1;yy<=y+2;yy++) queue.add(new Op(w,cx,yy,cz-inner,Material.AIR));
+        doorway(w,cx,y,cz-inner);
         for(int x=cx-5;x<=cx-2;x++) {
             queue.add(new Op(w,x,y+1,cz+5,Material.CHEST));
             queue.add(new Op(w,x,y+2,cz+5,Material.CHEST));
@@ -472,8 +474,64 @@ final class HcfBaseBuilder {
     }
 
     private void doorway(World w,int cx,int y,int frontZ) {
-        for(int yy=y+1;yy<=y+3;yy++) for(int x=cx-1;x<=cx+1;x++)
-            queue.add(new Op(w,x,yy,frontZ,Material.AIR));
+        // Clear both sides of the wall so a gate can never open into a solid
+        // block, hill remnant, chest, or repair artifact.
+        for(int z=frontZ-2;z<=frontZ+2;z++) {
+            for(int x=cx-1;x<=cx+1;x++) {
+                for(int yy=y+1;yy<=y+3;yy++) queue.add(new Op(w,x,yy,z,Material.AIR));
+            }
+        }
+        // Three gates provide a proper HCF entrance rather than an unprotected
+        // hole in the shell. Data 0 is a valid north/south gate orientation in 1.8.
+        for(int x=cx-1;x<=cx+1;x++) queue.add(new Op(w,x,y+1,frontZ,Material.FENCE_GATE,(byte)0));
+        for(int x=cx-1;x<=cx+1;x++) {
+            queue.add(new Op(w,x,y+2,frontZ,Material.AIR));
+            queue.add(new Op(w,x,y+3,frontZ,Material.AIR));
+        }
+    }
+
+    private int frontZForPreset(String preset,int cz) {
+        int half=12;
+        if ("hcf_courtyard".equalsIgnoreCase(preset)) half=14;
+        else if ("hcf_compact_2015".equalsIgnoreCase(preset)) half=9;
+        else if ("hcf_split_level".equalsIgnoreCase(preset)) half=11;
+        else if ("hcf_archer_tower".equalsIgnoreCase(preset)) half=10;
+        else if ("hcf_double_layer".equalsIgnoreCase(preset)) half=13;
+        return cz-half;
+    }
+
+    private void clearHomePocket(World w,int cx,int y,int cz) {
+        for(int x=cx-1;x<=cx+1;x++) {
+            for(int z=cz-1;z<=cz+1;z++) {
+                for(int yy=y+1;yy<=y+3;yy++) queue.add(new Op(w,x,yy,z,Material.AIR));
+            }
+        }
+    }
+
+    private boolean intersectsPlayer(Op op) {
+        for(org.bukkit.entity.Player p:op.world.getPlayers()) {
+            Location l=p.getLocation();
+            int px=l.getBlockX();
+            int pz=l.getBlockZ();
+            int py=l.getBlockY();
+            if(px==op.x && pz==op.z && (op.y==py || op.y==py+1)) return true;
+        }
+        return false;
+    }
+
+    private void rescueEmbeddedPlayers(World w,int cx,int y,int cz,int radius) {
+        Location safe=new Location(w,cx+0.5,y+1.0,cz+0.5);
+        // Make the emergency pocket immediately safe before queued repair ops run.
+        w.getBlockAt(cx,y+1,cz).setType(Material.AIR);
+        w.getBlockAt(cx,y+2,cz).setType(Material.AIR);
+        w.getBlockAt(cx,y+3,cz).setType(Material.AIR);
+        for(org.bukkit.entity.Player p:w.getPlayers()) {
+            Location l=p.getLocation();
+            if(Math.abs(l.getX()-cx)>radius+2 || Math.abs(l.getZ()-cz)>radius+2) continue;
+            Material feet=w.getBlockAt(l.getBlockX(),l.getBlockY(),l.getBlockZ()).getType();
+            Material head=w.getBlockAt(l.getBlockX(),l.getBlockY()+1,l.getBlockZ()).getType();
+            if(feet.isSolid() || head.isSolid()) p.teleport(safe);
+        }
     }
 
     private void tower(World w,int cx,int y,int cz,int half,int height) {

@@ -358,6 +358,7 @@ final class SimWorldDirector {
         int speedPots;
         int firePots;
         int minerIron;
+        boolean personal;
     }
 
     private final EraCore plugin;
@@ -459,7 +460,7 @@ final class SimWorldDirector {
     }
 
     void repairExistingBaseTerrainAndClaims() {
-        if (data.getInt("meta.terrain-repair-version",0) >= 6) return;
+        if (data.getInt("meta.terrain-repair-version",0) >= 7) return;
 
         org.bukkit.World world=Bukkit.getWorlds().get(0);
         if(world==null) return;
@@ -467,10 +468,9 @@ final class SimWorldDirector {
         for(SimFaction f : factions.values()) {
             if(f.baseX==0 && f.baseZ==0) continue;
 
-            // Version 6 is an intentional structural migration. Rebuild the
-            // complete selected template so legacy detached rooms, partial
-            // doors and single-chest vaults are replaced consistently. This
-            // also reconstructs bases after an optional world reset.
+            // Version 7 replaces the clone-like prefab shells with deterministic
+            // faction blueprints and repairs any holes left by occupied build ops.
+            // Terrain preparation clears the old structure before the new plan grows.
             plugin.queueSimBaseBuild(f.name,f.basePreset,f.trapPreset,f.baseX,f.baseY,f.baseZ);
             if(f.brewer) plugin.queueSimBrewerBuild(f.name,f.basePreset,f.baseX,f.baseY,f.baseZ);
 
@@ -479,7 +479,7 @@ final class SimWorldDirector {
             org.bukkit.Location home=new org.bukkit.Location(world,f.baseX+0.5,f.baseY+1,f.baseZ+0.5);
             plugin.setSimFactionHomeAndClaims(f.name,home,desired);
         }
-        data.set("meta.terrain-repair-version",6);
+        data.set("meta.terrain-repair-version",7);
         save();
     }
 
@@ -548,7 +548,21 @@ final class SimWorldDirector {
             return false;
         }
 
-        // Physical HCF loadout matches the authoritative readiness gate.
+        // A HOT DIAMOND body that already claimed and equipped a donor/creator
+        // kit can fight immediately without pretending that P1/P2/P3 gear is P4.
+        if(type==CombatClass.DIAMOND && hasPersonalPhysicalCombatKit(p)) {
+            CombatReservation r=new CombatReservation();
+            r.fightId=fightId;
+            r.name=p.name;
+            r.faction=f.name;
+            r.type=type;
+            r.personal=true;
+            combatReservations.put(key(name),r);
+            save();
+            return true;
+        }
+
+        // Otherwise withdraw a full faction-stock HCF loadout.
         int heal=24;
         int pearls=8;
         int speed=2;
@@ -597,10 +611,20 @@ final class SimWorldDirector {
         return combatReservations.containsKey(key(name));
     }
 
+    boolean personalCombatReservationFor(String name,String fightId) {
+        CombatReservation r=combatReservations.get(key(name));
+        return r!=null && r.personal && (fightId==null || fightId.equals(r.fightId));
+    }
+
     String releaseCombatLoadout(Player body) {
         if(body==null) return "none";
         CombatReservation r=combatReservations.remove(key(body.getName()));
         if(r==null) return "none";
+
+        if(r.personal) {
+            save();
+            return "personal-kit";
+        }
 
         SimFaction f=factions.get(key(r.faction));
         if(f==null) {
@@ -995,7 +1019,8 @@ final class SimWorldDirector {
     private VisibleFight createVisibleFight(Player observer) {
         List<SimFaction> allReady=new ArrayList<SimFaction>();
         for(SimFaction f:factions.values()) {
-            if((f.stage!=Stage.PVP_READY && f.stage!=Stage.GEARING) ||
+            boolean openingKit=personalCombatSlots(f)>0;
+            if((f.stage!=Stage.PVP_READY && f.stage!=Stage.GEARING && !openingKit) ||
                f.recoveryMode || plugin.factionRaidable(f.name) || combatStockSlots(f)<=0) continue;
             int active=0;
             for(String member:f.members) {
@@ -1378,8 +1403,8 @@ final class SimWorldDirector {
         List<SimPlayer> chosen=new ArrayList<SimPlayer>();
         for(SimPlayer p:xs) {
             if(chosen.size()>=slots) break;
-            boolean available=false;
-            if(p.combatClass==CombatClass.DIAMOND && diamond>0) { diamond--; available=true; }
+            boolean available=hasPersonalPhysicalCombatKit(p);
+            if(!available && p.combatClass==CombatClass.DIAMOND && diamond>0) { diamond--; available=true; }
             else if(p.combatClass==CombatClass.BARD && bard>0) { bard--; available=true; }
             else if(p.combatClass==CombatClass.ARCHER && archer>0) { archer--; available=true; }
             else if(p.combatClass==CombatClass.ROGUE && rogue>0) { rogue--; available=true; }
@@ -4987,6 +5012,33 @@ final class SimWorldDirector {
         save();
     }
 
+    private boolean hasPersonalPhysicalCombatKit(SimPlayer p) {
+        if(p==null || p.combatClass!=CombatClass.DIAMOND) return false;
+        Player body=Bukkit.getPlayerExact(p.name);
+        if(body==null || !body.isOnline()) return false;
+
+        int diamondPieces=countArmorPieces(body,Material.DIAMOND_HELMET,Material.DIAMOND_CHESTPLATE,
+            Material.DIAMOND_LEGGINGS,Material.DIAMOND_BOOTS);
+        int swords=0;
+        for(org.bukkit.inventory.ItemStack item:allPhysicalItems(body)) {
+            if(item==null) continue;
+            if(item.getType()==Material.DIAMOND_SWORD || item.getType()==Material.IRON_SWORD) swords+=item.getAmount();
+        }
+        int heals=countPotion(body,(short)16421);
+        int pearls=countMaterial(body,Material.ENDER_PEARL);
+        return diamondPieces>=4 && swords>=1 && heals>=6 && pearls>=4;
+    }
+
+    private int personalCombatSlots(SimFaction f) {
+        if(f==null) return 0;
+        int n=0;
+        for(String member:f.members) {
+            SimPlayer p=players.get(key(member));
+            if(hasPersonalPhysicalCombatKit(p)) n++;
+        }
+        return n;
+    }
+
     private boolean combatReady(SimFaction f) {
         // Deep-stock readiness remains useful for strategy/UI, but no longer
         // blocks the first geared member from roaming.
@@ -4995,6 +5047,7 @@ final class SimWorldDirector {
 
     private int combatStockSlots(SimFaction f) {
         if(f==null) return 0;
+        int personal=personalCombatSlots(f);
         int gear=Math.max(0,Math.min(f.p4Sets,f.sharp4Swords))+
             Math.max(0,f.bardSets)+Math.max(0,f.archerSets)+Math.max(0,f.rogueSets)+
             Math.max(0,f.iron/24);
@@ -5002,11 +5055,13 @@ final class SimWorldDirector {
             Math.min(Math.max(0,f.healPots/24),Math.max(0,f.pearls/8)),
             Math.min(Math.max(0,f.speedPots/2),Math.max(0,f.firePots))
         );
-        return Math.max(0,Math.min(gear,consumables));
+        return Math.max(0,personal+Math.min(gear,consumables));
     }
 
     private boolean canFieldCombatant(SimFaction f,SimPlayer p) {
-        if(f==null || p==null || combatStockSlots(f)<=0) return false;
+        if(f==null || p==null) return false;
+        if(hasPersonalPhysicalCombatKit(p)) return true;
+        if(combatStockSlots(f)<=0) return false;
         if(f.healPots<24 || f.pearls<8 || f.speedPots<2 || f.firePots<1) return false;
         if(p.combatClass==CombatClass.DIAMOND) return f.p4Sets>0 && f.sharp4Swords>0;
         if(p.combatClass==CombatClass.BARD) return f.bardSets>0;
@@ -5403,6 +5458,7 @@ final class SimWorldDirector {
             p.kills = s.getInt("kills", 0);
             p.deaths = s.getInt("deaths", 0);
             p.donorLevel = s.getInt("donor-level", initialDonorLevel(p.name));
+            applyCreatorOpeningAccess(p);
             p.donationUsd = s.getDouble("donation-usd", initialDonationUsd(p.donorLevel));
             p.staffRole = s.getString("staff-role", "");
             p.ownerAffinity = s.getInt("owner-affinity", rng.nextInt(31)-5);
@@ -5599,6 +5655,7 @@ final class SimWorldDirector {
             p.role=p.preferredJob;
             p.factionTitle="member";
             p.combatClass=classFor(p);
+            applyCreatorOpeningAccess(p);
             int lq=leaderQuality(p);
             p.leaderCandidate=lq>=76 ||
                 (p.reputation>=15 && p.leadership>=68 && p.decisiveness>=65);
@@ -5686,6 +5743,7 @@ final class SimWorldDirector {
             p.role = p.preferredJob;
             p.factionTitle = "member";
             p.combatClass = classFor(p);
+            applyCreatorOpeningAccess(p);
 
             // Leadership is separate from PvP. Strong public PvPers can become
             // leaders, but most serious factions are seeded by people with
@@ -6840,11 +6898,27 @@ final class SimWorldDirector {
 
     private int initialDonorLevel(String name) {
         int roll=Math.abs(key(name).hashCode())%100;
-        if(roll<66) return 0;
-        if(roll<82) return 1;
-        if(roll<92) return 2;
-        if(roll<98) return 3;
-        return 4;
+        int level;
+        if(roll<66) level=0;
+        else if(roll<82) level=1;
+        else if(roll<92) level=2;
+        else if(roll<98) level=3;
+        else level=4;
+        if(plugin.isCreatorIdentity(name)) {
+            int floor=Math.max(0,Math.min(4,plugin.getConfig().getInt("creator-tag.minimum-donor-level",3)));
+            level=Math.max(level,floor);
+        }
+        return level;
+    }
+
+    private void applyCreatorOpeningAccess(SimPlayer p) {
+        if(p==null || !plugin.isCreatorIdentity(p.name)) return;
+        int floor=Math.max(0,Math.min(4,plugin.getConfig().getInt("creator-tag.minimum-donor-level",3)));
+        p.donorLevel=Math.max(p.donorLevel,floor);
+        // The configured creator roster represents PotPvP/HCF personalities.
+        // They open the map as DIAMOND fighters; support classes stay available
+        // to ordinary faction members instead of forcing a creator into Miner iron.
+        p.combatClass=CombatClass.DIAMOND;
     }
 
     String factionTitleFor(String name) {

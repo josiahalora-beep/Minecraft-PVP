@@ -423,6 +423,15 @@ async function commandBrain(state) {
     return
   }
 
+  // Use shared faction storage as a real armory. Members near home periodically
+  // refill missing role gear and consumables from what teammates banked.
+  if(faction!=='none' && !tagged && nearAssignedHome(state) &&
+     now-(state.lastGearRequestAt || 0)>(action==='gear'?3500:18000)) {
+    state.lastGearRequestAt=now
+    try { bot.chat('/simworker gearup') } catch {}
+    if(action==='gear') return
+  }
+
   // Donor value is faction value: safely return home, claim the highest kit
   // first, equip what is useful, stash excess, then work down through every
   // lower donor rank. Server cooldowns decide whether each attempt succeeds.
@@ -671,11 +680,29 @@ function gearScore(name) {
   return 0
 }
 
-function bestInventoryItem(bot, suffix) {
+function roleArmorPrefix(className) {
+  const cls=String(className || 'DIAMOND').toUpperCase()
+  if(cls==='BARD') return ['golden_','gold_']
+  if(cls==='ARCHER') return ['leather_']
+  if(cls==='ROGUE') return ['chainmail_']
+  if(cls==='MINER') return ['iron_']
+  return ['diamond_']
+}
+
+function roleGearScore(name,className) {
+  const n=String(name || '')
+  const base=gearScore(n)
+  const preferred=roleArmorPrefix(className).some(prefix=>n.startsWith(prefix))
+  // Role armor is more important than raw material for HCF classes because
+  // server class effects require a complete matching set.
+  return (preferred?10000:0)+base
+}
+
+function bestInventoryItem(bot, suffix, className) {
   let best=null,bestScore=-1
   for (const item of bot.inventory.items()) {
     if (!String(item.name || '').endsWith(suffix)) continue
-    const score=gearScore(item.name)
+    const score=roleGearScore(item.name,className)
     if (score>bestScore) { best=item; bestScore=score }
   }
   return best
@@ -692,10 +719,11 @@ async function equipBestArmor(state) {
   ]
   let changed=false
   for (const [suffix,dest,slot] of pieces) {
-    const best=bestInventoryItem(bot,suffix)
+    const cls=String(state.job?.class || 'DIAMOND')
+    const best=bestInventoryItem(bot,suffix,cls)
     if (!best) continue
     const current=bot.inventory.slots?.[slot]
-    if (gearScore(current?.name) >= gearScore(best.name)) continue
+    if (roleGearScore(current?.name,cls) >= roleGearScore(best.name,cls)) continue
     try { await bot.equip(best,dest); changed=true; await sleep(45) } catch {}
   }
   return changed
@@ -704,7 +732,10 @@ async function equipBestArmor(state) {
 async function equipBestWeapon(state) {
   const bot=state.bot
   if (!bot?.entity) return false
-  const names=['diamond_sword','iron_sword','stone_sword','golden_sword','gold_sword','wooden_sword','wood_sword']
+  const cls=String(state.job?.class || 'DIAMOND').toUpperCase()
+  const names=cls==='ROGUE'
+    ? ['golden_sword','gold_sword','diamond_sword','iron_sword','stone_sword','wooden_sword','wood_sword']
+    : ['diamond_sword','iron_sword','stone_sword','golden_sword','gold_sword','wooden_sword','wood_sword']
   let item=null
   for(const name of names) {
     item=bot.inventory.items().find(i=>i.name===name)
@@ -1048,7 +1079,12 @@ async function performPluginInteraction(state) {
   }
   if(interaction==='storage') {
     const block=closestSemanticBlock(state,['chest','trapped_chest'],11)
-    return await approachAndActivate(state,block,true)
+    const used=await approachAndActivate(state,block,true)
+    if(used && Date.now()-(state.lastGearRequestAt || 0)>1800) {
+      state.lastGearRequestAt=Date.now()
+      try { state.bot.chat('/simworker gearup') } catch {}
+    }
+    return used
   }
   return false
 }
@@ -1413,6 +1449,7 @@ async function connectIdentity(candidate, settings) {
     crateOpensThisTrip: 0,
     crateReturnNeeded: false,
     lastSemanticInteractionAt: 0,
+    lastGearRequestAt: 0,
     lastGateOpenAt: 0,
     lastGatePassAt: 0,
     lastGateCloseAt: 0,
@@ -1457,11 +1494,14 @@ async function connectIdentity(candidate, settings) {
         const starter=low.includes('starter')
         setTimeout(async () => {
           await maintainSurvival(state,true).catch(() => {})
-          // Donor kit overflow belongs to the faction. Keep one usable loadout,
-          // stash duplicates and excess consumables into the organized vault.
-          if(!starter && state.bot?.entity) {
-            await sleep(450)
-            try { state.bot.chat('/simworker stash') } catch {}
+          // Process every successful kit through one authoritative cycle:
+          // role-correct equipment first, excess into faction storage, then a
+          // final refill from shared stock. Starter kits use the same logic so
+          // class pieces are equipped instead of sitting in inventory.
+          if(state.bot?.entity) {
+            await sleep(starter?220:450)
+            state.lastGearRequestAt=Date.now()
+            try { state.bot.chat('/simworker kitcycle') } catch {}
           }
         }, 250)
       }

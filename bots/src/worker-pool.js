@@ -17,6 +17,8 @@ const communityAiServer = startCommunityAiBridge()
 const live = new Map()
 let humanCount = 0
 let serverBudget = 16
+let appliedServerBudget = 16
+let budgetRecoveryCycles = 0
 let shuttingDown = false
 let lastCpu = process.cpuUsage()
 let lastCpuAt = process.hrtime.bigint()
@@ -1395,8 +1397,25 @@ function effectiveTarget(settings, data, combat = null) {
     .map(n => candidateForName(data, n, true))
     .filter(Boolean).length
 
+  const observedBudget=clamp(Number(serverBudget || settings.maxBodies),1,settings.maxBodies)
+  if(observedBudget < appliedServerBudget) {
+    // Performance trouble sheds load immediately.
+    appliedServerBudget=observedBudget
+    budgetRecoveryCycles=0
+  } else if(observedBudget > appliedServerBudget) {
+    // Recovery is intentionally slower so one good MSPT window cannot cause
+    // a 5 -> 12 body stampede on the next reconciliation.
+    budgetRecoveryCycles++
+    if(budgetRecoveryCycles>=3) {
+      appliedServerBudget=Math.min(observedBudget,appliedServerBudget+1)
+      budgetRecoveryCycles=0
+    }
+  } else {
+    budgetRecoveryCycles=0
+  }
+
   const requested = humanCount > 0 ? settings.maxBodies : settings.offlineBodies
-  let target = Math.min(requested, serverBudget || settings.maxBodies)
+  let target = Math.min(requested, appliedServerBudget)
 
   // Preserve creator bodies. Adaptive reduction sheds ordinary workers first.
   target = Math.max(creatorsPresent, target)
@@ -1447,7 +1466,7 @@ async function reconcile() {
 
     // Creator bodies are normally sticky, but during a visible fight an
     // unrelated creator must yield the slot to combat just like any other worker.
-    if (state?.pinned && !combatActive) continue
+    if (state?.pinned && !combatActive && wanted.has(lower)) continue
     if (wanted.has(lower)) continue
 
     const leaseExpired = Date.now() - (state.connectedAt || 0) >= settings.minimumLeaseMs
@@ -1456,7 +1475,7 @@ async function reconcile() {
 
     // Do not churn a useful body just because simulation.yml was momentarily
     // incomplete during a save or priorities changed by a tiny amount.
-    if (!leaseExpired && !combatActive) continue
+    if (!overCapacity && !leaseExpired && !combatActive) continue
     if (!overCapacity && !missingLongEnough && !combatActive) continue
 
     const replacement = desired.find(c => ![...live.keys()].some(n => n.toLowerCase() === c.name.toLowerCase()))
@@ -1471,6 +1490,7 @@ async function reconcile() {
   for (const cand of desired) {
     const current = [...live.keys()].find(n => n.toLowerCase() === cand.name.toLowerCase())
     if (!current) {
+      if(live.size>=target && !cand.combat) continue
       await connectIdentity(cand, settings)
       await sleep(400)
       continue
@@ -1513,6 +1533,7 @@ async function reconcile() {
     ' target=' + target +
     ' humans=' + humanCount +
     ' serverBudget=' + serverBudget +
+    ' appliedBudget=' + appliedServerBudget +
     ' nodeCPU=' + nodeCpuPct.toFixed(1) + '%' +
     ' rssMB=' + rss +
     ' candidates=' + candidatesFrom(data, settings, combat).length +

@@ -285,3 +285,11 @@ infrastructure:
   duel-floor-y: 70
   nether-y: 70
   end-y: 68
+
+spawn-build-protection:
+  # Square radius: protects all four spawn corners, not only the circular Safezone.
+  radius: 60
+  corner-pad: 10
+
+stuck:
+  cooldown-seconds: 60

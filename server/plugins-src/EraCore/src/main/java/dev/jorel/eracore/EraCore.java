@@ -2976,14 +2976,17 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         Material grade=world.getBlockAt(x,y,z).getType();
         if(!isWarzoneNatural(grade) && grade!=Material.AIR) return;
 
-        // Preserve any real build crossing this column. Trees, water and other
-        // natural clutter are fair game; chests/glass/brick/redstone are not.
-        for(int yy=y+1;yy<=Math.min(world.getMaxHeight()-1,y+13);yy++) {
+        // Preserve any real build crossing this column. Scan to the actual
+        // column top; the old y+13 ceiling was the source of floating mountain
+        // caps after the lower terrain had been flattened.
+        int clearTop=Math.min(world.getMaxHeight()-1,
+            Math.max(y+24,world.getHighestBlockYAt(x,z)+8));
+        for(int yy=y+1;yy<=clearTop;yy++) {
             Material m=world.getBlockAt(x,yy,z).getType();
             if(m!=Material.AIR && !isWarzoneNatural(m)) return;
         }
 
-        for(int yy=y+1;yy<=Math.min(world.getMaxHeight()-1,y+13);yy++) {
+        for(int yy=y+1;yy<=clearTop;yy++) {
             Material m=world.getBlockAt(x,yy,z).getType();
             if(m!=Material.AIR) world.getBlockAt(x,yy,z).setType(Material.AIR);
         }

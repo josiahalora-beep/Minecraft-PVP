@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import YAML from 'yaml'
 import { createBot, sleep, waitForSpawn, Movements, goals } from './common.js'
@@ -12,7 +13,17 @@ const combatFile = process.env.COMBAT_HOT_FILE || path.join(root, 'server', 'plu
 
 const FALLBACK_CREATORS = ['Stimpypvp', 'Marcel', 'PainfulPvP', 'lolitsalex', 'Skimpy']
 
-const communityAiServer = startCommunityAiBridge()
+const COORDINATOR_URL = String(process.env.WORKER_COORDINATOR_URL || '').replace(/\/$/, '')
+const COORDINATOR_TOKEN = String(process.env.WORKER_COORDINATOR_TOKEN || '')
+const NODE_ID = String(process.env.WORKER_NODE_ID || os.hostname()).replace(/[^A-Za-z0-9_.-]/g,'_').slice(0,64)
+const NODE_PRIORITY = Number(process.env.WORKER_NODE_PRIORITY || 0)
+const distributedMode = Boolean(COORDINATOR_URL)
+
+// In cluster mode the coordinator on the authoritative server owns the single
+// localhost LLM bridge. Worker nodes only run Minecraft bodies.
+const communityAiServer = distributedMode
+  ? (String(process.env.HCF_AI_LOCAL || '0') === '1' ? startCommunityAiBridge() : null)
+  : startCommunityAiBridge()
 
 const live = new Map()
 let humanCount = 0
@@ -44,8 +55,12 @@ function runtimeSettings() {
     : FALLBACK_CREATORS
 
   return {
-    maxBodies: clamp(Number(process.env.WORKER_MAX || w['max-bodies'] || 16), 1, 16),
-    offlineBodies: clamp(Number(process.env.WORKER_OFFLINE || w['offline-bodies'] || 10), 1, 16),
+    maxBodies: distributedMode
+      ? clamp(Number(process.env.WORKER_MAX || w['node-default-bodies'] || 12), 1, 32)
+      : clamp(Number(process.env.WORKER_MAX || w['max-bodies'] || 16), 1, 64),
+    offlineBodies: distributedMode
+      ? clamp(Number(process.env.WORKER_OFFLINE || process.env.WORKER_MAX || w['node-default-bodies'] || 12), 1, 32)
+      : clamp(Number(process.env.WORKER_OFFLINE || w['offline-bodies'] || 10), 1, 64),
     maxPerFaction: clamp(Number(process.env.WORKER_MAX_PER_FACTION || w['max-per-faction'] || 3), 1, 5),
     reassessMs: clamp(Number(process.env.WORKER_REASSESS_MS || (w['reassess-seconds'] || 8) * 1000), 3000, 60000),
     syncMs: clamp(Number(process.env.WORKER_SYNC_MS || (w['sync-seconds'] || 10) * 1000), 4000, 60000),
@@ -65,6 +80,64 @@ function sampleCpu() {
   lastCpuAt = now
   if (elapsedUs > 0) nodeCpuPct = ((usage.user + usage.system) / elapsedUs) * 100
   return nodeCpuPct
+}
+
+function effectiveNodeCapacity(settings) {
+  let cap=settings.maxBodies
+  if(nodeCpuPct>=95) cap=Math.max(1,cap-6)
+  else if(nodeCpuPct>=90) cap=Math.max(1,cap-4)
+  else if(nodeCpuPct>=82) cap=Math.max(1,cap-2)
+  else if(nodeCpuPct>=74) cap=Math.max(1,cap-1)
+  return cap
+}
+
+async function coordinatorHeartbeat(settings) {
+  if(!distributedMode) return null
+  const rss=Math.round(process.memoryUsage().rss/1048576)
+  const capacity=effectiveNodeCapacity(settings)
+  const controller=new AbortController()
+  const timer=setTimeout(()=>controller.abort(),4500)
+  try {
+    const response=await fetch(COORDINATOR_URL+'/v1/heartbeat',{
+      method:'POST',
+      signal:controller.signal,
+      headers:{
+        'Content-Type':'application/json',
+        ...(COORDINATOR_TOKEN?{'Authorization':'Bearer '+COORDINATOR_TOKEN}:{})
+      },
+      body:JSON.stringify({
+        nodeId:NODE_ID,
+        capacity,
+        priority:Number.isFinite(NODE_PRIORITY)?NODE_PRIORITY:0,
+        cpu:nodeCpuPct,
+        rssMB:rss,
+        humanCount,
+        serverBudget,
+        live:[...live.keys()]
+      })
+    })
+    if(!response.ok) throw new Error('HTTP '+response.status)
+    return await response.json()
+  } catch(err) {
+    console.log('[cluster] coordinator heartbeat failed: '+err.message)
+    return null
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+async function releaseCoordinatorNode() {
+  if(!distributedMode) return
+  try {
+    await fetch(COORDINATOR_URL+'/v1/release-node',{
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        ...(COORDINATOR_TOKEN?{'Authorization':'Bearer '+COORDINATOR_TOKEN}:{})
+      },
+      body:JSON.stringify({nodeId:NODE_ID})
+    })
+  } catch {}
 }
 
 function roleScore(stage, player) {

@@ -993,10 +993,11 @@ function dryEscapeTarget(bot, radius=7) {
       if(Math.abs(dx)!==r && Math.abs(dz)!==r) continue
       for(let dy=-1;dy<=3;dy++) {
         try {
-          const x=base.x+dx,y=base.y+dy,z=base.z+dz
-          const feet=bot.blockAt({x,y,z})
-          const head=bot.blockAt({x,y:y+1,z})
-          const below=bot.blockAt({x,y:y-1,z})
+          const pos=base.offset(dx,dy,dz)
+          const x=pos.x,y=pos.y,z=pos.z
+          const feet=bot.blockAt(pos)
+          const head=bot.blockAt(pos.offset(0,1,0))
+          const below=bot.blockAt(pos.offset(0,-1,0))
           if(!feet || !head || !below) continue
           if(waterBlock(feet) || waterBlock(head) || waterBlock(below)) continue
           const feetOpen=feet.boundingBox==='empty' || feet.name==='air'

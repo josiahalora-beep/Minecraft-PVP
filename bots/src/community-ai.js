@@ -3,19 +3,23 @@ import http from 'node:http'
 const PORT = Number(process.env.HCF_AI_PORT || 8765)
 const MODEL = process.env.HCF_AI_MODEL || 'gpt-5-mini'
 const API_KEY = process.env.OPENAI_API_KEY || ''
-const MAX_PER_MINUTE = Math.max(4, Number(process.env.HCF_AI_MAX_PER_MINUTE || 24))
+const MAX_PER_MINUTE = Math.max(4, Number(process.env.HCF_AI_MAX_PER_MINUTE || 36))
 
 let windowStarted = Date.now()
 let usedThisWindow = 0
 let active = 0
 const recent = new Map()
 
-function cleanLine(value) {
+function cleanLine(value, max = 180) {
   return String(value || '')
     .replace(/[\r\n\t]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
-    .slice(0, 180)
+    .slice(0, max)
+}
+
+function cleanToken(value) {
+  return cleanLine(value, 40).toUpperCase().replace(/[^A-Z0-9_]/g, '') || 'NONE'
 }
 
 function allowRequest(key) {
@@ -24,9 +28,9 @@ function allowRequest(key) {
     windowStarted = now
     usedThisWindow = 0
   }
-  if (usedThisWindow >= MAX_PER_MINUTE || active >= 2) return false
+  if (usedThisWindow >= MAX_PER_MINUTE || active >= 3) return false
   const last = recent.get(key) || 0
-  if (now - last < 3500) return false
+  if (now - last < 1800) return false
   recent.set(key, now)
   usedThisWindow++
   return true
@@ -36,27 +40,33 @@ async function readBody(req) {
   let raw = ''
   for await (const chunk of req) {
     raw += chunk
-    if (raw.length > 24000) throw new Error('body too large')
+    if (raw.length > 32000) throw new Error('body too large')
   }
   return JSON.parse(raw || '{}')
 }
 
 function promptFor(data) {
   return [
-    'You generate ONE chat reply for a fictional private Minecraft 1.8 HCF server simulation.',
-    'The responder is an invented simulated community member unless the context explicitly says otherwise.',
-    'Never claim that a real-world person actually said or did anything. Never invent authoritative game facts not in CONTEXT.',
-    'Sound like natural 2014-2016 HCF chat: brief, imperfect, varied, not corporate, usually 2-14 words.',
-    'Do not constantly praise the owner. Let affinity and current context control warmth, criticism, requests and feedback.',
-    'Staff can discuss simulated reports/xray concerns only when CONTEXT says the responder is staff.',
-    'Return ONLY compact JSON with keys reply and affinity_delta. affinity_delta must be integer -2,-1,0,1,2.',
-    'Positive/helpful owner interactions can increase affinity; rude/unfair behavior can decrease it. Neutral game talk is usually 0.',
+    'You are the conversation brain for a PRIVATE fictional Minecraft 1.8 HCF nostalgia simulation.',
+    'Each responder has a persistent personality, memories and relationships supplied in CONTEXT.',
+    'Treat handles that resemble historical YouTubers only as fictional in-server personas. Never imply a real person actually said, did, cheated, betrayed, dated, scammed, or committed misconduct.',
+    'Understand normal language, implied meaning, jokes, requests, faction politics and prior conversation rather than keyword matching.',
+    'Stay consistent with CONTEXT. Never invent authoritative faction capacity, DTR, inventory, rank, staff action or game state.',
+    'Sound like natural 2014-2016 HCF chat: usually 2-18 words, informal, imperfect and varied. Longer is allowed only when the message actually needs it.',
+    'Relationships matter. Friends can joke, defend each other and invite each other. Grudges can cause cold replies, arguments or refusals. Trust should change slowly.',
+    'The server owner does NOT automatically get worshipped. If speakerIsOwner=true, most friendly/neutral faction leaders are inclined to accept a reasonable faction request, but a full faction, strong grudge, existing faction membership or major recent conflict can justify refusal.',
+    'If the speaker asks to join the responder faction AND context says responderIsFactionLeader=true AND factionHasSpace=true AND speakerAlreadyFactioned=false, normally set action=INVITE_FACTION when the relationship is not strongly negative.',
+    'Never set INVITE_FACTION when those validation facts are false.',
+    'Allowed action values: NONE, INVITE_FACTION, FRIEND_UP, FRIEND_DOWN, APOLOGIZE, CALL_OUT, DEFEND_FRIEND.',
+    'memory should be a short durable fact worth remembering later, or empty. Example: owner asked to join my faction and I invited him.',
+    'affinity_delta, trust_delta and respect_delta must each be integers from -2 to 2. Most ordinary lines are 0.',
+    'Return ONLY compact JSON with keys reply, affinity_delta, trust_delta, respect_delta, action, memory.',
     '',
     'CHANNEL: ' + cleanLine(data.channel),
     'SPEAKER: ' + cleanLine(data.speaker),
     'RESPONDER: ' + cleanLine(data.responder),
-    'CONTEXT: ' + cleanLine(data.context).slice(0, 8000),
-    'MESSAGE: ' + cleanLine(data.message)
+    'CONTEXT: ' + cleanLine(data.context, 12000),
+    'MESSAGE: ' + cleanLine(data.message, 700)
   ].join('\n')
 }
 
@@ -69,9 +79,9 @@ async function modelReply(data) {
     },
     body: JSON.stringify({
       model: MODEL,
-      instructions: 'Follow the simulation rules exactly. Output only the requested compact JSON object.',
+      instructions: 'Follow the HCF simulation rules exactly. Output only the requested compact JSON object.',
       input: promptFor(data),
-      max_output_tokens: 100
+      max_output_tokens: 180
     })
   })
 
@@ -83,8 +93,12 @@ async function modelReply(data) {
 
   const parsed = JSON.parse(match[0])
   return {
-    reply: cleanLine(parsed.reply),
-    affinityDelta: Math.max(-2, Math.min(2, Number(parsed.affinity_delta) || 0))
+    reply: cleanLine(parsed.reply, 180),
+    affinityDelta: Math.max(-2, Math.min(2, Number(parsed.affinity_delta) || 0)),
+    trustDelta: Math.max(-2, Math.min(2, Number(parsed.trust_delta) || 0)),
+    respectDelta: Math.max(-2, Math.min(2, Number(parsed.respect_delta) || 0)),
+    action: cleanToken(parsed.action),
+    memory: cleanLine(parsed.memory, 140)
   }
 }
 
@@ -114,8 +128,18 @@ export function startCommunityAiBridge() {
       active++
       const out = await modelReply(data)
       if (!out.reply) throw new Error('empty reply')
+
+      // Plain tab-delimited response keeps the Java 8 plugin dependency-free.
+      // Fields are sanitized so tabs/newlines cannot corrupt the protocol.
       res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' })
-      res.end(String(out.affinityDelta) + '\t' + out.reply)
+      res.end([
+        out.affinityDelta,
+        out.trustDelta,
+        out.respectDelta,
+        out.action,
+        out.memory,
+        out.reply
+      ].join('\t'))
     } catch (err) {
       res.writeHead(502)
       res.end('ai unavailable')

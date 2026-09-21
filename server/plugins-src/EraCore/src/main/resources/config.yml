@@ -13,7 +13,7 @@ map:
   complete: true
   surface-y: 63
   world-border: 3000
-  warzone-smoothing-radius: 420
+  warzone-smoothing-radius: 520
   warzone-smoothing-version: 0
   nether-border: 1000
   manage-world-border: true
@@ -181,7 +181,7 @@ sim-world:
   base-y: 64
   min-base-y: 50
   max-base-y: 110
-  max-base-site-relief: 6
+  max-base-site-relief: 4
   max-base-site-liquid-samples: 1
   logical-online-min: 62
   logical-online-peak: 88
@@ -229,8 +229,16 @@ claims:
 sotw:
   protection-minutes: 60
 
+terrain:
+  normalize-new-chunks: true
+  flat-radius: 520
+  low-relief-amplitude: 2
+  relief-scale: 0.012
+  cleanup-height: 40
+
 base-builder:
-  blocks-per-tick: 28
+  blocks-per-tick: 350
+  gate-auto-close-ticks: 30
   repair-existing-on-start: true
 
 combat-director:

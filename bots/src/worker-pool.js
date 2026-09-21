@@ -1216,13 +1216,7 @@ async function redeemCrate(state) {
 
     const dist=bot.entity.position.distanceTo(block.position)
     if(dist>4.2) {
-      stopMovement(bot)
-      await bot.lookAt(block.position.offset(0.5,0.5,0.5),false)
-      bot.setControlState('forward',true)
-      bot.setControlState('sprint',false)
-      await sleep(Math.round(rand(500,1100)))
-      stopMovement(bot)
-      return true
+      return await smartGoto(state,block.position.x,block.position.y,block.position.z,3,8500,false)
     }
 
     if(inventoryFreeSlots(bot)<=4) {
@@ -1275,6 +1269,27 @@ async function localMotion(state, action) {
     const sprintChance = (action === 'patrol' || action === 'scout') ? 0.90 : 0.30
     const strafeRoll = Math.random()
 
+    if(stranger) {
+      const intent=String(state.job?.pvpIntent || 'SOLO_HUNT').toUpperCase()
+      const desired=Number(state.job?.partySize || 1)
+      const dist=bot.entity.position.distanceTo(stranger.position)
+
+      // Outside active combat, PvP seekers navigate to visible opponents rather
+      // than jogging blindly. Teamfight seekers only hard-commit when at least
+      // one ally is physically nearby; solo hunters are willing to investigate.
+      const allies=String(state.job?.allies || '').split(',').filter(Boolean)
+      let nearbyAllies=0
+      for(const name of allies) {
+        const e=bot.players?.[name]?.entity
+        if(e && bot.entity.position.distanceTo(e.position)<=18) nearbyAllies++
+      }
+      const mayCommit=intent==='SOLO_HUNT' || intent==='TRAP_PLAY' || desired<=1 || nearbyAllies>0
+      if(mayCommit && dist>5) {
+        await smartGoto(state,stranger.position.x,stranger.position.y,stranger.position.z,3,2800,false)
+        continue
+      }
+    }
+
     if (moving) {
       bot.setControlState('forward', true)
       bot.setControlState('sprint', stranger || leavingHub || Math.random() < sprintChance)
@@ -1326,11 +1341,8 @@ async function visibleStationWork(state, action) {
     await bot.lookAt(block.position.offset(0.5, 0.5, 0.5), false)
     const dist = bot.entity.position.distanceTo(block.position)
     if (dist > 4.0) {
-      stopMovement(bot)
-      bot.setControlState('forward', true)
-      bot.setControlState('sprint', false)
-      await sleep(Math.round(rand(450, 1000)))
-      stopMovement(bot)
+      const reached=await smartGoto(state,block.position.x,block.position.y,block.position.z,3,7500,false)
+      if(!reached) return false
     }
 
     if (Math.random() < 0.45) {

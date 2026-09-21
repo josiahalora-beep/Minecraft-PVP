@@ -1586,7 +1586,8 @@ final class SimWorldDirector {
 
     String depositEmbodiedWorker(Player body) {
         SimPlayer p = players.get(key(body.getName()));
-        if (p == null || p.faction.isEmpty()) return "no-sim-player";
+        if (p == null) return "no-sim-player";
+        if (p.faction.isEmpty()) return depositSoloLoot(body,p);
         SimFaction f = factions.get(key(p.faction));
         if (f == null) return "no-faction";
 
@@ -1653,6 +1654,86 @@ final class SimWorldDirector {
         return "stone="+stone+" wood="+wood+" iron="+iron+" diamond="+diamond+
             " obsidian="+obsidian+" cane="+cane+" cactus="+cactus+
             " pumpkin="+pumpkin+" melon="+melon;
+    }
+
+    private String depositSoloLoot(Player body,SimPlayer p) {
+        org.bukkit.inventory.PlayerInventory inv=body.getInventory();
+        int pearls=0,heals=0,speeds=0,fires=0,iron=0,obby=0,diamonds=0,cane=0,cactus=0;
+        int keptPearls=0,keptHeals=0,keptSpeeds=0,keptFires=0;
+
+        for(int slot=0;slot<36;slot++) {
+            org.bukkit.inventory.ItemStack item=inv.getItem(slot);
+            if(item==null || item.getType()==Material.AIR) continue;
+            Material m=item.getType();
+            int amount=item.getAmount();
+            int take=0;
+            String stockKey=null;
+
+            if(m==Material.ENDER_PEARL) {
+                int keep=Math.max(0,4-keptPearls);
+                int retained=Math.min(keep,amount);
+                keptPearls+=retained;
+                take=amount-retained;
+                stockKey="pearl";
+            } else if(m==Material.POTION && item.getDurability()==(short)16421) {
+                int keep=Math.max(0,10-keptHeals);
+                int retained=Math.min(keep,amount);
+                keptHeals+=retained;
+                take=amount-retained;
+                stockKey="healthpot";
+            } else if(m==Material.POTION && item.getDurability()==(short)8226) {
+                int keep=Math.max(0,1-keptSpeeds);
+                int retained=Math.min(keep,amount);
+                keptSpeeds+=retained;
+                take=amount-retained;
+                stockKey="speedpot";
+            } else if(m==Material.POTION && item.getDurability()==(short)8259) {
+                int keep=Math.max(0,1-keptFires);
+                int retained=Math.min(keep,amount);
+                keptFires+=retained;
+                take=amount-retained;
+                stockKey="fireres";
+            } else if(m==Material.IRON_INGOT || m==Material.IRON_ORE) {
+                take=amount; stockKey="iron";
+            } else if(m==Material.OBSIDIAN) {
+                take=amount; stockKey="obsidian";
+            } else if(m==Material.DIAMOND || m==Material.DIAMOND_ORE) {
+                take=amount; stockKey="diamond";
+            } else if(m==Material.SUGAR_CANE || m==Material.SUGAR_CANE_BLOCK) {
+                take=amount; stockKey="cane";
+            } else if(m==Material.CACTUS) {
+                take=amount; stockKey="cactus";
+            }
+
+            if(take<=0 || stockKey==null) continue;
+
+            int remain=amount-take;
+            if(remain<=0) inv.setItem(slot,null);
+            else {
+                item.setAmount(remain);
+                inv.setItem(slot,item);
+            }
+            setStock(p,stockKey,getStock(p,stockKey)+take);
+
+            if("pearl".equals(stockKey)) pearls+=take;
+            else if("healthpot".equals(stockKey)) heals+=take;
+            else if("speedpot".equals(stockKey)) speeds+=take;
+            else if("fireres".equals(stockKey)) fires+=take;
+            else if("iron".equals(stockKey)) iron+=take;
+            else if("obsidian".equals(stockKey)) obby+=take;
+            else if("diamond".equals(stockKey)) diamonds+=take;
+            else if("cane".equals(stockKey)) cane+=take;
+            else if("cactus".equals(stockKey)) cactus+=take;
+        }
+
+        body.updateInventory();
+        int value=pearls*150+heals*90+speeds*70+fires*80+iron*10+obby*22+diamonds*55+cane*3+cactus*2;
+        if(value>0) {
+            p.reputation=Math.min(999,p.reputation+Math.min(3,1+value/1200));
+            save();
+        }
+        return "solo-bank pearls="+pearls+" heals="+heals+" speed="+speeds+" fire="+fires+
+            " iron="+iron+" obby="+obby+" diamond="+diamonds+" cane="+cane+" cactus="+cactus;
     }
 
     String stashEmbodiedWorker(Player body) {

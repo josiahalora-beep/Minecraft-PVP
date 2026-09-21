@@ -552,6 +552,23 @@ async function commandBrain(state) {
     return
   }
 
+  const visibleFightJob=['patrol','solo','solo_loot','scout'].includes(String(action))
+  if(visibleFightJob && !roleArmorComplete(bot,state.job?.class || 'DIAMOND') && !tagged) {
+    // Do not send visually incomplete fighters into the warzone. First regroup at
+    // home, equip carried donor/starter gear, then pull any missing pieces from
+    // the armory. Donor/starter claim logic below can still run on the same pass.
+    if(faction!=='none' && !nearAssignedHome(state) && now-(state.lastTeleportAttempt || 0)>12000) {
+      state.lastTeleportAttempt=now
+      await tryCommand(state,'/f home',900)
+      return
+    }
+    if(faction!=='none' && nearAssignedHome(state) &&
+       now-(state.lastGearRequestAt || 0)>2200) {
+      state.lastGearRequestAt=now
+      await queueBotCommand(state,'/simworker gearup',BOT_COMMAND_GAP_MS,40)
+    }
+  }
+
   // Use shared faction storage as a real armory. Members near home periodically
   // refill missing role gear and consumables from what teammates banked.
   if(faction!=='none' && !tagged && nearAssignedHome(state) &&
@@ -859,6 +876,22 @@ function roleGearScore(name,className) {
   // Role armor is more important than raw material for HCF classes because
   // server class effects require a complete matching set.
   return (preferred?10000:0)+base
+}
+
+function roleArmorComplete(bot,className) {
+  if(!bot?.entity) return false
+  const prefixes=roleArmorPrefix(className)
+  const specs=[
+    [5,'_helmet'],
+    [6,'_chestplate'],
+    [7,'_leggings'],
+    [8,'_boots']
+  ]
+  return specs.every(([slot,suffix]) => {
+    const item=bot.inventory.slots?.[slot]
+    const name=String(item?.name || '')
+    return name.endsWith(suffix) && prefixes.some(prefix=>name.startsWith(prefix))
+  })
 }
 
 function bestInventoryItem(bot, suffix, className) {
@@ -1412,6 +1445,51 @@ function nearestRoamAlly(state, radius=64) {
   return best
 }
 
+function patrolFormationTarget(state) {
+  const bot=state.bot
+  if(!bot?.entity) return null
+  const leaderName=String(state.job?.leader || '')
+  if(!leaderName || leaderName.toLowerCase()===String(state.name||'').toLowerCase()) return null
+  const leader=bot.players?.[leaderName]?.entity
+  if(!leader) return null
+
+  const ordered=String(state.job?.allies || '')
+    .split(',').filter(Boolean)
+    .map(String)
+  if(!ordered.some(n=>n.toLowerCase()===String(state.name||'').toLowerCase())) ordered.push(String(state.name||''))
+  const followers=ordered.filter(n=>n.toLowerCase()!==leaderName.toLowerCase())
+  let idx=followers.findIndex(n=>n.toLowerCase()===String(state.name||'').toLowerCase())
+  if(idx<0) idx=0
+
+  const row=Math.floor(idx/2)
+  const side=(idx%2===0)?-1:1
+  const back=3.5+row*2.8
+  const lateral=2.4+Math.min(1,row)*0.7
+  const yaw=Number(leader.yaw || 0)
+  const forwardX=-Math.sin(yaw), forwardZ=-Math.cos(yaw)
+  const rightX=forwardZ, rightZ=-forwardX
+  return {
+    leader,
+    x:leader.position.x-forwardX*back+rightX*side*lateral,
+    y:leader.position.y,
+    z:leader.position.z-forwardZ*back+rightZ*side*lateral
+  }
+}
+
+function nearbyRoamAllies(state,radius=18) {
+  const bot=state.bot
+  if(!bot?.entity) return 0
+  const allies=new Set(String(state.job?.allies || '').split(',').filter(Boolean).map(x=>x.toLowerCase()))
+  allies.delete(String(state.name||'').toLowerCase())
+  let n=0
+  for(const [name,rec] of Object.entries(bot.players || {})) {
+    if(!allies.has(String(name).toLowerCase())) continue
+    const e=rec?.entity
+    if(e && bot.entity.position.distanceTo(e.position)<=radius) n++
+  }
+  return n
+}
+
 function fenceGateOpen(block) {
   if(!block) return false
   try {
@@ -1626,50 +1704,81 @@ async function localMotion(state, action) {
     const leavingHub=(action==='patrol' || action==='solo' || action==='solo_loot') &&
       Date.now()-(state.zoneArrivalAt || 0)<10000
     const intent=String(state.job?.pvpIntent || 'AVOID').toUpperCase()
-    const desired=Number(state.job?.partySize || 1)
-    const rallyAlly=(action==='patrol' && !stranger && desired>1 &&
-      (intent==='SMALL_TEAM' || intent==='TEAMFIGHT')) ? nearestRoamAlly(state,64) : null
+    const desired=Math.max(1,Number(state.job?.partySize || 1))
+    const teamIntent=action==='patrol' && desired>1 &&
+      (intent==='SMALL_TEAM' || intent==='TEAMFIGHT')
+    const formation=teamIntent ? patrolFormationTarget(state) : null
+    const nearbyAllies=teamIntent ? nearbyRoamAllies(state,18) : 0
+    const requiredNearby=Math.max(1,Math.min(desired-1,2))
 
-    // Small-team/teamfight players actually assemble. This keeps them from
-    // sharing a hotspot on paper while physically wandering 40 blocks apart.
-    if(rallyAlly && !leavingHub) {
-      const allyDist=bot.entity.position.distanceTo(rallyAlly.position)
-      if(allyDist>9) {
-        await smartGoto(state,rallyAlly.position.x,rallyAlly.position.y,rallyAlly.position.z,5,2600,false)
+    // Nobody assigned to a PvP patrol leaves while visibly missing class armor.
+    // This eliminates naked/partial-set patrol bodies and gives commandBrain time
+    // to finish the kit/armory preparation.
+    if((action==='patrol' || action==='solo' || action==='solo_loot' || action==='scout') &&
+       !roleArmorComplete(bot,state.job?.class || 'DIAMOND')) {
+      await equipBestArmor(state)
+      await equipBestWeapon(state)
+      stopMovement(bot)
+      await sleep(260)
+      continue
+    }
+
+    // Followers occupy stable formation slots behind the faction leader instead
+    // of selecting a nearest ally and orbiting them. A team only breaks formation
+    // to collapse once enough allies are physically assembled.
+    if(formation && !leavingHub) {
+      const dx=bot.entity.position.x-formation.x
+      const dz=bot.entity.position.z-formation.z
+      const slotDist=Math.sqrt(dx*dx+dz*dz)
+      const collapse=stranger && nearbyAllies>=requiredNearby &&
+        bot.entity.position.distanceTo(stranger.position)<=10
+      if(!collapse && slotDist>3.2) {
+        if(slotDist>11) await smartGoto(state,formation.x,formation.y,formation.z,2,2600,false)
+        else {
+          const yaw=Math.atan2(-(formation.x-bot.entity.position.x),-(formation.z-bot.entity.position.z))
+          await bot.look(yaw,0,false).catch(()=>{})
+          bot.setControlState('forward',true)
+          bot.setControlState('sprint',slotDist>6)
+        }
+        continue
+      }
+      if(!collapse) {
+        stopMovement(bot)
+        try { await bot.look(formation.leader.yaw,0,false) } catch {}
+        await sleep(180)
         continue
       }
     }
 
-    // Patrols actively seek visible non-faction players. Immediately after a
-    // zone warp they also make a sustained sprint out of the Safezone.
-    const moving = stranger || rallyAlly || leavingHub || Math.random() < (mobile ? 0.90 : 0.58)
-    const sprintChance = (action === 'patrol' || action === 'scout') ? 0.90 : 0.30
+    // Leaders and solo hunters move toward real patrol objectives/opponents.
+    const moving = stranger || leavingHub || Math.random() < (mobile ? 0.80 : 0.45)
+    const sprintChance = (action === 'patrol' || action === 'scout') ? 0.88 : 0.30
     const strafeRoll = Math.random()
 
     if(stranger) {
       const dist=bot.entity.position.distanceTo(stranger.position)
-
-      // Outside active combat, PvP seekers navigate to visible opponents rather
-      // than jogging blindly. Teamfight seekers only hard-commit when at least
-      // one ally is physically nearby; solo hunters are willing to investigate.
-      const allies=String(state.job?.allies || '').split(',').filter(Boolean)
-      let nearbyAllies=0
-      for(const name of allies) {
-        const e=bot.players?.[name]?.entity
-        if(e && bot.entity.position.distanceTo(e.position)<=18) nearbyAllies++
-      }
-      const mayCommit=intent==='SOLO_HUNT' || intent==='TRAP_PLAY' || desired<=1 || nearbyAllies>0
+      const mayCommit=intent==='SOLO_HUNT' || intent==='TRAP_PLAY' || desired<=1 ||
+        nearbyAllies>=requiredNearby
       if(mayCommit && dist>5) {
         await smartGoto(state,stranger.position.x,stranger.position.y,stranger.position.z,3,2800,false)
         continue
+      }
+    } else if(action==='patrol' && String(state.job?.leader || '').toLowerCase()===String(state.name||'').toLowerCase()) {
+      const tx=Number(state.job?.x),tz=Number(state.job?.z)
+      if(Number.isFinite(tx) && Number.isFinite(tz)) {
+        const dx=bot.entity.position.x-tx,dz=bot.entity.position.z-tz
+        if(dx*dx+dz*dz>12*12) {
+          await smartGoto(state,tx,Number(state.job?.y)||bot.entity.position.y,tz,5,3000,false)
+          continue
+        }
       }
     }
 
     if (moving) {
       bot.setControlState('forward', true)
-      bot.setControlState('sprint', stranger || leavingHub || Math.random() < sprintChance)
-      if (!leavingHub && strafeRoll < 0.14) bot.setControlState('left', true)
-      else if (!leavingHub && strafeRoll > 0.86) bot.setControlState('right', true)
+      bot.setControlState('sprint', Boolean(stranger || leavingHub || Math.random() < sprintChance))
+      if (!teamIntent && !leavingHub && strafeRoll < 0.10) bot.setControlState('left', true)
+      else if (!teamIntent && !leavingHub && strafeRoll > 0.90) bot.setControlState('right', true)
     }
 
     try {

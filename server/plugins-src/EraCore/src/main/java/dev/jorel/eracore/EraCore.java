@@ -66,6 +66,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     private SpawnRewardsDirector spawnRewards;
     private HcfAutoBrewerDirector autoBrewer;
     private HcfInfrastructureDirector infrastructure;
+    private HcfGateDirector gateDirector;
+    private HcfTerrainDirector terrainDirector;
 
     enum Rank {
         MEMBER(0, "&7[Member]", 24),
@@ -160,6 +162,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         hcfClasses = new HcfClassDirector(this);
         hcfBaseBuilder = new HcfBaseBuilder(this);
         autoBrewer = new HcfAutoBrewerDirector(this);
+        gateDirector = new HcfGateDirector(this);
+        terrainDirector = new HcfTerrainDirector(this);
         hcfZones = new HcfZoneDisplayDirector(this, warpManager);
         infrastructure = new HcfInfrastructureDirector(this,warpManager,hcfZones);
         logicalTab = new LogicalTabListDirector(this, simWorld);
@@ -167,6 +171,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         bindCommands();
         getServer().getPluginManager().registerEvents(this, this);
         getServer().getPluginManager().registerEvents(spawnRewards, this);
+        getServer().getPluginManager().registerEvents(gateDirector, this);
+        getServer().getPluginManager().registerEvents(terrainDirector, this);
         hookTickTimes();
         startMetrics();
         startPowerRegen();
@@ -1551,8 +1557,15 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         return hcfBaseBuilder.evaluateSite(x,z,radius);
     }
 
-    void registerAutoBrewerSite(String faction,int x,int y,int z) {
-        if(autoBrewer!=null) autoBrewer.register(faction,x,y,z);
+    void registerAutoBrewerSite(String faction,String preset,int x,int y,int z) {
+        if(autoBrewer==null || hcfBaseBuilder==null) return;
+        int[] core=hcfBaseBuilder.anchor(preset,"brewer",x,y,z);
+        autoBrewer.register(faction,core[0],core[1],core[2]);
+    }
+
+    int[] simBaseAnchor(String preset,String kind,int x,int y,int z) {
+        if(hcfBaseBuilder==null) return new int[]{x,y+1,z};
+        return hcfBaseBuilder.anchor(preset,kind,x,y,z);
     }
 
     boolean autoBrewerPhysicalActive(String faction) {
@@ -1571,8 +1584,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if(simWorld!=null) simWorld.creditBrewedPotions(faction,type,amount);
     }
 
-    void queueSimBrewerBuild(String faction, int x, int y, int z) {
-        if (hcfBaseBuilder != null) hcfBaseBuilder.queueBrewer(faction,x,y,z);
+    void queueSimBrewerBuild(String faction,String preset,int x,int y,int z) {
+        if (hcfBaseBuilder != null) hcfBaseBuilder.queueBrewer(faction,preset,x,y,z);
     }
 
     void queueSimFarmBuild(String faction, String crop, int x, int y, int z) {
@@ -2881,11 +2894,11 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     private void scheduleWarzoneSmoothing(final World world) {
-        if(getConfig().getInt("map.warzone-smoothing-version",0)>=1) return;
+        if(getConfig().getInt("map.warzone-smoothing-version",0)>=2) return;
 
         final int y=getConfig().getInt("map.surface-y",63);
         final int inner=Math.max(65,(int)Math.ceil(getConfig().getDouble("map.safezone-radius",60.0))+8);
-        final int outer=Math.max(inner+40,getConfig().getInt("map.warzone-smoothing-radius",420));
+        final int outer=Math.max(520,Math.max(inner+40,getConfig().getInt("map.warzone-smoothing-radius",520)));
         final int cx=world.getSpawnLocation().getBlockX();
         final int cz=world.getSpawnLocation().getBlockZ();
 
@@ -2913,7 +2926,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
                 }
 
                 if(x>outer) {
-                    getConfig().set("map.warzone-smoothing-version",1);
+                    getConfig().set("map.warzone-smoothing-version",2);
                     saveConfig();
                     getLogger().info("Warzone smoothing complete: "+touched+" columns scanned.");
                     cancel();

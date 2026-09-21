@@ -12,6 +12,10 @@ import org.bukkit.util.Vector;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.FileReader;
+import java.io.FileWriter;
 import java.text.DecimalFormat;
 import java.util.*;
 import java.util.regex.Matcher;
@@ -144,6 +148,7 @@ final class SimWorldDirector {
         int healPots;
         int pearls;
         int speedPots;
+        int firePots; // legacy save compatibility only; always zero in live rules
         int xp;
         int books;
         int lapis;
@@ -297,6 +302,10 @@ final class SimWorldDirector {
         int trapZ;
         String trapType = "none";
         String focus = "";
+        int lootHealNeed;
+        int lootPearlNeed;
+        int lootSpeedNeed;
+        int lootSetNeed;
         final List<String> enemies = new ArrayList<String>();
         final List<String> allies = new ArrayList<String>();
 
@@ -320,6 +329,10 @@ final class SimWorldDirector {
                 " trapX=" + trapX + " trapY=" + trapY + " trapZ=" + trapZ +
                 " trapType=" + trapType +
                 " focus=" + focus +
+                " lootHealNeed=" + lootHealNeed +
+                " lootPearlNeed=" + lootPearlNeed +
+                " lootSpeedNeed=" + lootSpeedNeed +
+                " lootSetNeed=" + lootSetNeed +
                 " enemies=" + joinNames(enemies) +
                 " allies=" + joinNames(allies);
         }
@@ -357,7 +370,6 @@ final class SimWorldDirector {
         int healPots;
         int pearls;
         int speedPots;
-        int firePots;
         int minerIron;
         boolean personal;
     }
@@ -369,6 +381,7 @@ final class SimWorldDirector {
     private final Random rng = new Random(881994L);
     private final File file;
     private final File combatFile;
+    private final File memoryFile;
     private final YamlConfiguration data;
     private final Map<String,SimPlayer> players = new LinkedHashMap<String,SimPlayer>();
     private final Map<String,SimFaction> factions = new LinkedHashMap<String,SimFaction>();
@@ -376,6 +389,7 @@ final class SimWorldDirector {
     private final Map<String,Conversation> conversations = new HashMap<String,Conversation>();
     private final Map<String,SocialEdge> socialEdges = new LinkedHashMap<String,SocialEdge>();
     private final Deque<HistoryEvent> communityHistory = new ArrayDeque<HistoryEvent>();
+    private final Set<String> combatLootMemoryOnce = new LinkedHashSet<String>();
     private final Map<String,String> lastReplyTarget = new HashMap<String,String>();
     private final Deque<ChatEvent> pendingChat = new ArrayDeque<ChatEvent>();
     private final Map<String,Integer> rivalries = new HashMap<String,Integer>();
@@ -441,8 +455,10 @@ final class SimWorldDirector {
         this.aiChat = new AiChatBridge(plugin);
         this.file = new File(plugin.getDataFolder(), "simulation.yml");
         this.combatFile = new File(plugin.getDataFolder(), "combat-hot.yml");
+        this.memoryFile = new File(plugin.getDataFolder(), "memory-events.log");
         this.data = YamlConfiguration.loadConfiguration(file);
         loadOrSeed();
+        loadMemoryArchive();
     }
 
     void start() {
@@ -799,6 +815,15 @@ final class SimWorldDirector {
         return xs;
     }
 
+    private void applyLootNeeds(CombatAssignment ca,SimFaction f) {
+        if(ca==null || f==null) return;
+        int members=Math.max(1,f.members.size());
+        ca.lootHealNeed=Math.max(0,members*28-f.healPots);
+        ca.lootPearlNeed=Math.max(0,members*8-f.pearls);
+        ca.lootSpeedNeed=Math.max(0,members*3-f.speedPots);
+        ca.lootSetNeed=Math.max(0,members-f.p4Sets);
+    }
+
     private void addTestAssignments(VisibleFight fight,SimFaction own,SimFaction enemy,
                                     List<SimPlayer> allies,List<SimPlayer> enemies,int side,
                                     String ownerName,boolean ownerOnOwnSide,int teamSize) {
@@ -822,6 +847,7 @@ final class SimWorldDirector {
             ca.aggression=p.aggression;ca.risk=p.riskTolerance;
             ca.homeX=own.baseX;ca.homeY=own.baseY+1;ca.homeZ=own.baseZ;
             ca.trapType="none";
+            applyLootNeeds(ca,own);
             if(!ownerOnOwnSide && rng.nextInt(100)<40) ca.focus=ownerName;
             else ca.focus=focus==null?"":focus.name;
             ca.combatClass=(p==bard)?CombatClass.BARD:((p==archer)?CombatClass.ARCHER:CombatClass.DIAMOND);
@@ -1300,6 +1326,7 @@ final class SimWorldDirector {
             ca.homeX=own.baseX; ca.homeY=own.baseY+1; ca.homeZ=own.baseZ;
             ca.trapX=trap[0]; ca.trapY=trap[1]; ca.trapZ=trap[2];
             ca.trapType=own.trapPreset==null?"none":own.trapPreset;
+            applyLootNeeds(ca,own);
             ca.focus=focusTarget==null?"":focusTarget.name;
 
             ca.x=fight.centerX+sx+(i-allies.size()/2)*2;
@@ -1472,6 +1499,7 @@ final class SimWorldDirector {
             ca.homeX=own.baseX; ca.homeY=own.baseY+1; ca.homeZ=own.baseZ;
             ca.trapX=trap[0]; ca.trapY=trap[1]; ca.trapZ=trap[2];
             ca.trapType=own.trapPreset == null ? "none" : own.trapPreset;
+            applyLootNeeds(ca,own);
             ca.focus=focusTarget == null ? "" : focusTarget.name;
 
             int side=own.name.equalsIgnoreCase(fight.anchorFaction)?1:-1;
@@ -1555,6 +1583,10 @@ final class SimWorldDirector {
                 y.set(b+".trap-z",ca.trapZ);
                 y.set(b+".trap-type",ca.trapType);
                 y.set(b+".focus",ca.focus);
+                y.set(b+".loot-heal-need",ca.lootHealNeed);
+                y.set(b+".loot-pearl-need",ca.lootPearlNeed);
+                y.set(b+".loot-speed-need",ca.lootSpeedNeed);
+                y.set(b+".loot-set-need",ca.lootSetNeed);
                 y.set(b+".enemies",ca.enemies);
                 y.set(b+".allies",ca.allies);
             }
@@ -3000,6 +3032,83 @@ final class SimWorldDirector {
         });
     }
 
+    private String memoryEncode(String s) {
+        if(s==null) s="";
+        return java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(
+            s.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    }
+
+    private String memoryDecode(String s) {
+        try {
+            return new String(java.util.Base64.getUrlDecoder().decode(s),
+                java.nio.charset.StandardCharsets.UTF_8);
+        } catch(Exception ignored) { return ""; }
+    }
+
+    private void appendMemoryArchive(HistoryEvent e) {
+        if(e==null) return;
+        try {
+            if(!memoryFile.getParentFile().exists()) memoryFile.getParentFile().mkdirs();
+            if(memoryFile.exists() && memoryFile.length()>64L*1024L*1024L) {
+                File old=new File(memoryFile.getParentFile(),"memory-events.1.log");
+                if(old.exists()) old.delete();
+                memoryFile.renameTo(old);
+            }
+            StringBuilder people=new StringBuilder();
+            for(String p:e.people) {
+                if(people.length()>0) people.append(',');
+                people.append(p.replace(',','_'));
+            }
+            BufferedWriter w=new BufferedWriter(new FileWriter(memoryFile,true));
+            w.write(Long.toString(e.at));w.write("\t");
+            w.write(Integer.toString(e.importance));w.write("\t");
+            w.write(memoryEncode(e.type));w.write("\t");
+            w.write(memoryEncode(e.faction));w.write("\t");
+            w.write(memoryEncode(people.toString()));w.write("\t");
+            w.write(memoryEncode(e.summary));
+            w.newLine();
+            w.close();
+        } catch(IOException ex) {
+            plugin.getLogger().warning("Could not append memory archive: "+ex.getMessage());
+        }
+    }
+
+    private void loadMemoryArchive() {
+        if(!memoryFile.exists() || memoryFile.length()<=0L) {
+            // Bootstrap the long-term archive from the recent YAML history once.
+            for(HistoryEvent e:new ArrayList<HistoryEvent>(communityHistory)) appendMemoryArchive(e);
+            return;
+        }
+        Deque<HistoryEvent> loaded=new ArrayDeque<HistoryEvent>();
+        try {
+            BufferedReader r=new BufferedReader(new FileReader(memoryFile));
+            String line;
+            while((line=r.readLine())!=null) {
+                String[] p=line.split("\\t",-1);
+                if(p.length<6) continue;
+                HistoryEvent e=new HistoryEvent();
+                try { e.at=Long.parseLong(p[0]); } catch(Exception ignored) { continue; }
+                try { e.importance=Integer.parseInt(p[1]); } catch(Exception ignored) { e.importance=1; }
+                e.type=memoryDecode(p[2]);
+                e.faction=memoryDecode(p[3]);
+                String people=memoryDecode(p[4]);
+                if(!people.isEmpty()) for(String person:people.split(",")) if(!person.isEmpty()) e.people.add(person);
+                e.summary=memoryDecode(p[5]);
+                if(e.summary.isEmpty()) continue;
+                loaded.addLast(e);
+                while(loaded.size()>2500) loaded.removeFirst();
+            }
+            r.close();
+        } catch(IOException ex) {
+            plugin.getLogger().warning("Could not load memory archive: "+ex.getMessage());
+            return;
+        }
+        if(!loaded.isEmpty()) {
+            communityHistory.clear();
+            communityHistory.addAll(loaded);
+        }
+    }
+
     private void recordHistory(String type,int importance,String summary,String faction,String... people) {
         if(summary==null || summary.trim().isEmpty()) return;
         HistoryEvent e=new HistoryEvent();
@@ -3016,7 +3125,8 @@ final class SimWorldDirector {
             }
         }
         communityHistory.addLast(e);
-        while(communityHistory.size()>180) communityHistory.removeFirst();
+        while(communityHistory.size()>2500) communityHistory.removeFirst();
+        appendMemoryArchive(e);
     }
 
     private List<HistoryEvent> relevantHistory(String person,String faction,int limit) {
@@ -3053,13 +3163,13 @@ final class SimWorldDirector {
 
     private String historyContextFor(SimPlayer p) {
         String faction=p==null?"":p.faction;
-        List<HistoryEvent> xs=relevantHistory(p==null?"":p.name,faction,6);
+        List<HistoryEvent> xs=relevantHistory(p==null?"":p.name,faction,12);
         if(xs.isEmpty()) return "";
         StringBuilder b=new StringBuilder();
         for(HistoryEvent e:xs) {
             if(b.length()>0) b.append(" | ");
             b.append(e.summary);
-            if(b.length()>700) break;
+            if(b.length()>1400) break;
         }
         return b.toString();
     }
@@ -3107,7 +3217,7 @@ final class SimWorldDirector {
         if(m.length()>140) m=m.substring(0,140).trim();
         if(!e.memories.isEmpty() && e.memories.peekLast().equalsIgnoreCase(m)) return;
         e.memories.addLast(m);
-        while(e.memories.size()>10) e.memories.removeFirst();
+        while(e.memories.size()>64) e.memories.removeFirst();
         e.lastInteraction=System.currentTimeMillis();
     }
 
@@ -3429,6 +3539,39 @@ final class SimWorldDirector {
         return false;
     }
 
+    void noteCombatLoot(String name,String itemName) {
+        SimPlayer p=players.get(key(name));
+        if(p==null || visibleFight==null) return;
+        CombatAssignment ca=visibleFight.assignments.get(key(name));
+        if(ca==null) return;
+
+        String item=itemName==null?"loot":itemName.toLowerCase(Locale.ENGLISH);
+        String category;
+        if(item.contains("potion")) category="potions";
+        else if(item.contains("pearl")) category="pearls";
+        else if(item.contains("helmet")||item.contains("chestplate")||item.contains("leggings")||item.contains("boots")) category="armor";
+        else if(item.contains("sword")||item.contains("bow")) category="weapons";
+        else category="supplies";
+
+        String once=key(ca.fightId)+"|"+key(name)+"|"+category;
+        if(!combatLootMemoryOnce.add(once)) return;
+        while(combatLootMemoryOnce.size()>1200) {
+            Iterator<String> it=combatLootMemoryOnce.iterator();
+            if(it.hasNext()){it.next();it.remove();} else break;
+        }
+
+        recordHistory("LOOT",3,name+" helped secure "+category+" for "+ca.faction+
+            " after "+ca.fightId,ca.faction,name);
+        for(String ally:ca.allies) {
+            SimPlayer ap=players.get(key(ally));
+            if(ap==null || !ap.faction.equalsIgnoreCase(p.faction)) continue;
+            SocialEdge a=relationship(name,ally,true);
+            a.trust=clampSocial(a.trust+1);
+            rememberRelationship(a,"secured fight loot with "+ally);
+        }
+        save();
+    }
+
     void onTestFightDeath(String victimName, String killerName) {
         recentVictim = victimName == null ? "" : victimName;
         recentKiller = killerName == null ? "" : killerName;
@@ -3449,6 +3592,7 @@ final class SimWorldDirector {
     void onLiveDeath(String victimName, String killerName) {
         recentVictim = victimName == null ? "" : victimName;
         recentKiller = killerName == null ? "" : killerName;
+        CombatAssignment killerAssignment=visibleFight==null?null:visibleFight.assignments.get(key(killerName));
         if (visibleFight != null && victimName != null) {
             visibleFight.assignments.remove(key(victimName));
             writeCombatFile();
@@ -3516,6 +3660,40 @@ final class SimWorldDirector {
                 && !victim.faction.equalsIgnoreCase(killer.faction)) {
             recordRivalry(victim.faction,killer.faction,10 + rng.nextInt(9));
             queueDeathConversation(victim,killer);
+        }
+
+        if(killer!=null && victim!=null && !killer.name.equalsIgnoreCase(victim.name)) {
+            List<String> people=new ArrayList<String>();
+            people.add(killer.name);people.add(victim.name);
+            List<String> helpers=new ArrayList<String>();
+            if(killerAssignment!=null) {
+                Player kb=Bukkit.getPlayerExact(killer.name);
+                for(String allyName:killerAssignment.allies) {
+                    SimPlayer ally=players.get(key(allyName));
+                    Player ab=Bukkit.getPlayerExact(allyName);
+                    if(ally==null || !ally.faction.equalsIgnoreCase(killer.faction) || ab==null || !ab.isOnline()) continue;
+                    if(kb!=null && kb.getWorld().equals(ab.getWorld()) &&
+                       kb.getLocation().distanceSquared(ab.getLocation())<=24.0*24.0) {
+                        helpers.add(ally.name);people.add(ally.name);
+                        SocialEdge ka=relationship(killer.name,ally.name,true);
+                        SocialEdge ak=relationship(ally.name,killer.name,true);
+                        ka.trust=clampSocial(ka.trust+2);ka.respect=clampSocial(ka.respect+1);
+                        ak.trust=clampSocial(ak.trust+2);ak.respect=clampSocial(ak.respect+1);
+                        rememberRelationship(ka,"fought beside "+ally.name+" against "+victim.name);
+                        rememberRelationship(ak,"helped "+killer.name+" fight "+victim.name);
+                    }
+                }
+            }
+            String summary=killer.name+" killed "+victim.name;
+            if(!helpers.isEmpty()) summary+=" with help from "+joinWords(helpers,3);
+            recordHistory("KILL",5,summary,killer.faction,people.toArray(new String[people.size()]));
+
+            SocialEdge vk=relationship(victim.name,killer.name,true);
+            vk.grudge=clampSocial(vk.grudge+4);
+            rememberRelationship(vk,"was killed by "+killer.name);
+            SocialEdge kv=relationship(killer.name,victim.name,true);
+            kv.respect=clampSocial(kv.respect+2);
+            rememberRelationship(kv,"killed "+victim.name+" in open combat");
         }
 
         if (plugin.isCreatorIdentity(victimName)) queueCreatorDeathReactions(victimName);
@@ -5006,7 +5184,6 @@ final class SimWorldDirector {
         int members=Math.max(1,f.members.size());
         if("heal".equalsIgnoreCase(type)) return Math.max(0,members*28-f.healPots);
         if("speed".equalsIgnoreCase(type)) return Math.max(0,members*3-f.speedPots);
-        if("fire".equalsIgnoreCase(type)) return Math.max(0,members*2-f.firePots);
         return 0;
     }
 
@@ -5016,7 +5193,6 @@ final class SimWorldDirector {
         if(f==null) return;
         if("heal".equalsIgnoreCase(type)) f.healPots+=amount;
         else if("speed".equalsIgnoreCase(type)) f.speedPots+=amount;
-        else if("fire".equalsIgnoreCase(type)) f.firePots+=amount;
         save();
     }
 
@@ -5567,7 +5743,7 @@ final class SimWorldDirector {
                 e.people.addAll(h.getStringList("people"));
                 if(!e.summary.isEmpty()) communityHistory.addLast(e);
             }
-            while(communityHistory.size()>180) communityHistory.removeFirst();
+            while(communityHistory.size()>2500) communityHistory.removeFirst();
         }
 
         ConfigurationSection social = data.getConfigurationSection("social");
@@ -5587,7 +5763,7 @@ final class SimWorldDirector {
                 for(String memory:s.getStringList("memories")) {
                     if(memory!=null && !memory.trim().isEmpty()) e.memories.addLast(memory);
                 }
-                while(e.memories.size()>10) e.memories.removeFirst();
+                while(e.memories.size()>64) e.memories.removeFirst();
                 socialEdges.put(socialKey(e.from,e.to),e);
             }
         }

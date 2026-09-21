@@ -1,11 +1,20 @@
 import mineflayer from 'mineflayer'
+import pathfinderPackage from 'mineflayer-pathfinder'
+import collectBlockPackage from 'mineflayer-collectblock'
+import toolPackage from 'mineflayer-tool'
+
+const { pathfinder, Movements, goals } = pathfinderPackage
+const collectBlockPlugin = collectBlockPackage.plugin
+const toolPlugin = toolPackage.plugin
+
+export { Movements, goals }
 
 export const HOST = process.env.MC_HOST || '127.0.0.1'
 export const PORT = Number(process.env.MC_PORT || 25565)
 export const VERSION = '1.8.8'
 
 export function createBot(username, options = {}) {
-  return mineflayer.createBot({
+  const bot = mineflayer.createBot({
     host: HOST,
     port: PORT,
     username,
@@ -15,6 +24,14 @@ export function createBot(username, options = {}) {
     viewDistance: options.viewDistance ?? 'tiny',
     defaultChatPatterns: true
   })
+
+  // World competence is shared by every HOT body. Combat still uses the
+  // custom HCF controller, but normal Minecraft movement/tool selection no
+  // longer relies on blind forward/jump timers.
+  bot.loadPlugin(pathfinder)
+  bot.loadPlugin(toolPlugin)
+  bot.loadPlugin(collectBlockPlugin)
+  return bot
 }
 
 export function sleep(ms) {

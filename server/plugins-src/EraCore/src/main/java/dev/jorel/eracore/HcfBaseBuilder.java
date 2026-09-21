@@ -318,7 +318,7 @@ final class HcfBaseBuilder {
         if("storage".equalsIgnoreCase(kind))
             return new int[]{cx,y+1,cz+half+4};
         if("brewer".equalsIgnoreCase(kind))
-            return new int[]{cx+half+6,y,cz+2};
+            return new int[]{cx+half+7,y,cz+2};
         return new int[]{cx,y+1,cz};
     }
 
@@ -827,47 +827,59 @@ final class HcfBaseBuilder {
     private void buildBrewerRoom(World w,String preset,int cx,int y,int cz) {
         int[] core=anchor(preset,"brewer",cx,y,cz);
         int rx=core[0], rz=core[2];
-        int halfX=6,halfZ=7;
+        int halfX=7,halfZ=8;
 
-        // The west wall deliberately overlaps the base's east wall. This makes
-        // the brewer a true template wing instead of the old disconnected
-        // baseX+20 annex.
+        // The west wall overlaps the selected base's east wall exactly. The
+        // brewery is therefore a real template wing, never a detached shed.
         prepareTerrainPad(w,rx,y,rz,halfX,halfZ);
         for(int x=rx-halfX;x<=rx+halfX;x++) {
             for(int z=rz-halfZ;z<=rz+halfZ;z++) {
                 queue.add(new Op(w,x,y,z,Material.SMOOTH_BRICK));
-                for(int yy=y+1;yy<=y+6;yy++) {
-                    boolean wall=x==rx-halfX||x==rx+halfX||z==rz-halfZ||z==rz+halfZ||yy==y+6;
+                for(int yy=y+1;yy<=y+7;yy++) {
+                    boolean wall=x==rx-halfX||x==rx+halfX||z==rz-halfZ||z==rz+halfZ||yy==y+7;
                     Material m=wall?Material.SMOOTH_BRICK:Material.AIR;
-                    if(wall && yy>=y+2 && yy<=y+4 && (z==rz-halfZ||z==rz+halfZ))
+                    if(wall && yy>=y+2 && yy<=y+5 && (z==rz-halfZ||z==rz+halfZ))
                         m=Material.STAINED_GLASS;
                     queue.add(new Op(w,x,yy,z,m));
                 }
             }
         }
 
-        // One aligned, synchronized connection shared by both structures.
         doorwayX(w,rx-halfX,y,rz);
 
         String[] labels={"Heal A","Heal B","Heal C","Heal D","Speed II","Fire Res"};
         for(int i=0;i<6;i++) {
-            int x=rx+1;
+            int x=rx;
             int z=rz-5+i*2;
-            queue.add(new Op(w,x,y+1,z,Material.BREWING_STAND));
-            queue.add(new Op(w,x,y+2,z,Material.HOPPER));
-            queue.add(new Op(w,x+1,y+1,z,Material.HOPPER));
-            queue.add(new Op(w,x-1,y+1,z,Material.HOPPER));
-            queue.add(new Op(w,x+3,y+1,z,Material.CHEST));
-            queue.add(new Op(w,x+3,y+2,z,Material.SIGN_POST,(byte)8,labels[i]));
-            queue.add(new Op(w,x-3,y+1,z,Material.SMOOTH_BRICK));
-            queue.add(new Op(w,x-3,y+2,z,Material.REDSTONE_TORCH_ON));
+
+            // Real, readable lane:
+            // bottle chest -> side hopper -> raised stand
+            // ingredient chest -> top hopper -> stand
+            // stand -> bottom hopper -> output chest
+            queue.add(new Op(w,x,y+2,z,Material.BREWING_STAND));
+            queue.add(new Op(w,x,y+3,z,Material.HOPPER,(byte)0));
+            queue.add(new Op(w,x,y+4,z,Material.CHEST));
+
+            queue.add(new Op(w,x-1,y+2,z,Material.HOPPER,(byte)5));
+            queue.add(new Op(w,x-1,y+3,z,Material.CHEST));
+
+            queue.add(new Op(w,x,y+1,z,Material.HOPPER,(byte)5));
+            queue.add(new Op(w,x+1,y+1,z,Material.CHEST));
+
+            queue.add(new Op(w,x+2,y+1,z,Material.SMOOTH_BRICK));
+            queue.add(new Op(w,x+2,y+2,z,Material.SIGN_POST,(byte)8,labels[i]));
+
+            // Lock/control spine, visually matching classic compact auto-brewers.
+            queue.add(new Op(w,x-4,y+1,z,Material.SMOOTH_BRICK));
+            queue.add(new Op(w,x-4,y+2,z,Material.REDSTONE_TORCH_ON));
+            queue.add(new Op(w,x-3,y+1,z,Material.REDSTONE_WIRE));
         }
 
-        // Shared supplies and output are both real double chests, placed away
-        // from lane chests so the chest-merging rules remain valid.
-        doubleChest(w,rx-5,y+1,rz-6,"Ingredients");
-        doubleChest(w,rx+4,y+1,rz+6,"Finished Pots");
-        queue.add(new Op(w,rx,y+5,rz,Material.GLOWSTONE));
+        doubleChest(w,rx-6,y+1,rz+7,"Ingredients");
+        doubleChest(w,rx+4,y+1,rz+7,"Finished Pots");
+        queue.add(new Op(w,rx,y+6,rz,Material.GLOWSTONE));
+        queue.add(new Op(w,rx-6,y+5,rz,Material.GLOWSTONE));
+        queue.add(new Op(w,rx+6,y+5,rz,Material.GLOWSTONE));
     }
 
     private void buildFenceGateBowTrap(World w,int cx,int y,int cz) {

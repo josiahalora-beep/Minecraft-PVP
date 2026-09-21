@@ -203,9 +203,9 @@ final class HcfAutoBrewerDirector {
     private BrewingStand standFor(World w,Site s,int laneIndex) {
         // Base templates register the exact brewer core. No coordinate guess is
         // allowed here: moving or resizing a base cannot disconnect the machine.
-        int x=s.centerX+1;
+        int x=s.centerX;
         int z=s.centerZ-5+(laneIndex*2);
-        Block b=w.getBlockAt(x,s.floorY+1,z);
+        Block b=w.getBlockAt(x,s.floorY+2,z);
         if(b.getType()!=Material.BREWING_STAND || !(b.getState() instanceof BrewingStand)) return null;
         return (BrewingStand)b.getState();
     }

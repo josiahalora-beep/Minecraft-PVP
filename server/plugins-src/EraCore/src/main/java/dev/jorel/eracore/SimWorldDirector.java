@@ -4701,7 +4701,7 @@ final class SimWorldDirector {
 
     private void brewCombatStock(SimFaction f) {
         if (!f.brewer) return;
-        plugin.registerAutoBrewerSite(f.name,f.baseX,f.baseY,f.baseZ);
+        plugin.registerAutoBrewerSite(f.name,f.basePreset,f.baseX,f.baseY,f.baseZ);
 
         int members=Math.max(1,f.members.size());
 

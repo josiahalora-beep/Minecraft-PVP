@@ -9,6 +9,15 @@ function rand(min, max) {
   return min + Math.random() * (max - min)
 }
 
+function stableHash(text) {
+  let h=2166136261
+  for(const ch of String(text || '')) {
+    h ^= ch.charCodeAt(0)
+    h = Math.imul(h,16777619)
+  }
+  return h >>> 0
+}
+
 function tierFromSkill(skill) {
   if (skill >= 92) return 'elite'
   if (skill >= 80) return 'strong'
@@ -306,6 +315,8 @@ export function createTeamCombatController(bot, assignmentProvider) {
   let lastBowShot = 0
   let lastRogueTry = 0
   let lastFightId = ''
+  let fightStartedAt = 0
+  let lastCombatLoadoutAt = 0
   let liquidSince = 0
   let stuckSince = 0
   let lastMoveSampleAt = 0
@@ -347,6 +358,140 @@ export function createTeamCombatController(bot, assignmentProvider) {
   function decisionRoll(a, base=0.5) {
     const iq=Math.max(0,Math.min(100,Number(a?.pvpIq ?? 50)))
     return Math.random() < Math.max(0.05,Math.min(0.95,base+(iq-50)/180))
+  }
+
+  function combatArmorPrefixes(a) {
+    const cls=String(a?.class || 'DIAMOND').toUpperCase()
+    if(cls==='BARD') return ['golden_','gold_']
+    if(cls==='ARCHER') return ['leather_']
+    if(cls==='ROGUE') return ['chainmail_']
+    if(cls==='MINER') return ['iron_']
+    return ['diamond_']
+  }
+
+  function combatArmorComplete(a) {
+    const prefixes=combatArmorPrefixes(a)
+    const specs=[[5,'_helmet'],[6,'_chestplate'],[7,'_leggings'],[8,'_boots']]
+    return specs.every(([slot,suffix]) => {
+      const name=String(bot.inventory.slots?.[slot]?.name || '')
+      return name.endsWith(suffix) && prefixes.some(p=>name.startsWith(p))
+    })
+  }
+
+  async function equipCombatLoadout(a) {
+    const now=Date.now()
+    if(now-lastCombatLoadoutAt<900) return combatArmorComplete(a)
+    lastCombatLoadoutAt=now
+
+    const prefixes=combatArmorPrefixes(a)
+    const specs=[
+      ['_helmet','head',5],
+      ['_chestplate','torso',6],
+      ['_leggings','legs',7],
+      ['_boots','feet',8]
+    ]
+    for(const [suffix,dest,slot] of specs) {
+      const current=bot.inventory.slots?.[slot]
+      let best=null,bestScore=-1
+      for(const item of bot.inventory.items()) {
+        const name=String(item?.name || '')
+        if(!name.endsWith(suffix) || !prefixes.some(p=>name.startsWith(p))) continue
+        const score=armorMaterialScore(name)
+        if(score>bestScore){best=item;bestScore=score}
+      }
+      const currentName=String(current?.name || '')
+      const currentValid=currentName.endsWith(suffix) && prefixes.some(p=>currentName.startsWith(p))
+      if(best && (!currentValid || armorMaterialScore(best.name)>armorMaterialScore(currentName))) {
+        try { await bot.equip(best,dest); await sleep(35) } catch {}
+      }
+    }
+    await equipNamed(['diamond_sword','iron_sword','stone_sword','golden_sword','gold_sword'])
+    return combatArmorComplete(a)
+  }
+
+  function visibleTeamCentroid(a) {
+    if(!bot.entity) return null
+    let x=bot.entity.position.x,y=bot.entity.position.y,z=bot.entity.position.z,n=1
+    for(const name of a?.allies || []) {
+      const e=bot.players?.[name]?.entity
+      if(!e) continue
+      x+=e.position.x;y+=e.position.y;z+=e.position.z;n++
+    }
+    return {x:x/n,y:y/n,z:z/n,count:n}
+  }
+
+  function stableLane(a) {
+    const team=[bot.username,...(a?.allies || [])].map(String).sort((x,y)=>x.localeCompare(y))
+    const idx=Math.max(0,team.findIndex(n=>n.toLowerCase()===String(bot.username).toLowerCase()))
+    const center=(team.length-1)/2
+    return idx-center
+  }
+
+  function approachPoint(a,target) {
+    if(!bot.entity || !target?.entity) return null
+    const lead=predictedTarget(target.entity,0.30) || target.entity.position
+    const dx=lead.x-bot.entity.position.x,dz=lead.z-bot.entity.position.z
+    const mag=Math.max(0.001,Math.sqrt(dx*dx+dz*dz))
+    const lane=Math.max(-2,Math.min(2,stableLane(a)))*1.25
+    return {
+      x:lead.x+(-dz/mag)*lane,
+      z:lead.z+(dx/mag)*lane
+    }
+  }
+
+  async function teamCohesionTick(a,target) {
+    const teamSize=1+(a?.allies?.length || 0)
+    if(teamSize<3 || !bot.entity) return false
+    const now=Date.now()
+    const enemyClose=Boolean(target && target.dist<=4.8)
+
+    // The first seconds of a fight are a real rally/staging phase. Each body has
+    // its own server-assigned slot, so teams form a front rather than instantly
+    // collapsing into one pile.
+    if(now-fightStartedAt<2400 && !enemyClose) {
+      const sx=Number(a?.x),sz=Number(a?.z)
+      if(Number.isFinite(sx) && Number.isFinite(sz)) {
+        const d=pointDistance(bot.entity.position,sx,sz)
+        if(d>2.4) moveToward(bot,sx,sz,d>5)
+        else {
+          stop(bot)
+          if(target?.entity) {
+            try { await bot.lookAt(target.entity.position.offset(0,1.2,0),false) } catch {}
+          }
+        }
+        return true
+      }
+    }
+
+    const centroid=visibleTeamCentroid(a)
+    if(!centroid || centroid.count<2) return false
+    const dx=bot.entity.position.x-centroid.x,dz=bot.entity.position.z-centroid.z
+    const spread=Math.sqrt(dx*dx+dz*dz)
+    const alliesNear=countNearby(bot,a.allies,11)
+
+    // Regroup if isolated unless already trading at melee range.
+    if(!enemyClose && (spread>9 || alliesNear===0)) {
+      moveToward(bot,centroid.x,centroid.z,true)
+      return true
+    }
+    return false
+  }
+
+  function supportPoint(a,target,range=7) {
+    const c=visibleTeamCentroid(a)
+    if(!c || !bot.entity) return null
+    let dx=0,dz=1
+    if(target?.entity) {
+      dx=c.x-target.entity.position.x
+      dz=c.z-target.entity.position.z
+      const mag=Math.max(0.001,Math.sqrt(dx*dx+dz*dz))
+      dx/=mag;dz/=mag
+    }
+    const side=(stableHash(bot.username)%2===0)?-1:1
+    return {
+      x:c.x+dx*range+(-dz)*side*2.2,
+      z:c.z+dz*range+(dx)*side*2.2
+    }
   }
 
   async function humanMistakeTick(a,target) {
@@ -568,7 +713,7 @@ export function createTeamCombatController(bot, assignmentProvider) {
     return 0
   }
 
-  async function equipLootUpgrades() {
+  async function equipLootUpgrades(a) {
     const now=Date.now()
     if(now-lastLootEquipAt<1200) return false
     lastLootEquipAt=now
@@ -580,12 +725,16 @@ export function createTeamCombatController(bot, assignmentProvider) {
     ]
     for(const [suffix,dest,slot] of specs) {
       let best=null
+      const prefixes=combatArmorPrefixes(a)
       for(const item of bot.inventory.items()) {
-        if(!String(item.name || '').endsWith(suffix)) continue
+        const name=String(item.name || '')
+        if(!name.endsWith(suffix) || !prefixes.some(p=>name.startsWith(p))) continue
         if(!best || armorMaterialScore(item.name)>armorMaterialScore(best.name)) best=item
       }
       const current=bot.inventory.slots?.[slot]
-      if(best && armorMaterialScore(best.name)>armorMaterialScore(current?.name)) {
+      const currentName=String(current?.name || '')
+      const currentValid=currentName.endsWith(suffix) && prefixes.some(p=>currentName.startsWith(p))
+      if(best && (!currentValid || armorMaterialScore(best.name)>armorMaterialScore(currentName))) {
         try { await bot.equip(best,dest); await sleep(45) } catch {}
       }
     }
@@ -750,8 +899,8 @@ export function createTeamCombatController(bot, assignmentProvider) {
     // Lead a moving target instead of repeatedly steering toward where it used
     // to be. This materially improves chase pressure and makes fights less static.
     if (dist > 3.1) {
-      const lead=predictedTarget(target.entity,0.30)
-      if (lead) moveToward(bot,lead.x,lead.z,true)
+      const lanePoint=approachPoint(a,target)
+      if(lanePoint) moveToward(bot,lanePoint.x,lanePoint.z,true)
     }
     applyMeleeMovement(target.entity, dist)
     await aimAndAttack(target.entity, dist)
@@ -809,14 +958,20 @@ export function createTeamCombatController(bot, assignmentProvider) {
       bot.setControlState(dir,true)
       if (bot.health <= profile.potHealth) await potAtFeet()
     } else if (ally) {
+      const support=supportPoint(a,target,7)
       const d = bot.entity.position.distanceTo(ally.entity.position)
-      if (d > 13) moveToward(bot, ally.entity.position.x, ally.entity.position.z, true)
+      if (support) {
+        const dx=bot.entity.position.x-support.x,dz=bot.entity.position.z-support.z
+        const sd=Math.sqrt(dx*dx+dz*dz)
+        if(sd>3.0) moveToward(bot,support.x,support.z,sd>7)
+        else {
+          stop(bot)
+          if(target?.entity) {
+            try { await bot.lookAt(target.entity.position.offset(0,1.2,0),false) } catch {}
+          }
+        }
+      } else if (d > 13) moveToward(bot, ally.entity.position.x, ally.entity.position.z, true)
       else if (d < 5 && target) moveAway(bot, target.entity)
-      else {
-        // Maintain a moving support ring instead of standing motionless.
-        const angle=(Date.now()/1100)%(Math.PI*2)
-        moveToward(bot,ally.entity.position.x+Math.cos(angle)*7,ally.entity.position.z+Math.sin(angle)*7,false)
-      }
     } else if (target) {
       moveAway(bot,target.entity)
     } else {
@@ -877,7 +1032,7 @@ export function createTeamCombatController(bot, assignmentProvider) {
     else if (dist < 9.5) moveAway(bot, target.entity)
     else if (dist > 14) moveToward(bot, lead.x, lead.z, true)
     else {
-      const side=(Math.floor(Date.now()/850)%2===0)?1:-1
+      const side=(stableHash(bot.username)%2===0)?1:-1
       const dx=lead.x-bot.entity.position.x,dz=lead.z-bot.entity.position.z
       const mag=Math.max(0.001,Math.sqrt(dx*dx+dz*dz))
       moveToward(bot,
@@ -941,6 +1096,8 @@ export function createTeamCombatController(bot, assignmentProvider) {
       ensureProfile(a)
       if (a.fightId !== lastFightId) {
         lastFightId = a.fightId
+        fightStartedAt = Date.now()
+        lastCombatLoadoutAt = 0
         stop(bot)
         previousHealth = bot.health
         mistakeType=''
@@ -948,9 +1105,17 @@ export function createTeamCombatController(bot, assignmentProvider) {
         nextMistakeCheckAt=Date.now()+Math.round(rand(2500,5500))
       }
 
+      const armed=await equipCombatLoadout(a)
+      if(!armed) {
+        // Never visually charge into a teamfight in a partial class set.
+        stop(bot)
+        return
+      }
+
       let target = null
       const iq=Math.max(0,Math.min(100,Number(a?.pvpIq ?? 50)))
-      if (a.focus && (iq>=82 || Math.random()<Math.max(0.20,iq/105))) {
+      const teamFight=(a?.allies?.length || 0)>=2
+      if (a.focus && (teamFight || iq>=82 || Math.random()<Math.max(0.20,iq/105))) {
         const focusEntity = bot.players?.[a.focus]?.entity
         if (focusEntity && bot.entity) {
           const d = bot.entity.position.distanceTo(focusEntity.position)
@@ -961,12 +1126,13 @@ export function createTeamCombatController(bot, assignmentProvider) {
       const cls = String(a.class || 'DIAMOND').toUpperCase()
 
       if (await terrainEscapeTick(a,target)) return
+      if (await teamCohesionTick(a,target)) return
       if (await humanMistakeTick(a,target)) return
 
       // Loot is a tactical objective: after a kill or when pressure briefly
       // drops, sweep valuable sets/swords/pearls instead of walking past them.
       if ((!target || target.dist>7) && await lootTick(a,target)) return
-      if (!target || target.dist>10) await equipLootUpgrades()
+      if (!target || target.dist>10) await equipLootUpgrades(a)
 
       if (cls === 'BARD') await bardTick(a, target)
       else if (cls === 'ARCHER') await archerTick(a, target)

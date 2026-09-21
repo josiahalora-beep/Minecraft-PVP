@@ -1578,6 +1578,8 @@ async function connectIdentity(candidate, settings) {
     )
     await sleep(500)
     if (candidate.combat) {
+      try { bot.pathfinder?.stop() } catch {}
+      stopMovement(bot)
       state.combat = candidate.assignment
       state.lastCombatFightId = candidate.assignment?.fightId || ''
       try { bot.chat('/simcombat sync') } catch {}
@@ -1724,6 +1726,8 @@ async function reconcile() {
     if (nextFight) {
       state.combat = cand.assignment
       if (state.bot && previousFight !== nextFight) {
+        try { state.bot.pathfinder?.stop() } catch {}
+        stopMovement(state.bot)
         state.lastCombatFightId = nextFight
         try { state.bot.chat('/simcombat sync') } catch {}
       }

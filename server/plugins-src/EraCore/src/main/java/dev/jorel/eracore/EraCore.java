@@ -48,6 +48,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     private int ownerTestFood = 20;
     private String ownerTestName = "";
     private String ownerTestFightId = "";
+    private final Map<String,DuelRequest> duelRequests = new HashMap<String,DuelRequest>();
+    private DuelSnapshot activeDuel;
     private final Map<Material, Double> sellPrices = new LinkedHashMap<Material, Double>();
     private final Map<String, ShopItem> buyItems = new LinkedHashMap<String, ShopItem>();
     private long[] tickTimes;
@@ -98,6 +100,25 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         ShopItem(String key, Material material, short data, double price) {
             this.key = key; this.material = material; this.data = data; this.price = price;
         }
+    }
+
+    static final class DuelRequest {
+        String from;
+        String to;
+        long expiresAt;
+        boolean simulatedFrom;
+    }
+
+    static final class DuelSnapshot {
+        String human;
+        String sim;
+        String fightId;
+        ItemStack[] contents;
+        ItemStack[] armor;
+        Location returnLocation;
+        double health;
+        int food;
+        boolean restoreOnRespawn;
     }
 
     static final class Faction {
@@ -202,7 +223,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     private void bindCommands() {
-        String[] cmds = {"rank","kit","kits","balance","pay","sell","buy","shop","vote","keys","crates","stats","f","spawn","setspawn","warp","warps","setwarp","delwarp","spawnpreset","msg","r","simchat","sotw","simworker","simcombat","safezone","teamfight","bard","archer","miner","rogue","simprobe","simmap","simstate","duelprep"};
+        String[] cmds = {"rank","kit","kits","balance","pay","sell","buy","shop","vote","keys","crates","stats","history","duel","f","spawn","setspawn","warp","warps","setwarp","delwarp","spawnpreset","msg","r","simchat","sotw","simworker","simcombat","safezone","teamfight","bard","archer","miner","rogue","simprobe","simmap","simstate","duelprep"};
         for (String c : cmds) getCommand(c).setExecutor(this);
     }
 
@@ -313,6 +334,11 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     @EventHandler(priority=EventPriority.HIGHEST) public void onQuit(PlayerQuitEvent e) {
         Player p = e.getPlayer();
+        if(activeDuel!=null && p.getName().equalsIgnoreCase(activeDuel.human)) {
+            if(simWorld!=null) simWorld.cancelDuel(activeDuel.human,activeDuel.sim,"opponent disconnected");
+            restoreDuelHuman(p);
+            clearDuelSnapshot();
+        }
         if (isBotIdentity(p.getName())) {
             if (simWorld != null && simWorld.hasCombatReservation(p.getName())) {
                 simWorld.releaseCombatLoadout(p);
@@ -432,8 +458,17 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     @EventHandler(priority=EventPriority.HIGHEST, ignoreCancelled=true) public void onDamage(EntityDamageByEntityEvent e) {
+        if(isActiveDuelDamage(e)) return;
         if(hcfZones!=null && hcfZones.handleDamage(e)) return;
         if (simWorld != null && simWorld.sotwProtectionActive()) e.setCancelled(true);
+    }
+
+    private boolean isActiveDuelDamage(EntityDamageByEntityEvent e) {
+        if(activeDuel==null || !(e.getEntity() instanceof Player) || !(e.getDamager() instanceof Player)) return false;
+        String victim=((Player)e.getEntity()).getName();
+        String attacker=((Player)e.getDamager()).getName();
+        return (victim.equalsIgnoreCase(activeDuel.human) && attacker.equalsIgnoreCase(activeDuel.sim)) ||
+            (victim.equalsIgnoreCase(activeDuel.sim) && attacker.equalsIgnoreCase(activeDuel.human));
     }
 
     @EventHandler(priority=EventPriority.HIGHEST, ignoreCancelled=true) public void onExplosion(EntityExplodeEvent e) {
@@ -460,6 +495,21 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     @EventHandler public void onDeath(PlayerDeathEvent e) {
         String n = e.getEntity().getName().toLowerCase(Locale.ENGLISH);
+
+        if(activeDuel!=null &&
+           (e.getEntity().getName().equalsIgnoreCase(activeDuel.human) ||
+            e.getEntity().getName().equalsIgnoreCase(activeDuel.sim))) {
+            e.getDrops().clear();
+            e.setDroppedExp(0);
+            e.setKeepInventory(true);
+            String loser=e.getEntity().getName();
+            String winner=loser.equalsIgnoreCase(activeDuel.human)?activeDuel.sim:activeDuel.human;
+            boolean humanDied=loser.equalsIgnoreCase(activeDuel.human);
+            if(humanDied) activeDuel.restoreOnRespawn=true;
+            finishCommunityDuel(winner,loser,humanDied);
+            return;
+        }
+
         String preparedFight=combatPreparedFight.get(n);
         boolean testFight=preparedFight!=null && preparedFight.startsWith("TESTTEAM_");
 
@@ -793,6 +843,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (c.equals("keys")) return spawnRewards != null && spawnRewards.commandKeys(p);
         if (c.equals("crates")) return spawnRewards != null && spawnRewards.commandCrates(p,args);
         if (c.equals("stats")) return cmdStats(p,args);
+        if (c.equals("history")) return cmdHistory(p,args);
+        if (c.equals("duel")) return cmdDuel(p,args);
         if (c.equals("f")) return cmdFaction(p,args);
         if (c.equals("spawn")) return cmdSpawn(p);
         if (c.equals("setspawn")) return cmdSetSpawn(p);
@@ -1011,7 +1063,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
             String k=p.getName().toLowerCase(Locale.ENGLISH);
             String prepared=combatPreparedFight.get(k);
-            if (!ca.fightId.equals(prepared) && !ca.fightId.startsWith("TESTTEAM_")) {
+            if (!ca.fightId.equals(prepared) && !ca.fightId.startsWith("TESTTEAM_") &&
+                !ca.fightId.startsWith("DUEL_")) {
                 if (!simWorld.reserveCombatLoadout(p.getName(),ca.combatClass,ca.fightId)) {
                     p.sendMessage("SIMCOMBAT none reason=stock");
                     return true;

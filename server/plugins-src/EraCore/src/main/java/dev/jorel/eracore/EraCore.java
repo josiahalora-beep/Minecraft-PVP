@@ -1270,7 +1270,14 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             return true;
         }
 
-        p.sendMessage("/simcombat <sync|release|status>");
+        if (a[0].equalsIgnoreCase("director")) {
+            if (!ownerOnly(p)) return true;
+            p.sendMessage(color("&6--- PvP Director ---"));
+            for(String line:simWorld.directorStatusLines()) p.sendMessage(color("&7"+line));
+            return true;
+        }
+
+        p.sendMessage("/simcombat <sync|release|status|director>");
         return true;
     }
 

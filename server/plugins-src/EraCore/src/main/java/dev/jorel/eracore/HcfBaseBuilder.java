@@ -63,7 +63,7 @@ final class HcfBaseBuilder {
         else buildGlassBox(world,cx,y,cz,false);
 
         addDistinctExterior(world,faction,preset,cx,y,cz);
-        buildOrganizedVault(world,cx,y,cz);
+        buildOrganizedVault(world,preset,cx,y,cz);
 
         if ("fall_trap".equalsIgnoreCase(trapPreset)) buildFallTrap(world,cx,y,cz);
         else if ("fence_gate_bow".equalsIgnoreCase(trapPreset)) buildFenceGateBowTrap(world,cx,y,cz);
@@ -156,7 +156,7 @@ final class HcfBaseBuilder {
         clearHomePocket(world,cx,y,cz);
         doorway(world,cx,y,frontZForPreset(preset,cz));
         addDistinctExterior(world,faction,preset,cx,y,cz);
-        buildOrganizedVault(world,cx,y,cz);
+        buildOrganizedVault(world,preset,cx,y,cz);
         rescueEmbeddedPlayers(world,cx,y,cz,radius);
         ensureRunner();
     }
@@ -296,37 +296,63 @@ final class HcfBaseBuilder {
         runner.runTaskTimer(plugin,1L,1L);
     }
 
-    private void buildOrganizedVault(World w,int cx,int y,int cz) {
-        // Every faction gets the same readable storage convention even though
-        // the surrounding base preset is different. Chests are spaced so they
-        // remain singles rather than merging into accidental doubles.
-        String[] north={"Pots","Pearls","Valuables","Blocks","Brewing","Farm","Overflow"};
-        String[] south={"Helmets","Chestplates","Leggings","Boots","Swords","Bows","Kits"};
+    private int presetHalf(String preset) {
+        if ("hcf_courtyard".equalsIgnoreCase(preset)) return 14;
+        if ("hcf_compact_2015".equalsIgnoreCase(preset)) return 9;
+        if ("hcf_split_level".equalsIgnoreCase(preset)) return 11;
+        if ("hcf_archer_tower".equalsIgnoreCase(preset)) return 10;
+        if ("hcf_double_layer".equalsIgnoreCase(preset)) return 13;
+        return 12;
+    }
+
+    private void buildOrganizedVault(World w,String preset,int cx,int y,int cz) {
+        int half=presetHalf(preset);
+        int rear=cz+half;
+        int z1=rear+3, z2=rear+5;
+        Material accent=Material.SMOOTH_BRICK;
+
+        // Connect the base to a separate rear vault instead of carving storage
+        // through preset-specific defensive interiors.
+        doorway(w,cx,y,rear);
+
+        String[] near={"Pots","Pearls","Valuables","Blocks","Brewing","Farm","Overflow"};
+        String[] far={"Helmets","Chestplates","Leggings","Boots","Swords","Bows","Kits"};
         int[] xs={-6,-4,-2,0,2,4,6};
 
-        // Clear a compact rear vault lane; never overwrite a live player because
-        // the runner's occupancy guard still applies to every queued block.
         for(int x=cx-7;x<=cx+7;x++) {
-            for(int z=cz+5;z<=cz+9;z++) {
-                queue.add(new Op(w,x,y,z,Material.SMOOTH_BRICK));
-                for(int yy=y+1;yy<=y+3;yy++) queue.add(new Op(w,x,yy,z,Material.AIR));
+            for(int z=rear+2;z<=rear+6;z++) {
+                int surface=solidSurfaceY(w,x,z);
+                if(surface<y) {
+                    for(int yy=Math.max(2,surface+1);yy<y;yy++)
+                        queue.add(new Op(w,x,yy,z,yy>=y-3?Material.DIRT:Material.STONE));
+                }
+                queue.add(new Op(w,x,y,z,accent));
+                for(int yy=y+1;yy<=y+4;yy++) queue.add(new Op(w,x,yy,z,Material.AIR));
+                queue.add(new Op(w,x,y+5,z,accent));
+            }
+        }
+
+        // Rear and side walls; the base-facing side stays mostly open around the gate.
+        for(int x=cx-7;x<=cx+7;x++) {
+            for(int yy=y+1;yy<=y+4;yy++) queue.add(new Op(w,x,yy,rear+6,Material.STAINED_GLASS));
+        }
+        for(int z=rear+2;z<=rear+6;z++) {
+            for(int yy=y+1;yy<=y+4;yy++) {
+                queue.add(new Op(w,cx-7,yy,z,accent));
+                queue.add(new Op(w,cx+7,yy,z,accent));
             }
         }
 
         for(int i=0;i<xs.length;i++) {
             int x=cx+xs[i];
-
-            queue.add(new Op(w,x,y+1,cz+6,Material.CHEST));
-            queue.add(new Op(w,x,y+2,cz+6,Material.SIGN_POST,(byte)8,north[i]));
-
-            queue.add(new Op(w,x,y+1,cz+8,Material.CHEST));
-            queue.add(new Op(w,x,y+2,cz+8,Material.SIGN_POST,(byte)0,south[i]));
+            queue.add(new Op(w,x,y+1,z1,Material.CHEST));
+            queue.add(new Op(w,x,y+2,z1,Material.SIGN_POST,(byte)8,near[i]));
+            queue.add(new Op(w,x,y+1,z2,Material.CHEST));
+            queue.add(new Op(w,x,y+2,z2,Material.SIGN_POST,(byte)0,far[i]));
         }
 
-        // Lighting keeps the vault usable without making every base look like
-        // the same glass box.
-        queue.add(new Op(w,cx-7,y+2,cz+7,Material.GLOWSTONE));
-        queue.add(new Op(w,cx+7,y+2,cz+7,Material.GLOWSTONE));
+        queue.add(new Op(w,cx-7,y+2,rear+4,Material.GLOWSTONE));
+        queue.add(new Op(w,cx+7,y+2,rear+4,Material.GLOWSTONE));
     }
 
     private void buildGlassBox(World w, int cx, int y, int cz, boolean brewerWing) {

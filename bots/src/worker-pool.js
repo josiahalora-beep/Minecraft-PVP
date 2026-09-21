@@ -1068,6 +1068,22 @@ function nearestRoamStranger(state, radius=48) {
   return best
 }
 
+function nearestRoamAlly(state, radius=64) {
+  const bot=state.bot
+  if(!bot?.entity) return null
+  const allies=new Set(String(state.job?.allies || '').split(',').filter(Boolean).map(x=>x.toLowerCase()))
+  allies.delete(String(state.name || '').toLowerCase())
+  let best=null,bestDist=Infinity
+  for(const [name,rec] of Object.entries(bot.players || {})) {
+    if(!allies.has(String(name).toLowerCase())) continue
+    const e=rec?.entity
+    if(!e) continue
+    const d=bot.entity.position.distanceTo(e.position)
+    if(d<=radius && d<bestDist){best=e;bestDist=d}
+  }
+  return best
+}
+
 function fenceGateOpen(block) {
   if(!block) return false
   try {
@@ -1281,16 +1297,28 @@ async function localMotion(state, action) {
     const stranger=(action==='patrol' || action==='solo_loot') ? nearestRoamStranger(state,48) : null
     const leavingHub=(action==='patrol' || action==='solo' || action==='solo_loot') &&
       Date.now()-(state.zoneArrivalAt || 0)<10000
+    const intent=String(state.job?.pvpIntent || 'AVOID').toUpperCase()
+    const desired=Number(state.job?.partySize || 1)
+    const rallyAlly=(action==='patrol' && !stranger && desired>1 &&
+      (intent==='SMALL_TEAM' || intent==='TEAMFIGHT')) ? nearestRoamAlly(state,64) : null
+
+    // Small-team/teamfight players actually assemble. This keeps them from
+    // sharing a hotspot on paper while physically wandering 40 blocks apart.
+    if(rallyAlly && !leavingHub) {
+      const allyDist=bot.entity.position.distanceTo(rallyAlly.position)
+      if(allyDist>9) {
+        await smartGoto(state,rallyAlly.position.x,rallyAlly.position.y,rallyAlly.position.z,5,2600,false)
+        continue
+      }
+    }
 
     // Patrols actively seek visible non-faction players. Immediately after a
     // zone warp they also make a sustained sprint out of the Safezone.
-    const moving = stranger || leavingHub || Math.random() < (mobile ? 0.90 : 0.58)
+    const moving = stranger || rallyAlly || leavingHub || Math.random() < (mobile ? 0.90 : 0.58)
     const sprintChance = (action === 'patrol' || action === 'scout') ? 0.90 : 0.30
     const strafeRoll = Math.random()
 
     if(stranger) {
-      const intent=String(state.job?.pvpIntent || 'SOLO_HUNT').toUpperCase()
-      const desired=Number(state.job?.partySize || 1)
       const dist=bot.entity.position.distanceTo(stranger.position)
 
       // Outside active combat, PvP seekers navigate to visible opponents rather

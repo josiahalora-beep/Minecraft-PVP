@@ -1477,18 +1477,28 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     private int adaptiveWorkerBudget(int configured) {
-        configured = Math.max(1, Math.min(16, configured));
+        configured = Math.max(1, Math.min(64, configured));
         int creatorFloor = Math.max(1, Math.min(configured,
             getConfig().getStringList("worker-pool.creator-bodies").size()));
 
         double[] s = tickStats();
-        if (s == null) return Math.max(creatorFloor, Math.min(10, configured));
+        if (s == null) return Math.max(creatorFloor, Math.min(12, configured));
 
         double p95 = s[1];
-        if (p95 >= 42.0) return creatorFloor;
-        if (p95 >= 32.0) return Math.max(creatorFloor, Math.min(7, configured));
-        if (p95 >= 24.0) return Math.max(creatorFloor, Math.min(9, configured));
-        if (p95 >= 16.0) return Math.max(creatorFloor, Math.min(12, configured));
+        // This is the GLOBAL physical-player budget. Distributed worker nodes
+        // divide it through coordinator leases; they do not each receive this
+        // many bodies. Shed immediately under tick pressure, scale back up via
+        // the coordinator's gradual ramp.
+        if (p95 >= 46.0) return creatorFloor;
+        if (p95 >= 40.0) return Math.max(creatorFloor, Math.min(configured,8));
+        if (p95 >= 34.0) return Math.max(creatorFloor, Math.min(configured,
+            Math.max(10,(int)Math.floor(configured*0.35))));
+        if (p95 >= 28.0) return Math.max(creatorFloor, Math.min(configured,
+            Math.max(12,(int)Math.floor(configured*0.50))));
+        if (p95 >= 22.0) return Math.max(creatorFloor, Math.min(configured,
+            Math.max(14,(int)Math.floor(configured*0.65))));
+        if (p95 >= 17.0) return Math.max(creatorFloor, Math.min(configured,
+            Math.max(16,(int)Math.floor(configured*0.80))));
         return configured;
     }
 

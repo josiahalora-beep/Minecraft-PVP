@@ -144,7 +144,6 @@ final class SimWorldDirector {
         int healPots;
         int pearls;
         int speedPots;
-        int firePots;
         int xp;
         int books;
         int lapis;
@@ -568,8 +567,7 @@ final class SimWorldDirector {
         int heal=24;
         int pearls=8;
         int speed=2;
-        int fire=1;
-        if(f.healPots<heal || f.pearls<pearls || f.speedPots<speed || f.firePots<fire) return false;
+        if(f.healPots<heal || f.pearls<pearls || f.speedPots<speed) return false;
 
         if(type==CombatClass.DIAMOND) {
             if(f.p4Sets<1 || f.sharp4Swords<1) return false;
@@ -592,7 +590,6 @@ final class SimWorldDirector {
         f.healPots-=heal;
         f.pearls-=pearls;
         f.speedPots-=speed;
-        f.firePots-=fire;
 
         CombatReservation r=new CombatReservation();
         r.fightId=fightId;
@@ -602,7 +599,6 @@ final class SimWorldDirector {
         r.healPots=heal;
         r.pearls=pearls;
         r.speedPots=speed;
-        r.firePots=fire;
         r.minerIron=type==CombatClass.MINER?24:0;
         combatReservations.put(key(name),r);
         save();
@@ -640,11 +636,9 @@ final class SimWorldDirector {
         // faction's stock before the fight.
         int heals=countPotion(body,(short)16421);
         int speeds=countPotion(body,(short)8226);
-        int fires=countPotion(body,(short)8259);
         int pearls=countMaterial(body,Material.ENDER_PEARL);
         f.healPots+=heals;
         f.speedPots+=speeds;
-        f.firePots+=fires;
         f.pearls+=pearls;
 
         // Return surviving worn gear and recognizable captured sets.
@@ -665,18 +659,18 @@ final class SimWorldDirector {
         f.rogueSets += chainPieces/4;
         f.iron += (ironPieces/4)*24;
 
-        int sharp4=0;
+        int sharp2=0;
         for(org.bukkit.inventory.ItemStack item:allPhysicalItems(body)) {
             if(item==null || item.getType()!=Material.DIAMOND_SWORD) continue;
             Integer lvl=item.getEnchantments().get(org.bukkit.enchantments.Enchantment.DAMAGE_ALL);
-            if(lvl!=null && lvl>=4) sharp4++;
+            if(lvl!=null && lvl>=2) sharp2++;
         }
-        f.sharp4Swords+=sharp4;
+        f.sharp4Swords+=sharp2;
 
         clearCombatInventory(body);
         save();
-        return "heal="+heals+" pearls="+pearls+" speed="+speeds+" fire="+fires+
-            " p4="+(diamondPieces/4)+" sharp4="+sharp4;
+        return "heal="+heals+" pearls="+pearls+" speed="+speeds+
+            " p2="+(diamondPieces/4)+" sharp2="+sharp2;
     }
 
     boolean settleCombatDeath(Player body) {
@@ -2239,9 +2233,10 @@ final class SimWorldDirector {
         SimPlayer p=players.get(key(body.getName()));
         if(p==null || p.faction.isEmpty()) return "no-faction";
         SimFaction f=factions.get(key(p.faction));
-        if(f==null || !f.storage) return "no-storage";
+        if(f==null) return "no-faction";
 
         org.bukkit.inventory.PlayerInventory inv=body.getInventory();
+        normalizePvpInventory(body);
         int armorChanged=0,weaponAdded=0,supplies=0,classItems=0;
 
         Material[][] armorOptions=armorOptionsFor(p.combatClass);
@@ -2302,7 +2297,6 @@ final class SimWorldDirector {
 
         supplies+=refillPotion(inv,f,(short)16421,20);
         supplies+=refillPotion(inv,f,(short)8226,2);
-        supplies+=refillPotion(inv,f,(short)8259,1);
         supplies+=refillMaterial(inv,f,"pearls",Material.ENDER_PEARL,8);
         supplies+=refillMaterial(inv,f,"overflow",Material.COOKED_BEEF,32);
 
@@ -2312,6 +2306,47 @@ final class SimWorldDirector {
         body.updateInventory();
         return "class="+p.combatClass.name()+" armor="+armorChanged+
             " weapon="+weaponAdded+" classItems="+classItems+" supplies="+supplies;
+    }
+
+    private void normalizePvpInventory(Player body) {
+        if(body==null) return;
+        org.bukkit.inventory.PlayerInventory inv=body.getInventory();
+        for(int slot=0;slot<36;slot++) {
+            org.bukkit.inventory.ItemStack item=inv.getItem(slot);
+            if(item!=null) capPvpItem(item);
+        }
+        for(org.bukkit.inventory.ItemStack item:inv.getArmorContents())
+            if(item!=null) capPvpItem(item);
+        body.updateInventory();
+    }
+
+    private void capPvpItem(org.bukkit.inventory.ItemStack item) {
+        if(item==null) return;
+        String n=item.getType().name();
+        if(n.endsWith("_HELMET") || n.endsWith("_CHESTPLATE") ||
+           n.endsWith("_LEGGINGS") || n.endsWith("_BOOTS")) {
+            int prot=item.getEnchantmentLevel(org.bukkit.enchantments.Enchantment.PROTECTION_ENVIRONMENTAL);
+            if(prot>2) {
+                item.removeEnchantment(org.bukkit.enchantments.Enchantment.PROTECTION_ENVIRONMENTAL);
+                item.addUnsafeEnchantment(org.bukkit.enchantments.Enchantment.PROTECTION_ENVIRONMENTAL,2);
+            }
+        }
+        if(n.endsWith("_SWORD")) {
+            int sharp=item.getEnchantmentLevel(org.bukkit.enchantments.Enchantment.DAMAGE_ALL);
+            if(sharp>2) {
+                item.removeEnchantment(org.bukkit.enchantments.Enchantment.DAMAGE_ALL);
+                item.addUnsafeEnchantment(org.bukkit.enchantments.Enchantment.DAMAGE_ALL,2);
+            }
+            item.removeEnchantment(org.bukkit.enchantments.Enchantment.FIRE_ASPECT);
+        }
+        if(item.getType()==Material.BOW) {
+            int power=item.getEnchantmentLevel(org.bukkit.enchantments.Enchantment.ARROW_DAMAGE);
+            if(power>2) {
+                item.removeEnchantment(org.bukkit.enchantments.Enchantment.ARROW_DAMAGE);
+                item.addUnsafeEnchantment(org.bukkit.enchantments.Enchantment.ARROW_DAMAGE,2);
+            }
+            item.removeEnchantment(org.bukkit.enchantments.Enchantment.ARROW_FIRE);
+        }
     }
 
     private Material[][] armorOptionsFor(CombatClass type) {
@@ -2673,38 +2708,22 @@ final class SimWorldDirector {
         SimFaction f=factions.get(key(p.faction));
         if(f==null) return;
 
-        // Donor kits are an allowed item source. Credit the authoritative
-        // faction economy once when the real /kit cooldown succeeds.
-        if(rankLevel>=4) {
-            f.p4Sets+=1;
-            f.sharp4Swords+=1;
-            f.pearls+=16;
-            f.healPots+=16;
-            f.speedPots+=2;
-            f.firePots+=1;
-        } else if(rankLevel==3) {
-            f.diamonds+=18;
-            f.xp+=18;
-            f.pearls+=12;
-            f.healPots+=12;
-            f.speedPots+=2;
-            f.firePots+=1;
-        } else if(rankLevel==2) {
-            f.diamonds+=12;
-            f.xp+=12;
-            f.pearls+=8;
-            f.healPots+=8;
-            f.speedPots+=1;
-        } else if(rankLevel==1) {
-            f.diamonds+=8;
-            f.xp+=7;
-            f.pearls+=4;
-            f.healPots+=4;
-        } else {
-            // Member donor kit: full iron + iron sword + two pearls.
-            f.iron+=26;
-            f.pearls+=2;
-        }
+        // Every donor tier is one capped P2/S2 diamond set. Higher tiers only
+        // scale consumables modestly because higher ranks can claim lower kits too.
+        int pearls=1,heals=2,speed=0;
+        if(rankLevel==1){pearls=2;heals=3;speed=1;}
+        else if(rankLevel==2){pearls=3;heals=4;speed=1;}
+        else if(rankLevel==3){pearls=4;heals=5;speed=1;}
+        else if(rankLevel>=4){pearls=5;heals=6;speed=1;}
+
+        // Legacy field names are retained for save compatibility; their meaning
+        // is now capped P2 sets and S2 swords.
+        f.p4Sets+=1;
+        f.sharp4Swords+=1;
+        f.pearls+=pearls;
+        f.healPots+=heals;
+        f.speedPots+=speed;
+        f.firePots=0;
 
         p.reputation=Math.min(999,p.reputation+1);
         save();
@@ -2776,7 +2795,7 @@ final class SimWorldDirector {
             }
         }
 
-        String[] neutral = {"gg","anyone at spawn","who has pearls","who wants ally","selling stuff msg me","lol","need levels","who is outside","need pots","who has p4"};
+        String[] neutral = {"gg","anyone at spawn","who has pearls","who wants ally","selling stuff msg me","lol","need levels","who is outside","need pots","who has p2"};
         return new ChatEvent(p.name, neutral[rng.nextInt(neutral.length)]);
     }
 
@@ -3447,11 +3466,9 @@ final class SimWorldDirector {
                     int lostHeals=Math.min(vf.healPots,10+rng.nextInt(11));
                     int lostPearls=Math.min(vf.pearls,2+rng.nextInt(5));
                     int lostSpeed=Math.min(vf.speedPots,1);
-                    int lostFire=Math.min(vf.firePots,1);
                     vf.healPots -= lostHeals;
                     vf.pearls -= lostPearls;
                     vf.speedPots -= lostSpeed;
-                    vf.firePots -= lostFire;
 
                     boolean lostMainSet=false;
                     if (victim.combatClass == CombatClass.DIAMOND) {
@@ -3472,7 +3489,6 @@ final class SimWorldDirector {
                             kf.healPots += (int)Math.floor(lostHeals*0.70);
                             kf.pearls += (int)Math.floor(lostPearls*0.85);
                             kf.speedPots += lostSpeed;
-                            kf.firePots += lostFire;
                             if(lostMainSet && rng.nextInt(100)<78) {
                                 if(victim.combatClass==CombatClass.DIAMOND){kf.p4Sets++;kf.sharp4Swords++;}
                                 else if(victim.combatClass==CombatClass.BARD) kf.bardSets++;
@@ -4842,10 +4858,10 @@ final class SimWorldDirector {
             f.treasury -= n * plugin.buyUnitPrice("lapis");
         }
 
-        // Approximate enough successful level-I book outcomes to build one IV via balanced combining.
-        // We deliberately require surplus generic books/lapis/XP to account for RNG misses.
-        int protCostBooks = 18;
-        int sharpCostBooks = 20;
+        // P2/S2 is the hard map-wide combat ceiling. We still require enough
+        // low-level books/lapis/XP to represent imperfect enchanting outcomes.
+        int protCostBooks = 4;
+        int sharpCostBooks = 4;
 
         int neededBard = classCount(f, CombatClass.BARD);
         int neededArcher = classCount(f, CombatClass.ARCHER);
@@ -4866,19 +4882,19 @@ final class SimWorldDirector {
             f.rogueSets++;
         }
 
-        if (f.p4Sets < f.members.size() && f.diamonds >= 24 && f.books >= protCostBooks * 4 && f.lapis >= 32 && f.xp >= 32) {
+        if (f.p4Sets < f.members.size() && f.diamonds >= 24 && f.books >= protCostBooks * 4 && f.lapis >= 16 && f.xp >= 16) {
             f.diamonds -= 24;
             f.books -= protCostBooks * 4;
-            f.lapis -= 32;
-            f.xp -= 32;
+            f.lapis -= 16;
+            f.xp -= 16;
             f.p4Sets++;
         }
 
-        if (f.sharp4Swords < f.members.size() && f.diamonds >= 2 && f.books >= sharpCostBooks && f.lapis >= 8 && f.xp >= 10) {
+        if (f.sharp4Swords < f.members.size() && f.diamonds >= 2 && f.books >= sharpCostBooks && f.lapis >= 4 && f.xp >= 6) {
             f.diamonds -= 2;
             f.books -= sharpCostBooks;
-            f.lapis -= 8;
-            f.xp -= 10;
+            f.lapis -= 4;
+            f.xp -= 6;
             f.sharp4Swords++;
         }
     }
@@ -4903,8 +4919,6 @@ final class SimWorldDirector {
                 plugin.buyUnitPrice("gunpowder");
             double speedBatchCost=waterCost*3.0+plugin.buyUnitPrice("netherwart")+
                 plugin.buyUnitPrice("sugar")+plugin.buyUnitPrice("glowstone");
-            double fireBatchCost=waterCost*3.0+plugin.buyUnitPrice("netherwart")+
-                plugin.buyUnitPrice("magmacream")+plugin.buyUnitPrice("redstone");
 
             int healNeed=Math.max(0,members*28-f.healPots);
             if(healNeed>0 && f.treasury>=healBatchCost) {
@@ -4920,12 +4934,6 @@ final class SimWorldDirector {
                 f.treasury-=batches*speedBatchCost;
             }
 
-            int fireNeed=Math.max(0,members*2-f.firePots);
-            if(fireNeed>0 && f.treasury>=fireBatchCost) {
-                int batches=Math.min(1,Math.min((fireNeed+2)/3,(int)Math.floor(f.treasury/fireBatchCost)));
-                f.firePots+=batches*3;
-                f.treasury-=batches*fireBatchCost;
-            }
         }
 
         double pearlPrice=plugin.buyUnitPrice("pearl");
@@ -4943,14 +4951,13 @@ final class SimWorldDirector {
         int members=Math.max(1,f.members.size());
         int healNeed=Math.max(0,members*28-f.healPots);
         int speedNeed=Math.max(0,members*3-f.speedPots);
-        int fireNeed=Math.max(0,members*2-f.firePots);
-        if(healNeed+speedNeed+fireNeed<=0) return;
+        if(healNeed+speedNeed<=0) return;
 
-        int activeKinds=(healNeed>0?1:0)+(speedNeed>0?1:0)+(fireNeed>0?1:0);
+        int activeKinds=(healNeed>0?1:0)+(speedNeed>0?1:0);
         int bottleTarget=Math.min(24,Math.max(6,activeKinds*6+(healNeed>18?6:0)));
         buyBrewerItemToTarget(f,inv,Material.POTION,(short)0,bottleTarget,"glass",1.0);
 
-        int wartTarget=(healNeed>0?4:0)+(speedNeed>0?2:0)+(fireNeed>0?2:0);
+        int wartTarget=(healNeed>0?4:0)+(speedNeed>0?2:0);
         buyBrewerItemToTarget(f,inv,Material.NETHER_STALK,(short)0,wartTarget,"netherwart",1.0);
         if(healNeed>0) {
             buyBrewerItemToTarget(f,inv,Material.SPECKLED_MELON,(short)0,4,"glisteringmelon",1.0);
@@ -4960,10 +4967,6 @@ final class SimWorldDirector {
         if(speedNeed>0) {
             buyBrewerItemToTarget(f,inv,Material.SUGAR,(short)0,2,"sugar",1.0);
             buyBrewerItemToTarget(f,inv,Material.GLOWSTONE_DUST,(short)0,5,"glowstone",1.0);
-        }
-        if(fireNeed>0) {
-            buyBrewerItemToTarget(f,inv,Material.MAGMA_CREAM,(short)0,2,"magmacream",1.0);
-            buyBrewerItemToTarget(f,inv,Material.REDSTONE,(short)0,2,"redstone",1.0);
         }
     }
 
@@ -5070,7 +5073,7 @@ final class SimWorldDirector {
         }
         int heals=countPotion(body,(short)16421);
         int pearls=countMaterial(body,Material.ENDER_PEARL);
-        return fullDiamond && swords>=1 && heals>=6 && pearls>=4;
+        return fullDiamond && swords>=1 && heals>=4 && pearls>=2;
     }
 
     private int personalCombatSlots(SimFaction f) {
@@ -5097,7 +5100,7 @@ final class SimWorldDirector {
             Math.max(0,f.iron/24);
         int consumables=Math.min(
             Math.min(Math.max(0,f.healPots/24),Math.max(0,f.pearls/8)),
-            Math.min(Math.max(0,f.speedPots/2),Math.max(0,f.firePots))
+            Math.max(0,f.speedPots/2)
         );
         return Math.max(0,personal+Math.min(gear,consumables));
     }
@@ -5106,7 +5109,7 @@ final class SimWorldDirector {
         if(f==null || p==null) return false;
         if(hasPersonalPhysicalCombatKit(p)) return true;
         if(combatStockSlots(f)<=0) return false;
-        if(f.healPots<24 || f.pearls<8 || f.speedPots<2 || f.firePots<1) return false;
+        if(f.healPots<24 || f.pearls<8 || f.speedPots<2) return false;
         if(p.combatClass==CombatClass.DIAMOND) return f.p4Sets>0 && f.sharp4Swords>0;
         if(p.combatClass==CombatClass.BARD) return f.bardSets>0;
         if(p.combatClass==CombatClass.ARCHER) return f.archerSets>0;
@@ -5626,7 +5629,7 @@ final class SimWorldDirector {
                 f.healPots = s.getInt("heal-pots");
                 f.pearls = s.getInt("pearls");
                 f.speedPots = s.getInt("speed-pots");
-                f.firePots = s.getInt("fire-pots");
+                f.firePots = 0;
                 f.xp = s.getInt("xp");
                 f.books = s.getInt("books");
                 f.lapis = s.getInt("lapis");
@@ -7259,7 +7262,7 @@ final class SimWorldDirector {
             data.set(b + ".heal-pots", f.healPots);
             data.set(b + ".pearls", f.pearls);
             data.set(b + ".speed-pots", f.speedPots);
-            data.set(b + ".fire-pots", f.firePots);
+            data.set(b + ".fire-pots", 0);
             data.set(b + ".xp", f.xp);
             data.set(b + ".books", f.books);
             data.set(b + ".lapis", f.lapis);

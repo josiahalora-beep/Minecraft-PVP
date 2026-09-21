@@ -50,6 +50,7 @@ final class SimWorldDirector {
         String name;
         String faction = "";
         String role = "member";
+        String factionTitle = "member";
         String preferredJob = "member";
         CombatClass combatClass = CombatClass.DIAMOND;
         boolean leaderCandidate;
@@ -2255,6 +2256,7 @@ final class SimWorldDirector {
         b.append("identity=").append(p.name)
          .append("; faction=").append(p.faction==null||p.faction.isEmpty()?"solo":p.faction)
          .append("; role=").append(p.role)
+         .append("; factionTitle=").append(p.factionTitle)
          .append("; job=").append(p.preferredJob)
          .append("; class=").append(p.combatClass.name())
          .append("; donor=").append(donorName(p.donorLevel))
@@ -2563,9 +2565,23 @@ final class SimWorldDirector {
         return true;
     }
 
+    private final Map<String,String> pendingHumanTryoutFaction=new HashMap<String,String>();
+
     private void handleAiSocialAction(SimPlayer responder,String speaker,AiChatBridge.AiReply ai) {
         if(responder==null || ai==null) return;
-        if("INVITE_FACTION".equals(ai.action)) executeFactionInvite(responder,speaker);
+        if("INVITE_FACTION".equals(ai.action)) {
+            executeFactionInvite(responder,speaker);
+            return;
+        }
+        if("DUEL_TRYOUT".equals(ai.action) && responder.faction!=null && !responder.faction.isEmpty()) {
+            SimFaction f=factions.get(key(responder.faction));
+            if(f==null) return;
+            SimPlayer leader=players.get(key(f.leader));
+            if(leader==null) return;
+            pendingHumanTryoutFaction.put(key(speaker),f.name);
+            plugin.offerSimulatedDuel(leader.name,speaker,"wants a tryout for "+f.name);
+            rememberRelationship(relationship(leader.name,speaker,true),"asked "+speaker+" to duel for a spot in "+f.name);
+        }
     }
 
     private void maybeFallbackFactionInvite(SimPlayer responder,String speaker,String message) {
@@ -3225,17 +3241,18 @@ final class SimWorldDirector {
         maybeCommunityRewards();
 
         int roll=rng.nextInt(100);
-        if(roll<10) maybeDuelCulture();
-        else if(roll<22) maybeHistoryGossip();
-        else if(roll<38) maybeSocialBond();
-        else if(roll<48) maybeFactionDrama();
-        else if(roll<53) maybeFactionUpgradeRecruit();
-        else if(roll<57) maybeFactionDefection();
-        else if(roll<65) maybeCreatorPvpDrama();
-        else if(roll<72) maybeDonorUpgrade();
-        else if(roll<78) maybeStaffReport();
-        else if(roll<81) maybeModerationAction();
-        else if(roll<92) maybeOwnerCommunityMessage();
+        if(roll<8) maybeLeadershipDecision();
+        else if(roll<15) maybeDuelCulture();
+        else if(roll<27) maybeHistoryGossip();
+        else if(roll<42) maybeSocialBond();
+        else if(roll<52) maybeFactionDrama();
+        else if(roll<57) maybeFactionUpgradeRecruit();
+        else if(roll<61) maybeFactionDefection();
+        else if(roll<69) maybeCreatorPvpDrama();
+        else if(roll<76) maybeDonorUpgrade();
+        else if(roll<82) maybeStaffReport();
+        else if(roll<85) maybeModerationAction();
+        else if(roll<96) maybeOwnerCommunityMessage();
     }
 
     private void maybeCommunityRewards() {
@@ -3316,6 +3333,84 @@ final class SimWorldDirector {
         if(p==null || amount<=0) return;
         p.balance+=amount;
         save();
+    }
+
+    private void maybeLeadershipDecision() {
+        if(factions.isEmpty()) return;
+        List<SimFaction> fs=new ArrayList<SimFaction>(factions.values());
+        SimFaction f=fs.get(rng.nextInt(fs.size()));
+        SimPlayer leader=players.get(key(f.leader));
+        if(leader==null || !leader.logicalOnline) return;
+
+        int q=leaderQuality(leader);
+        leader.leaderExperience++;
+
+        // Strong leaders issue terse, useful direction based on faction state.
+        if(f.recoveryMode) {
+            if(q>=65) enqueue(leader.name,oneOf("everyone home low dtr","dont go out till dtr","hold base for now"),false);
+            else if(leader.riskTolerance>=70) enqueue(leader.name,oneOf("we can still fight","one more then home","dont be scared lol"),false);
+            return;
+        }
+
+        int members=Math.max(1,f.members.size());
+        if(f.healPots<members*16) {
+            SimPlayer brewer=firstJobMember(f,"brewer");
+            if(brewer!=null) brewer.currentGoal="brew";
+            if(q>=62) enqueue(leader.name,"we need pots before we go out",false);
+        } else if(f.pearls<members*6) {
+            if(q>=62) enqueue(leader.name,"we need pearls go end",false);
+        } else if(f.treasury<500 && q>=68) {
+            SimPlayer farmer=firstJobMember(f,"farmer");
+            if(farmer!=null) farmer.currentGoal="farm";
+            enqueue(leader.name,"make money first then pvp",false);
+        } else if(f.stage==Stage.PVP_READY && q>=70 && leader.composure>=65) {
+            enqueue(leader.name,oneOf("get on lets go end","gear up we're going out","meet spawn side"),false);
+        } else if(q<50 && leader.riskTolerance>=70 && rng.nextInt(100)<55) {
+            enqueue(leader.name,oneOf("everyone go spawn rn","just fight them","we dont need more pots"),false);
+        }
+
+        maybePromotionTryout(f,leader);
+    }
+
+    private void maybePromotionTryout(SimFaction f,SimPlayer leader) {
+        if(f==null || leader==null || f.members.size()<3 || rng.nextInt(100)>=30) return;
+
+        List<SimPlayer> candidates=new ArrayList<SimPlayer>();
+        for(String n:f.members) {
+            if(n.equalsIgnoreCase(f.leader)) continue;
+            SimPlayer p=players.get(key(n));
+            if(p==null || !"member".equalsIgnoreCase(p.factionTitle)) continue;
+            if(p.reputation>=10 || p.duelWins>0 || relationship(leader.name,p.name,true).trust>=62)
+                candidates.add(p);
+        }
+        if(candidates.isEmpty()) return;
+
+        SimPlayer candidate=candidates.get(rng.nextInt(candidates.size()));
+        SocialEdge rel=relationship(leader.name,candidate.name,true);
+        boolean formal=leader.standards>=68 || f.powerFaction;
+        boolean passed;
+
+        if(formal) {
+            int performance=candidate.skill+candidate.composure/3+candidate.duelWins*3+rng.nextInt(31)-15;
+            int bar=70+leader.standards/4;
+            passed=performance>=bar;
+            candidate.duelWins+=passed?1:0;
+            candidate.duelLosses+=passed?0:1;
+            recordHistory("TRYOUT",5,candidate.name+(passed?" passed ":" failed ")+
+                "an officer duel for "+f.name,f.name,candidate.name,leader.name);
+        } else {
+            // Weak leaders can promote a friend even without proving much.
+            passed=rel.affinity>=28 || rel.trust>=68 || rng.nextInt(100)<18;
+        }
+
+        if(passed) {
+            candidate.factionTitle="officer";
+            rel.trust=clampSocial(rel.trust+4);
+            rel.respect=clampSocial(rel.respect+5);
+            recordHistory("PROMOTION",7,leader.name+" promoted "+candidate.name+" to officer in "+f.name,
+                f.name,leader.name,candidate.name);
+            enqueue(leader.name,""+candidate.name+" is officer now",false);
+        }
     }
 
     private void maybeDuelCulture() {
@@ -3450,6 +3545,26 @@ final class SimWorldDirector {
 
         String faction=win!=null?win.faction:(lose!=null?lose.faction:"");
         recordHistory("DUEL",7,winner+" beat "+loser+" in a duel",faction,winner,loser);
+
+        String human=!players.containsKey(key(winner))?winner:(!players.containsKey(key(loser))?loser:"");
+        if(!human.isEmpty()) {
+            String tryoutFaction=pendingHumanTryoutFaction.remove(key(human));
+            if(tryoutFaction!=null) {
+                SimFaction tf=factions.get(key(tryoutFaction));
+                SimPlayer tl=tf==null?null:players.get(key(tf.leader));
+                boolean humanWon=winner.equalsIgnoreCase(human);
+                if(humanWon && tl!=null) {
+                    executeFactionInvite(tl,human);
+                    plugin.sendSimulatedPrivate(Bukkit.getPlayerExact(human),tl.name,"you passed. leader sent the inv");
+                    recordHistory("TRYOUT",8,human+" passed "+tryoutFaction+"'s live duel tryout",
+                        tryoutFaction,human,tl.name);
+                } else if(tl!=null) {
+                    plugin.sendSimulatedPrivate(Bukkit.getPlayerExact(human),tl.name,"not yet. get better and ask again");
+                    recordHistory("TRYOUT",5,human+" failed "+tryoutFaction+"'s live duel tryout",
+                        tryoutFaction,human,tl.name);
+                }
+            }
+        }
         visibleFight=null;
         writeCombatFile();
         save();
@@ -3622,6 +3737,7 @@ final class SimWorldDirector {
         kicked.loyalty=Math.max(0,kicked.loyalty-4);
         kicked.faction="";
         kicked.role=kicked.preferredJob;
+        kicked.factionTitle="member";
         kicked.currentGoal="social";
         recordHistory("KICK",6,kicked.name+" was kicked from "+f.name+
             (replacementName==null||replacementName.isEmpty()?"":" to make room for "+replacementName),
@@ -3692,6 +3808,7 @@ final class SimWorldDirector {
         if(plugin.joinSimFactionAuthority(target.name,p.name)) {
             p.faction=target.name;
             p.role=p.preferredJob;
+            p.factionTitle="member";
             target.members.add(p.name);
             target.pearls+=stolenPearls;
             target.healPots+=stolenHeals;
@@ -4599,6 +4716,7 @@ final class SimWorldDirector {
             p.name = s.getString("name", k);
             p.faction = s.getString("faction", "");
             p.role = s.getString("role", "member");
+            p.factionTitle = s.getString("faction-title","leader".equalsIgnoreCase(p.role)?"leader":"member");
             p.preferredJob = s.getString("preferred-job", p.role);
             try { p.combatClass = CombatClass.valueOf(s.getString("combat-class", "DIAMOND")); } catch (Exception ignored) {}
             p.leaderCandidate = s.getBoolean("leader-candidate", false);
@@ -4837,6 +4955,7 @@ final class SimWorldDirector {
             p.currentGoal = "idle";
             p.preferredJob = randomJob();
             p.role = p.preferredJob;
+            p.factionTitle = "member";
             p.combatClass = classFor(p);
 
             // Leadership is separate from PvP. Strong public PvPers can become
@@ -5050,6 +5169,7 @@ final class SimWorldDirector {
         contributeToFaction(best, f, 0.15);
         best.faction = f.name;
         best.role = "leader";
+        best.factionTitle = "leader";
         best.leaderExperience++;
         factions.put(key(f.name), f);
         recordHistory("FOUNDING",7,best.name+" founded "+f.name+" as a "+leaderStyle(best),
@@ -5118,6 +5238,7 @@ final class SimWorldDirector {
         if (!plugin.joinSimFactionAuthority(f.name, best.name)) return false;
         best.faction = f.name;
         best.role = best.preferredJob;
+        best.factionTitle = "member";
         f.members.add(best.name);
         contributeToFaction(best, f, 0.12);
         normalizeFactionClasses(f);
@@ -6095,6 +6216,7 @@ final class SimWorldDirector {
             data.set(b + ".name", p.name);
             data.set(b + ".faction", p.faction);
             data.set(b + ".role", p.role);
+            data.set(b + ".faction-title",p.factionTitle);
             data.set(b + ".preferred-job", p.preferredJob);
             data.set(b + ".combat-class", p.combatClass.name());
             data.set(b + ".leader-candidate", p.leaderCandidate);

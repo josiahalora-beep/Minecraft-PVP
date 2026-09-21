@@ -15,6 +15,12 @@ jobs:
       - name: Build EraCore
         working-directory: server/plugins-src/EraCore
         run: mvn -B package
+      - name: Install bot dependencies
+        working-directory: bots
+        run: npm install --no-audit --no-fund
+      - name: Validate Mineflayer plugin imports
+        working-directory: bots
+        run: node --input-type=module -e "await import('./src/common.js'); console.log('Mineflayer plugins import OK')"
       - name: Validate PowerShell updater
         shell: pwsh
         run: |

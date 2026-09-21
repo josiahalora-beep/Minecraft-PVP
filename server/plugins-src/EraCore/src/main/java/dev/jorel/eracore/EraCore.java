@@ -612,6 +612,13 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         target.sendMessage(color("&8[&7From " + identityPrefix(from, rank) + rankNameColor(rank) + from + factionSuffix(from) + "&8] &f" + message));
     }
 
+    void broadcastKillCounter(String name,int kills,int deaths) {
+        if(!hasHumanOnline()) return;
+        double kdr=deaths==0?kills:((double)kills/(double)deaths);
+        Bukkit.broadcastMessage(color("&8[&aKills&8] &f"+name+" &7#&a"+kills+
+            " &8| &c"+deaths+" deaths &8| &e"+new DecimalFormat("0.00").format(kdr)+" KDR"));
+    }
+
     void broadcastCommunityEvent(String message) {
         if (!hasHumanOnline()) return;
         Bukkit.broadcastMessage(color(message));
@@ -1880,6 +1887,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             int deaths=statsData.getInt(b+".deaths",0);
             killer.sendMessage(color("&8[&aKill #"+kills+"&8] &7K/D &f"+kills+"&7/&f"+deaths+
                 " &8| &7Use &f/stats"));
+            broadcastKillCounter(killer.getName(),kills,deaths);
         }
         saveYaml(statsData,statsFile);
     }

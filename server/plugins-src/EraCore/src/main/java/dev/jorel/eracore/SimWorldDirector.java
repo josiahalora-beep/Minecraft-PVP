@@ -1431,9 +1431,9 @@ final class SimWorldDirector {
             case BREWER:
                 if ("brewer".equals(p.preferredJob)) {
                     t.action = "brew";
-                    t.x = bx + 6;
-                    t.y = by + 1;
-                    t.z = bz - 5;
+                    t.x = bx + 20;
+                    t.y = by;
+                    t.z = bz;
                     t.priority = 96;
                 } else {
                     t.action = "supply";
@@ -1461,9 +1461,9 @@ final class SimWorldDirector {
                     t.priority = 66;
                 } else if ("brewer".equals(p.preferredJob)) {
                     t.action = "brew";
-                    t.x = bx + 6;
-                    t.y = by + 1;
-                    t.z = bz - 5;
+                    t.x = bx + 20;
+                    t.y = by;
+                    t.z = bz;
                     t.priority = 70;
                 } else {
                     t.action = "patrol";
@@ -4935,7 +4935,7 @@ final class SimWorldDirector {
         // Reserve the standard farm pad too so faction infrastructure never
         // hangs outside the protected base claim.
         minX=Math.min(minX,f.baseX-26);
-        maxX=Math.max(maxX,f.baseX+20);
+        maxX=Math.max(maxX,f.baseX+30);
         minZ=Math.min(minZ,f.baseZ-20);
         maxZ=Math.max(maxZ,f.baseZ+22);
 

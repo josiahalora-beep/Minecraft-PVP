@@ -405,7 +405,13 @@ final class SimWorldDirector {
         "DuskPvP","SpookyMC","xViper","TundraPvP","Jinxed","VividMC","Ripped","AuraPvP","Hexed","WafflePvP",
         "Stimpy","Stimpypvp","Marcel","PainfulPvP","lolitsalex","Skimpy","KairoPvP","Melted","xFrost","Kryptic",
         "JordanHD","Deceive","GrapePvP","SoraMC","BambooPvP","StrafeKid","Comboed","PearlGod","CaneKing","MinerMatt",
-        "BrewMaster","Vaulted","ObbyKing","Farmed","xVelocity","iTzBen","CobraPvP","RivalMC","DemonHD","LunarKid"
+        "BrewMaster","Vaulted","ObbyKing","Farmed","xVelocity","iTzBen","CobraPvP","RivalMC","DemonHD","LunarKid",
+        "RazePvP","DriftMC","KiloPvP","NovaHD","HexPvP","SwayMC","Avenge","BoltPvP","MercyMC","Shiver",
+        "Ruthless","FluxMC","TempoPvP","EonMC","FablePvP","HazeMC","ScythePvP","NeroMC","WraithPvP","GlitchMC",
+        "KeenPvP","RookMC","Knockback","Pearled","RefillKid","Quickdrop","Spleefed","Potting","KiteMC","ArcherKid",
+        "BardMain","RogueMain","DiamondKid","CappedPvP","Tagged","DTRKing","KOTHKid","RoadPvP","NetherKid","EndRoamer",
+        "Claimed","FacFocus","DebuffMC","InvisKid","PearlClip","StrafeMC","ComboMC","Chased","Trapped","GateKid",
+        "VaultMC","BrewerKid","CaneFarmer","SilkTouch","ObbyMiner","Glowstone","BlazeKid","RegenPvP","Speeded","FireRes"
     };
 
     private static final String[] FACTION_NAMES = {
@@ -5538,9 +5544,74 @@ final class SimWorldDirector {
             }
         }
 
+        expandPopulationIfConfigured();
         normalizeFactionClasses();
         seedStaffRolesIfNeeded();
         syncFactionAuthority();
+    }
+
+    private void expandPopulationIfConfigured() {
+        int target=Math.max(30,Math.min(180,plugin.getConfig().getInt("sim-world.population",90)));
+        target=Math.min(target,PLAYER_NAMES.length);
+        if(players.size()>=target) return;
+
+        List<String> names=new ArrayList<String>(Arrays.asList(PLAYER_NAMES));
+        Collections.shuffle(names,new Random(2015L+players.size()*31L));
+        int added=0;
+        for(String name:names) {
+            if(players.size()>=target) break;
+            if(players.containsKey(key(name))) continue;
+
+            SimPlayer p=new SimPlayer();
+            p.name=name;
+            p.balance=plugin.getConfig().getDouble("economy.starting-balance",500.0);
+            p.skill=creatorSkillOverride(p.name,skillRollForName(p.name));
+            p.mechanics=combatTrait(p.name,"mechanics",p.skill,18);
+            p.pvpIq=combatTrait(p.name,"pvp-iq",p.skill,22);
+            p.gameSense=combatTrait(p.name,"game-sense",Math.max(30,p.skill-4),28);
+            applyCreatorCombatOverrides(p);
+            p.skill=overallCombatSkill(p);
+            p.aggression=25+rng.nextInt(66);
+            p.bargaining=25+rng.nextInt(66);
+            p.leadership=25+rng.nextInt(71);
+            p.composure=leadershipTrait(p.name,"composure",p.leadership);
+            p.charisma=leadershipTrait(p.name,"charisma",50+rng.nextInt(21)-10);
+            p.decisiveness=leadershipTrait(p.name,"decisiveness",p.leadership);
+            p.standards=leadershipTrait(p.name,"standards",50+rng.nextInt(31)-15);
+            p.politicalIq=leadershipTrait(p.name,"political",50+rng.nextInt(31)-15);
+            p.teamwork=35+rng.nextInt(61);
+            p.economicIq=35+rng.nextInt(61);
+            p.loyalty=40+rng.nextInt(61);
+            p.riskTolerance=20+rng.nextInt(81);
+            p.sociability=20+rng.nextInt(81);
+            p.patience=20+rng.nextInt(81);
+            p.reputation=plugin.isCreatorIdentity(p.name)?12+rng.nextInt(10):rng.nextInt(6);
+            p.donorLevel=initialDonorLevel(p.name);
+            p.donationUsd=initialDonationUsd(p.donorLevel);
+            p.ownerAffinity=plugin.isCreatorIdentity(p.name)?10+rng.nextInt(18):rng.nextInt(31)-5;
+            p.moderationTrust=30+rng.nextInt(51);
+            p.communityJoinedTick=sotwTicks;
+            p.pendingDonorKeys=p.donorLevel>0?1:0;
+            p.logicalOnline=rng.nextInt(100)<58;
+            p.sessionTicksLeft=5+rng.nextInt(20);
+            p.currentGoal="idle";
+            p.preferredJob=randomJob();
+            p.role=p.preferredJob;
+            p.factionTitle="member";
+            p.combatClass=classFor(p);
+            int lq=leaderQuality(p);
+            p.leaderCandidate=lq>=76 ||
+                (p.reputation>=15 && p.leadership>=68 && p.decisiveness>=65);
+            economy.initializePlayer(p);
+            players.put(key(p.name),p);
+            added++;
+        }
+        if(added>0) {
+            data.set("meta.population-expansion-version",1);
+            recordHistory("POPULATION",3,added+" new players joined the map","","");
+            save();
+            plugin.getLogger().info("Expanded simulation population by "+added+" to "+players.size()+".");
+        }
     }
 
     private void syncFactionAuthority() {
@@ -5562,7 +5633,7 @@ final class SimWorldDirector {
         sotwStartedAt = System.currentTimeMillis();
         factionNameCursor = 0;
 
-        int target = Math.max(30, Math.min(100, plugin.getConfig().getInt("sim-world.population", 90)));
+        int target = Math.max(30, Math.min(180, plugin.getConfig().getInt("sim-world.population", 90)));
         List<String> names = new ArrayList<String>(Arrays.asList(PLAYER_NAMES));
         Collections.shuffle(names, new Random(2015L));
 

@@ -4,7 +4,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$validatedCommit = '612695d0cd1b7705eabe0e557b2b4c75a05a4840'
+$validatedCommit = '3fe0facc4b3d35c7594260bb04d3ae7ede8259c0'
 $base = "https://raw.githubusercontent.com/josiahalora-beep/Minecraft-PVP/$validatedCommit"
 
 $required = @(
@@ -196,3 +196,11 @@ Write-Host '  /simprobe'
 Write-Host '  /teamfight test 3'
 Write-Host ''
 Write-Host 'For performance calibration, run /teamfight test 3 first, then 4, then 5.' -ForegroundColor Yellow
+Write-Host ''
+Write-Host 'Kraken spawn setup after pasting the schematic:' -ForegroundColor Cyan
+Write-Host '  1. Stand at the exact spawn center facing the main road: /spawnpreset kraken center'
+Write-Host '  2. Stand at the desired road PvP point if you want to override auto placement: /spawnpreset kraken mark pvp'
+Write-Host '  3. Stand inside the real rooms: /spawnpreset kraken mark shop  and  /spawnpreset kraken mark enchant'
+Write-Host '  4. Look at each physical crate block: /spawnpreset kraken mark votecrate  and  /spawnpreset kraken mark donorcrate'
+Write-Host '  5. Verify everything: /spawnpreset kraken status'
+Write-Host '  Director debug: /simcombat director'

@@ -24,6 +24,7 @@ jobs:
           node --check bots/src/team-combat.js
           node --check bots/src/worker-pool.js
           node --check bots/src/combat-profiles.js
+          node --check bots/src/community-ai.js
       - name: Build PolyMC import zip
         run: |
           cd polymc-instance

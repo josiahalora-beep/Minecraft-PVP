@@ -2,7 +2,7 @@ param()
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$validatedCommit = 'cb7c0705e3059452009eb19fd7c5eab9ab41c557'
+$validatedCommit = '71a3aca559dcac42cee5592602af444eda48bb62'
 $base = "https://raw.githubusercontent.com/josiahalora-beep/Minecraft-PVP/$validatedCommit"
 
 $required = @(
@@ -60,6 +60,7 @@ $files = @(
   'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/EraCore.java',
   'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfAutoBrewerDirector.java',
   'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfBaseBuilder.java',
+  'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfInfrastructureDirector.java',
   'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfClassDirector.java',
   'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfZoneDisplayDirector.java',
   'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/LogicalTabListDirector.java',
@@ -109,6 +110,10 @@ Write-Host ''
 Write-Host 'This install preserved live worlds and EraCore runtime state.' -ForegroundColor Green
 Write-Host 'Restart the server and worker pool, then test:' -ForegroundColor Yellow
 Write-Host '  /f show <faction>'
+Write-Host '  /stuck'
+Write-Host '  /warp duels'
+Write-Host '  /warp nether'
+Write-Host '  /warp end'
 Write-Host '  /history <player-or-faction>'
 Write-Host '  /duel <simulated-player>'
 Write-Host '  /duel stats <player>'

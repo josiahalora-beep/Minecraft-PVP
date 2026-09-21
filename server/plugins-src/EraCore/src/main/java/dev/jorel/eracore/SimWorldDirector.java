@@ -789,6 +789,13 @@ final class SimWorldDirector {
     }
 
     void refreshVisibleCombat() {
+        // Community duels have their own request/timeout/death lifecycle and are
+        // allowed during SOTW inside the dedicated arena.
+        if(visibleFight!=null && "DUEL".equals(visibleFight.type)) {
+            writeCombatFile();
+            return;
+        }
+
         if (sotwProtectionActive()) {
             clearVisibleFight();
             return;

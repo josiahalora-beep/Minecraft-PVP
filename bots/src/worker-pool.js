@@ -365,7 +365,7 @@ async function commandBrain(state) {
   // first, equip what is useful, stash excess, then work down through every
   // lower donor rank. Server cooldowns decide whether each attempt succeeds.
   const donorKits=kitsForRank(state.rank)
-  if (donorKits.length && !tagged && faction !== 'none' && now >= (state.nextKitSweepAt || 0)) {
+  if (action !== 'crate' && donorKits.length && !tagged && faction !== 'none' && now >= (state.nextKitSweepAt || 0)) {
     if (!nearAssignedHome(state) && now - (state.lastTeleportAttempt || 0) > 12000) {
       state.lastTeleportAttempt=now
       await tryCommand(state,'/f home',900)
@@ -390,7 +390,7 @@ async function commandBrain(state) {
 
   // Member identities also use the shared archetype starter source. It is one
   // shared cooldown, so they cannot farm five starter variants.
-  if (String(state.rank || '').toUpperCase()==='MEMBER' && !tagged &&
+  if (action !== 'crate' && String(state.rank || '').toUpperCase()==='MEMBER' && !tagged &&
       now-(state.lastStarterAttempt || 0)>30*60*1000) {
     state.lastStarterAttempt=now
     await tryCommand(state,'/kit starter '+starterForState(state),900)
@@ -402,6 +402,14 @@ async function commandBrain(state) {
       now - (state.lastTeleportAttempt || 0) > 20000) {
     state.lastTeleportAttempt = now
     await tryCommand(state, '/f home', 900)
+    return
+  }
+
+  // Crate redemption is an observable spawn activity.
+  if (action === 'crate' && !tagged && dimensionZone(bot)!=='spawn' &&
+      now-(state.lastTeleportAttempt || 0)>7000) {
+    state.lastTeleportAttempt=now
+    await tryCommand(state,'/spawn',900)
     return
   }
 
@@ -701,12 +709,67 @@ function nearestRoamStranger(state, radius=48) {
   return best
 }
 
+async function redeemCrate(state) {
+  const bot=state.bot
+  if(!bot?.entity || state.combat || String(state.job?.action||'')!=='crate') return false
+  if(Date.now()-(state.lastCrateUseAt||0)<2600) return false
+
+  const type=String(state.job?.keyType || 'vote').toLowerCase()
+  const targetNames=type==='donor' ? ['ender_chest'] : ['chest']
+  const blocks=nearbyBlocks(bot,targetNames,7,12)
+  if(!blocks.length) {
+    await localMotion(state,'crate')
+    return false
+  }
+
+  let block=blocks[0]
+  let best=Infinity
+  const tx=Number(state.job?.x), ty=Number(state.job?.y), tz=Number(state.job?.z)
+  for(const b of blocks) {
+    const dx=Number.isFinite(tx)?b.position.x-tx:0
+    const dy=Number.isFinite(ty)?b.position.y-ty:0
+    const dz=Number.isFinite(tz)?b.position.z-tz:0
+    const score=dx*dx+dy*dy+dz*dz
+    if(score<best){best=score;block=b}
+  }
+
+  try {
+    const keyName=type==='donor'?'blaze_rod':'tripwire_hook'
+    const key=bot.inventory.items().find(i=>i.name===keyName)
+    if(key) await bot.equip(key,'hand')
+
+    const dist=bot.entity.position.distanceTo(block.position)
+    if(dist>4.2) {
+      stopMovement(bot)
+      await bot.lookAt(block.position.offset(0.5,0.5,0.5),false)
+      bot.setControlState('forward',true)
+      bot.setControlState('sprint',false)
+      await sleep(Math.round(rand(500,1100)))
+      stopMovement(bot)
+      return true
+    }
+
+    await bot.lookAt(block.position.offset(0.5,0.5,0.5),false)
+    await bot.activateBlock(block)
+    state.lastCrateUseAt=Date.now()
+    await sleep(900)
+    if(String(state.job?.faction || state.faction || 'none')!=='none') {
+      try { bot.chat('/simworker stash') } catch {}
+    }
+    await sleep(300)
+    try { bot.chat('/simworker sync') } catch {}
+    return true
+  } catch {
+    return false
+  }
+}
+
 async function localMotion(state, action) {
   const bot = state.bot
   if (!bot?.entity) return
 
   bot.physicsEnabled = true
-  const mobile = ['patrol', 'scout', 'mine', 'gather', 'supply', 'farm', 'build'].includes(action)
+  const mobile = ['patrol', 'scout', 'mine', 'gather', 'supply', 'farm', 'build', 'crate'].includes(action)
   const totalMs = action==='patrol' ? rand(4500, 8500) : (mobile ? rand(1800, 4200) : rand(900, 2200))
   const endAt = Date.now() + totalMs
 
@@ -823,6 +886,12 @@ function startWorkLoop(state, settings) {
         await commandBrain(state)
       }
 
+      if(action==='crate') {
+        await redeemCrate(state)
+        await sleep(Math.round(rand(500,1100)))
+        continue
+      }
+
       const passive = action === 'idle' || action === 'recruit' || action === 'safe' || action === 'brew' || action === 'gear' || action === 'social'
       if (passive) {
         bot.physicsEnabled = true
@@ -905,6 +974,7 @@ async function connectIdentity(candidate, settings) {
     lastCommandBrainAt: 0,
     lastSurvivalAt: 0,
     lastSurvivalPot: 0,
+    lastCrateUseAt: 0,
     survivalBusy: false
   }
   live.set(name, state)

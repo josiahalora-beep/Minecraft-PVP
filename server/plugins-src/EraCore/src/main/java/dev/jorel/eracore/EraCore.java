@@ -1034,14 +1034,87 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     private boolean cmdSpawnPreset(Player p, String[] a) {
         if (!ownerOnly(p)) return true;
-        if (a.length != 1 || !a[0].equalsIgnoreCase("playman2013")) {
-            p.sendMessage("/spawnpreset playman2013");
+
+        if(a.length>=1 && a[0].equalsIgnoreCase("kraken")) {
+            if(a.length==1 || (a.length==2 && a[1].equalsIgnoreCase("center"))) {
+                getConfig().set("spawn.external-schematic",true);
+                getConfig().set("spawn.preset","kraken");
+                getConfig().set("map.auto-bootstrap",false);
+                getConfig().set("map.complete",true);
+                getConfig().set("map.safezone-radius",110);
+                getConfig().set("safezones.overworld-radius",110);
+                getConfig().set("spawn-build-protection.radius",82);
+                saveConfig();
+
+                Location pvp=warpManager.applyKrakenPreset(p.getLocation());
+                p.getWorld().setSpawnLocation(p.getLocation().getBlockX(),p.getLocation().getBlockY(),p.getLocation().getBlockZ());
+                configureWorldBorders();
+                if(hcfZones!=null) hcfZones.syncMainSpawn(warpManager.getSpawn());
+
+                p.sendMessage(color("&aKraken schematic center calibrated."));
+                p.sendMessage(color("&7Your facing direction was saved as the main-road direction."));
+                p.sendMessage(color("&7Auto PvP road warp: &f"+formatLocation(pvp)));
+                p.sendMessage(color("&eNow mark the real interior points: &f/spawnpreset kraken mark shop&7, &fenchant&7, &fvotecrate&7, &fdonorcrate"));
+                p.sendMessage(color("&7For the two crates, look directly at the chest/block before running the mark command."));
+                return true;
+            }
+
+            if(a.length==3 && a[1].equalsIgnoreCase("mark")) {
+                String mark=a[2].toLowerCase(Locale.ENGLISH);
+                if(mark.equals("votecrate") || mark.equals("donorcrate")) {
+                    if(spawnRewards==null) return true;
+                    Block target=p.getTargetBlock((HashSet<Byte>)null,6);
+                    if(target==null || target.getType()==Material.AIR) {
+                        p.sendMessage(color("&cLook directly at the block that should become the "+mark+" first."));
+                        return true;
+                    }
+                    String type=mark.equals("donorcrate")?"donor":"vote";
+                    if(spawnRewards.setExternalCrate(type,target.getLocation()))
+                        p.sendMessage(color("&aMarked "+mark+" at &f"+formatLocation(target.getLocation())));
+                    return true;
+                }
+
+                if(mark.equals("pvp") || mark.equals("shop") || mark.equals("enchant")) {
+                    warpManager.setWarp(mark,p.getLocation());
+                    p.sendMessage(color("&aMarked Kraken "+mark+" warp at &f"+formatLocation(p.getLocation())));
+                    return true;
+                }
+
+                p.sendMessage(color("&cMarks: &fpvp, shop, enchant, votecrate, donorcrate"));
+                return true;
+            }
+
+            if(a.length==2 && a[1].equalsIgnoreCase("status")) {
+                p.sendMessage(color("&6--- Kraken Spawn Calibration ---"));
+                p.sendMessage(color("&7spawn: &f"+formatLocation(warpManager.getSpawn())));
+                p.sendMessage(color("&7pvp: &f"+formatLocation(warpManager.getWarp("pvp"))));
+                p.sendMessage(color("&7shop: &f"+formatLocation(warpManager.getWarp("shop"))));
+                p.sendMessage(color("&7enchant: &f"+formatLocation(warpManager.getWarp("enchant"))));
+                p.sendMessage(color("&7duels: &f"+formatLocation(warpManager.getWarp("duels"))));
+                p.sendMessage(color("&7nether: &f"+formatLocation(warpManager.getWarp("nether"))));
+                p.sendMessage(color("&7end: &f"+formatLocation(warpManager.getWarp("end"))));
+                p.sendMessage(color("&7vote crate: &f"+formatLocation(spawnRewards==null?null:spawnRewards.crateLocation("vote"))));
+                p.sendMessage(color("&7donor crate: &f"+formatLocation(spawnRewards==null?null:spawnRewards.crateLocation("donor"))));
+                return true;
+            }
+
+            p.sendMessage("/spawnpreset kraken <center|mark <pvp|shop|enchant|votecrate|donorcrate>|status>");
             return true;
         }
-        warpManager.applyPlayman2013Preset(p.getWorld());
-        p.sendMessage(color("&a2013 DaeGonner-inspired spawn preset applied."));
-        p.sendMessage(color("&7Spawn is set to 260.5, 70, 180.5. Finalize the interior shop/enchant points with /setwarp after the schematic is pasted."));
+
+        if (a.length == 1 && a[0].equalsIgnoreCase("playman2013")) {
+            warpManager.applyPlayman2013Preset(p.getWorld());
+            p.sendMessage(color("&a2013 DaeGonner-inspired spawn preset applied."));
+            return true;
+        }
+
+        p.sendMessage("/spawnpreset <kraken|playman2013>");
         return true;
+    }
+
+    private String formatLocation(Location l) {
+        if(l==null || l.getWorld()==null) return "unset";
+        return l.getWorld().getName()+" "+l.getBlockX()+" "+l.getBlockY()+" "+l.getBlockZ();
     }
 
     private boolean cmdTeamFight(Player p,String[] a) {

@@ -97,8 +97,13 @@ final class HcfInfrastructureDirector {
         warps.setWarp("duels",duelLobby);
 
         if(data.getInt("version",0)<VERSION) {
-            queueSpawnFoundationRepair(overworld);
-            queueClassicHcfSpawn(overworld);
+            boolean externalSpawn=plugin.getConfig().getBoolean("spawn.external-schematic",false);
+            if(!externalSpawn) {
+                queueSpawnFoundationRepair(overworld);
+                queueClassicHcfSpawn(overworld);
+            } else {
+                plugin.getLogger().info("External spawn schematic mode: preserving pasted spawn blocks.");
+            }
             queueDuelArena(overworld,dcx,dfloor,dcz);
             if(netherHub!=null) queueDimensionHub(netherHub,Material.NETHER_BRICK,Material.NETHER_FENCE,Material.GLOWSTONE);
             if(endHub!=null) queueDimensionHub(endHub,Material.ENDER_STONE,Material.IRON_FENCE,Material.GLOWSTONE);

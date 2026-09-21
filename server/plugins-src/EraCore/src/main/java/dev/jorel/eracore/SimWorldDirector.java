@@ -74,6 +74,10 @@ final class SimWorldDirector {
         int moderationTrust;  // 0..100
         long bannedUntil;
         long communityJoinedTick;
+        int pendingVoteKeys;
+        int pendingDonorKeys;
+        long lastVoteAt;
+        long lastDonorKeyAt;
         boolean logicalOnline;
         int sessionTicksLeft;
         long nextGoalTick;
@@ -184,6 +188,7 @@ final class SimWorldDirector {
         String combatClass = "DIAMOND";
         String preferredJob = "member";
         String allies = "";
+        String keyType = "";
         int x;
         int y;
         int z;
@@ -196,6 +201,7 @@ final class SimWorldDirector {
                 " class=" + combatClass +
                 " job=" + preferredJob +
                 " allies=" + allies +
+                " keyType=" + keyType +
                 " x=" + x + " y=" + y + " z=" + z +
                 " priority=" + priority;
         }
@@ -1307,6 +1313,23 @@ final class SimWorldDirector {
         t.priority = 0;
 
         if (p == null) return t;
+
+        if(p.logicalOnline && p.bannedUntil<=System.currentTimeMillis() &&
+           (p.pendingDonorKeys>0 || p.pendingVoteKeys>0)) {
+            String type=p.pendingDonorKeys>0?"donor":"vote";
+            Location crate=plugin.crateLocation(type);
+            if(crate!=null) {
+                t.action="crate";
+                t.zone="spawn";
+                t.keyType=type;
+                t.x=crate.getBlockX();
+                t.y=crate.getBlockY();
+                t.z=crate.getBlockZ();
+                t.priority=106;
+                return t;
+            }
+        }
+
         if (p.faction.isEmpty()) {
             if(!p.logicalOnline || p.bannedUntil>System.currentTimeMillis()) return t;
             t.action="solo";
@@ -2733,6 +2756,8 @@ final class SimWorldDirector {
     private void communityTick() {
         if(sotwTicks%3L!=0L) return;
 
+        maybeCommunityRewards();
+
         int roll=rng.nextInt(100);
         if(roll<20) maybeSocialBond();
         else if(roll<31) maybeFactionDrama();
@@ -2743,6 +2768,80 @@ final class SimWorldDirector {
         else if(roll<58) maybeStaffReport();
         else if(roll<61) maybeModerationAction();
         else if(roll<73) maybeOwnerCommunityMessage();
+    }
+
+    private void maybeCommunityRewards() {
+        long now=System.currentTimeMillis();
+
+        // Simulated voting is intentionally a trickle. Early SOTW gets visible
+        // vote activity, while the real-time cooldown prevents infinite key inflation.
+        if(rng.nextInt(100)<8) {
+            List<SimPlayer> eligible=new ArrayList<SimPlayer>();
+            long voteCd=Math.max(1,plugin.getConfig().getLong("rewards.vote-cooldown-hours",12L))*3600000L;
+            for(SimPlayer p:players.values()) {
+                if(!p.logicalOnline || p.bannedUntil>now) continue;
+                if(now-p.lastVoteAt>=voteCd) eligible.add(p);
+            }
+            if(!eligible.isEmpty()) {
+                SimPlayer p=eligible.get(rng.nextInt(eligible.size()));
+                p.lastVoteAt=now;
+                plugin.recordSimulatedVote(p.name);
+            }
+        }
+
+        if(rng.nextInt(100)<5) {
+            List<SimPlayer> donors=new ArrayList<SimPlayer>();
+            long donorCd=Math.max(1,plugin.getConfig().getLong("rewards.donor-key-hours",24L))*3600000L;
+            for(SimPlayer p:players.values()) {
+                if(!p.logicalOnline || p.donorLevel<=0 || p.bannedUntil>now) continue;
+                if(now-p.lastDonorKeyAt>=donorCd) donors.add(p);
+            }
+            if(!donors.isEmpty()) {
+                SimPlayer p=donors.get(rng.nextInt(donors.size()));
+                p.lastDonorKeyAt=now;
+                plugin.recordSimulatedDonorKey(p.name);
+                if(rng.nextInt(100)<40) enqueue(p.name,"going spawn for my donor key",false);
+            }
+        }
+    }
+
+    int pendingKeyCount(String name,String type) {
+        SimPlayer p=players.get(key(name));
+        if(p==null) return 0;
+        return "donor".equalsIgnoreCase(type)?p.pendingDonorKeys:p.pendingVoteKeys;
+    }
+
+    void addPendingKey(String name,String type,int amount) {
+        if(amount<=0) return;
+        SimPlayer p=players.get(key(name));
+        if(p==null) return;
+        if("donor".equalsIgnoreCase(type)) p.pendingDonorKeys=Math.min(64,p.pendingDonorKeys+amount);
+        else p.pendingVoteKeys=Math.min(64,p.pendingVoteKeys+amount);
+        save();
+    }
+
+    void consumePendingKey(String name,String type,int amount) {
+        if(amount<=0) return;
+        SimPlayer p=players.get(key(name));
+        if(p==null) return;
+        if("donor".equalsIgnoreCase(type)) p.pendingDonorKeys=Math.max(0,p.pendingDonorKeys-amount);
+        else p.pendingVoteKeys=Math.max(0,p.pendingVoteKeys-amount);
+        save();
+    }
+
+    void rewardVoteParty() {
+        for(SimPlayer p:players.values()) {
+            if(p.logicalOnline && p.bannedUntil<=System.currentTimeMillis())
+                p.pendingVoteKeys=Math.min(64,p.pendingVoteKeys+1);
+        }
+        save();
+    }
+
+    void creditPlayerBalance(String name,double amount) {
+        SimPlayer p=players.get(key(name));
+        if(p==null || amount<=0) return;
+        p.balance+=amount;
+        save();
     }
 
     private List<SimPlayer> onlineCommunityPlayers() {
@@ -3707,6 +3806,10 @@ final class SimWorldDirector {
             p.moderationTrust = s.getInt("moderation-trust", 30+rng.nextInt(51));
             p.bannedUntil = s.getLong("banned-until", 0L);
             p.communityJoinedTick = s.getLong("community-joined-tick", 0L);
+            p.pendingVoteKeys = s.getInt("pending-vote-keys",0);
+            p.pendingDonorKeys = s.getInt("pending-donor-keys",p.donorLevel>0?1:0);
+            p.lastVoteAt = s.getLong("last-vote-at",0L);
+            p.lastDonorKeyAt = s.getLong("last-donor-key-at",0L);
             p.logicalOnline = s.getBoolean("logical-online", rng.nextInt(100)<45) && p.bannedUntil<=System.currentTimeMillis();
             p.sessionTicksLeft = s.getInt("session-ticks-left", Math.max(2,5+rng.nextInt(20)));
             p.nextGoalTick = s.getLong("next-goal-tick", 0L);
@@ -3863,6 +3966,10 @@ final class SimWorldDirector {
             p.moderationTrust = 30+rng.nextInt(51);
             p.bannedUntil = 0L;
             p.communityJoinedTick = sotwTicks;
+            p.pendingVoteKeys = 0;
+            p.pendingDonorKeys = p.donorLevel>0?1:0;
+            p.lastVoteAt = 0L;
+            p.lastDonorKeyAt = 0L;
             p.logicalOnline = rng.nextInt(100) < 48;
             p.sessionTicksLeft = 5 + rng.nextInt(20);
             p.currentGoal = "idle";
@@ -5031,6 +5138,10 @@ final class SimWorldDirector {
             data.set(b + ".moderation-trust", p.moderationTrust);
             data.set(b + ".banned-until", p.bannedUntil);
             data.set(b + ".community-joined-tick", p.communityJoinedTick);
+            data.set(b + ".pending-vote-keys",p.pendingVoteKeys);
+            data.set(b + ".pending-donor-keys",p.pendingDonorKeys);
+            data.set(b + ".last-vote-at",p.lastVoteAt);
+            data.set(b + ".last-donor-key-at",p.lastDonorKeyAt);
             data.set(b + ".logical-online", p.logicalOnline);
             data.set(b + ".session-ticks-left", p.sessionTicksLeft);
             data.set(b + ".next-goal-tick", p.nextGoalTick);

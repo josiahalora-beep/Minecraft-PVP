@@ -40,6 +40,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     private final Set<String> factionChat = new HashSet<String>();
     private final Map<String, Double> power = new HashMap<String, Double>();
     private final Map<String, Long> pearlCooldowns = new HashMap<String, Long>();
+    private final Map<String, Long> stuckCooldowns = new HashMap<String, Long>();
     private final Map<String, String> combatPreparedFight = new HashMap<String, String>();
     private ItemStack[] ownerTestContents;
     private ItemStack[] ownerTestArmor;
@@ -228,7 +229,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     private void bindCommands() {
-        String[] cmds = {"rank","kit","kits","balance","pay","sell","buy","shop","vote","keys","crates","stats","history","duel","f","spawn","setspawn","warp","warps","setwarp","delwarp","spawnpreset","msg","r","simchat","sotw","simworker","simcombat","safezone","teamfight","bard","archer","miner","rogue","simprobe","simmap","simstate","duelprep"};
+        String[] cmds = {"rank","kit","kits","balance","pay","sell","buy","shop","vote","keys","crates","stats","history","duel","f","spawn","stuck","setspawn","warp","warps","setwarp","delwarp","spawnpreset","msg","r","simchat","sotw","simworker","simcombat","safezone","teamfight","bard","archer","miner","rogue","simprobe","simmap","simstate","duelprep"};
         for (String c : cmds) getCommand(c).setExecutor(this);
     }
 
@@ -489,6 +490,10 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         Iterator<Block> it = e.blockList().iterator();
         while (it.hasNext()) {
             Block b = it.next();
+            if(isSpawnBuildProtected(b.getLocation())) {
+                it.remove();
+                continue;
+            }
             String owner = claimOwners.get(claimKey(b.getLocation()));
             if (owner == null) continue;
             Faction target = factions.get(owner.toLowerCase(Locale.ENGLISH));
@@ -878,6 +883,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (c.equals("duel")) return cmdDuel(p,args);
         if (c.equals("f")) return cmdFaction(p,args);
         if (c.equals("spawn")) return cmdSpawn(p);
+        if (c.equals("stuck")) return cmdStuck(p);
         if (c.equals("setspawn")) return cmdSetSpawn(p);
         if (c.equals("warp")) return cmdWarp(p,args);
         if (c.equals("warps")) return cmdWarps(p);
@@ -920,6 +926,48 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         }
         p.teleport(target);
         p.sendMessage(color("&7Teleported to spawn."));
+        return true;
+    }
+
+    private boolean cmdStuck(Player p) {
+        if(isBotIdentity(p.getName())) return true;
+
+        if(activeDuel!=null && p.getName().equalsIgnoreCase(activeDuel.human)) {
+            p.sendMessage(color("&cYou cannot /stuck during a duel."));
+            return true;
+        }
+        String prepared=combatPreparedFight.get(p.getName().toLowerCase(Locale.ENGLISH));
+        if(prepared!=null && !prepared.isEmpty()) {
+            p.sendMessage(color("&cYou cannot /stuck during an active fight."));
+            return true;
+        }
+        if(hcfZones!=null && hcfZones.isTagged(p) && !isOwnerPlayer(p)) {
+            p.sendMessage(color("&cYou cannot /stuck while combat tagged. &7"+hcfZones.tagSeconds(p)+"s remaining."));
+            return true;
+        }
+
+        long now=System.currentTimeMillis();
+        long cooldown=Math.max(10,getConfig().getLong("stuck.cooldown-seconds",60L))*1000L;
+        String key=p.getUniqueId().toString();
+        long next=stuckCooldowns.containsKey(key)?stuckCooldowns.get(key):0L;
+        if(!isOwnerPlayer(p) && now<next) {
+            p.sendMessage(color("&c/stuck is on cooldown for &f"+Math.max(1,(next-now+999)/1000)+"s&c."));
+            return true;
+        }
+
+        Location target=infrastructure==null?warpManager.getSpawn():infrastructure.safeSpawnLocation();
+        if(target==null) target=warpManager.getSpawn();
+        if(target==null) {
+            p.sendMessage(color("&cNo safe spawn destination is available."));
+            return true;
+        }
+
+        // Never use /stuck as an inventory/economy reset. It only changes location.
+        p.leaveVehicle();
+        p.setFallDistance(0f);
+        p.teleport(target);
+        stuckCooldowns.put(key,now+cooldown);
+        p.sendMessage(color("&aUnstuck. &7Teleported to the protected spawn area."));
         return true;
     }
 
@@ -2778,9 +2826,13 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     private boolean canBuild(Player p,Location l) {
-        if(getRank(p.getName())==Rank.OWNER) return true;
+        if(getRank(p.getName())==Rank.OWNER || p.hasPermission("eracore.owner")) return true;
+        if(isSpawnBuildProtected(l)) {
+            p.sendMessage(color("&cSpawn build protection extends across the full Safezone footprint."));
+            return false;
+        }
         if(isSafezone(l)) {
-            p.sendMessage(color("&cSpawn safezone is protected."));
+            p.sendMessage(color("&cSafezone is protected."));
             return false;
         }
         String owner=claimOwners.get(claimKey(l));
@@ -2791,6 +2843,23 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if(target!=null&&isRaidable(target)) return true;
         p.sendMessage(color("&cThis land belongs to "+owner+"."));
         return false;
+    }
+
+    private boolean isSpawnBuildProtected(Location l) {
+        if(l==null || l.getWorld()==null || Bukkit.getWorlds().isEmpty()) return false;
+        World overworld=Bukkit.getWorlds().get(0);
+        if(!l.getWorld().equals(overworld)) return false;
+
+        Location spawn=warpManager==null?overworld.getSpawnLocation():warpManager.getSpawn();
+        if(spawn==null || spawn.getWorld()==null || !spawn.getWorld().equals(overworld))
+            spawn=overworld.getSpawnLocation();
+
+        int radius=Math.max(1,getConfig().getInt("spawn-build-protection.radius",
+            (int)Math.ceil(getConfig().getDouble("map.safezone-radius",60.0))));
+        // Square protection intentionally covers NE/NW/SE/SW corners, unlike
+        // the circular combat Safezone.
+        return Math.abs(l.getBlockX()-spawn.getBlockX())<=radius &&
+            Math.abs(l.getBlockZ()-spawn.getBlockZ())<=radius;
     }
 
     private boolean isSafezone(Location l) {

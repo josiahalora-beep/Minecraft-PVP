@@ -247,6 +247,10 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         getConfig().set("combat-director.offscreen-brawl-chance-percent",18);
         getConfig().set("combat-director.brawl-radius",520);
         getConfig().set("combat-director.hotspot-funnel-percent",76);
+        getConfig().set("combat-director.sotw-scrim-min-seconds",18);
+        getConfig().set("combat-director.sotw-scrim-max-seconds",34);
+        getConfig().set("combat-director.sotw-scrim-duration-seconds",75);
+        getConfig().set("combat-director.sotw-scrim-chance-percent",72);
         getConfig().set("sotw.protection-minutes",12);
         getConfig().set("migration.director-intelligence-version",1);
         saveConfig();

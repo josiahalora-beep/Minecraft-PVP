@@ -2267,7 +2267,19 @@ final class SimWorldDirector {
         int presenceBudget=2;
         List<SimPlayer> offline=new ArrayList<SimPlayer>();
 
+        long nowMs=System.currentTimeMillis();
         for(SimPlayer p:players.values()) {
+            if(p.bannedUntil>nowMs) {
+                if(p.logicalOnline) plugin.broadcastSimulatedPresence(p.name,false);
+                p.logicalOnline=false;
+                p.currentGoal="banned";
+                continue;
+            }
+            if(p.bannedUntil>0 && p.bannedUntil<=nowMs) {
+                p.bannedUntil=0L;
+                if(rng.nextInt(100)<45) enqueue(p.name,"im unbanned finally",false);
+            }
+
             if(p.logicalOnline) {
                 online++;
                 p.sessionTicksLeft--;
@@ -2384,6 +2396,7 @@ final class SimWorldDirector {
     private void tick() {
         sotwTicks++;
         updateLogicalSessionsAndGoals();
+        communityTick();
         formationTick();
         applyCreatorFactionSpecializations();
         updateCampTargets();
@@ -2405,6 +2418,126 @@ final class SimWorldDirector {
 
         maybeResolveOffscreenBrawl();
         save();
+    }
+
+    private void communityTick() {
+        // Community events are intentionally sparse. They should feel like
+        // persistent server history, not scripted noise every simulation tick.
+        if(sotwTicks%6L!=0L) return;
+
+        int roll=rng.nextInt(100);
+        if(roll<10) {
+            maybeDonorUpgrade();
+        } else if(roll<17) {
+            maybeStaffReport();
+        } else if(roll<20) {
+            maybeModerationAction();
+        } else if(roll<34) {
+            maybeOwnerCommunityMessage();
+        }
+    }
+
+    private void maybeDonorUpgrade() {
+        List<SimPlayer> eligible=new ArrayList<SimPlayer>();
+        for(SimPlayer p:players.values()) {
+            if(!p.logicalOnline || p.bannedUntil>System.currentTimeMillis() || p.donorLevel>=4) continue;
+            // Established or socially engaged players are more likely to support
+            // the server, but new/quiet players can still become donors.
+            int score=p.reputation/4+p.sociability/3+p.loyalty/4+p.ownerAffinity/5+rng.nextInt(35);
+            if(score>=35) eligible.add(p);
+        }
+        if(eligible.isEmpty()) return;
+        SimPlayer p=eligible.get(rng.nextInt(eligible.size()));
+        p.donorLevel=Math.min(4,p.donorLevel+1);
+        String rank=donorName(p.donorLevel);
+        plugin.broadcastCommunityEvent("&6[Store] &f"+p.name+" &7purchased &f"+rank+"&7.");
+        if(p.ownerAffinity>=20) enqueue(p.name,oneOf("worth it","server has been fun","finally got "+rank.toLowerCase(Locale.ENGLISH)),false);
+        else if(rng.nextBoolean()) enqueue(p.name,"got "+rank.toLowerCase(Locale.ENGLISH)+" lets go",false);
+    }
+
+    private String donorName(int level) {
+        if(level>=4) return "Titan";
+        if(level==3) return "Legend";
+        if(level==2) return "Elite";
+        if(level==1) return "VIP";
+        return "Member";
+    }
+
+    private void maybeStaffReport() {
+        List<SimPlayer> staff=new ArrayList<SimPlayer>();
+        List<SimPlayer> suspects=new ArrayList<SimPlayer>();
+        for(SimPlayer p:players.values()) {
+            if(!p.logicalOnline) continue;
+            if("MOD".equals(p.staffRole)||"ADMIN".equals(p.staffRole)) staff.add(p);
+            else if(!plugin.isCreatorIdentity(p.name) && p.bannedUntil<=System.currentTimeMillis()) suspects.add(p);
+        }
+        if(staff.isEmpty()||suspects.isEmpty()) return;
+
+        SimPlayer mod=staff.get(rng.nextInt(staff.size()));
+        SimPlayer suspect=suspects.get(rng.nextInt(suspects.size()));
+        String[] lines={
+            "watching "+suspect.name+" mining rn, got an xray report",
+            "checking "+suspect.name+" for xray, dont ban yet",
+            "report on "+suspect.name+" says reach but i need more proof",
+            "im spectating "+suspect.name+", looks weird but not enough yet",
+            "someone reported "+suspect.name+" for autoclicking"
+        };
+        plugin.sendSimulatedStaffChat(mod.name,lines[rng.nextInt(lines.length)]);
+    }
+
+    private void maybeModerationAction() {
+        List<SimPlayer> staff=new ArrayList<SimPlayer>();
+        List<SimPlayer> candidates=new ArrayList<SimPlayer>();
+        long now=System.currentTimeMillis();
+        for(SimPlayer p:players.values()) {
+            if("MOD".equals(p.staffRole)||"ADMIN".equals(p.staffRole)) staff.add(p);
+            else if(p.logicalOnline && !plugin.isCreatorIdentity(p.name) && p.bannedUntil<=now) candidates.add(p);
+        }
+        if(staff.isEmpty()||candidates.isEmpty()) return;
+
+        SimPlayer mod=staff.get(rng.nextInt(staff.size()));
+        SimPlayer target=candidates.get(rng.nextInt(candidates.size()));
+
+        // Actual bans are intentionally rare even when a report is generated.
+        if(rng.nextInt(100)<28) {
+            long mins=10+rng.nextInt(21);
+            target.bannedUntil=now+mins*60000L;
+            target.logicalOnline=false;
+            target.currentGoal="banned";
+            plugin.broadcastCommunityEvent("&c[Staff] &f"+target.name+" &7was temporarily banned for &f"+mins+"m&7.");
+            plugin.sendSimulatedStaffChat(mod.name,"banned "+target.name+" after watching them, logs looked bad");
+        } else {
+            plugin.sendSimulatedStaffChat(mod.name,"cleared "+target.name+", not enough evidence to punish");
+        }
+    }
+
+    private void maybeOwnerCommunityMessage() {
+        String owner=plugin.getConfig().getString("owner.name","");
+        Player ownerPlayer=owner.isEmpty()?null:Bukkit.getPlayerExact(owner);
+        if(ownerPlayer==null) return;
+
+        List<SimPlayer> online=new ArrayList<SimPlayer>();
+        for(SimPlayer p:players.values()) if(p.logicalOnline && p.bannedUntil<=System.currentTimeMillis()) online.add(p);
+        if(online.isEmpty()) return;
+        SimPlayer p=online.get(rng.nextInt(online.size()));
+
+        String msg;
+        if(p.ownerAffinity>=45) {
+            String[] x={"server is actually fun rn","thanks for fixing the lag","you should keep this map up","can you add more end fights","bases look way better now"};
+            msg=x[rng.nextInt(x.length)];
+        } else if(p.ownerAffinity>=5) {
+            String[] x={"can you look at the lag at end","spawn pvp has been active","can we get more flat warzone","shop prices feel a little high","server feels active today"};
+            msg=x[rng.nextInt(x.length)];
+        } else {
+            String[] x={"warzone still needs work","pots feel expensive","some bases are weird","end gets camped too hard","please dont change pvp again"};
+            msg=x[rng.nextInt(x.length)];
+        }
+        plugin.sendSimulatedPrivate(ownerPlayer,p.name,msg);
+    }
+
+    private String oneOf(String... xs) {
+        if(xs==null||xs.length==0) return "";
+        return xs[rng.nextInt(xs.length)];
     }
 
     private void advance(SimFaction f) {

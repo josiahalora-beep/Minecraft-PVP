@@ -164,6 +164,17 @@ final class SimWorldDirector {
         long last;
     }
 
+    static final class SocialEdge {
+        String from;
+        String to;
+        int affinity; // -100..100
+        int trust;    // 0..100
+        int respect;  // 0..100
+        int grudge;   // 0..100
+        long lastInteraction;
+        final Deque<String> memories=new ArrayDeque<String>();
+    }
+
 
     static final class WorkerTask {
         String identity;
@@ -284,6 +295,7 @@ final class SimWorldDirector {
     private final Map<String,SimFaction> factions = new LinkedHashMap<String,SimFaction>();
     private final Map<String,MarketOrder> activeOrders = new HashMap<String,MarketOrder>();
     private final Map<String,Conversation> conversations = new HashMap<String,Conversation>();
+    private final Map<String,SocialEdge> socialEdges = new LinkedHashMap<String,SocialEdge>();
     private final Map<String,String> lastReplyTarget = new HashMap<String,String>();
     private final Deque<ChatEvent> pendingChat = new ArrayDeque<ChatEvent>();
     private final Map<String,Integer> rivalries = new HashMap<String,Integer>();
@@ -1798,13 +1810,16 @@ final class SimWorldDirector {
             final String rawMessage=message;
 
             boolean dispatched=aiChat.request("public",speakerName,respondent.name,
-                semanticContext(respondent),rawMessage,new AiChatBridge.Handler() {
+                semanticContext(respondent,speakerName),rawMessage,new AiChatBridge.Handler() {
                     public void complete(AiChatBridge.AiReply ai) {
                         String reply=ai!=null?ai.text:fallback;
                         if(reply==null || reply.trim().isEmpty()) return;
 
-                        if(isConfiguredOwner(speakerName) && ai!=null) {
-                            respondent.ownerAffinity=clampAffinity(respondent.ownerAffinity+ai.affinityDelta);
+                        if(ai!=null) {
+                            applyAiRelationship(respondent,speakerName,ai,rawMessage);
+                            handleAiSocialAction(respondent,speakerName,ai);
+                        } else {
+                            maybeFallbackFactionInvite(respondent,speakerName,rawMessage);
                         }
 
                         enqueue(respondent.name,reply,true);
@@ -1852,7 +1867,8 @@ final class SimWorldDirector {
         return Math.max(-100,Math.min(100,n));
     }
 
-    private String semanticContext(SimPlayer p) {
+    private String semanticContext(SimPlayer p,String speaker) {
+        SocialEdge rel=relationship(p.name,speaker,true);
         StringBuilder b=new StringBuilder();
         b.append("identity=").append(p.name)
          .append("; faction=").append(p.faction==null||p.faction.isEmpty()?"solo":p.faction)
@@ -1867,12 +1883,22 @@ final class SimWorldDirector {
          .append("; sociability=").append(p.sociability)
          .append("; loyalty=").append(p.loyalty)
          .append("; reputation=").append(p.reputation)
-         .append("; goal=").append(p.currentGoal);
+         .append("; goal=").append(p.currentGoal)
+         .append("; speaker=").append(speaker)
+         .append("; speakerIsOwner=").append(isConfiguredOwner(speaker))
+         .append("; relationshipAffinity=").append(rel.affinity)
+         .append("; relationshipTrust=").append(rel.trust)
+         .append("; relationshipRespect=").append(rel.respect)
+         .append("; relationshipGrudge=").append(rel.grudge);
 
         if(p.faction!=null && !p.faction.isEmpty()) {
             SimFaction f=factions.get(key(p.faction));
             if(f!=null) {
-                b.append("; factionStage=").append(f.stage.name())
+                b.append("; responderIsFactionLeader=").append(f.leader!=null && f.leader.equalsIgnoreCase(p.name))
+                 .append("; factionHasSpace=").append(f.members.size()<MAX_FACTION_MEMBERS)
+                 .append("; speakerAlreadyFactioned=").append(plugin.humanAlreadyFactioned(speaker))
+                 .append("; factionMembers=").append(f.members.size()).append("/").append(MAX_FACTION_MEMBERS)
+                 .append("; factionStage=").append(f.stage.name())
                  .append("; recovery=").append(f.recoveryMode)
                  .append("; zone=").append(warzoneForFaction(f))
                  .append("; dtr=").append(plugin.factionDtr(f.name))
@@ -1880,6 +1906,14 @@ final class SimWorldDirector {
             }
         }
 
+        if(!rel.memories.isEmpty()) {
+            b.append("; durableMemories=");
+            int skipMem=Math.max(0,rel.memories.size()-6),mi=0;
+            for(String memory:rel.memories) {
+                if(mi++<skipMem) continue;
+                b.append("[").append(memory.replace(';',',')).append("]");
+            }
+        }
         if(!recentKiller.isEmpty()) b.append("; recentKill=").append(recentKiller).append(">").append(recentVictim);
         if(!recentPublicMessages.isEmpty()) {
             b.append("; recentChat=");
@@ -1906,17 +1940,131 @@ final class SimWorldDirector {
         final String humanName=human.getName();
         lastReplyTarget.put(key(humanName),sim.name);
 
-        return aiChat.request("private",humanName,sim.name,semanticContext(sim),text,new AiChatBridge.Handler() {
+        return aiChat.request("private",humanName,sim.name,semanticContext(sim,humanName),text,new AiChatBridge.Handler() {
             public void complete(AiChatBridge.AiReply ai) {
                 if(!human.isOnline()) return;
                 String reply=ai!=null?ai.text:fallback;
                 if(reply==null||reply.trim().isEmpty()) return;
-                if(isConfiguredOwner(humanName) && ai!=null)
-                    sim.ownerAffinity=clampAffinity(sim.ownerAffinity+ai.affinityDelta);
+                if(ai!=null) {
+                    applyAiRelationship(sim,humanName,ai,text);
+                    handleAiSocialAction(sim,humanName,ai);
+                } else {
+                    maybeFallbackFactionInvite(sim,humanName,text);
+                }
                 plugin.sendSimulatedPrivate(human,sim.name,reply);
                 save();
             }
         });
+    }
+
+    private String socialKey(String from,String to) {
+        return key(from)+"__to__"+key(to);
+    }
+
+    private SocialEdge relationship(String from,String to,boolean create) {
+        if(from==null || to==null || from.trim().isEmpty() || to.trim().isEmpty()) return neutralEdge(from,to);
+        String k=socialKey(from,to);
+        SocialEdge e=socialEdges.get(k);
+        if(e!=null || !create) return e;
+
+        e=new SocialEdge();
+        e.from=from;
+        e.to=to;
+        int h=Math.abs((key(from)+"|"+key(to)).hashCode());
+        e.affinity=(h%17)-8;
+        e.trust=42+(h%17);
+        e.respect=42+((h/17)%17);
+        e.grudge=0;
+        SimPlayer p=players.get(key(from));
+        if(p!=null && isConfiguredOwner(to)) e.affinity=clampAffinity(p.ownerAffinity);
+        socialEdges.put(k,e);
+        return e;
+    }
+
+    private SocialEdge neutralEdge(String from,String to) {
+        SocialEdge e=new SocialEdge();
+        e.from=from==null?"":from;
+        e.to=to==null?"":to;
+        e.affinity=0;e.trust=50;e.respect=50;e.grudge=0;
+        return e;
+    }
+
+    private int clampSocial(int n) {
+        return Math.max(0,Math.min(100,n));
+    }
+
+    private void rememberRelationship(SocialEdge e,String memory) {
+        if(e==null || memory==null) return;
+        String m=memory.replace('\n',' ').replace('\r',' ').replace(';',',').trim();
+        if(m.isEmpty()) return;
+        if(m.length()>140) m=m.substring(0,140).trim();
+        if(!e.memories.isEmpty() && e.memories.peekLast().equalsIgnoreCase(m)) return;
+        e.memories.addLast(m);
+        while(e.memories.size()>10) e.memories.removeFirst();
+        e.lastInteraction=System.currentTimeMillis();
+    }
+
+    private void applyAiRelationship(SimPlayer responder,String speaker,AiChatBridge.AiReply ai,String message) {
+        if(responder==null || ai==null) return;
+        SocialEdge e=relationship(responder.name,speaker,true);
+        e.affinity=clampAffinity(e.affinity+ai.affinityDelta);
+        e.trust=clampSocial(e.trust+ai.trustDelta);
+        e.respect=clampSocial(e.respect+ai.respectDelta);
+        if(ai.affinityDelta<0 || ai.trustDelta<0) e.grudge=clampSocial(e.grudge+Math.abs(ai.affinityDelta)+Math.abs(ai.trustDelta));
+        else if(ai.affinityDelta>0 || ai.trustDelta>0) e.grudge=Math.max(0,e.grudge-1);
+        e.lastInteraction=System.currentTimeMillis();
+
+        if(ai.memory!=null && !ai.memory.isEmpty()) rememberRelationship(e,ai.memory);
+
+        if(isConfiguredOwner(speaker)) responder.ownerAffinity=e.affinity;
+
+        // Mirror a weaker impression in the opposite direction for simulated
+        // speakers. Human feelings are never fabricated.
+        SimPlayer speakerSim=players.get(key(speaker));
+        if(speakerSim!=null) {
+            SocialEdge reverse=relationship(speaker,responder.name,true);
+            reverse.respect=clampSocial(reverse.respect+Integer.signum(ai.respectDelta));
+            reverse.lastInteraction=System.currentTimeMillis();
+        }
+    }
+
+    private boolean looksFactionJoinRequest(String message) {
+        String m=message==null?"":message.toLowerCase(Locale.ENGLISH);
+        return (m.contains("join") || m.contains("inv") || m.contains("invite")) &&
+            (m.contains("fac") || m.contains("faction") || m.contains("team") || m.contains("you guys") || m.contains("yall"));
+    }
+
+    private boolean mayInviteSpeaker(SimPlayer responder,String speaker) {
+        if(responder==null || responder.faction==null || responder.faction.isEmpty()) return false;
+        SimFaction f=factions.get(key(responder.faction));
+        if(f==null || f.leader==null || !f.leader.equalsIgnoreCase(responder.name)) return false;
+        if(f.members.size()>=MAX_FACTION_MEMBERS || plugin.humanAlreadyFactioned(speaker)) return false;
+        SocialEdge rel=relationship(responder.name,speaker,true);
+        return rel.affinity>-55 && rel.grudge<75;
+    }
+
+    private void handleAiSocialAction(SimPlayer responder,String speaker,AiChatBridge.AiReply ai) {
+        if(responder==null || ai==null) return;
+        if("INVITE_FACTION".equals(ai.action) && mayInviteSpeaker(responder,speaker)) {
+            if(plugin.inviteHumanToSimFaction(responder.faction,responder.name,speaker)) {
+                SocialEdge e=relationship(responder.name,speaker,true);
+                e.affinity=clampAffinity(e.affinity+3);
+                e.trust=clampSocial(e.trust+1);
+                rememberRelationship(e,"invited "+speaker+" to "+responder.faction);
+                SocialEdge reverse=relationship(speaker,responder.name,true);
+                rememberRelationship(reverse,responder.name+" invited me to "+responder.faction);
+            }
+        }
+    }
+
+    private void maybeFallbackFactionInvite(SimPlayer responder,String speaker,String message) {
+        if(!looksFactionJoinRequest(message) || !mayInviteSpeaker(responder,speaker)) return;
+        SocialEdge e=relationship(responder.name,speaker,true);
+        int threshold=isConfiguredOwner(speaker)?-35:5;
+        if(e.affinity<threshold && e.trust<45) return;
+        if(plugin.inviteHumanToSimFaction(responder.faction,responder.name,speaker)) {
+            rememberRelationship(e,"invited "+speaker+" to "+responder.faction);
+        }
     }
 
     private boolean isTradeIntent(String lower) {

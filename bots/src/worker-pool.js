@@ -82,19 +82,13 @@ function sampleCpu() {
   return nodeCpuPct
 }
 
-function effectiveNodeCapacity(settings) {
-  let cap=settings.maxBodies
-  if(nodeCpuPct>=95) cap=Math.max(1,cap-6)
-  else if(nodeCpuPct>=90) cap=Math.max(1,cap-4)
-  else if(nodeCpuPct>=82) cap=Math.max(1,cap-2)
-  else if(nodeCpuPct>=74) cap=Math.max(1,cap-1)
-  return cap
-}
-
 async function coordinatorHeartbeat(settings) {
   if(!distributedMode) return null
   const rss=Math.round(process.memoryUsage().rss/1048576)
-  const capacity=effectiveNodeCapacity(settings)
+  // Capacity is the operator-approved hard limit. Node CPU is reported
+  // separately so the coordinator can stop adding leases without migrating
+  // already-connected identities between healthy nodes.
+  const capacity=settings.maxBodies
   const controller=new AbortController()
   const timer=setTimeout(()=>controller.abort(),4500)
   try {

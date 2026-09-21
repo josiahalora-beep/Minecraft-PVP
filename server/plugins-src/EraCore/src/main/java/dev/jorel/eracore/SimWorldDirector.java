@@ -966,7 +966,15 @@ final class SimWorldDirector {
             }
         });
 
-        SimFaction a=observedBase!=null?observedBase:ready.get(0);
+        SimFaction roamingFaction=null;
+        if(observedBase==null && plugin.isBotIdentity(observer.getName())) {
+            SimPlayer roaming=players.get(key(observer.getName()));
+            if(roaming!=null && roaming.faction!=null && !roaming.faction.isEmpty()) {
+                SimFaction candidate=factions.get(key(roaming.faction));
+                if(candidate!=null && ready.contains(candidate)) roamingFaction=candidate;
+            }
+        }
+        SimFaction a=observedBase!=null?observedBase:(roamingFaction!=null?roamingFaction:ready.get(0));
 
         // Power/creator neighborhoods can occasionally turn into the messy
         // three-faction brawls that old HCF maps were known for. The worker pool
@@ -980,8 +988,28 @@ final class SimWorldDirector {
 
         SimFaction b=null;
 
+        // A roaming HOT worker that actually sees an enemy should create that
+        // encounter first. This converts organic Mineflayer proximity into a
+        // director-sanctioned fight instead of teleporting unrelated factions
+        // into the scene.
+        if(observedBase==null) {
+            double bestBody=Double.MAX_VALUE;
+            for(Player body:Bukkit.getOnlinePlayers()) {
+                if(!plugin.isBotIdentity(body.getName()) || body.equals(observer) ||
+                   !body.getWorld().equals(observer.getWorld())) continue;
+                SimPlayer other=players.get(key(body.getName()));
+                if(other==null || other.faction==null || other.faction.isEmpty() ||
+                   other.faction.equalsIgnoreCase(a.name)) continue;
+                SimFaction candidate=factions.get(key(other.faction));
+                if(candidate==null || !ready.contains(candidate)) continue;
+                double d=body.getLocation().distanceSquared(observer.getLocation());
+                if(d<bestBody) { bestBody=d; b=candidate; }
+            }
+        }
+
         // If this faction is being deliberately camped, use the campers first.
         for(SimFaction candidate:ready) {
+            if(b!=null) break;
             if(candidate==a) continue;
             if(candidate.campTarget!=null && candidate.campTarget.equalsIgnoreCase(a.name)) {
                 b=candidate;
@@ -1026,7 +1054,8 @@ final class SimWorldDirector {
             // If the observer is inside a spawn Safezone, force the fight beyond
             // the protected boundary so it appears in Warzone, not inside spawn.
             double angle=rng.nextDouble()*Math.PI*2.0;
-            double dist=plugin.isHcfSafezone(ol) ? (78+rng.nextInt(35)) : (32+rng.nextInt(36));
+            int safeRadius=Math.max(40,plugin.getConfig().getInt("safezones.overworld-radius",110));
+            double dist=plugin.isHcfSafezone(ol) ? (safeRadius+12+rng.nextInt(30)) : (32+rng.nextInt(36));
             cx=(int)Math.round(ol.getX()+Math.cos(angle)*dist);
             cz=(int)Math.round(ol.getZ()+Math.sin(angle)*dist);
         }
@@ -1817,7 +1846,13 @@ final class SimWorldDirector {
         if ("brew".equals(goal)) return "brewer".equals(p.preferredJob)?103:65;
         if ("gear".equals(goal)) return 82;
         if ("scout".equals(goal)) return "leader".equals(p.role)?86:52;
-        if ("patrol".equals(goal)) return 64 + p.aggression/4;
+        if ("patrol".equals(goal)) {
+            SimFaction f=p.faction==null||p.faction.isEmpty()?null:factions.get(key(p.faction));
+            PvpIntent intent=pvpIntentFor(p,f);
+            int bonus=intent==PvpIntent.TEAMFIGHT?22:(intent==PvpIntent.SMALL_TEAM?16:
+                (intent==PvpIntent.SOLO_HUNT?12:(intent==PvpIntent.TRAP_PLAY?14:0)));
+            return 70 + p.aggression/4 + bonus;
+        }
         if ("recruit".equals(goal)) return 48 + p.sociability/3;
         return 50;
     }

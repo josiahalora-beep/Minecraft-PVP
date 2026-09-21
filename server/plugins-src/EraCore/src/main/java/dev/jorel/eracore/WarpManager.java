@@ -4,6 +4,7 @@ import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.configuration.ConfigurationSection;
+import org.bukkit.util.Vector;
 import org.bukkit.configuration.file.YamlConfiguration;
 
 import java.io.File;
@@ -37,8 +38,11 @@ final class WarpManager {
         }
 
         if (!data.contains("warps.pvp.world")) {
-            int y = plugin.getConfig().getInt("map.surface-y", 63) + 1;
-            setWarp("pvp", new Location(world, 200.5, y, 0.5, 90f, 0f), false);
+            Location center=getSpawn();
+            int distance=Math.max(20,plugin.getConfig().getInt("spawn.road-exit-distance",
+                plugin.getConfig().getInt("safezones.overworld-radius",60)+12));
+            Location road=roadPoint(center,distance);
+            setWarp("pvp",road,false);
         }
 
         World nether=firstWorld(World.Environment.NETHER);
@@ -62,13 +66,42 @@ final class WarpManager {
         Location center = new Location(world, 260.5, 70.0, 180.5, 0f, 0f);
         setSpawn(center, false);
         setWarp("spawn", center, false);
-
-        // The downloaded build contains its own shop and enchanting rooms.
-        // Their exact interior spots can be finalized with /setwarp after the paste.
         setWarp("shop", center, false);
         setWarp("enchant", center, false);
-
         save();
+    }
+
+    Location applyKrakenPreset(Location center) {
+        if(center==null || center.getWorld()==null) return null;
+        Location exact=center.clone();
+        exact.setX(center.getBlockX()+0.5);
+        exact.setZ(center.getBlockZ()+0.5);
+        setSpawn(exact,false);
+        setWarp("spawn",exact,false);
+
+        int distance=Math.max(20,plugin.getConfig().getInt("spawn.road-exit-distance",
+            plugin.getConfig().getInt("safezones.overworld-radius",110)+12));
+        Location pvp=roadPoint(exact,distance);
+        setWarp("pvp",pvp,false);
+
+        // Never keep legacy interior coordinates after a schematic move. The
+        // owner marks these against the pasted build using /spawnpreset kraken mark.
+        data.set("warps.shop",null);
+        data.set("warps.enchant",null);
+        save();
+        return pvp;
+    }
+
+    private Location roadPoint(Location center,int distance) {
+        World w=center.getWorld();
+        Vector dir=center.getDirection().setY(0);
+        if(dir.lengthSquared()<0.001) dir=new Vector(0,0,1);
+        dir.normalize();
+        double x=center.getX()+dir.getX()*distance;
+        double z=center.getZ()+dir.getZ()*distance;
+        int bx=(int)Math.floor(x),bz=(int)Math.floor(z);
+        double y=Math.max(2,w.getHighestBlockYAt(bx,bz)+1);
+        return new Location(w,bx+0.5,y,bz+0.5,center.getYaw(),0f);
     }
 
     private World firstWorld(World.Environment env) {

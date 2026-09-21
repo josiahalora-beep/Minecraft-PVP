@@ -151,6 +151,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     @Override public void onEnable() {
         saveDefaultConfig();
         migrateDirectorIntelligenceConfig();
+        migrateDistributedWorkerConfig();
         initFiles();
         initShops();
         loadFactions();
@@ -255,6 +256,27 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         getConfig().set("migration.director-intelligence-version",1);
         saveConfig();
         getLogger().info("Applied director intelligence v1: intent-driven frequent PvP cadence.");
+    }
+
+    private void migrateDistributedWorkerConfig() {
+        int version=getConfig().getInt("migration.distributed-workers-version",0);
+        if(version>=1) return;
+
+        getConfig().set("sim-world.population",150);
+        getConfig().set("sim-world.logical-online-min",88);
+        getConfig().set("sim-world.logical-online-peak",132);
+        getConfig().set("sim-world.logical-online-late-night",52);
+        getConfig().set("worker-pool.max-bodies",40);
+        getConfig().set("worker-pool.offline-bodies",24);
+        getConfig().set("worker-pool.node-default-bodies",12);
+        getConfig().set("worker-pool.max-per-faction",5);
+        getConfig().set("worker-pool.fight-ambient-bodies",2);
+        getConfig().set("ai-chat.enabled",true);
+        getConfig().set("ai-chat.endpoint","http://127.0.0.1:8765/reply");
+        getConfig().set("ai-chat.timeout-ms",6500);
+        getConfig().set("migration.distributed-workers-version",1);
+        saveConfig();
+        getLogger().info("Applied distributed worker v1 config: 150 logical identities, global HOT budget 40.");
     }
 
     private void bindCommands() {

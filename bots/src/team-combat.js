@@ -141,18 +141,32 @@ function countNearby(bot, names, radius) {
   return n
 }
 
-async function useNearbyFenceGate(bot, radius = 3) {
+function fenceGateIsOpen(block) {
+  if(!block) return false
+  try {
+    if(typeof block.getProperties === 'function') {
+      const props=block.getProperties()
+      if(props && typeof props.open === 'boolean') return props.open
+      if(props && String(props.open).toLowerCase()==='true') return true
+    }
+  } catch {}
+  const meta=Number(block.metadata)
+  return Number.isFinite(meta) && (meta & 4) === 4
+}
+
+async function useNearbyFenceGate(bot, radius = 3, desiredOpen = null) {
   if (!bot.entity) return false
-  const ids = ['fence_gate', 'spruce_fence_gate', 'birch_fence_gate', 'jungle_fence_gate', 'acacia_fence_gate', 'dark_oak_fence_gate']
+  const ids = ['fence_gate', 'oak_fence_gate', 'spruce_fence_gate', 'birch_fence_gate', 'jungle_fence_gate', 'acacia_fence_gate', 'dark_oak_fence_gate']
     .map(n => bot.registry?.blocksByName?.[n]?.id)
     .filter(Number.isInteger)
   if (!ids.length) return false
 
   try {
-    const pos = bot.findBlock({ matching: ids, maxDistance: radius })
-    if (!pos) return false
-    const block = bot.blockAt(pos)
+    const found = bot.findBlock({ matching: ids, maxDistance: radius })
+    if (!found) return false
+    const block = found.position ? found : bot.blockAt(found)
     if (!block) return false
+    if(desiredOpen!==null && fenceGateIsOpen(block)===desiredOpen) return true
     await bot.lookAt(block.position.offset(0.5,0.5,0.5), true)
     await bot.activateBlock(block)
     return true
@@ -302,6 +316,7 @@ export function createTeamCombatController(bot, assignmentProvider) {
   let nextMistakeCheckAt = 0
   let mistakeType = ''
   let mistakeUntil = 0
+  let lastTrapGateToggleAt = 0
 
   function ensureProfile(a) {
     const mechanics=Number(a?.mechanics ?? a?.skill ?? 50)
@@ -681,8 +696,16 @@ export function createTeamCombatController(bot, assignmentProvider) {
         }
 
         moveToward(bot, tx, tz, true)
-        if (a.action === 'BAIT_GATE' && trapDist <= 4.5 && Math.random() < 0.38) {
-          await useNearbyFenceGate(bot, 4)
+        if (a.action === 'BAIT_GATE' && Date.now()-lastTrapGateToggleAt>700) {
+          // Open deliberately while entering the choke. Once the bait body is
+          // tight to the gate and the pursuer commits, click it shut again.
+          // HcfGateDirector synchronizes the whole 3x3 wall and provides an
+          // independent auto-close if this bot gets hit/disconnected mid-play.
+          if(trapDist>2.1 && trapDist<=5.4) {
+            if(await useNearbyFenceGate(bot,5,true)) lastTrapGateToggleAt=Date.now()
+          } else if(trapDist<=2.1 && dist<=4.4) {
+            if(await useNearbyFenceGate(bot,5,false)) lastTrapGateToggleAt=Date.now()
+          }
         }
         if (bot.health <= profile.potHealth && dist >= profile.potGap) await potAtFeet()
         if (dist < 2.6 && bot.health > profile.potHealth) await aimAndAttack(target.entity, dist)

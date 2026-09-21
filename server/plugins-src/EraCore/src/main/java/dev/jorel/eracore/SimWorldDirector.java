@@ -59,6 +59,14 @@ final class SimWorldDirector {
         int aggression;     // 0..100
         int bargaining;     // 0..100
         int leadership;     // 0..100
+        int composure;      // 0..100 leader pressure handling
+        int charisma;       // 0..100 recruiting/social pull
+        int decisiveness;   // 0..100 willingness to make roster/strategic calls
+        int standards;      // 0..100 selectiveness for elite factions
+        int politicalIq;    // 0..100 alliances/rivalries/community reading
+        int leaderExperience;
+        int duelWins;
+        int duelLosses;
         int teamwork;       // 0..100
         int economicIq;      // 0..100
         int loyalty;         // 0..100
@@ -178,6 +186,15 @@ final class SimWorldDirector {
         int grudge;   // 0..100
         long lastInteraction;
         final Deque<String> memories=new ArrayDeque<String>();
+    }
+
+    static final class HistoryEvent {
+        long at;
+        int importance;
+        String type="";
+        String summary="";
+        String faction="";
+        final List<String> people=new ArrayList<String>();
     }
 
 
@@ -315,6 +332,7 @@ final class SimWorldDirector {
     private final Map<String,MarketOrder> activeOrders = new HashMap<String,MarketOrder>();
     private final Map<String,Conversation> conversations = new HashMap<String,Conversation>();
     private final Map<String,SocialEdge> socialEdges = new LinkedHashMap<String,SocialEdge>();
+    private final Deque<HistoryEvent> communityHistory = new ArrayDeque<HistoryEvent>();
     private final Map<String,String> lastReplyTarget = new HashMap<String,String>();
     private final Deque<ChatEvent> pendingChat = new ArrayDeque<ChatEvent>();
     private final Map<String,Integer> rivalries = new HashMap<String,Integer>();
@@ -4310,6 +4328,14 @@ final class SimWorldDirector {
             p.aggression = s.getInt("aggression", 50);
             p.bargaining = s.getInt("bargaining", 50);
             p.leadership = s.getInt("leadership", 50);
+            p.composure = s.getInt("composure", leadershipTrait(p.name,"composure",p.leadership));
+            p.charisma = s.getInt("charisma", leadershipTrait(p.name,"charisma",50));
+            p.decisiveness = s.getInt("decisiveness", leadershipTrait(p.name,"decisiveness",p.leadership));
+            p.standards = s.getInt("standards", leadershipTrait(p.name,"standards",55));
+            p.politicalIq = s.getInt("political-iq", leadershipTrait(p.name,"political",50));
+            p.leaderExperience = s.getInt("leader-experience",0);
+            p.duelWins = s.getInt("duel-wins",0);
+            p.duelLosses = s.getInt("duel-losses",0);
             p.teamwork = s.getInt("teamwork", 50);
             p.economicIq = s.getInt("economic-iq", 0);
             p.loyalty = s.getInt("loyalty", 45 + rng.nextInt(51));
@@ -4472,6 +4498,14 @@ final class SimWorldDirector {
             p.aggression = 25 + rng.nextInt(66);
             p.bargaining = 25 + rng.nextInt(66);
             p.leadership = 25 + rng.nextInt(71);
+            p.composure = leadershipTrait(p.name,"composure",p.leadership);
+            p.charisma = leadershipTrait(p.name,"charisma",50+rng.nextInt(21)-10);
+            p.decisiveness = leadershipTrait(p.name,"decisiveness",p.leadership);
+            p.standards = leadershipTrait(p.name,"standards",50+rng.nextInt(31)-15);
+            p.politicalIq = leadershipTrait(p.name,"political",50+rng.nextInt(31)-15);
+            p.leaderExperience = 0;
+            p.duelWins = 0;
+            p.duelLosses = 0;
             p.teamwork = 35 + rng.nextInt(61);
             p.loyalty = 40 + rng.nextInt(61);
             p.riskTolerance = 20 + rng.nextInt(81);
@@ -5630,6 +5664,32 @@ final class SimWorldDirector {
         return namePrestigeTier(name);
     }
 
+    private int leadershipTrait(String name,String trait,int base) {
+        int h=Math.abs((key(name)+"|"+trait).hashCode());
+        int noise=(h%31)-15;
+        return Math.max(10,Math.min(100,base+noise));
+    }
+
+    private int leaderQuality(SimPlayer p) {
+        if(p==null) return 0;
+        return (p.leadership*26+p.composure*18+p.decisiveness*17+p.politicalIq*15+
+            p.economicIq*10+p.charisma*8+p.teamwork*6)/100;
+    }
+
+    private String leaderStyle(SimPlayer p) {
+        if(p==null) return "unknown";
+        int q=leaderQuality(p);
+        if(p.composure>=78 && p.decisiveness>=74 && q>=76) return "calm commander";
+        if(p.charisma>=82 && p.politicalIq>=70) return "charismatic coalition-builder";
+        if(p.economicIq>=82 && p.patience>=68) return "methodical operator";
+        if(p.aggression>=78 && p.composure<55) return "hotheaded shot-caller";
+        if(p.leadership<45 && p.decisiveness<50) return "inexperienced kid leader";
+        if(p.underdogLeader && q>=66) return "underdog captain";
+        if(q>=70) return "disciplined leader";
+        if(q<48) return "loose casual leader";
+        return "ordinary faction leader";
+    }
+
     private int creatorSkillOverride(String name, int rolled) {
         String n = key(name);
         if (n.equals("stimpy") || n.equals("stimpypvp") || n.equals("marcel") || n.equals("painfulpvp")) return 95 + rng.nextInt(6);
@@ -5664,6 +5724,14 @@ final class SimWorldDirector {
             data.set(b + ".aggression", p.aggression);
             data.set(b + ".bargaining", p.bargaining);
             data.set(b + ".leadership", p.leadership);
+            data.set(b + ".composure", p.composure);
+            data.set(b + ".charisma", p.charisma);
+            data.set(b + ".decisiveness", p.decisiveness);
+            data.set(b + ".standards", p.standards);
+            data.set(b + ".political-iq", p.politicalIq);
+            data.set(b + ".leader-experience",p.leaderExperience);
+            data.set(b + ".duel-wins",p.duelWins);
+            data.set(b + ".duel-losses",p.duelLosses);
             data.set(b + ".teamwork", p.teamwork);
             data.set(b + ".economic-iq", p.economicIq);
             data.set(b + ".loyalty", p.loyalty);

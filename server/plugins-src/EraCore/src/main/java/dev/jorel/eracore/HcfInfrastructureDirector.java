@@ -21,7 +21,7 @@ import java.util.*;
  */
 @SuppressWarnings("deprecation")
 final class HcfInfrastructureDirector {
-    private static final int VERSION=1;
+    private static final int VERSION=2;
 
     private static final class Op {
         final World world;
@@ -97,6 +97,7 @@ final class HcfInfrastructureDirector {
         warps.setWarp("duels",duelLobby);
 
         if(data.getInt("version",0)<VERSION) {
+            queueSpawnFoundationRepair(overworld);
             queueDuelArena(overworld,dcx,dfloor,dcz);
             if(netherHub!=null) queueDimensionHub(netherHub,Material.NETHER_BRICK,Material.NETHER_FENCE,Material.GLOWSTONE);
             if(endHub!=null) queueDimensionHub(endHub,Material.ENDER_STONE,Material.IRON_FENCE,Material.GLOWSTONE);
@@ -202,6 +203,71 @@ final class HcfInfrastructureDirector {
                 queue.add(new Op(w,cx+18+dx,yy,cz+dz,Material.AIR));
             }
         }
+    }
+
+    private void queueSpawnFoundationRepair(World w) {
+        Location spawn=warps.getSpawn();
+        if(spawn==null || spawn.getWorld()==null || !spawn.getWorld().equals(w)) spawn=w.getSpawnLocation();
+        int cx=spawn.getBlockX(),cz=spawn.getBlockZ();
+        int floorY=plugin.getConfig().getInt("map.surface-y",63);
+        int radius=Math.max(50,plugin.getConfig().getInt("spawn-build-protection.radius",
+            (int)Math.ceil(plugin.getConfig().getDouble("map.safezone-radius",60.0))));
+
+        // Repair the complete square footprint, including all four corners.
+        // Existing constructed spawn blocks are preserved; holes, liquids and
+        // natural terrain are normalized into a sealed Safezone foundation.
+        for(int x=cx-radius;x<=cx+radius;x++) {
+            for(int z=cz-radius;z<=cz+radius;z++) {
+                for(int yy=Math.max(2,floorY-5);yy<=floorY-3;yy++) {
+                    Material m=w.getBlockAt(x,yy,z).getType();
+                    if(m==Material.AIR || isNatural(m) || isLiquid(m))
+                        queue.add(new Op(w,x,yy,z,Material.STONE));
+                }
+                Material below=w.getBlockAt(x,floorY-2,z).getType();
+                if(below==Material.AIR || isNatural(below) || isLiquid(below))
+                    queue.add(new Op(w,x,floorY-2,z,Material.DIRT));
+                Material under=w.getBlockAt(x,floorY-1,z).getType();
+                if(under==Material.AIR || isNatural(under) || isLiquid(under))
+                    queue.add(new Op(w,x,floorY-1,z,Material.DIRT));
+
+                Material surface=w.getBlockAt(x,floorY,z).getType();
+                if(surface==Material.AIR || isNatural(surface) || isLiquid(surface))
+                    queue.add(new Op(w,x,floorY,z,Material.SMOOTH_BRICK));
+
+                // Remove only natural clutter/liquid above grade. Chests,
+                // quartz, glass, signs, redstone and other spawn construction
+                // remain untouched.
+                for(int yy=floorY+1;yy<=Math.min(w.getMaxHeight()-1,floorY+10);yy++) {
+                    Material m=w.getBlockAt(x,yy,z).getType();
+                    if(isNatural(m) || isLiquid(m)) queue.add(new Op(w,x,yy,z,Material.AIR));
+                }
+            }
+        }
+
+        // Explicit corner pads ensure NE/NW/SE/SW are never left as raw cuts.
+        int corner=Math.max(6,plugin.getConfig().getInt("spawn-build-protection.corner-pad",10));
+        int[][] signs={{1,1},{1,-1},{-1,1},{-1,-1}};
+        for(int[] s:signs) {
+            int ccx=cx+s[0]*(radius-corner/2);
+            int ccz=cz+s[1]*(radius-corner/2);
+            for(int x=ccx-corner/2;x<=ccx+corner/2;x++)
+                for(int z=ccz-corner/2;z<=ccz+corner/2;z++)
+                    queue.add(new Op(w,x,floorY,z,Material.SMOOTH_BRICK));
+        }
+    }
+
+    private boolean isLiquid(Material m) {
+        return m==Material.WATER || m==Material.STATIONARY_WATER ||
+            m==Material.LAVA || m==Material.STATIONARY_LAVA;
+    }
+
+    private boolean isNatural(Material m) {
+        return m==Material.GRASS || m==Material.DIRT || m==Material.STONE ||
+            m==Material.SAND || m==Material.GRAVEL || m==Material.CLAY ||
+            m==Material.LONG_GRASS || m==Material.YELLOW_FLOWER || m==Material.RED_ROSE ||
+            m==Material.SNOW || m==Material.SNOW_BLOCK || m==Material.LEAVES ||
+            m==Material.LEAVES_2 || m==Material.LOG || m==Material.LOG_2 ||
+            m==Material.VINE || m==Material.DEAD_BUSH || m==Material.MYCEL;
     }
 
     private void queueDimensionHub(Location center,Material floor,Material fence,Material light) {

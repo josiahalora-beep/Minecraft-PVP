@@ -33,8 +33,8 @@ import java.util.*;
 @SuppressWarnings("deprecation")
 public final class EraCore extends JavaPlugin implements Listener, CommandExecutor {
     private final DecimalFormat moneyFmt = new DecimalFormat("#,##0.00");
-    private File ranksFile, kitsFile, economyFile, factionsFile, metricsFile;
-    private YamlConfiguration ranksData, kitsData, economyData, factionsData;
+    private File ranksFile, kitsFile, economyFile, factionsFile, statsFile, metricsFile;
+    private YamlConfiguration ranksData, kitsData, economyData, factionsData, statsData;
     private final Map<String, Faction> factions = new LinkedHashMap<String, Faction>();
     private final Map<String, String> claimOwners = new HashMap<String, String>();
     private final Set<String> factionChat = new HashSet<String>();
@@ -190,7 +190,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     private void bindCommands() {
-        String[] cmds = {"rank","kit","kits","balance","pay","sell","buy","shop","vote","keys","crates","f","spawn","setspawn","warp","warps","setwarp","delwarp","spawnpreset","msg","r","simchat","sotw","simworker","simcombat","safezone","teamfight","bard","archer","miner","rogue","simprobe","simmap","simstate","duelprep"};
+        String[] cmds = {"rank","kit","kits","balance","pay","sell","buy","shop","vote","keys","crates","stats","f","spawn","setspawn","warp","warps","setwarp","delwarp","spawnpreset","msg","r","simchat","sotw","simworker","simcombat","safezone","teamfight","bard","archer","miner","rogue","simprobe","simmap","simstate","duelprep"};
         for (String c : cmds) getCommand(c).setExecutor(this);
     }
 
@@ -200,11 +200,13 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         kitsFile = new File(getDataFolder(), "kits.yml");
         economyFile = new File(getDataFolder(), "economy.yml");
         factionsFile = new File(getDataFolder(), "factions.yml");
+        statsFile = new File(getDataFolder(), "stats.yml");
         metricsFile = new File(getDataFolder(), "metrics.csv");
         ranksData = YamlConfiguration.loadConfiguration(ranksFile);
         kitsData = YamlConfiguration.loadConfiguration(kitsFile);
         economyData = YamlConfiguration.loadConfiguration(economyFile);
         factionsData = YamlConfiguration.loadConfiguration(factionsFile);
+        statsData = YamlConfiguration.loadConfiguration(statsFile);
     }
 
     private void initShops() {
@@ -280,7 +282,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         ensurePlayerData(p);
         Rank r = bot ? simRankFor(p.getName()) : getRank(p.getName());
         applyCreatorTag(p);
-        p.setPlayerListName(color(identityPrefix(p.getName(), r) + "&f" + p.getName()));
+        p.setPlayerListName(color(identityPrefix(p.getName(), r) + rankNameColor(r) + p.getName()));
         if (bot && logicalTab != null) logicalTab.onPhysicalJoin(p);
         if (!bot && spawnRewards != null) spawnRewards.onHumanJoin(p);
 
@@ -289,7 +291,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (bot) {
             e.setJoinMessage(null);
         } else {
-            e.setJoinMessage(color("&8[&a+&8] " + identityPrefix(p.getName(), r) + "&f" + p.getName()));
+            e.setJoinMessage(color((r==Rank.OWNER?"&4&l[OWNER ONLINE] &r":"&8[&a+&8] ") + identityPrefix(p.getName(), r) + rankNameColor(r) + p.getName()));
             if (simChat != null) simChat.onJoin(p);
         }
 
@@ -309,14 +311,14 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             return;
         }
         Rank r = getRank(p.getName());
-        e.setQuitMessage(color("&8[&c-&8] " + identityPrefix(p.getName(), r) + "&f" + p.getName()));
+        e.setQuitMessage(color("&8[&c-&8] " + identityPrefix(p.getName(), r) + rankNameColor(r) + p.getName()));
     }
 
     void broadcastSimulatedPresence(String name, boolean joining) {
         if (!hasHumanOnline()) return;
         Rank rank = simRankFor(name);
         String marker = joining ? "&8[&a+&8] " : "&8[&c-&8] ";
-        Bukkit.broadcastMessage(color(marker + identityPrefix(name,rank) + "&f" + name + factionSuffix(name)));
+        Bukkit.broadcastMessage(color(marker + identityPrefix(name,rank) + rankNameColor(rank) + name + factionSuffix(name)));
     }
 
     @EventHandler(priority=EventPriority.HIGHEST) public void onChat(AsyncPlayerChatEvent e) {
@@ -336,7 +338,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             return;
         }
         Rank r = isBotIdentity(p.getName()) ? simRankFor(p.getName()) : getRank(p.getName());
-        e.setFormat(color(identityPrefix(p.getName(), r) + "&f" + p.getName() + factionSuffix(p.getName()) + "&7: &f") + "%2$s");
+        e.setFormat(color(identityPrefix(p.getName(), r) + rankNameColor(r) + p.getName() + factionSuffix(p.getName()) + "&7: &f") + "%2$s");
         final String chatText = e.getMessage();
         if (simChat != null) {
             Bukkit.getScheduler().runTask(this, new Runnable() {
@@ -462,6 +464,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             combatPreparedFight.remove(n);
         }
         power.put(n, Math.max(-10.0, getPower(n) - 2.0));
+        recordHumanDeathStats(e.getEntity(),e.getEntity().getKiller());
 
         Faction f = factionOf(e.getEntity().getName());
         if (f != null) {
@@ -583,6 +586,15 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         return Rank.PLATINUM;
     }
 
+    private String rankNameColor(Rank rank) {
+        if(rank==Rank.OWNER) return "&c&l";
+        if(rank==Rank.PLATINUM) return "&b";
+        if(rank==Rank.GOLD) return "&6";
+        if(rank==Rank.SILVER) return "&f";
+        if(rank==Rank.BASIC) return "&a";
+        return "&f";
+    }
+
     private String factionSuffix(String name) {
         Faction real = factionOf(name);
         String faction = real == null ? "" : real.name;
@@ -592,12 +604,12 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     void broadcastSimulatedChat(String name, String message) {
         Rank rank = simRankFor(name);
-        Bukkit.broadcastMessage(color(identityPrefix(name, rank) + "&f" + name + factionSuffix(name) + "&7: &f" + message));
+        Bukkit.broadcastMessage(color(identityPrefix(name, rank) + rankNameColor(rank) + name + factionSuffix(name) + "&7: &f" + message));
     }
 
     void sendSimulatedPrivate(Player target, String from, String message) {
         Rank rank = simRankFor(from);
-        target.sendMessage(color("&8[&7From " + identityPrefix(from, rank) + "&f" + from + factionSuffix(from) + "&8] &f" + message));
+        target.sendMessage(color("&8[&7From " + identityPrefix(from, rank) + rankNameColor(rank) + from + factionSuffix(from) + "&8] &f" + message));
     }
 
     void broadcastCommunityEvent(String message) {
@@ -761,6 +773,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (c.equals("vote")) return spawnRewards != null && spawnRewards.commandVote(p,args);
         if (c.equals("keys")) return spawnRewards != null && spawnRewards.commandKeys(p);
         if (c.equals("crates")) return spawnRewards != null && spawnRewards.commandCrates(p,args);
+        if (c.equals("stats")) return cmdStats(p,args);
         if (c.equals("f")) return cmdFaction(p,args);
         if (c.equals("spawn")) return cmdSpawn(p);
         if (c.equals("setspawn")) return cmdSetSpawn(p);
@@ -1834,6 +1847,43 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         return true;
     }
 
+    private boolean cmdStats(Player viewer,String[] a) {
+        String name=a.length>0?a[0]:viewer.getName();
+        int kills,deaths;
+        if(simWorld!=null && simWorld.contains(name)) {
+            kills=simWorld.killsFor(name);
+            deaths=simWorld.deathsFor(name);
+        } else {
+            String base="players."+name.toLowerCase(Locale.ENGLISH);
+            kills=statsData.getInt(base+".kills",0);
+            deaths=statsData.getInt(base+".deaths",0);
+        }
+        double kdr=deaths==0?kills:((double)kills/(double)deaths);
+        Rank rank=effectiveRank(name);
+        viewer.sendMessage(color("&6--- "+rankNameColor(rank)+name+"&6 Stats ---"));
+        viewer.sendMessage(color("&aKills: &f"+kills+" &8| &cDeaths: &f"+deaths+" &8| &eKDR: &f"+new DecimalFormat("0.00").format(kdr)));
+        String fac=factionNameFor(name);
+        if(fac!=null && !fac.isEmpty()) viewer.sendMessage(color("&7Faction: &f"+fac));
+        return true;
+    }
+
+    private void recordHumanDeathStats(Player victim,Player killer) {
+        if(victim!=null && !isBotIdentity(victim.getName())) {
+            String b="players."+victim.getName().toLowerCase(Locale.ENGLISH);
+            statsData.set(b+".deaths",statsData.getInt(b+".deaths",0)+1);
+        }
+        if(killer!=null && !isBotIdentity(killer.getName()) &&
+           (victim==null || !killer.getName().equalsIgnoreCase(victim.getName()))) {
+            String b="players."+killer.getName().toLowerCase(Locale.ENGLISH);
+            int kills=statsData.getInt(b+".kills",0)+1;
+            statsData.set(b+".kills",kills);
+            int deaths=statsData.getInt(b+".deaths",0);
+            killer.sendMessage(color("&8[&aKill #"+kills+"&8] &7K/D &f"+kills+"&7/&f"+deaths+
+                " &8| &7Use &f/stats"));
+        }
+        saveYaml(statsData,statsFile);
+    }
+
     private boolean cmdFaction(Player p,String[] a) {
         if(a.length==0) {
             sendFactionHelp(p);
@@ -1898,6 +1948,20 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             for(Faction x:factions.values()) {
                 p.sendMessage(color("&e"+x.name+" &7members="+x.members.size()+" claims="+x.claims.size()+" dtr="+dtrColor(x)+fmtDtr(x.dtr)+"&7/"+fmtDtr(maxDtr(x))));
             }
+            return true;
+        }
+
+        if(sub.equals("show") || sub.equals("who")) {
+            Faction q=f;
+            if(a.length>1) {
+                q=factions.get(a[1].toLowerCase(Locale.ENGLISH));
+                if(q==null) q=factionOf(a[1]);
+            }
+            if(q==null) {
+                p.sendMessage(color("&cFaction/player not found. &7Use /f show <faction|player>."));
+                return true;
+            }
+            sendFactionShow(p,q);
             return true;
         }
 
@@ -2032,20 +2096,6 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             return true;
         }
 
-        if(sub.equals("who")) {
-            Faction q=f;
-            if(a.length>1) {
-                q=factions.get(a[1].toLowerCase(Locale.ENGLISH));
-                if(q==null) {
-                    p.sendMessage(color("&cFaction not found."));
-                    return true;
-                }
-            }
-            p.sendMessage(color("&6"+q.name+" &7Leader: &f"+q.leader+" &7DTR: "+dtrColor(q)+fmtDtr(q.dtr)+"&7/&f"+fmtDtr(maxDtr(q))+" &7Claims: &f"+q.claims.size()));
-            p.sendMessage(color("&7Members: &f"+join(q.members,", ")));
-            return true;
-        }
-
         if(sub.equals("c")) {
             String k=p.getName().toLowerCase(Locale.ENGLISH);
             if(factionChat.remove(k)) p.sendMessage(color("&7Faction chat disabled."));
@@ -2060,8 +2110,28 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         return true;
     }
 
+    private void sendFactionShow(Player viewer,Faction q) {
+        viewer.sendMessage(color("&8&m--------------------------------"));
+        viewer.sendMessage(color("&6&l"+q.name+" &7(" + q.members.size()+"/"+SimWorldDirector.MAX_FACTION_MEMBERS + ")"));
+        viewer.sendMessage(color("&7Leader: &f"+q.leader+
+            " &7DTR: "+dtrColor(q)+fmtDtr(q.dtr)+"&7/&f"+fmtDtr(maxDtr(q))+
+            " &7Claims: &f"+q.claims.size()));
+
+        for(String member:q.members) {
+            boolean physical=Bukkit.getPlayerExact(member)!=null;
+            boolean logical=physical || (simWorld!=null && simWorld.logicalOnlineFor(member));
+            Rank rank=effectiveRank(member);
+            String marker=logical?"&a●":"&7●";
+            String leader=q.leader.equalsIgnoreCase(member)?" &6★ Leader":"";
+            int kills=simWorld!=null && simWorld.contains(member)?simWorld.killsFor(member):statsData.getInt("players."+member.toLowerCase(Locale.ENGLISH)+".kills",0);
+            viewer.sendMessage(color(" "+marker+" "+identityPrefix(member,rank)+rankNameColor(rank)+member+
+                "&7  Kills: &f"+kills+leader));
+        }
+        viewer.sendMessage(color("&8&m--------------------------------"));
+    }
+
     private void sendFactionHelp(Player p) {
-        p.sendMessage(color("&6/f create, invite, join, leave, kick, disband, claim, unclaim, sethome, home, who, list, c"));
+        p.sendMessage(color("&6/f create, invite, join, leave, kick, disband, claim, unclaim, sethome, home, show, who, list, c"));
     }
 
     private void removeFaction(Faction f) {
@@ -2699,6 +2769,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         saveYaml(ranksData,ranksFile);
         saveYaml(kitsData,kitsFile);
         saveYaml(economyData,economyFile);
+        saveYaml(statsData,statsFile);
         saveFactions();
         if (warpManager != null) warpManager.save();
     }

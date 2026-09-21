@@ -2060,6 +2060,12 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         return humanName!=null && factionOf(humanName)!=null;
     }
 
+    synchronized int publicRankLevel(String name) {
+        if(name==null) return 0;
+        Rank r=effectiveRank(name);
+        return r==null?0:r.level;
+    }
+
 
     synchronized void resetSimFactionAuthority(List<String> simKeys) {
         Set<String> keys = new HashSet<String>();

@@ -2826,16 +2826,22 @@ final class SimWorldDirector {
 
         if(rng.nextInt(100)<5) {
             List<SimPlayer> donors=new ArrayList<SimPlayer>();
-            long donorCd=Math.max(1,plugin.getConfig().getLong("rewards.donor-key-hours",24L))*3600000L;
             for(SimPlayer p:players.values()) {
                 if(!p.logicalOnline || p.donorLevel<=0 || p.bannedUntil>now) continue;
+                long hours=p.donorLevel>=4 ? plugin.getConfig().getLong("rewards.platinum-key-hours",8L) :
+                    (p.donorLevel==3 ? plugin.getConfig().getLong("rewards.gold-key-hours",12L) :
+                    (p.donorLevel==2 ? plugin.getConfig().getLong("rewards.silver-key-hours",18L) :
+                                      plugin.getConfig().getLong("rewards.basic-key-hours",24L)));
+                long donorCd=Math.max(1,hours)*3600000L;
                 if(now-p.lastDonorKeyAt>=donorCd) donors.add(p);
             }
             if(!donors.isEmpty()) {
                 SimPlayer p=donors.get(rng.nextInt(donors.size()));
                 p.lastDonorKeyAt=now;
-                plugin.recordSimulatedDonorKey(p.name);
-                if(rng.nextInt(100)<40) enqueue(p.name,"going spawn for my donor key",false);
+                int keys=p.donorLevel>=4?3:(p.donorLevel==3?2:1);
+                addPendingKey(p.name,"donor",keys);
+                plugin.broadcastCommunityEvent("&6[Donor] &f"+p.name+" &7received &e"+keys+" daily Donor Key"+(keys==1?"":"s")+"&7.");
+                if(rng.nextInt(100)<45) enqueue(p.name,"going spawn for my donor keys",false);
             }
         }
     }

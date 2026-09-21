@@ -70,8 +70,8 @@ metrics:
 creator-tag:
   enabled: true
   minimum-donor-level: 3
-  head-prefix: '&c&l[YT]&r &f'
-  chat-prefix: '&c&l[YT]&r '
+  head-prefix: '&c[Yt] &f'
+  chat-prefix: '&c[Yt] '
   creators:
     - Stimpy
     - Stimp
@@ -91,15 +91,15 @@ sim-chat:
   enabled: true
   contextual-chat: true
   max-conversation-memory: 12
-  second-responder-chance-percent: 38
-  min-delay-seconds: 3
-  max-delay-seconds: 8
-  quiet-min-delay-seconds: 12
-  quiet-max-delay-seconds: 28
-  identity-cooldown-seconds: 20
-  line-cooldown-seconds: 90
-  fan-reaction-cooldown-seconds: 10
-  max-fan-reactions: 4
+  second-responder-chance-percent: 15
+  min-delay-seconds: 6
+  max-delay-seconds: 14
+  quiet-min-delay-seconds: 20
+  quiet-max-delay-seconds: 40
+  identity-cooldown-seconds: 35
+  line-cooldown-seconds: 120
+  fan-reaction-cooldown-seconds: 30
+  max-fan-reactions: 2
   roster:
     - xRico
     - SethPvP
@@ -178,6 +178,10 @@ sim-chat:
     - 'selling pearls cheap'
     - 'need one for our faction'
     - 'who is rich rn'
+
+logical-tab:
+  visible-identities: 100
+  refresh-seconds: 10
 
 sim-world:
   population: 150

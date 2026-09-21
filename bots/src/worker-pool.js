@@ -3,6 +3,7 @@ import path from 'node:path'
 import YAML from 'yaml'
 import { createBot, sleep, waitForSpawn } from './common.js'
 import { createTeamCombatController } from './team-combat.js'
+import { startCommunityAiBridge } from './community-ai.js'
 
 const root = path.resolve('..')
 const simulationFile = process.env.SIMULATION_FILE || path.join(root, 'server', 'plugins', 'EraCore', 'simulation.yml')
@@ -10,6 +11,8 @@ const configFile = process.env.ERACORE_CONFIG || path.join(root, 'server', 'plug
 const combatFile = process.env.COMBAT_HOT_FILE || path.join(root, 'server', 'plugins', 'EraCore', 'combat-hot.yml')
 
 const FALLBACK_CREATORS = ['Stimpypvp', 'Marcel', 'PainfulPvP', 'lolitsalex', 'Skimpy']
+
+const communityAiServer = startCommunityAiBridge()
 
 const live = new Map()
 let humanCount = 0
@@ -1122,11 +1125,13 @@ async function reconcile() {
 
 process.on('SIGINT', () => {
   shuttingDown = true
+  try { communityAiServer.close() } catch {}
   for (const name of [...live.keys()]) disconnectIdentity(name, 'shutdown')
 })
 
 process.on('SIGTERM', () => {
   shuttingDown = true
+  try { communityAiServer.close() } catch {}
   for (const name of [...live.keys()]) disconnectIdentity(name, 'shutdown')
 })
 

@@ -5014,6 +5014,21 @@ final class SimWorldDirector {
         return 4;
     }
 
+    int killsFor(String name) {
+        SimPlayer p=players.get(key(name));
+        return p==null?0:p.kills;
+    }
+
+    int deathsFor(String name) {
+        SimPlayer p=players.get(key(name));
+        return p==null?0:p.deaths;
+    }
+
+    boolean logicalOnlineFor(String name) {
+        SimPlayer p=players.get(key(name));
+        return p!=null && p.logicalOnline && p.bannedUntil<=System.currentTimeMillis();
+    }
+
     int simulatedDonorLevelFor(String name) {
         SimPlayer p=players.get(key(name));
         return p==null?-1:Math.max(0,Math.min(4,p.donorLevel));

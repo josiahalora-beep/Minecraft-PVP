@@ -1783,10 +1783,6 @@ final class SimWorldDirector {
             if (fighter != null) enqueue(fighter.name, fighter.skill >= 80 ? "im down" : "give me a min", true);
         }
 
-        if (lower.contains("koth") && !lower.contains("where")) {
-            SimPlayer fighter = findReadyFighter();
-            if (fighter != null && !fighter.faction.isEmpty()) enqueue(fighter.name, "our fac might go", true);
-        }
     }
 
     private void rememberPublic(String speaker, String message) {
@@ -1822,7 +1818,7 @@ final class SimWorldDirector {
             if (p.name.equalsIgnoreCase(humanName) || !p.logicalOnline) continue;
             if (lower.contains("faction") || lower.contains("lff") || lower.contains("recruit")) {
                 if (!p.faction.isEmpty()) candidates.add(p);
-            } else if (lower.contains("pvp") || lower.contains("fight") || lower.contains("1v1") || lower.contains("koth")) {
+            } else if (lower.contains("pvp") || lower.contains("fight") || lower.contains("1v1") ) {
                 if (shouldSeekPvp(p.name) || p.skill >= 70) candidates.add(p);
             } else if (lower.contains("farm") || lower.contains("money") || lower.contains("cane")) {
                 if ("farmer".equals(p.preferredJob)) candidates.add(p);

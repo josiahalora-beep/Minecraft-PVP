@@ -438,7 +438,6 @@ async function pumpCommandQueue(state) {
       }
       state.commandQueue.sort((a,b)=>(b.priority||0)-(a.priority||0)||(a.queuedAt||0)-(b.queuedAt||0))
       const item=state.commandQueue.shift()
-      state.queuedCommandKeys?.delete(item.command)
       const delay=Math.max(0,Number(state.nextCommandAt||0)-Date.now())
       if(delay>0) await sleep(delay)
       const bot=state.bot
@@ -454,6 +453,8 @@ async function pumpCommandQueue(state) {
         try { item.resolve(true) } catch {}
       } catch {
         try { item.resolve(false) } catch {}
+      } finally {
+        state.queuedCommandKeys?.delete(item.command)
       }
     }
   } finally {

@@ -60,6 +60,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     private HcfBaseBuilder hcfBaseBuilder;
     private HcfZoneDisplayDirector hcfZones;
     private LogicalTabListDirector logicalTab;
+    private SpawnRewardsDirector spawnRewards;
 
     enum Rank {
         MEMBER(0, "&7[Member]", 24),
@@ -127,8 +128,10 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         hcfBaseBuilder = new HcfBaseBuilder(this);
         hcfZones = new HcfZoneDisplayDirector(this, warpManager);
         logicalTab = new LogicalTabListDirector(this, simWorld);
+        spawnRewards = new SpawnRewardsDirector(this, warpManager);
         bindCommands();
         getServer().getPluginManager().registerEvents(this, this);
+        getServer().getPluginManager().registerEvents(spawnRewards, this);
         hookTickTimes();
         startMetrics();
         startPowerRegen();
@@ -144,6 +147,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         hcfClasses.start();
         hcfZones.start();
         spawnPresence.start();
+        spawnRewards.start();
 
         if (getConfig().getBoolean("base-builder.repair-existing-on-start", true)) {
             new BukkitRunnable() {
@@ -165,6 +169,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     @Override public void onDisable() {
+        if (spawnRewards != null) spawnRewards.stop();
         if (spawnPresence != null) spawnPresence.stop();
         if (logicalTab != null) logicalTab.stop();
         if (hcfZones != null) hcfZones.stop();
@@ -177,7 +182,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     private void bindCommands() {
-        String[] cmds = {"rank","kit","kits","balance","pay","sell","buy","shop","f","spawn","setspawn","warp","warps","setwarp","delwarp","spawnpreset","msg","r","simchat","sotw","simworker","simcombat","safezone","teamfight","bard","archer","miner","rogue","simprobe","simmap","simstate","duelprep"};
+        String[] cmds = {"rank","kit","kits","balance","pay","sell","buy","shop","vote","keys","crates","f","spawn","setspawn","warp","warps","setwarp","delwarp","spawnpreset","msg","r","simchat","sotw","simworker","simcombat","safezone","teamfight","bard","archer","miner","rogue","simprobe","simmap","simstate","duelprep"};
         for (String c : cmds) getCommand(c).setExecutor(this);
     }
 
@@ -269,6 +274,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         applyCreatorTag(p);
         p.setPlayerListName(color(identityPrefix(p.getName(), r) + "&f" + p.getName()));
         if (bot && logicalTab != null) logicalTab.onPhysicalJoin(p);
+        if (!bot && spawnRewards != null) spawnRewards.onHumanJoin(p);
 
         // HOT/COLD body promotion is an implementation detail, not a logical
         // login. Suppress those technical join messages and fan reactions.
@@ -660,6 +666,51 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         return simRankFor(name).prefix + " ";
     }
 
+    void creditEconomy(String name,double amount) {
+        if(name==null || amount<=0) return;
+        if(simWorld!=null && simWorld.contains(name)) {
+            simWorld.creditPlayerBalance(name,amount);
+            return;
+        }
+        setBalance(name,balance(name)+amount);
+    }
+
+    int simPendingKeyCount(String name,String type) {
+        return simWorld==null?0:simWorld.pendingKeyCount(name,type);
+    }
+
+    void addSimPendingKey(String name,String type,int amount) {
+        if(simWorld!=null) simWorld.addPendingKey(name,type,amount);
+    }
+
+    void consumeSimPendingKey(String name,String type,int amount) {
+        if(simWorld!=null) simWorld.consumePendingKey(name,type,amount);
+    }
+
+    void rewardVoteParty() {
+        if(simWorld!=null) simWorld.rewardVoteParty();
+    }
+
+    void recordSimulatedVote(String name) {
+        if(spawnRewards!=null) spawnRewards.registerSimVote(name);
+    }
+
+    void recordSimulatedDonorKey(String name) {
+        if(spawnRewards!=null) spawnRewards.registerSimDonorKey(name);
+    }
+
+    String pendingCrateType(String name) {
+        return spawnRewards==null?"":spawnRewards.keyTypeForPending(name);
+    }
+
+    Location crateLocation(String type) {
+        return spawnRewards==null?null:spawnRewards.crateLocation(type);
+    }
+
+    void ensurePhysicalPendingKey(Player p,String type) {
+        if(spawnRewards!=null) spawnRewards.ensurePhysicalPendingKey(p,type);
+    }
+
     int logicalPopulationCount() {
         return simWorld == null ? 0 : simWorld.allIdentityNames().size();
     }
@@ -698,6 +749,9 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (c.equals("sell")) return cmdSell(p,args);
         if (c.equals("buy")) return cmdBuy(p,args);
         if (c.equals("shop")) return cmdShop(p);
+        if (c.equals("vote")) return spawnRewards != null && spawnRewards.commandVote(p,args);
+        if (c.equals("keys")) return spawnRewards != null && spawnRewards.commandKeys(p);
+        if (c.equals("crates")) return spawnRewards != null && spawnRewards.commandCrates(p,args);
         if (c.equals("f")) return cmdFaction(p,args);
         if (c.equals("spawn")) return cmdSpawn(p);
         if (c.equals("setspawn")) return cmdSetSpawn(p);

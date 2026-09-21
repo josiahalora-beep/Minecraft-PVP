@@ -526,8 +526,14 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     private String identityPrefix(String name, Rank rank) {
         String creator = isCreatorIdentity(name) ? getConfig().getString("creator-tag.chat-prefix", "&c[YT] ") : "";
         creator = creator.replace("&l", "").replace("&L", "");
+        String staff="";
+        if(simWorld!=null && simWorld.contains(name)) {
+            String role=simWorld.simulatedStaffRole(name);
+            if("ADMIN".equalsIgnoreCase(role)) staff="&c[Admin] ";
+            else if("MOD".equalsIgnoreCase(role)) staff="&2[Mod] ";
+        }
         String rankPrefix = rank.prefix.replace("&l", "").replace("&L", "");
-        return creator + rankPrefix + " ";
+        return staff + creator + rankPrefix + " ";
     }
 
     boolean isBotIdentity(String name) {
@@ -546,6 +552,15 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     private Rank simRankFor(String name) {
+        int level=simWorld==null?-1:simWorld.simulatedDonorLevelFor(name);
+        if(level>=0) {
+            if(level>=4) return Rank.TITAN;
+            if(level==3) return Rank.LEGEND;
+            if(level==2) return Rank.ELITE;
+            if(level==1) return Rank.VIP;
+            return Rank.MEMBER;
+        }
+
         int roll = Math.abs(name.toLowerCase(Locale.ENGLISH).hashCode()) % 100;
         if (roll < 66) return Rank.MEMBER;
         if (roll < 82) return Rank.VIP;
@@ -570,6 +585,19 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         Rank rank = simRankFor(from);
         target.sendMessage(color("&8[&7From " + identityPrefix(from, rank) + "&f" + from + factionSuffix(from) + "&8] &f" + message));
     }
+
+    void broadcastCommunityEvent(String message) {
+        if (!hasHumanOnline()) return;
+        Bukkit.broadcastMessage(color(message));
+    }
+
+    void sendSimulatedStaffChat(String from,String message) {
+        String ownerName=getConfig().getString("owner.name","");
+        Player owner=ownerName.isEmpty()?null:Bukkit.getPlayerExact(ownerName);
+        if(owner==null) return;
+        owner.sendMessage(color("&8[&bStaff&8] &f"+from+"&7: &f"+message));
+    }
+
 
     private void applyCreatorTag(Player p) {
         if (!getConfig().getBoolean("creator-tag.enabled", true)) return;

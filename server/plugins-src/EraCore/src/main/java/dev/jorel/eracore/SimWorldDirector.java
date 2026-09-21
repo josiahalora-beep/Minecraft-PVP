@@ -1324,7 +1324,7 @@ final class SimWorldDirector {
                 t.zone="spawn";
                 t.keyType=type;
                 t.x=crate.getBlockX();
-                t.y=crate.getBlockY();
+                t.y=crate.getBlockY()+1;
                 t.z=crate.getBlockZ();
                 t.priority=106;
                 return t;

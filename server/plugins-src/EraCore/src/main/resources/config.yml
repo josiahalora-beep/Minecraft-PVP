@@ -31,8 +31,8 @@ metrics:
 
 creator-tag:
   enabled: true
-  head-prefix: '&c[YT] &f'
-  chat-prefix: '&c[YT] '
+  head-prefix: '&c&l[YT]&r &f'
+  chat-prefix: '&c&l[YT]&r '
   creators:
     - Stimpy
     - Stimp
@@ -54,8 +54,8 @@ sim-chat:
   quiet-max-delay-seconds: 28
   identity-cooldown-seconds: 20
   line-cooldown-seconds: 90
-  fan-reaction-cooldown-seconds: 16
-  max-fan-reactions: 2
+  fan-reaction-cooldown-seconds: 10
+  max-fan-reactions: 4
   roster:
     - xRico
     - SethPvP

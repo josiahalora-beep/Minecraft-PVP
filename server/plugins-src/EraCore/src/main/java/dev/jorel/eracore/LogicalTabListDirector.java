@@ -153,10 +153,10 @@ final class LogicalTabListDirector {
     private void ensureTeams() {
         Scoreboard b=Bukkit.getScoreboardManager().getMainScoreboard();
         makeTeam(b,"simtab0","&7[Member] ");
-        makeTeam(b,"simtab1","&a[Vip] ");
-        makeTeam(b,"simtab2","&b[Elite] ");
-        makeTeam(b,"simtab3","&d[Legend] ");
-        makeTeam(b,"simtab4","&6[Titan] ");
+        makeTeam(b,"simtab1","&a[Basic] ");
+        makeTeam(b,"simtab2","&f[Silver] ");
+        makeTeam(b,"simtab3","&6[Gold] ");
+        makeTeam(b,"simtab4","&b[Platinum] ");
         makeTeam(b,"simtabyt","&c[Yt] ");
     }
 

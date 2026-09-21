@@ -125,10 +125,34 @@ final class HcfInfrastructureDirector {
     Location safeSpawnLocation() {
         Location spawn=warps.getSpawn();
         if(spawn==null || spawn.getWorld()==null) return null;
-        Location safe=new Location(spawn.getWorld(),spawn.getBlockX()+0.5,
-            plugin.getConfig().getInt("map.surface-y",63)+1,spawn.getBlockZ()+0.5,
-            spawn.getYaw(),spawn.getPitch());
-        ensureSafePad(safe,2,Material.QUARTZ_BLOCK);
+        World w=spawn.getWorld();
+        int preferredY=plugin.getConfig().getInt("map.surface-y",63)+1;
+        int sx=spawn.getBlockX(),sz=spawn.getBlockZ();
+
+        // Prefer an existing valid tile so /stuck never edits a finished spawn.
+        for(int radius=0;radius<=10;radius++) {
+            for(int dx=-radius;dx<=radius;dx++) {
+                for(int dz=-radius;dz<=radius;dz++) {
+                    if(radius>0 && Math.abs(dx)!=radius && Math.abs(dz)!=radius) continue;
+                    for(int dy=-2;dy<=3;dy++) {
+                        int y=preferredY+dy;
+                        if(y<2 || y>=w.getMaxHeight()-2) continue;
+                        Block floor=w.getBlockAt(sx+dx,y-1,sz+dz);
+                        Block feet=w.getBlockAt(sx+dx,y,sz+dz);
+                        Block head=w.getBlockAt(sx+dx,y+1,sz+dz);
+                        if(floor.getType().isSolid() && !isLiquid(floor.getType()) &&
+                           !feet.getType().isSolid() && !isLiquid(feet.getType()) &&
+                           !head.getType().isSolid() && !isLiquid(head.getType())) {
+                            return new Location(w,sx+dx+0.5,y,sz+dz+0.5,spawn.getYaw(),spawn.getPitch());
+                        }
+                    }
+                }
+            }
+        }
+
+        // Last-resort emergency tile. Radius 1 is deliberately tiny.
+        Location safe=new Location(w,sx+0.5,preferredY,sz+0.5,spawn.getYaw(),spawn.getPitch());
+        ensureSafePad(safe,1,Material.QUARTZ_BLOCK);
         return safe;
     }
 

@@ -17,8 +17,8 @@ map:
   warzone-smoothing-version: 0
   nether-border: 1000
   manage-world-border: true
-  safezone-radius: 60
-  warzone-radius: 250
+  safezone-radius: 110
+  warzone-radius: 300
 economy:
   starting-balance: 500.0
   cycle-director-ticks: 10
@@ -227,7 +227,9 @@ claims:
   max-cap: 12
 
 sotw:
-  protection-minutes: 60
+  # Short bootstrap protection only. PvP should become part of the server loop
+  # early rather than factions spending an hour in an isolated economy phase.
+  protection-minutes: 12
 
 terrain:
   normalize-new-chunks: true
@@ -243,16 +245,17 @@ base-builder:
 
 combat-director:
   hot-body-budget: 12
-  visible-fight-min-seconds: 25
-  visible-fight-max-seconds: 55
-  visible-fight-duration-seconds: 95
-  visible-fight-chance-percent: 62
-  three-way-brawl-chance-percent: 14
+  visible-fight-min-seconds: 10
+  visible-fight-max-seconds: 22
+  visible-fight-duration-seconds: 110
+  visible-fight-chance-percent: 94
+  three-way-brawl-chance-percent: 12
   max-hot-per-faction: 5
-  observation-radius: 160
+  observation-radius: 220
   offscreen-resolution-seconds: 5
-  offscreen-brawl-chance-percent: 12
-  brawl-radius: 420
+  offscreen-brawl-chance-percent: 18
+  brawl-radius: 520
+  hotspot-funnel-percent: 76
 
 worker-pool:
   max-bodies: 12
@@ -273,7 +276,7 @@ worker-pool:
 
 safezones:
   combat-tag-seconds: 60
-  overworld-radius: 60
+  overworld-radius: 110
   nether-radius: 42
   end-radius: 42
   auto-build-borders: true
@@ -294,9 +297,15 @@ infrastructure:
   nether-y: 70
   end-y: 68
 
+spawn:
+  # External Kraken 150x150 build is authoritative. EraCore supplies mechanics,
+  # warps and protection but must not overwrite the schematic with its old hub.
+  external-schematic: true
+  preset: kraken
+  road-exit-distance: 122
+
 spawn-build-protection:
-  # Square radius: protects all four spawn corners, not only the circular Safezone.
-  radius: 60
+  radius: 82
   corner-pad: 10
 
 stuck:

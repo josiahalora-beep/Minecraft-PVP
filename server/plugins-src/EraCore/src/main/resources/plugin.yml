@@ -42,6 +42,8 @@ commands:
     usage: /simstate prepare
   spawn:
     usage: /spawn
+  stuck:
+    usage: /stuck
   setspawn:
     usage: /setspawn
   warp:

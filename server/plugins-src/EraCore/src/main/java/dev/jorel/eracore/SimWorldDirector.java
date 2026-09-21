@@ -1341,11 +1341,27 @@ final class SimWorldDirector {
 
         if (p.faction.isEmpty()) {
             if(!p.logicalOnline || p.bannedUntil>System.currentTimeMillis()) return t;
-            t.action="solo";
+            t.action=soloActionFor(p);
             t.zone=soloZoneFor(p);
             t.priority=26+p.sociability/5+p.aggression/8+p.reputation/10;
             t.combatClass=p.combatClass.name();
             t.preferredJob=p.preferredJob;
+
+            if("solo_build".equals(t.action)) {
+                org.bukkit.Location s=world==null?null:world.getSpawnLocation();
+                if(s!=null) {
+                    int h=Math.abs((key(p.name).hashCode()*31+(int)(sotwTicks/18L)*17));
+                    double angle=(h%360)*Math.PI/180.0;
+                    int radius=145+((h/360)%150);
+                    t.x=s.getBlockX()+(int)Math.round(Math.cos(angle)*radius);
+                    t.z=s.getBlockZ()+(int)Math.round(Math.sin(angle)*radius);
+                    t.y=Math.max(4,world.getHighestBlockYAt(t.x,t.z)+1);
+                    t.zone="spawn";
+                    t.priority+=10;
+                }
+            } else if("solo_loot".equals(t.action)) {
+                t.priority+=18;
+            }
             return t;
         }
         if (!p.logicalOnline) {
@@ -1487,6 +1503,16 @@ final class SimWorldDirector {
             }
         }
         return t;
+    }
+
+    private String soloActionFor(SimPlayer p) {
+        long epoch=Math.max(0L,sotwTicks/8L);
+        int roll=Math.abs((key(p.name).hashCode()*37+(int)epoch*19)%100);
+
+        if(("builder".equals(p.preferredJob) || p.patience>=72) && roll<26) return "solo_build";
+        if(p.aggression+p.riskTolerance>=125 && roll<62) return "solo_loot";
+        if(p.economicIq>=72 && roll<22) return "solo_loot";
+        return "solo";
     }
 
     private String soloZoneFor(SimPlayer p) {
@@ -1795,6 +1821,20 @@ final class SimWorldDirector {
             if (f.stage == Stage.BREWER && !f.brewer) return new ChatEvent(p.name, "buying redstone stuff for an auto brewer");
             if (f.stage == Stage.GEARING && f.p4Sets < Math.min(2, f.members.size())) return new ChatEvent(p.name, "buying prot books msg me");
             if (f.stage == Stage.PVP_READY && rng.nextBoolean()) return new ChatEvent(p.name, "who is at spawn");
+        } else {
+            String solo=soloActionFor(p);
+            if("solo_loot".equals(solo)) {
+                String[] x={"any loot at spawn","who just died outside spawn","found pots on the ground lol","im just running around warzone"};
+                return new ChatEvent(p.name,x[rng.nextInt(x.length)]);
+            }
+            if("solo_build".equals(solo)) {
+                String[] x={"building something outside spawn","need blocks","making a little spot in warzone","who has dirt lol"};
+                return new ChatEvent(p.name,x[rng.nextInt(x.length)]);
+            }
+            if(rng.nextInt(100)<45) {
+                String[] x={"anyone wanna run around","im solo rn","who is at end","might go nether","just chilling"};
+                return new ChatEvent(p.name,x[rng.nextInt(x.length)]);
+            }
         }
 
         String[] neutral = {"gg","anyone at spawn","who has pearls","who wants ally","selling stuff msg me","lol","need levels","who is outside","need pots","who has p4"};

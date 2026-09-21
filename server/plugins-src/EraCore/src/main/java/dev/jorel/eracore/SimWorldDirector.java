@@ -3512,11 +3512,14 @@ final class SimWorldDirector {
         SimPlayer p=players.get(key(simName));
         if(p==null || !p.logicalOnline || p.bannedUntil>System.currentTimeMillis()) return false;
 
-        World w=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
-        if(w==null) return false;
-        int y=Math.max(4,plugin.getConfig().getInt("map.surface-y",63)+1);
-        int cx=plugin.getConfig().getInt("duels.center-x",200);
-        int cz=plugin.getConfig().getInt("duels.center-z",0);
+        if(!plugin.duelArenaReady()) return false;
+        Location center=plugin.duelCenterLocation();
+        Location simSpawn=plugin.duelSimSpawnLocation();
+        if(center==null || simSpawn==null || center.getWorld()==null) return false;
+        World w=center.getWorld();
+        int y=center.getBlockY();
+        int cx=center.getBlockX();
+        int cz=center.getBlockZ();
 
         VisibleFight fight=new VisibleFight();
         fight.id="DUEL_"+System.currentTimeMillis();
@@ -3544,8 +3547,8 @@ final class SimWorldDirector {
         ca.mistake=combatMistakePropensity(p);
         ca.aggression=p.aggression;
         ca.risk=p.riskTolerance;
-        ca.x=cx+12; ca.y=y; ca.z=cz;
-        ca.homeX=ca.x; ca.homeY=y; ca.homeZ=ca.z;
+        ca.x=simSpawn.getBlockX(); ca.y=simSpawn.getBlockY(); ca.z=simSpawn.getBlockZ();
+        ca.homeX=ca.x; ca.homeY=ca.y; ca.homeZ=ca.z;
         ca.focus=human.getName();
         ca.enemies.add(human.getName());
         fight.assignments.put(key(p.name),ca);
@@ -3558,9 +3561,7 @@ final class SimWorldDirector {
 
     Location humanDuelSpawn() {
         if(visibleFight==null || !"DUEL".equals(visibleFight.type)) return null;
-        World w=Bukkit.getWorld(visibleFight.world);
-        if(w==null) return null;
-        return new Location(w,visibleFight.centerX-12+0.5,visibleFight.centerY,visibleFight.centerZ+0.5,-90f,0f);
+        return plugin.duelHumanSpawnLocation();
     }
 
     void finishDuel(String winner,String loser) {

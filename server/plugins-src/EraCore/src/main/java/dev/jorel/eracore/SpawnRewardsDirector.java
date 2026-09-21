@@ -76,10 +76,14 @@ final class SpawnRewardsDirector implements Listener {
         long now=System.currentTimeMillis();
         String k="human."+p.getUniqueId().toString()+".last-donor-key";
         long last=data.getLong(k,0L);
-        long cooldown=Math.max(1,plugin.getConfig().getLong("rewards.donor-key-hours",24L))*3600000L;
+        long hours=donor>=4 ? plugin.getConfig().getLong("rewards.platinum-key-hours",8L) :
+            (donor==3 ? plugin.getConfig().getLong("rewards.gold-key-hours",12L) :
+            (donor==2 ? plugin.getConfig().getLong("rewards.silver-key-hours",18L) :
+                        plugin.getConfig().getLong("rewards.basic-key-hours",24L)));
+        long cooldown=Math.max(1,hours)*3600000L;
         if(now-last<cooldown) return;
 
-        int amount=donor>=4?2:1;
+        int amount=donor>=4?3:(donor==3?2:1);
         p.getInventory().addItem(keyItem("donor",amount));
         data.set(k,now);
         save();
@@ -213,9 +217,15 @@ final class SpawnRewardsDirector implements Listener {
             ItemStack sword=new ItemStack(Material.DIAMOND_SWORD);
             sword.addUnsafeEnchantment(Enchantment.DAMAGE_ALL,1);
             item(p,sword,"Sharpness I Diamond Sword");
-        } else {
+        } else if(r<9970) {
             p.getInventory().addItem(keyItem("donor",1));
             finishReward(p,"1 Donor Crate Key",true);
+        } else {
+            if(plugin.upgradeRankFromReward(p,"Vote Crate")) finishReward(p,"DONOR RANK UPGRADE",true);
+            else {
+                p.getInventory().addItem(keyItem("donor",2));
+                finishReward(p,"2 Donor Crate Keys",true);
+            }
         }
     }
 
@@ -249,12 +259,18 @@ final class SpawnRewardsDirector implements Listener {
         } else if(r<9800) {
             p.getInventory().addItem(keyItem("vote",2));
             finishReward(p,"2 Vote Crate Keys",true);
-        } else if(r<9950) {
+        } else if(r<9900) {
             ItemStack chest=enchanted(Material.DIAMOND_CHESTPLATE,2);
             item(p,chest,"Protection II Diamond Chestplate");
-        } else {
+        } else if(r<9950) {
             p.getInventory().addItem(keyItem("donor",1));
             finishReward(p,"BONUS Donor Crate Key",true);
+        } else {
+            if(plugin.upgradeRankFromReward(p,"Donor Crate")) finishReward(p,"DONOR RANK UPGRADE",true);
+            else {
+                p.getInventory().addItem(keyItem("donor",2));
+                finishReward(p,"2 Donor Crate Keys",true);
+            }
         }
     }
 
@@ -291,12 +307,12 @@ final class SpawnRewardsDirector implements Listener {
             p.sendMessage(EraCore.colorText("&f$750 &720%  &f16 Pearls &718%  &f8 Diamonds &715%"));
             p.sendMessage(EraCore.colorText("&f16 Obsidian &712%  &f12 Heals &712%  &fSpeed/Fire &78%"));
             p.sendMessage(EraCore.colorText("&fP2 Iron Set &76%  &fSharp II Diamond &74%  &f2 Vote Keys &73%"));
-            p.sendMessage(EraCore.colorText("&fP2 Diamond Chest &71.5%  &fBonus Donor Key &70.5%"));
+            p.sendMessage(EraCore.colorText("&fP2 Diamond Chest &71%  &fBonus Donor Key &70.5%  &dRank Upgrade &70.5%"));
         } else {
             p.sendMessage(EraCore.colorText("&e--- Vote Crate Odds ---"));
             p.sendMessage(EraCore.colorText("&f$250 &724%  &f8 Pearls &718%  &f16 Iron &715%  &f12 Obsidian &712%"));
             p.sendMessage(EraCore.colorText("&f4 Diamonds &710%  &f6 Heals &78%  &f16 Wart &75%  &f8 Glowstone &74%"));
-            p.sendMessage(EraCore.colorText("&fSharp I Diamond &72.5%  &fDonor Key &71.5%"));
+            p.sendMessage(EraCore.colorText("&fSharp I Diamond &72.5%  &fDonor Key &71.2%  &dRank Upgrade &70.3%"));
         }
     }
 

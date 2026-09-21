@@ -3650,20 +3650,28 @@ final class SimWorldDirector {
         if(w==null) return null;
 
         String cat=category==null?"overflow":category.toLowerCase(Locale.ENGLISH);
-        int dx=6,dz=6;
-        if("pots".equals(cat)){dx=-6;dz=6;}
-        else if("pearls".equals(cat)){dx=-4;dz=6;}
-        else if("valuables".equals(cat)){dx=-2;dz=6;}
-        else if("blocks".equals(cat)){dx=0;dz=6;}
-        else if("brewing".equals(cat)){dx=2;dz=6;}
-        else if("farm".equals(cat)){dx=4;dz=6;}
-        else if("helmets".equals(cat)){dx=-6;dz=8;}
-        else if("chestplates".equals(cat)){dx=-4;dz=8;}
-        else if("leggings".equals(cat)){dx=-2;dz=8;}
-        else if("boots".equals(cat)){dx=0;dz=8;}
-        else if("swords".equals(cat)){dx=2;dz=8;}
-        else if("bows".equals(cat)){dx=4;dz=8;}
-        else if("kits".equals(cat)){dx=6;dz=8;}
+        int half=12;
+        if("hcf_courtyard".equalsIgnoreCase(f.basePreset)) half=14;
+        else if("hcf_compact_2015".equalsIgnoreCase(f.basePreset)) half=9;
+        else if("hcf_split_level".equalsIgnoreCase(f.basePreset)) half=11;
+        else if("hcf_archer_tower".equalsIgnoreCase(f.basePreset)) half=10;
+        else if("hcf_double_layer".equalsIgnoreCase(f.basePreset)) half=13;
+        int nearZ=half+3, farZ=half+5;
+
+        int dx=6,dz=nearZ;
+        if("pots".equals(cat)){dx=-6;dz=nearZ;}
+        else if("pearls".equals(cat)){dx=-4;dz=nearZ;}
+        else if("valuables".equals(cat)){dx=-2;dz=nearZ;}
+        else if("blocks".equals(cat)){dx=0;dz=nearZ;}
+        else if("brewing".equals(cat)){dx=2;dz=nearZ;}
+        else if("farm".equals(cat)){dx=4;dz=nearZ;}
+        else if("helmets".equals(cat)){dx=-6;dz=farZ;}
+        else if("chestplates".equals(cat)){dx=-4;dz=farZ;}
+        else if("leggings".equals(cat)){dx=-2;dz=farZ;}
+        else if("boots".equals(cat)){dx=0;dz=farZ;}
+        else if("swords".equals(cat)){dx=2;dz=farZ;}
+        else if("bows".equals(cat)){dx=4;dz=farZ;}
+        else if("kits".equals(cat)){dx=6;dz=farZ;}
 
         String cacheKey=key(f.name)+":"+cat;
         org.bukkit.Location cached=storageChestCache.get(cacheKey);

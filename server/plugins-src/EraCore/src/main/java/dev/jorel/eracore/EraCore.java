@@ -363,7 +363,6 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         // save heavily by brewing instead of buying finished pots.
         addBuy("healthpot", Material.POTION, (short)16421, 135.0);
         addBuy("speedpot", Material.POTION, (short)8226, 95.0);
-        addBuy("fireres", Material.POTION, (short)8259, 110.0);
         addBuy("pearl", Material.ENDER_PEARL, (short)0, 160.0);
         addBuy("obsidian", Material.OBSIDIAN, (short)0, 30.0);
         addBuy("iron", Material.IRON_INGOT, (short)0, 18.0);
@@ -1375,79 +1374,71 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         inv.clear();
         inv.setArmorContents(new ItemStack[4]);
 
-        if (type == SimWorldDirector.CombatClass.BARD) {
-            inv.setHelmet(armor(Material.GOLD_HELMET,2));
-            inv.setChestplate(armor(Material.GOLD_CHESTPLATE,2));
-            inv.setLeggings(armor(Material.GOLD_LEGGINGS,2));
-            inv.setBoots(armor(Material.GOLD_BOOTS,2));
-            inv.setItem(0,sword(Material.IRON_SWORD,2));
-            for(int slot=1;slot<=5;slot++) inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
-            inv.setItem(6,new ItemStack(Material.POTION,1,(short)8259));
-            inv.setItem(7,new ItemStack(Material.POTION,1,(short)8226));
-            inv.setItem(8,new ItemStack(Material.ENDER_PEARL,8));
-            for(int slot=9;slot<=27;slot++) inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
+        Material helmet=Material.DIAMOND_HELMET, chest=Material.DIAMOND_CHESTPLATE,
+            legs=Material.DIAMOND_LEGGINGS, boots=Material.DIAMOND_BOOTS;
+        Material swordMat=Material.DIAMOND_SWORD;
+        int heals=24,pearls=8,speeds=2;
+
+        if(type==SimWorldDirector.CombatClass.BARD) {
+            helmet=Material.GOLD_HELMET;chest=Material.GOLD_CHESTPLATE;
+            legs=Material.GOLD_LEGGINGS;boots=Material.GOLD_BOOTS;
+            swordMat=Material.IRON_SWORD;
+        } else if(type==SimWorldDirector.CombatClass.ARCHER) {
+            helmet=Material.LEATHER_HELMET;chest=Material.LEATHER_CHESTPLATE;
+            legs=Material.LEATHER_LEGGINGS;boots=Material.LEATHER_BOOTS;
+        } else if(type==SimWorldDirector.CombatClass.ROGUE) {
+            helmet=Material.CHAINMAIL_HELMET;chest=Material.CHAINMAIL_CHESTPLATE;
+            legs=Material.CHAINMAIL_LEGGINGS;boots=Material.CHAINMAIL_BOOTS;
+        } else if(type==SimWorldDirector.CombatClass.MINER) {
+            helmet=Material.IRON_HELMET;chest=Material.IRON_CHESTPLATE;
+            legs=Material.IRON_LEGGINGS;boots=Material.IRON_BOOTS;
+        }
+
+        inv.setHelmet(armor(helmet,2));
+        inv.setChestplate(armor(chest,2));
+        inv.setLeggings(armor(legs,2));
+        inv.setBoots(armor(boots,2));
+        inv.setItem(0,sword(swordMat,2));
+
+        if(type==SimWorldDirector.CombatClass.ARCHER) {
+            ItemStack bow=new ItemStack(Material.BOW,1);
+            bow.addUnsafeEnchantment(Enchantment.ARROW_DAMAGE,2);
+            inv.setItem(1,bow);
+            inv.setItem(2,new ItemStack(Material.ARROW,64));
+        } else if(type==SimWorldDirector.CombatClass.ROGUE) {
+            inv.setItem(1,sword(Material.GOLD_SWORD,2));
+            inv.setItem(2,sword(Material.GOLD_SWORD,2));
+        } else if(type==SimWorldDirector.CombatClass.BARD) {
             inv.setItem(28,new ItemStack(Material.BLAZE_ROD,1));
             inv.setItem(29,new ItemStack(Material.GHAST_TEAR,1));
             inv.setItem(30,new ItemStack(Material.FEATHER,1));
             inv.setItem(31,new ItemStack(Material.MAGMA_CREAM,1));
             inv.setItem(32,new ItemStack(Material.BLAZE_POWDER,8));
             inv.setItem(33,new ItemStack(Material.SUGAR,16));
-            inv.setItem(34,new ItemStack(Material.POTION,1,(short)8226));
-        } else if (type == SimWorldDirector.CombatClass.ARCHER) {
-            inv.setHelmet(armor(Material.LEATHER_HELMET,3));
-            inv.setChestplate(armor(Material.LEATHER_CHESTPLATE,3));
-            inv.setLeggings(armor(Material.LEATHER_LEGGINGS,3));
-            inv.setBoots(armor(Material.LEATHER_BOOTS,3));
-            inv.setItem(0,sword(Material.DIAMOND_SWORD,2));
-            ItemStack bow=new ItemStack(Material.BOW,1);
-            bow.addUnsafeEnchantment(Enchantment.ARROW_DAMAGE,4);
-            bow.addUnsafeEnchantment(Enchantment.ARROW_FIRE,1);
-            bow.addUnsafeEnchantment(Enchantment.ARROW_KNOCKBACK,1);
-            inv.setItem(1,bow);
-            inv.setItem(2,new ItemStack(Material.ARROW,64));
-            for(int slot=3;slot<=5;slot++) inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
-            inv.setItem(6,new ItemStack(Material.POTION,1,(short)8259));
-            inv.setItem(7,new ItemStack(Material.POTION,1,(short)8226));
-            inv.setItem(8,new ItemStack(Material.ENDER_PEARL,8));
-            for(int slot=9;slot<=29;slot++) inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
-            inv.setItem(30,new ItemStack(Material.POTION,1,(short)8226));
-        } else if (type == SimWorldDirector.CombatClass.ROGUE) {
-            inv.setHelmet(armor(Material.CHAINMAIL_HELMET,2));
-            inv.setChestplate(armor(Material.CHAINMAIL_CHESTPLATE,2));
-            inv.setLeggings(armor(Material.CHAINMAIL_LEGGINGS,2));
-            inv.setBoots(armor(Material.CHAINMAIL_BOOTS,2));
-            inv.setItem(0,sword(Material.DIAMOND_SWORD,2));
-            for(int slot=1;slot<=4;slot++) inv.setItem(slot,new ItemStack(Material.GOLD_SWORD,1));
-            inv.setItem(5,new ItemStack(Material.POTION,1,(short)16421));
-            inv.setItem(6,new ItemStack(Material.POTION,1,(short)8259));
-            inv.setItem(7,new ItemStack(Material.POTION,1,(short)8226));
-            inv.setItem(8,new ItemStack(Material.ENDER_PEARL,8));
-            for(int slot=9;slot<=31;slot++) inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
-            inv.setItem(32,new ItemStack(Material.POTION,1,(short)8226));
-        } else if (type == SimWorldDirector.CombatClass.MINER) {
-            inv.setHelmet(armor(Material.IRON_HELMET,2));
-            inv.setChestplate(armor(Material.IRON_CHESTPLATE,2));
-            inv.setLeggings(armor(Material.IRON_LEGGINGS,2));
-            inv.setBoots(armor(Material.IRON_BOOTS,2));
-            inv.setItem(0,sword(Material.DIAMOND_SWORD,2));
-            for(int slot=1;slot<=5;slot++) inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
-            inv.setItem(6,new ItemStack(Material.POTION,1,(short)8259));
-            inv.setItem(7,new ItemStack(Material.POTION,1,(short)8226));
-            inv.setItem(8,new ItemStack(Material.ENDER_PEARL,8));
-            for(int slot=9;slot<=27;slot++) inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
-            inv.setItem(28,new ItemStack(Material.POTION,1,(short)8226));
-        } else {
-            inv.setHelmet(armor(Material.DIAMOND_HELMET,4));
-            inv.setChestplate(armor(Material.DIAMOND_CHESTPLATE,4));
-            inv.setLeggings(armor(Material.DIAMOND_LEGGINGS,4));
-            inv.setBoots(armor(Material.DIAMOND_BOOTS,4));
-            inv.setItem(0,pvpSword(Material.DIAMOND_SWORD,4,2));
-            for(int slot=1;slot<=5;slot++) inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
-            inv.setItem(6,new ItemStack(Material.POTION,1,(short)8259));
-            inv.setItem(7,new ItemStack(Material.POTION,1,(short)8226));
-            inv.setItem(8,new ItemStack(Material.ENDER_PEARL,8));
-            for(int slot=9;slot<=27;slot++) inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
-            inv.setItem(28,new ItemStack(Material.POTION,1,(short)8226));
+        } else if(type==SimWorldDirector.CombatClass.MINER) {
+            ItemStack pick=new ItemStack(Material.DIAMOND_PICKAXE,1);
+            pick.addUnsafeEnchantment(Enchantment.DIG_SPEED,2);
+            inv.setItem(28,pick);
+        }
+
+        // One consistent PvP ceiling: Protection II / Sharpness II, splash heals,
+        // pearls and speed only. No Fire Aspect and no fire-resistance potions.
+        int hotbarStart=type==SimWorldDirector.CombatClass.ARCHER?3:
+            (type==SimWorldDirector.CombatClass.ROGUE?3:1);
+        int placed=0;
+        for(int slot=hotbarStart;slot<=5 && placed<heals;slot++,placed++)
+            if(inv.getItem(slot)==null) inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
+        inv.setItem(7,new ItemStack(Material.POTION,1,(short)8226));
+        inv.setItem(8,new ItemStack(Material.ENDER_PEARL,pearls));
+        for(int slot=9;slot<=35 && placed<heals;slot++) {
+            if(inv.getItem(slot)!=null) continue;
+            inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
+            placed++;
+        }
+        if(speeds>1) {
+            for(int slot=35;slot>=9;slot--) {
+                if(inv.getItem(slot)==null) { inv.setItem(slot,new ItemStack(Material.POTION,1,(short)8226)); break; }
+            }
         }
 
         p.setHealth(20.0);
@@ -1990,69 +1981,54 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     private void grantKit(Player p, Rank r) {
-        int prot=0,sharp=0,fire=0,pearls=0,pots=0,steak=32;
-        boolean diamond=false;
-        int speed=0,fireRes=0;
-
+        int pearls=1,heals=2,speed=0,steak=16;
         switch(r) {
             case MEMBER:
-                pearls=2;
+                pearls=1; heals=2; speed=0; steak=16;
                 break;
             case BASIC:
-                // Entry donor: useful convenience, still close to a member.
-                prot=1; sharp=1; pearls=4; pots=4; speed=1;
+                pearls=2; heals=3; speed=1; steak=16;
                 break;
             case SILVER:
-                diamond=true; prot=1; sharp=1; pearls=8; pots=8; speed=2; fireRes=1;
+                pearls=3; heals=4; speed=1; steak=20;
                 break;
             case GOLD:
-                diamond=true; prot=2; sharp=2; pearls=12; pots=14; speed=2; fireRes=1;
+                pearls=4; heals=5; speed=1; steak=24;
                 break;
             case PLATINUM:
-                diamond=true; prot=3; sharp=3; fire=1; pearls=16; pots=22; speed=3; fireRes=2; steak=64;
+                pearls=5; heals=6; speed=1; steak=32;
                 break;
             default:
                 break;
         }
 
-        if(!diamond) {
-            add(p,armor(Material.IRON_HELMET,prot));
-            add(p,armor(Material.IRON_CHESTPLATE,prot));
-            add(p,armor(Material.IRON_LEGGINGS,prot));
-            add(p,armor(Material.IRON_BOOTS,prot));
-            add(p,pvpSword(r==Rank.MEMBER?Material.IRON_SWORD:Material.DIAMOND_SWORD,sharp,fire));
-        } else {
-            add(p,armor(Material.DIAMOND_HELMET,prot));
-            add(p,armor(Material.DIAMOND_CHESTPLATE,prot));
-            add(p,armor(Material.DIAMOND_LEGGINGS,prot));
-            add(p,armor(Material.DIAMOND_BOOTS,prot));
-            add(p,pvpSword(Material.DIAMOND_SWORD,sharp,fire));
-        }
-
-        if(pearls>0) add(p,new ItemStack(Material.ENDER_PEARL,pearls));
+        // Donor value comes from convenience and cumulative kit access, not a
+        // higher combat ceiling. Every donor kit is the same P2/S2 diamond set.
+        add(p,armor(Material.DIAMOND_HELMET,2));
+        add(p,armor(Material.DIAMOND_CHESTPLATE,2));
+        add(p,armor(Material.DIAMOND_LEGGINGS,2));
+        add(p,armor(Material.DIAMOND_BOOTS,2));
+        add(p,sword(Material.DIAMOND_SWORD,2));
+        add(p,new ItemStack(Material.ENDER_PEARL,pearls));
         add(p,new ItemStack(Material.COOKED_BEEF,steak));
-        for(int i=0;i<pots;i++) add(p,new ItemStack(Material.POTION,1,(short)16421));
+        for(int i=0;i<heals;i++) add(p,new ItemStack(Material.POTION,1,(short)16421));
         for(int i=0;i<speed;i++) add(p,new ItemStack(Material.POTION,1,(short)8226));
-        for(int i=0;i<fireRes;i++) add(p,new ItemStack(Material.POTION,1,(short)8259));
 
-        // Top tiers are valuable to factions even beyond the armor itself.
-        if(r==Rank.GOLD) {
-            add(p,new ItemStack(Material.NETHER_STALK,8));
-            add(p,new ItemStack(Material.GLOWSTONE_DUST,4));
-        } else if(r==Rank.PLATINUM) {
-            add(p,new ItemStack(Material.NETHER_STALK,16));
-            add(p,new ItemStack(Material.GLOWSTONE_DUST,8));
-            add(p,new ItemStack(Material.OBSIDIAN,8));
+        // Small economy utility at the top without adding more combat power.
+        if(r==Rank.GOLD) add(p,new ItemStack(Material.NETHER_STALK,4));
+        else if(r==Rank.PLATINUM) {
+            add(p,new ItemStack(Material.NETHER_STALK,6));
+            add(p,new ItemStack(Material.GLOWSTONE_DUST,3));
         }
     }
 
     private void grantStarterKit(Player p,String type) {
         if("bard".equals(type)) {
-            add(p,armor(Material.GOLD_HELMET,1));
-            add(p,armor(Material.GOLD_CHESTPLATE,1));
-            add(p,armor(Material.GOLD_LEGGINGS,1));
-            add(p,armor(Material.GOLD_BOOTS,1));
-            add(p,sword(Material.IRON_SWORD,1));
+            add(p,armor(Material.GOLD_HELMET,2));
+            add(p,armor(Material.GOLD_CHESTPLATE,2));
+            add(p,armor(Material.GOLD_LEGGINGS,2));
+            add(p,armor(Material.GOLD_BOOTS,2));
+            add(p,sword(Material.IRON_SWORD,2));
             add(p,new ItemStack(Material.BLAZE_ROD,1));
             add(p,new ItemStack(Material.GHAST_TEAR,1));
             add(p,new ItemStack(Material.FEATHER,1));
@@ -2066,28 +2042,28 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             bow.addUnsafeEnchantment(Enchantment.ARROW_DAMAGE,2);
             add(p,bow);
             add(p,new ItemStack(Material.ARROW,64));
-            add(p,sword(Material.IRON_SWORD,1));
+            add(p,sword(Material.IRON_SWORD,2));
         } else if("miner".equals(type)) {
-            add(p,armor(Material.IRON_HELMET,1));
-            add(p,armor(Material.IRON_CHESTPLATE,1));
-            add(p,armor(Material.IRON_LEGGINGS,1));
-            add(p,armor(Material.IRON_BOOTS,1));
+            add(p,armor(Material.IRON_HELMET,2));
+            add(p,armor(Material.IRON_CHESTPLATE,2));
+            add(p,armor(Material.IRON_LEGGINGS,2));
+            add(p,armor(Material.IRON_BOOTS,2));
             ItemStack pick=new ItemStack(Material.IRON_PICKAXE);
             pick.addUnsafeEnchantment(Enchantment.DIG_SPEED,2);
             add(p,pick);
-            add(p,sword(Material.IRON_SWORD,1));
+            add(p,sword(Material.IRON_SWORD,2));
         } else if("rogue".equals(type)) {
-            add(p,armor(Material.CHAINMAIL_HELMET,1));
-            add(p,armor(Material.CHAINMAIL_CHESTPLATE,1));
-            add(p,armor(Material.CHAINMAIL_LEGGINGS,1));
-            add(p,armor(Material.CHAINMAIL_BOOTS,1));
+            add(p,armor(Material.CHAINMAIL_HELMET,2));
+            add(p,armor(Material.CHAINMAIL_CHESTPLATE,2));
+            add(p,armor(Material.CHAINMAIL_LEGGINGS,2));
+            add(p,armor(Material.CHAINMAIL_BOOTS,2));
             add(p,sword(Material.GOLD_SWORD,2));
         } else {
-            add(p,armor(Material.IRON_HELMET,1));
-            add(p,armor(Material.IRON_CHESTPLATE,1));
-            add(p,armor(Material.IRON_LEGGINGS,1));
-            add(p,armor(Material.IRON_BOOTS,1));
-            add(p,sword(Material.DIAMOND_SWORD,1));
+            add(p,armor(Material.DIAMOND_HELMET,2));
+            add(p,armor(Material.DIAMOND_CHESTPLATE,2));
+            add(p,armor(Material.DIAMOND_LEGGINGS,2));
+            add(p,armor(Material.DIAMOND_BOOTS,2));
+            add(p,sword(Material.DIAMOND_SWORD,2));
         }
 
         add(p,new ItemStack(Material.ENDER_PEARL,"miner".equals(type)?2:4));
@@ -2096,7 +2072,6 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         for(int i=0;i<heals;i++) add(p,new ItemStack(Material.POTION,1,(short)16421));
         add(p,new ItemStack(Material.POTION,1,(short)8226));
         if(!"miner".equals(type)) add(p,new ItemStack(Material.POTION,1,(short)8226));
-        if("rogue".equals(type) || "diamond".equals(type)) add(p,new ItemStack(Material.POTION,1,(short)8259));
     }
 
     private ItemStack armor(Material m,int prot) {
@@ -2112,9 +2087,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     private ItemStack pvpSword(Material m,int sharp,int fireAspect) {
-        ItemStack i=sword(m,sharp);
-        if(fireAspect>0)i.addUnsafeEnchantment(Enchantment.FIRE_ASPECT,fireAspect);
-        return i;
+        return sword(m,Math.min(2,sharp));
     }
 
     private void add(Player p, ItemStack i) {

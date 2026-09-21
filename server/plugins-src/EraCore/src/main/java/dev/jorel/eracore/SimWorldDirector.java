@@ -2038,14 +2038,36 @@ final class SimWorldDirector {
         if(responder==null || responder.faction==null || responder.faction.isEmpty()) return false;
         SimFaction f=factions.get(key(responder.faction));
         if(f==null || f.leader==null || !f.leader.equalsIgnoreCase(responder.name)) return false;
-        if(f.members.size()>=MAX_FACTION_MEMBERS || plugin.humanAlreadyFactioned(speaker)) return false;
+        if(plugin.humanAlreadyFactioned(speaker)) return false;
+
         SocialEdge rel=relationship(responder.name,speaker,true);
-        return rel.affinity>-55 && rel.grudge<75;
+        if(rel.affinity<=-55 || rel.grudge>=75) return false;
+        if(f.members.size()<MAX_FACTION_MEMBERS) return true;
+
+        int incoming=rel.affinity/2+(rel.trust-50)/2+(rel.respect-50)/3;
+        incoming+=plugin.publicRankLevel(speaker)*22;
+        if(isConfiguredOwner(speaker)) incoming+=90;
+        if(plugin.isCreatorIdentity(speaker)) incoming+=45;
+        return replaceableMember(f,incoming)!=null;
     }
 
     private void handleAiSocialAction(SimPlayer responder,String speaker,AiChatBridge.AiReply ai) {
         if(responder==null || ai==null) return;
         if("INVITE_FACTION".equals(ai.action) && mayInviteSpeaker(responder,speaker)) {
+            SimFaction f=factions.get(key(responder.faction));
+            if(f==null) return;
+
+            if(f.members.size()>=MAX_FACTION_MEMBERS) {
+                SocialEdge rel=relationship(responder.name,speaker,true);
+                int incoming=rel.affinity/2+(rel.trust-50)/2+(rel.respect-50)/3+
+                    plugin.publicRankLevel(speaker)*22+(isConfiguredOwner(speaker)?90:0)+
+                    (plugin.isCreatorIdentity(speaker)?45:0);
+                SimPlayer kicked=replaceableMember(f,incoming);
+                if(kicked==null || !plugin.removeSimFactionMemberAuthority(f.name,kicked.name)) return;
+                f.members.remove(kicked.name);
+                recordFactionKick(f,kicked,speaker);
+            }
+
             if(plugin.inviteHumanToSimFaction(responder.faction,responder.name,speaker)) {
                 SocialEdge e=relationship(responder.name,speaker,true);
                 e.affinity=clampAffinity(e.affinity+3);
@@ -2695,20 +2717,224 @@ final class SimWorldDirector {
     }
 
     private void communityTick() {
-        // Community events are intentionally sparse. They should feel like
-        // persistent server history, not scripted noise every simulation tick.
-        if(sotwTicks%6L!=0L) return;
+        if(sotwTicks%3L!=0L) return;
 
         int roll=rng.nextInt(100);
-        if(roll<10) {
-            maybeDonorUpgrade();
-        } else if(roll<17) {
-            maybeStaffReport();
-        } else if(roll<20) {
-            maybeModerationAction();
-        } else if(roll<34) {
-            maybeOwnerCommunityMessage();
+        if(roll<20) maybeSocialBond();
+        else if(roll<31) maybeFactionDrama();
+        else if(roll<35) maybeFactionUpgradeRecruit();
+        else if(roll<38) maybeFactionDefection();
+        else if(roll<45) maybeCreatorPvpDrama();
+        else if(roll<52) maybeDonorUpgrade();
+        else if(roll<58) maybeStaffReport();
+        else if(roll<61) maybeModerationAction();
+        else if(roll<73) maybeOwnerCommunityMessage();
+    }
+
+    private List<SimPlayer> onlineCommunityPlayers() {
+        List<SimPlayer> out=new ArrayList<SimPlayer>();
+        long now=System.currentTimeMillis();
+        for(SimPlayer p:players.values()) if(p.logicalOnline && p.bannedUntil<=now) out.add(p);
+        return out;
+    }
+
+    private void maybeSocialBond() {
+        List<SimPlayer> online=onlineCommunityPlayers();
+        if(online.size()<2) return;
+        SimPlayer a=online.get(rng.nextInt(online.size()));
+        SimPlayer b=online.get(rng.nextInt(online.size()));
+        if(a==b) return;
+
+        boolean sameFaction=!a.faction.isEmpty() && a.faction.equalsIgnoreCase(b.faction);
+        SocialEdge ab=relationship(a.name,b.name,true);
+        SocialEdge ba=relationship(b.name,a.name,true);
+
+        if(sameFaction) {
+            int gain=1+rng.nextInt(3);
+            ab.affinity=clampAffinity(ab.affinity+gain);
+            ba.affinity=clampAffinity(ba.affinity+gain);
+            ab.trust=clampSocial(ab.trust+1);
+            ba.trust=clampSocial(ba.trust+1);
+            if(ab.affinity>=38 && rng.nextInt(100)<28) {
+                rememberRelationship(ab,b.name+" has been reliable in "+a.faction);
+                rememberRelationship(ba,a.name+" has been reliable in "+b.faction);
+            }
+        } else if(!a.faction.isEmpty() && !b.faction.isEmpty() && !a.faction.equalsIgnoreCase(b.faction)) {
+            int heat=rivalryScore(a.faction,b.faction);
+            if(heat>=8 && rng.nextInt(100)<34) {
+                ab.respect=clampSocial(ab.respect+1);
+                ba.respect=clampSocial(ba.respect+1);
+                rememberRelationship(ab,"rivalry with "+b.name+" from "+b.faction);
+            }
         }
+    }
+
+    private void maybeFactionDrama() {
+        List<SimFaction> fs=new ArrayList<SimFaction>(factions.values());
+        if(fs.isEmpty()) return;
+        SimFaction f=fs.get(rng.nextInt(fs.size()));
+        if(f.members.size()<2) return;
+
+        SimPlayer a=players.get(key(f.members.get(rng.nextInt(f.members.size()))));
+        SimPlayer b=players.get(key(f.members.get(rng.nextInt(f.members.size()))));
+        if(a==null || b==null || a==b) return;
+
+        SocialEdge ab=relationship(a.name,b.name,true);
+        SocialEdge ba=relationship(b.name,a.name,true);
+
+        if(rng.nextInt(100)<55) {
+            int hit=1+rng.nextInt(3);
+            ab.affinity=clampAffinity(ab.affinity-hit);
+            ba.affinity=clampAffinity(ba.affinity-hit);
+            ab.trust=clampSocial(ab.trust-1);
+            ba.trust=clampSocial(ba.trust-1);
+            ab.grudge=clampSocial(ab.grudge+1);
+            ba.grudge=clampSocial(ba.grudge+1);
+            if(rng.nextInt(100)<30) {
+                enqueue(a.name,oneOf("why did you take my set","bro stop taking all the pearls","you keep leaving us in fights","dont touch my chest stuff"),false);
+                rememberRelationship(ab,"argued with "+b.name+" in "+f.name);
+            }
+        } else {
+            ab.affinity=clampAffinity(ab.affinity+2);
+            ba.affinity=clampAffinity(ba.affinity+2);
+            ab.trust=clampSocial(ab.trust+1);
+            ba.trust=clampSocial(ba.trust+1);
+        }
+    }
+
+    private int knownRosterValue(SimFaction f,SimPlayer p) {
+        if(p==null) return Integer.MIN_VALUE/4;
+        SimPlayer leader=players.get(key(f.leader));
+        SocialEdge rel=leader==null?null:relationship(leader.name,p.name,true);
+        int score=p.donorLevel*18+p.reputation/3+p.teamwork/4+p.loyalty/4;
+        if(plugin.isCreatorIdentity(p.name)) score+=45;
+        if(rel!=null) score+=rel.affinity/2+(rel.trust-50)/2-rel.grudge/2;
+        if(p.combatClass==CombatClass.BARD && classCount(f,CombatClass.BARD)<=1) score+=28;
+        if(p.combatClass==CombatClass.ARCHER && classCount(f,CombatClass.ARCHER)<=1) score+=22;
+        if("brewer".equals(p.preferredJob) && jobCount(f,"brewer")<=1) score+=22;
+        if("miner".equals(p.preferredJob) && jobCount(f,"miner")<=1) score+=18;
+        return score;
+    }
+
+    private SimPlayer replaceableMember(SimFaction f,int incomingKnownValue) {
+        SimPlayer worst=null;
+        int worstScore=Integer.MAX_VALUE;
+        for(String name:f.members) {
+            if(name.equalsIgnoreCase(f.leader)) continue;
+            SimPlayer p=players.get(key(name));
+            if(p==null) continue;
+            int score=knownRosterValue(f,p);
+            if(score<worstScore) { worst=p; worstScore=score; }
+        }
+        if(worst==null) return null;
+        return incomingKnownValue>=worstScore+24 ? worst : null;
+    }
+
+    private void recordFactionKick(SimFaction f,SimPlayer kicked,String replacementName) {
+        if(f==null || kicked==null) return;
+        SimPlayer leader=players.get(key(f.leader));
+        if(leader!=null) {
+            SocialEdge kl=relationship(kicked.name,leader.name,true);
+            kl.affinity=clampAffinity(kl.affinity-14);
+            kl.trust=clampSocial(kl.trust-16);
+            kl.grudge=clampSocial(kl.grudge+18);
+            rememberRelationship(kl,leader.name+" kicked me from "+f.name+
+                (replacementName==null||replacementName.isEmpty()?"":" for "+replacementName));
+        }
+        kicked.loyalty=Math.max(0,kicked.loyalty-4);
+        kicked.faction="";
+        kicked.role=kicked.preferredJob;
+        kicked.currentGoal="social";
+        enqueue(kicked.name,rng.nextBoolean()?"wow kicked for no reason":"lff again lol",false);
+    }
+
+    private void maybeFactionUpgradeRecruit() {
+        List<SimPlayer> solos=new ArrayList<SimPlayer>();
+        for(SimPlayer p:players.values()) if(p.logicalOnline && p.faction.isEmpty() && !p.leaderCandidate) solos.add(p);
+        if(solos.isEmpty()) return;
+
+        SimPlayer candidate=solos.get(rng.nextInt(solos.size()));
+        for(SimFaction f:factions.values()) {
+            if(f.members.size()<MAX_FACTION_MEMBERS) continue;
+            int incoming=candidateScore(f,candidate);
+            SimPlayer kicked=replaceableMember(f,incoming);
+            if(kicked==null) continue;
+
+            if(!plugin.removeSimFactionMemberAuthority(f.name,kicked.name)) continue;
+            f.members.remove(kicked.name);
+            recordFactionKick(f,kicked,candidate.name);
+
+            if(plugin.joinSimFactionAuthority(f.name,candidate.name)) {
+                candidate.faction=f.name;
+                candidate.role=candidate.preferredJob;
+                f.members.add(candidate.name);
+                SocialEdge leaderRel=relationship(f.leader,candidate.name,true);
+                rememberRelationship(leaderRel,"made room for "+candidate.name+" in "+f.name);
+                enqueue(f.leader,"made room for "+candidate.name,false);
+                normalizeFactionClasses(f);
+            }
+            return;
+        }
+    }
+
+    private void maybeFactionDefection() {
+        List<SimPlayer> candidates=new ArrayList<SimPlayer>();
+        for(SimPlayer p:players.values()) {
+            if(p.faction.isEmpty() || "leader".equals(p.role) || !p.logicalOnline || p.loyalty>42) continue;
+            SimFaction old=factions.get(key(p.faction));
+            if(old==null) continue;
+            SocialEdge toLeader=relationship(p.name,old.leader,true);
+            if(toLeader.affinity<-20 || toLeader.grudge>45) candidates.add(p);
+        }
+        if(candidates.isEmpty()) return;
+
+        SimPlayer p=candidates.get(rng.nextInt(candidates.size()));
+        SimFaction old=factions.get(key(p.faction));
+        SimFaction target=null;
+        int best=Integer.MIN_VALUE;
+        for(SimFaction f:factions.values()) {
+            if(f==old || f.members.size()>=MAX_FACTION_MEMBERS) continue;
+            int score=candidateScore(f,p);
+            if(score>best){best=score;target=f;}
+        }
+        if(target==null || rng.nextInt(100)>=18) return;
+
+        if(!plugin.removeSimFactionMemberAuthority(old.name,p.name)) return;
+        old.members.remove(p.name);
+        String oldName=old.name;
+        recordFactionKick(old,p,target.name);
+
+        int stolenPearls=Math.min(old.pearls,rng.nextInt(5));
+        int stolenHeals=Math.min(old.healPots,rng.nextInt(7));
+        old.pearls-=stolenPearls; old.healPots-=stolenHeals;
+
+        if(plugin.joinSimFactionAuthority(target.name,p.name)) {
+            p.faction=target.name;
+            p.role=p.preferredJob;
+            target.members.add(p.name);
+            target.pearls+=stolenPearls;
+            target.healPots+=stolenHeals;
+            rememberRelationship(relationship(old.leader,p.name,true),
+                p.name+" left "+oldName+" for "+target.name+" and took supplies");
+            enqueue(p.name,"joined "+target.name,false);
+            recordRivalry(oldName,target.name,8);
+        }
+    }
+
+    private void maybeCreatorPvpDrama() {
+        List<SimPlayer> creators=new ArrayList<SimPlayer>();
+        for(SimPlayer p:players.values()) if(p.logicalOnline && plugin.isCreatorIdentity(p.name)) creators.add(p);
+        if(creators.isEmpty()) return;
+        SimPlayer creator=creators.get(rng.nextInt(creators.size()));
+
+        List<SimPlayer> others=onlineCommunityPlayers();
+        if(others.size()<2) return;
+        SimPlayer other=others.get(rng.nextInt(others.size()));
+        if(other==creator) return;
+
+        SocialEdge edge=relationship(other.name,creator.name,true);
+        if(edge.respect>=65) enqueue(other.name,oneOf(creator.name+" is actually nasty",creator.name+" got combos","who is fighting "+creator.name),false);
+        else if(edge.grudge>=40) enqueue(other.name,oneOf(creator.name+" talks too much lol","someone fight "+creator.name,creator.name+" come spawn"),false);
     }
 
     private void maybeDonorUpgrade() {

@@ -1803,7 +1803,6 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         else if ("pearl".equals(key)) m = Material.ENDER_PEARL;
         else if ("healthpot".equals(key)) { m = Material.POTION; data = (short)16421; }
         else if ("speedpot".equals(key)) { m = Material.POTION; data = (short)8226; }
-        else if ("fireres".equals(key)) { m = Material.POTION; data = (short)8259; }
         if (m == null) return false;
 
         int left = qty;
@@ -2208,9 +2207,9 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         p.sendMessage(color("&6--- Classic Server Shop ---"));
         p.sendMessage(color("&eSell crops: &fcane $3, cactus $2.25, pumpkin $5.50, melon $0.75, wheat/carrot/potato $1.25"));
         p.sendMessage(color("&eSell ores: &firon $8, gold $14, diamond $60"));
-        p.sendMessage(color("&ePvP: &fhealthpot $135, speedpot $95, fireres $110, pearl $160, obsidian $30, steak $6"));
+        p.sendMessage(color("&ePvP: &fhealthpot $135, speedpot $95, pearl $160, obsidian $30, steak $6"));
         p.sendMessage(color("&eFarm: &fcane $9, cactus $7, pumpkinseed $8, melonseed $5, sand $2, dirt $1, waterbucket $35"));
-        p.sendMessage(color("&eSupplies: &firon $18, brewingstand $140, hopper $65, book $12, lapis $5\n&eBrewing: &fnetherwart $12, glowstone $12, gunpowder $18, glisteringmelon $24, sugar $6, magmacream $22"));
+        p.sendMessage(color("&eSupplies: &firon $18, brewingstand $140, hopper $65, book $12, lapis $5\n&eBrewing: &fnetherwart $12, glowstone $12, gunpowder $18, glisteringmelon $24, sugar $6"));
         p.sendMessage(color("&7Use /sell hand, /sell all, or /buy <item> <amount>."));
         return true;
     }
@@ -3326,11 +3325,9 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         inv.setItem(7,new ItemStack(Material.POTION,1,(short)8226));
         inv.setItem(8,new ItemStack(Material.ENDER_PEARL,16));
 
-        // Reserve inventory: healing pots plus drinkable Fire Resistance/Speed.
+        // Reserve inventory: Healing II plus Speed II only.
         for(int slot=9;slot<=31;slot++) inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
-        inv.setItem(32,new ItemStack(Material.POTION,1,(short)8259));
         inv.setItem(33,new ItemStack(Material.POTION,1,(short)8226));
-        inv.setItem(34,new ItemStack(Material.POTION,1,(short)8259));
         inv.setItem(35,new ItemStack(Material.POTION,1,(short)8226));
 
         p.setHealth(20.0);

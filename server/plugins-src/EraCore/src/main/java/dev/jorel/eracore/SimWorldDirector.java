@@ -1894,6 +1894,23 @@ final class SimWorldDirector {
             } else if(m==Material.POTION) {
                 // Spare speed/fire/utility pots are faction stock after the first few slots.
                 stash=true;
+            } else if(m==Material.DIAMOND || m==Material.DIAMOND_ORE ||
+                      m==Material.IRON_INGOT || m==Material.IRON_ORE ||
+                      m==Material.GOLD_INGOT || m==Material.GOLD_ORE ||
+                      m==Material.EMERALD || m==Material.OBSIDIAN) {
+                stash=true;
+                category="valuables";
+            } else if(m==Material.COBBLESTONE || m==Material.STONE ||
+                      m==Material.DIRT || m==Material.LOG || m==Material.LOG_2 ||
+                      m==Material.WOOD) {
+                stash=true;
+                category="blocks";
+            } else if(m==Material.NETHER_STALK || m==Material.SPECKLED_MELON ||
+                      m==Material.GLOWSTONE_DUST || m==Material.REDSTONE ||
+                      m==Material.SUGAR || m==Material.MAGMA_CREAM ||
+                      m==Material.SULPHUR) {
+                stash=true;
+                category="brewing";
             }
 
             if(!stash) continue;
@@ -1906,6 +1923,93 @@ final class SimWorldDirector {
 
         body.updateInventory();
         return "moved="+moved;
+    }
+
+    String prepareEmbodiedWorkerForCrates(Player body) {
+        SimPlayer p=players.get(key(body.getName()));
+        if(p==null || p.faction.isEmpty()) return "no-faction";
+        SimFaction f=factions.get(key(p.faction));
+        if(f==null || !f.storage) return "no-storage";
+
+        org.bukkit.inventory.PlayerInventory inv=body.getInventory();
+        int moved=0,keptPearls=0,keptHeals=0,keptFood=0;
+        boolean keptSword=false;
+
+        for(int slot=0;slot<36;slot++) {
+            org.bukkit.inventory.ItemStack item=inv.getItem(slot);
+            if(item==null || item.getType()==Material.AIR) continue;
+            Material m=item.getType();
+
+            // The physical key must survive the cleanup trip.
+            if(m==Material.TRIPWIRE_HOOK || m==Material.BLAZE_ROD) continue;
+
+            boolean keep=false;
+            if(m.name().endsWith("_SWORD") && !keptSword) {
+                keptSword=true;
+                keep=true;
+            } else if(m==Material.ENDER_PEARL && keptPearls<4) {
+                int allowed=Math.min(item.getAmount(),4-keptPearls);
+                keptPearls+=allowed;
+                if(allowed==item.getAmount()) keep=true;
+                else {
+                    org.bukkit.inventory.ItemStack excess=item.clone();
+                    excess.setAmount(item.getAmount()-allowed);
+                    item.setAmount(allowed);
+                    inv.setItem(slot,item);
+                    if(putVisibleStorage(f,excess,"pearls")) moved+=excess.getAmount();
+                    keep=true;
+                }
+            } else if(m==Material.POTION && item.getDurability()==(short)16421 && keptHeals<6) {
+                keptHeals++;
+                keep=true;
+            } else if(m==Material.COOKED_BEEF && keptFood<16) {
+                int allowed=Math.min(item.getAmount(),16-keptFood);
+                keptFood+=allowed;
+                if(allowed==item.getAmount()) keep=true;
+                else {
+                    org.bukkit.inventory.ItemStack excess=item.clone();
+                    excess.setAmount(item.getAmount()-allowed);
+                    item.setAmount(allowed);
+                    inv.setItem(slot,item);
+                    if(putVisibleStorage(f,excess,"overflow")) moved+=excess.getAmount();
+                    keep=true;
+                }
+            }
+
+            if(keep) continue;
+            org.bukkit.inventory.ItemStack copy=item.clone();
+            if(putVisibleStorage(f,copy,null)) {
+                moved+=copy.getAmount();
+                inv.setItem(slot,null);
+            }
+        }
+
+        body.updateInventory();
+        int free=0;
+        for(int slot=0;slot<36;slot++) {
+            org.bukkit.inventory.ItemStack item=inv.getItem(slot);
+            if(item==null || item.getType()==Material.AIR) free++;
+        }
+        return "moved="+moved+" free="+free;
+    }
+
+    void ensureSoloBuildMaterials(Player body) {
+        SimPlayer p=players.get(key(body.getName()));
+        if(p==null || !p.faction.isEmpty()) return;
+
+        int blocks=0;
+        for(org.bukkit.inventory.ItemStack item:body.getInventory().getContents()) {
+            if(item==null) continue;
+            Material m=item.getType();
+            if(m==Material.COBBLESTONE || m==Material.WOOD || m==Material.DIRT || m==Material.STONE)
+                blocks+=item.getAmount();
+        }
+        if(blocks>=8 || p.balance<12.0) return;
+
+        p.balance-=12.0;
+        body.getInventory().addItem(new org.bukkit.inventory.ItemStack(Material.COBBLESTONE,12));
+        body.updateInventory();
+        save();
     }
 
     void applyDonorKitClaim(String name,int rankLevel) {

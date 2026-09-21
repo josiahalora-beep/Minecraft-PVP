@@ -352,6 +352,54 @@ async function tryCommand(state, command, cooldownMs = 5000) {
   }
 }
 
+function inventoryFreeSlots(bot) {
+  try {
+    if(typeof bot?.inventory?.emptySlotCount === 'function') return bot.inventory.emptySlotCount()
+  } catch {}
+  try {
+    const used=new Set(bot.inventory.items().map(i=>i.slot).filter(Number.isInteger))
+    let free=0
+    for(let slot=9;slot<=44;slot++) if(!used.has(slot)) free++
+    return free
+  } catch {
+    return 0
+  }
+}
+
+async function finishCrateRun(state, force = false) {
+  const bot=state.bot
+  if(!bot?.entity || state.combat || commandTagged(state)) return false
+
+  const faction=String(state.job?.faction || state.faction || 'none')
+  const now=Date.now()
+
+  if(faction==='none') {
+    if(now-(state.lastDepositAt || 0)>1200) await deposit(state)
+    state.crateReturnNeeded=false
+    state.cratePhase=''
+    state.crateOpensThisTrip=0
+    return true
+  }
+
+  if(state.cratePhase!=='posthome') {
+    if(now-(state.lastTeleportAttempt || 0)<1100 && !force) return false
+    state.lastTeleportAttempt=now
+    state.cratePhase='posthome'
+    state.cratePhaseAt=now
+    await tryCommand(state,'/f home',700)
+    return true
+  }
+
+  if(now-(state.cratePhaseAt || 0)<1300 && !force) return false
+  try { bot.chat('/simworker stash') } catch {}
+  state.lastDepositAt=now
+  state.crateReturnNeeded=false
+  state.cratePhase=''
+  state.cratePhaseAt=now
+  state.crateOpensThisTrip=0
+  return true
+}
+
 async function commandBrain(state) {
   const bot = state.bot
   if (!bot?.entity || state.combat) return
@@ -360,6 +408,13 @@ async function commandBrain(state) {
   const faction = String(state.job?.faction || state.faction || 'none')
   const tagged = commandTagged(state)
   const now=Date.now()
+
+  // A crate trip that was interrupted by combat/faction duty resumes cleanup
+  // first. Keys remain server-persistent, so abandoning the trip never loses one.
+  if(state.crateReturnNeeded && !tagged) {
+    await finishCrateRun(state)
+    return
+  }
 
   // Donor value is faction value: safely return home, claim the highest kit
   // first, equip what is useful, stash excess, then work down through every
@@ -405,12 +460,79 @@ async function commandBrain(state) {
     return
   }
 
-  // Crate redemption is an observable spawn activity.
-  if (action === 'crate' && !tagged && dimensionZone(bot)!=='spawn' &&
-      now-(state.lastTeleportAttempt || 0)>7000) {
-    state.lastTeleportAttempt=now
-    await tryCommand(state,'/spawn',900)
-    return
+  // Crate redemption is a real trip:
+  // home -> aggressive inventory cleanup -> spawn -> redeem -> home -> stash.
+  if(action==='crate' && !tagged) {
+    const keyType=String(state.job?.keyType || 'vote').toLowerCase()
+    if(state.crateKeyType!==keyType) {
+      state.crateKeyType=keyType
+      state.cratePhase=''
+      state.cratePhaseAt=0
+      state.crateOpensThisTrip=0
+    }
+
+    if(faction!=='none' && !state.cratePhase) {
+      state.cratePhase='home'
+      state.cratePhaseAt=now
+      state.lastTeleportAttempt=now
+      await tryCommand(state,'/f home',700)
+      return
+    }
+
+    if(faction!=='none' && state.cratePhase==='home') {
+      if(now-(state.cratePhaseAt || 0)<1300) return
+      try { bot.chat('/simworker crateprep') } catch {}
+      state.cratePhase='prepped'
+      state.cratePhaseAt=now
+      return
+    }
+
+    if(faction!=='none' && state.cratePhase==='prepped') {
+      if(now-(state.cratePhaseAt || 0)<700) return
+      // Do not leave home with a stuffed inventory. A disciplined player keeps
+      // more room than a reckless one.
+      const patience=Number(state.job?.patience || 50)
+      const econ=Number(state.job?.economicIq || 50)
+      const required=patience+econ>=130?12:(patience+econ>=90?9:6)
+      if(inventoryFreeSlots(bot)<required) {
+        try { bot.chat('/simworker crateprep') } catch {}
+        state.cratePhaseAt=now
+        return
+      }
+      state.cratePhase='travel'
+      state.cratePhaseAt=now
+      state.lastTeleportAttempt=now
+      await tryCommand(state,'/spawn',700)
+      return
+    }
+
+    if(faction==='none' && !state.cratePhase) {
+      state.cratePhase='travel'
+      state.cratePhaseAt=now
+      if(dimensionZone(bot)!=='spawn') {
+        state.lastTeleportAttempt=now
+        await tryCommand(state,'/spawn',700)
+        return
+      }
+    }
+
+    if(state.cratePhase==='travel') {
+      if(dimensionZone(bot)!=='spawn') {
+        if(now-(state.lastTeleportAttempt || 0)>3500) {
+          state.lastTeleportAttempt=now
+          await tryCommand(state,'/spawn',700)
+        }
+        return
+      }
+      state.cratePhase='redeem'
+      state.cratePhaseAt=now
+    }
+
+    if(state.cratePhase==='return') {
+      state.crateReturnNeeded=true
+      await finishCrateRun(state)
+      return
+    }
   }
 
   // Recruitment happens at spawn.
@@ -657,6 +779,122 @@ async function digBest(state, names, predicate = null) {
   return false
 }
 
+function nearestDroppedItem(state, radius=20) {
+  const bot=state.bot
+  if(!bot?.entity) return null
+  let best=null,bestDist=Infinity
+  for(const entity of Object.values(bot.entities || {})) {
+    if(!entity || entity===bot.entity || !entity.position) continue
+    const name=String(entity.name || entity.objectType || '').toLowerCase()
+    const dropped=name==='item' || name.includes('item') || Number(entity.entityType)===2
+    if(!dropped) continue
+    const d=bot.entity.position.distanceTo(entity.position)
+    if(d<=radius && d<bestDist){best=entity;bestDist=d}
+  }
+  return best
+}
+
+async function lootNearbyDrop(state) {
+  const bot=state.bot
+  const target=nearestDroppedItem(state,22)
+  if(!bot?.entity || !target) return false
+
+  const end=Date.now()+4200
+  while(Date.now()<end && bot.entity && target.position && !state.combat) {
+    const dist=bot.entity.position.distanceTo(target.position)
+    if(dist<=1.25) {
+      stopMovement(bot)
+      state.physicalOps++
+      await sleep(250)
+      return true
+    }
+    try { await bot.lookAt(target.position.offset(0,0.15,0),false) } catch {}
+    stopMovement(bot)
+    bot.setControlState('forward',true)
+    bot.setControlState('sprint',dist>5)
+    if(Math.random()<0.16) bot.setControlState('jump',true)
+    await sleep(250)
+  }
+  stopMovement(bot)
+  return true
+}
+
+function placeableSoloBlock(bot) {
+  const names=['cobblestone','oak_planks','planks','dirt','stone']
+  for(const name of names) {
+    const item=bot.inventory.items().find(i=>i.name===name)
+    if(item) return item
+  }
+  return null
+}
+
+async function soloBuildStep(state) {
+  const bot=state.bot
+  if(!bot?.entity) return false
+
+  const tx=Number(state.job?.x), tz=Number(state.job?.z)
+  if(Number.isFinite(tx) && Number.isFinite(tz)) {
+    const dx=tx-bot.entity.position.x, dz=tz-bot.entity.position.z
+    const dist=Math.sqrt(dx*dx+dz*dz)
+    if(dist>5) {
+      try { await bot.lookAt(bot.entity.position.offset(dx,0,dz),false) } catch {}
+      stopMovement(bot)
+      bot.setControlState('forward',true)
+      bot.setControlState('sprint',dist>12)
+      await sleep(Math.round(rand(450,900)))
+      stopMovement(bot)
+      return true
+    }
+  }
+
+  const item=placeableSoloBlock(bot)
+  if(!item) return false
+
+  if(!state.soloBuildOrigin) state.soloBuildOrigin=bot.entity.position.floored()
+  const pattern=[
+    [-1,0,-1],[0,0,-1],[1,0,-1],
+    [-1,0,0],[1,0,0],
+    [-1,0,1],[0,0,1],[1,0,1],
+    [-1,1,-1],[1,1,-1],[-1,1,1],[1,1,1]
+  ]
+
+  for(let tries=0;tries<pattern.length;tries++) {
+    const index=(state.soloBuildStep || 0)%pattern.length
+    state.soloBuildStep=index+1
+    const [dx,dy,dz]=pattern[index]
+    const targetPos=state.soloBuildOrigin.offset(dx,dy,dz)
+    const target=bot.blockAt(targetPos)
+    if(!target || target.name!=='air') continue
+
+    let reference=null
+    let face=null
+    const below=bot.blockAt(targetPos.offset(0,-1,0))
+    if(below && below.name!=='air') {
+      reference=below
+      face=targetPos.minus(below.position)
+    } else {
+      for(const off of [[1,0,0],[-1,0,0],[0,0,1],[0,0,-1]]) {
+        const side=bot.blockAt(targetPos.offset(off[0],off[1],off[2]))
+        if(side && side.name!=='air') {
+          reference=side
+          face=targetPos.minus(side.position)
+          break
+        }
+      }
+    }
+    if(!reference || !face) continue
+
+    try {
+      await bot.equip(item,'hand')
+      await bot.lookAt(reference.position.offset(0.5,0.5,0.5),false)
+      await bot.placeBlock(reference,face)
+      state.physicalOps++
+      return true
+    } catch {}
+  }
+  return false
+}
+
 async function doPhysicalWork(state, action) {
   const bot = state.bot
   if (!bot?.entity) return false
@@ -689,6 +927,9 @@ async function doPhysicalWork(state, action) {
     if (harvestedTall) return true
     return await digBest(state, ['pumpkin', 'melon_block'])
   }
+
+  if(action==='solo_loot') return await lootNearbyDrop(state)
+  if(action==='solo_build') return await soloBuildStep(state)
 
   return false
 }
@@ -749,15 +990,28 @@ async function redeemCrate(state) {
       return true
     }
 
+    if(inventoryFreeSlots(bot)<=4) {
+      state.cratePhase='return'
+      state.crateReturnNeeded=true
+      return false
+    }
+
     await bot.lookAt(block.position.offset(0.5,0.5,0.5),false)
     await bot.activateBlock(block)
     state.lastCrateUseAt=Date.now()
+    state.crateOpensThisTrip=(state.crateOpensThisTrip || 0)+1
     await sleep(900)
-    if(String(state.job?.faction || state.faction || 'none')!=='none') {
-      try { bot.chat('/simworker stash') } catch {}
-    }
-    await sleep(300)
     try { bot.chat('/simworker sync') } catch {}
+
+    // A cautious/economy-minded player banks sooner. A gambler may open more
+    // keys in one trip, but still returns before inventory pressure becomes risky.
+    const patience=Number(state.job?.patience || 50)
+    const risk=Number(state.job?.risk || 50)
+    const tripCap= risk>=75 ? 5 : (patience>=70 ? 2 : 3)
+    if(state.crateOpensThisTrip>=tripCap || inventoryFreeSlots(bot)<=6) {
+      state.cratePhase='return'
+      state.crateReturnNeeded=true
+    }
     return true
   } catch {
     return false
@@ -769,7 +1023,7 @@ async function localMotion(state, action) {
   if (!bot?.entity) return
 
   bot.physicsEnabled = true
-  const mobile = ['patrol', 'scout', 'mine', 'gather', 'supply', 'farm', 'build', 'crate'].includes(action)
+  const mobile = ['patrol', 'scout', 'mine', 'gather', 'supply', 'farm', 'build', 'crate', 'solo', 'solo_loot', 'solo_build'].includes(action)
   const totalMs = action==='patrol' ? rand(4500, 8500) : (mobile ? rand(1800, 4200) : rand(900, 2200))
   const endAt = Date.now() + totalMs
 
@@ -907,13 +1161,14 @@ function startWorkLoop(state, settings) {
       }
 
       let physical = false
-      if (['mine', 'gather', 'supply', 'farm'].includes(action) && Math.random() < 0.55) {
+      if (['mine', 'gather', 'supply', 'farm', 'solo_loot', 'solo_build'].includes(action) &&
+          Math.random() < (action==='solo_loot'?0.88:(action==='solo_build'?0.78:0.55))) {
         physical = await doPhysicalWork(state, action)
       }
 
       if (!physical || Math.random() < 0.65) {
         await localMotion(state, action)
-        if (['build', 'farm', 'mine', 'gather', 'supply'].includes(action)) {
+        if (['build', 'farm', 'mine', 'gather', 'supply', 'solo_build'].includes(action)) {
           try { bot.swingArm('right') } catch {}
         }
       }
@@ -923,6 +1178,16 @@ function startWorkLoop(state, settings) {
         Date.now() - state.lastDepositAt >= 15000
       )) {
         await deposit(state)
+      }
+
+      if(action==='solo_loot') {
+        const econ=Number(state.job?.economicIq || 50)
+        const patience=Number(state.job?.patience || 50)
+        const disciplined=econ+patience>=115
+        if(inventoryFreeSlots(bot)<(disciplined?10:5) ||
+           Date.now()-(state.lastDepositAt || 0)>(disciplined?12000:24000)) {
+          await deposit(state)
+        }
       }
 
       await sleep(Math.round(rand(450, 1600)))
@@ -975,6 +1240,13 @@ async function connectIdentity(candidate, settings) {
     lastSurvivalAt: 0,
     lastSurvivalPot: 0,
     lastCrateUseAt: 0,
+    crateKeyType: '',
+    cratePhase: '',
+    cratePhaseAt: 0,
+    crateOpensThisTrip: 0,
+    crateReturnNeeded: false,
+    soloBuildOrigin: null,
+    soloBuildStep: 0,
     survivalBusy: false
   }
   live.set(name, state)
@@ -987,7 +1259,18 @@ async function connectIdentity(candidate, settings) {
       const text = msg.toString()
       const parsed = parseTokenMessage(text, 'SIMWORKER')
       if (parsed) {
+        const previousAction=String(state.job?.action || '')
         state.job = parsed
+        const nextAction=String(parsed.action || '')
+        if(previousAction==='crate' && nextAction!=='crate') {
+          state.crateReturnNeeded=true
+          state.cratePhase='return'
+          state.cratePhaseAt=Date.now()
+        }
+        if(nextAction!=='solo_build') {
+          state.soloBuildOrigin=null
+          state.soloBuildStep=0
+        }
         if (parsed.rank) state.rank = String(parsed.rank).toUpperCase()
         if (String(parsed.tagged || '0') === '1') state.combatTaggedUntil = Math.max(state.combatTaggedUntil || 0, Date.now() + 2500)
         if (parsed.humans != null) humanCount = Math.max(0, Number(parsed.humans) || 0)

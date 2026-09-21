@@ -1002,8 +1002,6 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     private boolean cmdStuck(Player p) {
-        if(isBotIdentity(p.getName())) return true;
-
         if(activeDuel!=null && p.getName().equalsIgnoreCase(activeDuel.human)) {
             p.sendMessage(color("&cYou cannot /stuck during a duel."));
             return true;
@@ -1330,7 +1328,10 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
         if (!ca.fightId.equals(prepared)) {
             if(ca.fightId.startsWith("DUEL_")) preparePotKit(p);
-            else prepareHcfCombatKit(p,ca.combatClass);
+            else if(!simWorld.personalCombatReservationFor(p.getName(),ca.fightId))
+                prepareHcfCombatKit(p,ca.combatClass);
+            // A personal donor/creator reservation deliberately keeps the real
+            // claimed kit in place instead of silently upgrading it to P4.
             combatPreparedFight.put(k,ca.fightId);
         }
 

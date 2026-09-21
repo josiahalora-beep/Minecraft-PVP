@@ -13,6 +13,8 @@ map:
   complete: true
   surface-y: 63
   world-border: 3000
+  warzone-smoothing-radius: 420
+  warzone-smoothing-version: 0
   nether-border: 1000
   manage-world-border: true
   safezone-radius: 60

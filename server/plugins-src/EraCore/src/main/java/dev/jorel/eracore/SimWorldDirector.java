@@ -6087,6 +6087,39 @@ final class SimWorldDirector {
         }
     }
 
+    List<String> directorStatusLines() {
+        List<String> out=new ArrayList<String>();
+        out.add("fight="+visibleFightSummary()+" sotwProtected="+sotwProtectionActive()+
+            " hotBudget="+hotCombatBudget());
+        for(SimFaction f:factions.values()) {
+            int solo=0,small=0,team=0,trap=0,avoid=0,online=0;
+            for(String member:f.members) {
+                SimPlayer p=players.get(key(member));
+                if(p==null || !p.logicalOnline) continue;
+                online++;
+                PvpIntent intent=pvpIntentFor(p,f);
+                if(intent==PvpIntent.SOLO_HUNT) solo++;
+                else if(intent==PvpIntent.SMALL_TEAM) small++;
+                else if(intent==PvpIntent.TEAMFIGHT) team++;
+                else if(intent==PvpIntent.TRAP_PLAY) trap++;
+                else avoid++;
+            }
+            int seekers=solo+small+team+trap;
+            out.add(f.name+
+                " stage="+f.stage.name()+
+                " online="+online+
+                " combatSlots="+combatStockSlots(f)+
+                " seekers="+seekers+
+                " intent[S="+solo+",SM="+small+",T="+team+",TR="+trap+",A="+avoid+"]"+
+                " party="+factionDesiredPvpSize(f)+
+                " hotspot="+warzoneForFaction(f)+
+                " dtr="+String.format(Locale.ENGLISH,"%.1f",plugin.factionDtr(f.name))+
+                (f.recoveryMode?" RECOVERY":""));
+        }
+        return out;
+    }
+
+
     private double getDtrSafetyFloor(SimFaction f) {
         SimPlayer leader=players.get(key(f.leader));
         if(leader==null) return 1.0;

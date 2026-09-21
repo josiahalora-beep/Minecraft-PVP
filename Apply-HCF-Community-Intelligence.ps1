@@ -4,7 +4,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$validatedCommit = '1900bf03bc70f47bd3721dac885da027a30fdc66'
+$validatedCommit = '05bbd3cfa9a14d2331d50b4974dca4e08c17e31e'
 $base = "https://raw.githubusercontent.com/josiahalora-beep/Minecraft-PVP/$validatedCommit"
 
 $required = @(

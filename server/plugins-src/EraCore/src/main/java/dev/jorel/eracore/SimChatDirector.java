@@ -182,7 +182,8 @@ final class SimChatDirector {
         final List<String> fans = plugin.getConfig().getStringList("sim-chat.fans");
         if (fans.isEmpty()) return;
 
-        int count = 2 + rng.nextInt(Math.max(1, plugin.getConfig().getInt("sim-chat.max-fan-reactions", 4) - 1));
+        int maxFans=Math.max(1,plugin.getConfig().getInt("sim-chat.max-fan-reactions",2));
+        int count=1+rng.nextInt(maxFans);
         for (int i = 0; i < count; i++) {
             final String fan = fans.get(rng.nextInt(fans.size()));
             final String msg = fanLine(creator, event);

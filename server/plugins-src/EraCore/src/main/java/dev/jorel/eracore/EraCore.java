@@ -1242,6 +1242,12 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
         if (simWorld != null && simWorld.contains(targetName)) {
             p.sendMessage(color("&8[&7To &f" + targetName + factionSuffix(targetName) + "&8] &f" + b.toString()));
+
+            // Semantic casual conversation goes through the optional AI sidecar.
+            // Trade/economy messages stay authoritative in the deterministic
+            // transaction engine so an LLM can never create items or money.
+            if(simWorld.requestPrivateAi(p,targetName,b.toString())) return true;
+
             final String reply = simWorld.handlePrivate(p, targetName, b.toString());
             if (reply != null) {
                 final String from = targetName;

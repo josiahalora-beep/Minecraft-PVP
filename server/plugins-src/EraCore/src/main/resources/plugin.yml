@@ -25,9 +25,11 @@ commands:
     usage: /keys
   crates:
     usage: /crates [vote|donor]
+  stats:
+    usage: /stats [player]
   f:
     aliases: [faction, factions]
-    usage: /f <create|invite|join|leave|kick|disband|claim|unclaim|sethome|home|who|list|c>
+    usage: /f <create|invite|join|leave|kick|disband|claim|unclaim|sethome|home|show|who|list|c>
   simprobe:
     usage: /simprobe
   simmap:

@@ -978,6 +978,141 @@ function nearestRoamStranger(state, radius=48) {
   return best
 }
 
+function fenceGateOpen(block) {
+  if(!block) return false
+  try {
+    if(typeof block.getProperties === 'function') {
+      const props=block.getProperties()
+      if(props && typeof props.open === 'boolean') return props.open
+      if(props && String(props.open).toLowerCase()==='true') return true
+    }
+  } catch {}
+  const meta=Number(block.metadata)
+  return Number.isFinite(meta) && (meta & 4) === 4
+}
+
+function closestSemanticBlock(state, names, radius=10) {
+  const bot=state.bot
+  if(!bot?.entity) return null
+  const blocks=nearbyBlocks(bot,names,radius,36)
+  if(!blocks.length) return null
+
+  const tx=Number(state.job?.x),ty=Number(state.job?.y),tz=Number(state.job?.z)
+  let best=null,bestScore=Infinity
+  for(const b of blocks) {
+    const dx=Number.isFinite(tx)?b.position.x-tx:0
+    const dy=Number.isFinite(ty)?b.position.y-ty:0
+    const dz=Number.isFinite(tz)?b.position.z-tz:0
+    const score=dx*dx+dy*dy+dz*dz
+    if(score<bestScore){best=b;bestScore=score}
+  }
+  return best
+}
+
+async function approachAndActivate(state, block, closeWindow=true) {
+  const bot=state.bot
+  if(!bot?.entity || !block) return false
+  try {
+    const dist=bot.entity.position.distanceTo(block.position)
+    await bot.lookAt(block.position.offset(0.5,0.5,0.5),false)
+    if(dist>4.1) {
+      stopMovement(bot)
+      bot.setControlState('forward',true)
+      bot.setControlState('sprint',false)
+      await sleep(Math.round(rand(420,850)))
+      stopMovement(bot)
+      return true
+    }
+
+    await bot.activateBlock(block)
+    state.lastSemanticInteractionAt=Date.now()
+    await sleep(Math.round(rand(180,360)))
+    if(closeWindow && bot.currentWindow) bot.closeWindow(bot.currentWindow)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function performPluginInteraction(state) {
+  const interaction=String(state.job?.interaction || 'none').toLowerCase()
+  if(interaction==='none' || !state.bot?.entity || state.combat) return false
+  if(interaction==='crate') return await redeemCrate(state)
+
+  const now=Date.now()
+  if(now-(state.lastSemanticInteractionAt || 0)<2600) return false
+
+  if(interaction==='brewer') {
+    const block=closestSemanticBlock(state,['brewing_stand'],11)
+    return await approachAndActivate(state,block,true)
+  }
+  if(interaction==='storage') {
+    const block=closestSemanticBlock(state,['chest','trapped_chest'],11)
+    return await approachAndActivate(state,block,true)
+  }
+  return false
+}
+
+async function gateDiscipline(state) {
+  const bot=state.bot
+  if(!bot?.entity || state.combat) return false
+  const gx=Number(state.job?.gateX),gy=Number(state.job?.gateY),gz=Number(state.job?.gateZ)
+  if(!Number.isFinite(gx)||!Number.isFinite(gy)||!Number.isFinite(gz)) return false
+
+  const gates=nearbyBlocks(bot,['fence_gate','oak_fence_gate'],6,36)
+  if(!gates.length) return false
+
+  let gate=null,best=Infinity
+  for(const g of gates) {
+    const dx=g.position.x-gx,dy=g.position.y-gy,dz=g.position.z-gz
+    const score=dx*dx+dy*dy+dz*dz
+    if(score<best){best=score;gate=g}
+  }
+  if(!gate || best>18) return false
+
+  const now=Date.now()
+  const dist=bot.entity.position.distanceTo(gate.position)
+  if(dist>4.2) return false
+
+  const open=fenceGateOpen(gate)
+  if(open) {
+    // Give ourselves/allies a brief crossing window, then explicitly close.
+    // The server-side HcfGateDirector is a second safety net and will also
+    // close the complete group if the worker disconnects mid-passage.
+    if(now-(state.lastGatePassAt || 0)<850) return false
+    try {
+      await bot.lookAt(gate.position.offset(0.5,0.5,0.5),false)
+      await bot.activateBlock(gate)
+      state.lastGateCloseAt=now
+      return true
+    } catch { return false }
+  }
+
+  const targetZ=Number(state.job?.z)
+  const botZ=bot.entity.position.z
+  if(!Number.isFinite(targetZ)) return false
+
+  // Every template's canonical external entrance is the north wall. Only open
+  // it when the current semantic target is actually across that wall.
+  const inside=botZ>gz+0.35
+  const targetInside=targetZ>gz+0.35
+  if(inside===targetInside || now-(state.lastGateOpenAt || 0)<1200) return false
+
+  try {
+    await bot.lookAt(gate.position.offset(0.5,0.5,0.5),false)
+    await bot.activateBlock(gate)
+    state.lastGateOpenAt=now
+    state.lastGatePassAt=now
+    stopMovement(bot)
+    bot.setControlState('forward',true)
+    await sleep(650)
+    stopMovement(bot)
+    return true
+  } catch {
+    return false
+  }
+}
+
 async function redeemCrate(state) {
   const bot=state.bot
   if(!bot?.entity || state.combat || String(state.job?.action||'')!=='crate') return false
@@ -1160,6 +1295,7 @@ function startWorkLoop(state, settings) {
       }
 
       if (Date.now() - state.lastSyncAt >= settings.syncMs) await sync(state)
+      await gateDiscipline(state)
       const survivalAction = await maintainSurvival(state)
       if (survivalAction) {
         await sleep(Math.round(rand(180,420)))
@@ -1171,7 +1307,7 @@ function startWorkLoop(state, settings) {
       }
 
       if(action==='crate') {
-        await redeemCrate(state)
+        await performPluginInteraction(state)
         await sleep(Math.round(rand(500,1100)))
         continue
       }
@@ -1179,7 +1315,8 @@ function startWorkLoop(state, settings) {
       const passive = action === 'idle' || action === 'recruit' || action === 'safe' || action === 'brew' || action === 'gear' || action === 'social'
       if (passive) {
         bot.physicsEnabled = true
-        const worked = await visibleStationWork(state, action)
+        const semanticWorked = await performPluginInteraction(state)
+        const worked = semanticWorked || await visibleStationWork(state, action)
         if (!worked || Math.random() < 0.70) await localMotion(state, action)
 
         // Even players waiting on gear/brewing don't freeze like NPCs.
@@ -1275,6 +1412,10 @@ async function connectIdentity(candidate, settings) {
     cratePhaseAt: 0,
     crateOpensThisTrip: 0,
     crateReturnNeeded: false,
+    lastSemanticInteractionAt: 0,
+    lastGateOpenAt: 0,
+    lastGatePassAt: 0,
+    lastGateCloseAt: 0,
     soloBuildOrigin: null,
     soloBuildStep: 0,
     survivalBusy: false

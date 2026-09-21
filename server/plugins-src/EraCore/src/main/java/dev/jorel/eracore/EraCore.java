@@ -1119,6 +1119,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
             SimWorldDirector.WorkerTask task = simWorld.workerTaskFor(p.getName());
             prepareWorkerProjection(p,task);
+            if("crate".equals(task.action) && task.keyType!=null && !task.keyType.isEmpty())
+                ensurePhysicalPendingKey(p,task.keyType);
             int humans = humanOnlineCount();
             int workerBudget = adaptiveWorkerBudget(getConfig().getInt("worker-pool.max-bodies",4));
             Rank simRank=effectiveRank(p.getName());
@@ -1202,6 +1204,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         else if ("patrol".equals(task.action)) tool = Material.DIAMOND_SWORD;
         else if ("safe".equals(task.action)) tool = Material.COOKED_BEEF;
         else if ("scout".equals(task.action)) tool = Material.COMPASS;
+        else if ("crate".equals(task.action)) tool = "donor".equalsIgnoreCase(task.keyType) ? Material.BLAZE_ROD : Material.TRIPWIRE_HOOK;
 
         ItemStack hand = p.getInventory().getItem(0);
         if (hand == null || hand.getType() != tool) {

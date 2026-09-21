@@ -54,7 +54,7 @@ final class HcfBaseBuilder {
         prepareTerrainPad(world,cx,y,cz,radius,radius);
 
         if ("hcf_courtyard".equalsIgnoreCase(preset)) buildCourtyard(world,cx,y,cz);
-        else if ("hcf_brewer_base".equalsIgnoreCase(preset)) buildGlassBox(world,cx,y,cz,true);
+        else if ("hcf_brewer_base".equalsIgnoreCase(preset)) buildGlassBox(world,cx,y,cz,false);
         else if ("hcf_trap_base".equalsIgnoreCase(preset)) buildTrapHouse(world,cx,y,cz);
         else if ("hcf_compact_2015".equalsIgnoreCase(preset)) buildCompact2015(world,cx,y,cz);
         else if ("hcf_split_level".equalsIgnoreCase(preset)) buildSplitLevel(world,cx,y,cz);
@@ -103,13 +103,15 @@ final class HcfBaseBuilder {
         ensureRunner();
     }
 
-    void queueBrewer(String faction, int cx, int y, int cz) {
+    void queueBrewer(String faction, String preset, int cx, int y, int cz) {
         String key = "brewer:" + faction.toLowerCase();
         if (!completed.add(key)) return;
         World world = Bukkit.getWorlds().get(0);
         if (world == null) return;
-        buildBrewerRoom(world,cx,y,cz);
-        plugin.registerAutoBrewerSite(faction,cx,y,cz);
+
+        buildBrewerRoom(world,preset,cx,y,cz);
+        int[] core=anchor(preset,"brewer",cx,y,cz);
+        plugin.registerAutoBrewerSite(faction,preset,cx,y,cz);
         ensureRunner();
     }
 
@@ -196,6 +198,9 @@ final class HcfBaseBuilder {
         else if ("hcf_split_level".equalsIgnoreCase(preset)) r=15;
         else if ("hcf_glass_box".equalsIgnoreCase(preset) || "hcf_brewer_base".equalsIgnoreCase(preset) || "hcf_trap_base".equalsIgnoreCase(preset)) r=16;
         if (!"none".equalsIgnoreCase(trapPreset)) r=Math.max(r,22);
+        // Every template owns a connected rear storage wing. Terrain preparation
+        // must include it or the vault can float off the back of a steep site.
+        r=Math.max(r,presetHalf(preset)+8);
         return r;
     }
 
@@ -306,54 +311,76 @@ final class HcfBaseBuilder {
         return 12;
     }
 
+    int[] anchor(String preset,String kind,int cx,int y,int cz) {
+        int half=presetHalf(preset);
+        if("gate".equalsIgnoreCase(kind))
+            return new int[]{cx,y+1,cz-half};
+        if("storage".equalsIgnoreCase(kind))
+            return new int[]{cx,y+1,cz+half+4};
+        if("brewer".equalsIgnoreCase(kind))
+            return new int[]{cx+half+6,y,cz+2};
+        return new int[]{cx,y+1,cz};
+    }
+
     private void buildOrganizedVault(World w,String preset,int cx,int y,int cz) {
         int half=presetHalf(preset);
         int rear=cz+half;
-        int z1=rear+3, z2=rear+5;
+        int minX=cx-11,maxX=cx+11;
+        int minZ=rear,maxZ=rear+8;
         Material accent=Material.SMOOTH_BRICK;
 
-        // Connect the base to a separate rear vault instead of carving storage
-        // through preset-specific defensive interiors.
-        doorway(w,cx,y,rear);
-
-        String[] near={"Pots","Pearls","Valuables","Blocks","Brewing","Farm","Overflow"};
-        String[] far={"Helmets","Chestplates","Leggings","Boots","Swords","Bows","Kits"};
-        int[] xs={-6,-4,-2,0,2,4,6};
-
-        for(int x=cx-7;x<=cx+7;x++) {
-            for(int z=rear+2;z<=rear+6;z++) {
+        // The vault is part of the base template, not a freestanding shed. Its
+        // front wall overlaps the rear wall of the main preset and shares one
+        // canonical synchronized gate group.
+        for(int x=minX;x<=maxX;x++) {
+            for(int z=minZ;z<=maxZ;z++) {
                 int surface=solidSurfaceY(w,x,z);
                 if(surface<y) {
                     for(int yy=Math.max(2,surface+1);yy<y;yy++)
                         queue.add(new Op(w,x,yy,z,yy>=y-3?Material.DIRT:Material.STONE));
                 }
                 queue.add(new Op(w,x,y,z,accent));
-                for(int yy=y+1;yy<=y+4;yy++) queue.add(new Op(w,x,yy,z,Material.AIR));
-                queue.add(new Op(w,x,y+5,z,accent));
+                for(int yy=y+1;yy<=y+5;yy++) {
+                    boolean wall=x==minX||x==maxX||z==minZ||z==maxZ;
+                    queue.add(new Op(w,x,yy,z,wall?accent:Material.AIR));
+                }
+                queue.add(new Op(w,x,y+6,z,accent));
             }
         }
 
-        // Rear and side walls; the base-facing side stays mostly open around the gate.
-        for(int x=cx-7;x<=cx+7;x++) {
-            for(int yy=y+1;yy<=y+4;yy++) queue.add(new Op(w,x,yy,rear+6,Material.STAINED_GLASS));
-        }
-        for(int z=rear+2;z<=rear+6;z++) {
-            for(int yy=y+1;yy<=y+4;yy++) {
-                queue.add(new Op(w,cx-7,yy,z,accent));
-                queue.add(new Op(w,cx+7,yy,z,accent));
-            }
+        // Full-height logical doorway. HcfGateDirector synchronizes all nine
+        // fence gates, so the opening is never a three-wide hole above one gate.
+        doorway(w,cx,y,rear);
+
+        String[] near={"Pots","Pearls","Valuables","Blocks","Brewing","Farm","Overflow"};
+        String[] far={"Helmets","Chestplates","Leggings","Boots","Swords","Bows","Kits"};
+        int[] starts={-10,-7,-4,-1,2,5,8};
+        int nearZ=rear+3, farZ=rear+6;
+
+        // Fourteen labeled DOUBLE chests. Every pair has one block of lateral
+        // separation so Minecraft cannot merge three chests into an invalid row.
+        for(int i=0;i<starts.length;i++) {
+            int x=cx+starts[i];
+            doubleChest(w,x,y+1,nearZ,near[i]);
+            doubleChest(w,x,y+1,farZ,far[i]);
         }
 
-        for(int i=0;i<xs.length;i++) {
-            int x=cx+xs[i];
-            queue.add(new Op(w,x,y+1,z1,Material.CHEST));
-            queue.add(new Op(w,x,y+2,z1,Material.SIGN_POST,(byte)8,near[i]));
-            queue.add(new Op(w,x,y+1,z2,Material.CHEST));
-            queue.add(new Op(w,x,y+2,z2,Material.SIGN_POST,(byte)0,far[i]));
-        }
+        // Lighting is kept off the chest rows and aisle.
+        queue.add(new Op(w,cx-10,y+4,rear+1,Material.GLOWSTONE));
+        queue.add(new Op(w,cx+10,y+4,rear+1,Material.GLOWSTONE));
+        queue.add(new Op(w,cx-10,y+4,rear+7,Material.GLOWSTONE));
+        queue.add(new Op(w,cx+10,y+4,rear+7,Material.GLOWSTONE));
+    }
 
-        queue.add(new Op(w,cx-7,y+2,rear+4,Material.GLOWSTONE));
-        queue.add(new Op(w,cx+7,y+2,rear+4,Material.GLOWSTONE));
+    private void doubleChest(World w,int x,int chestY,int z,String label) {
+        queue.add(new Op(w,x,chestY,z,Material.CHEST));
+        queue.add(new Op(w,x+1,chestY,z,Material.CHEST));
+        queue.add(new Op(w,x,chestY+1,z,Material.SIGN_POST,(byte)8,label));
+        // Explicit clearance prevents a later template/repair operation from
+        // leaving a solid block over either half and making the double unusable.
+        queue.add(new Op(w,x,chestY+2,z,Material.AIR));
+        queue.add(new Op(w,x+1,chestY+1,z,Material.AIR));
+        queue.add(new Op(w,x+1,chestY+2,z,Material.AIR));
     }
 
     private void buildGlassBox(World w, int cx, int y, int cz, boolean brewerWing) {
@@ -404,7 +431,7 @@ final class HcfBaseBuilder {
             queue.add(new Op(w,cx+8+dx,y+1,cz+6,Material.BOOKSHELF));
         }
 
-        if (brewerWing) buildBrewerRoom(w,cx,y,cz);
+        if (brewerWing) buildBrewerRoom(w,"hcf_glass_box",cx,y,cz);
     }
 
     private void buildCourtyard(World w, int cx, int y, int cz) {
@@ -549,19 +576,29 @@ final class HcfBaseBuilder {
     }
 
     private void doorway(World w,int cx,int y,int frontZ) {
-        // Clear both sides of the wall so a gate can never open into a solid
-        // block, hill remnant, chest, or repair artifact.
+        // Clear both sides of the wall so the complete 3x3 gate wall has a
+        // guaranteed approach and never opens into a terrain/build artifact.
         for(int z=frontZ-2;z<=frontZ+2;z++) {
             for(int x=cx-1;x<=cx+1;x++) {
                 for(int yy=y+1;yy<=y+3;yy++) queue.add(new Op(w,x,yy,z,Material.AIR));
             }
         }
-        // Three gates provide a proper HCF entrance rather than an unprotected
-        // hole in the shell. Data 0 is a valid north/south gate orientation in 1.8.
-        for(int x=cx-1;x<=cx+1;x++) queue.add(new Op(w,x,y+1,frontZ,Material.FENCE_GATE,(byte)0));
         for(int x=cx-1;x<=cx+1;x++) {
-            queue.add(new Op(w,x,y+2,frontZ,Material.AIR));
-            queue.add(new Op(w,x,y+3,frontZ,Material.AIR));
+            for(int yy=y+1;yy<=y+3;yy++)
+                queue.add(new Op(w,x,yy,frontZ,Material.FENCE_GATE,(byte)0));
+        }
+    }
+
+    private void doorwayX(World w,int frontX,int y,int cz) {
+        for(int x=frontX-2;x<=frontX+2;x++) {
+            for(int z=cz-1;z<=cz+1;z++) {
+                for(int yy=y+1;yy<=y+3;yy++) queue.add(new Op(w,x,yy,z,Material.AIR));
+            }
+        }
+        // Data 1 aligns a gate on the east/west wall in legacy 1.8 metadata.
+        for(int z=cz-1;z<=cz+1;z++) {
+            for(int yy=y+1;yy<=y+3;yy++)
+                queue.add(new Op(w,frontX,yy,z,Material.FENCE_GATE,(byte)1));
         }
     }
 
@@ -787,63 +824,50 @@ final class HcfBaseBuilder {
         }
     }
 
-    private void buildBrewerRoom(World w, int cx, int y, int cz) {
-        // Dedicated side annex: never carve a brewer through the defensive
-        // shell. Six lanes give 4x heal throughput plus speed/fire production.
-        int rx=cx+20, rz=cz;
-        prepareTerrainPad(w,rx,y,rz,8,6);
+    private void buildBrewerRoom(World w,String preset,int cx,int y,int cz) {
+        int[] core=anchor(preset,"brewer",cx,y,cz);
+        int rx=core[0], rz=core[2];
+        int halfX=6,halfZ=7;
 
-        for(int x=rx-8;x<=rx+8;x++) {
-            for(int z=rz-6;z<=rz+6;z++) {
+        // The west wall deliberately overlaps the base's east wall. This makes
+        // the brewer a true template wing instead of the old disconnected
+        // baseX+20 annex.
+        prepareTerrainPad(w,rx,y,rz,halfX,halfZ);
+        for(int x=rx-halfX;x<=rx+halfX;x++) {
+            for(int z=rz-halfZ;z<=rz+halfZ;z++) {
                 queue.add(new Op(w,x,y,z,Material.SMOOTH_BRICK));
-                boolean edge=x==rx-8||x==rx+8||z==rz-6||z==rz+6;
-                for(int yy=y+1;yy<=y+5;yy++) {
-                    if(edge || yy==y+5) {
-                        Material wall=(yy>=y+2 && yy<=y+4 && (z==rz-6||z==rz+6))
-                            ? Material.STAINED_GLASS : Material.SMOOTH_BRICK;
-                        queue.add(new Op(w,x,yy,z,wall));
-                    } else {
-                        queue.add(new Op(w,x,yy,z,Material.AIR));
-                    }
+                for(int yy=y+1;yy<=y+6;yy++) {
+                    boolean wall=x==rx-halfX||x==rx+halfX||z==rz-halfZ||z==rz+halfZ||yy==y+6;
+                    Material m=wall?Material.SMOOTH_BRICK:Material.AIR;
+                    if(wall && yy>=y+2 && yy<=y+4 && (z==rz-halfZ||z==rz+halfZ))
+                        m=Material.STAINED_GLASS;
+                    queue.add(new Op(w,x,yy,z,m));
                 }
             }
         }
 
-        // Base-facing fence-gate connection.
-        for(int yy=y+1;yy<=y+3;yy++) {
-            queue.add(new Op(w,rx-8,yy,rz,Material.AIR));
-            queue.add(new Op(w,rx-7,yy,rz,Material.AIR));
-        }
-        queue.add(new Op(w,rx-8,y+1,rz,Material.FENCE_GATE));
-        queue.add(new Op(w,rx-7,y+1,rz,Material.FENCE_GATE));
+        // One aligned, synchronized connection shared by both structures.
+        doorwayX(w,rx-halfX,y,rz);
 
         String[] labels={"Heal A","Heal B","Heal C","Heal D","Speed II","Fire Res"};
         for(int i=0;i<6;i++) {
-            int x=rx-5+i*2;
-
-            // Each real BrewingStand is surrounded by hopper/input/output
-            // infrastructure. The lightweight controller only replaces the
-            // always-ticking redstone clock/locking logic; bottles and
-            // ingredients themselves are real inventory items.
-            queue.add(new Op(w,x,y+1,rz,Material.BREWING_STAND));
-            queue.add(new Op(w,x,y+2,rz,Material.HOPPER));
-            queue.add(new Op(w,x,y+1,rz+1,Material.HOPPER));
-            queue.add(new Op(w,x,y+1,rz-1,Material.HOPPER));
-            queue.add(new Op(w,x,y+1,rz+2,Material.CHEST));
-            queue.add(new Op(w,x,y+2,rz+2,Material.SIGN_POST,(byte)8,labels[i]));
-
-            // A lever/torch spine gives the room the classic lockable
-            // autobrewer look without running six permanent redstone clocks.
-            queue.add(new Op(w,x,y+1,rz-3,Material.SMOOTH_BRICK));
-            queue.add(new Op(w,x,y+2,rz-3,Material.REDSTONE_TORCH_ON));
+            int x=rx+1;
+            int z=rz-5+i*2;
+            queue.add(new Op(w,x,y+1,z,Material.BREWING_STAND));
+            queue.add(new Op(w,x,y+2,z,Material.HOPPER));
+            queue.add(new Op(w,x+1,y+1,z,Material.HOPPER));
+            queue.add(new Op(w,x-1,y+1,z,Material.HOPPER));
+            queue.add(new Op(w,x+3,y+1,z,Material.CHEST));
+            queue.add(new Op(w,x+3,y+2,z,Material.SIGN_POST,(byte)8,labels[i]));
+            queue.add(new Op(w,x-3,y+1,z,Material.SMOOTH_BRICK));
+            queue.add(new Op(w,x-3,y+2,z,Material.REDSTONE_TORCH_ON));
         }
 
-        // Shared ingredient and finished-pot access points.
-        queue.add(new Op(w,rx-7,y+1,rz+4,Material.CHEST));
-        queue.add(new Op(w,rx-7,y+2,rz+4,Material.SIGN_POST,(byte)8,"Ingredients"));
-        queue.add(new Op(w,rx+7,y+1,rz+4,Material.CHEST));
-        queue.add(new Op(w,rx+7,y+2,rz+4,Material.SIGN_POST,(byte)8,"Finished Pots"));
-        queue.add(new Op(w,rx,y+4,rz,Material.GLOWSTONE));
+        // Shared supplies and output are both real double chests, placed away
+        // from lane chests so the chest-merging rules remain valid.
+        doubleChest(w,rx-5,y+1,rz-6,"Ingredients");
+        doubleChest(w,rx+4,y+1,rz+6,"Finished Pots");
+        queue.add(new Op(w,rx,y+5,rz,Material.GLOWSTONE));
     }
 
     private void buildFenceGateBowTrap(World w,int cx,int y,int cz) {

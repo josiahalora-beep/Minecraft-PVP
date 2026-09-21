@@ -2146,10 +2146,24 @@ final class SimWorldDirector {
 
         if (candidates.isEmpty()) {
             if (!isConversationWorthy(lower)) return null;
-            candidates.addAll(players.values());
+            for(SimPlayer p:players.values()) if(p.logicalOnline) candidates.add(p);
         }
 
-        return candidates.get(rng.nextInt(candidates.size()));
+        if(candidates.isEmpty()) return null;
+
+        // Creators are community magnets. They are more likely to be pulled
+        // into public threads without monopolizing every conversation.
+        List<SimPlayer> weighted=new ArrayList<SimPlayer>();
+        for(SimPlayer p:candidates) {
+            weighted.add(p);
+            if(plugin.isCreatorIdentity(p.name)) {
+                weighted.add(p);
+                weighted.add(p);
+            } else if(namePrestigeTier(p.name)>=2) {
+                weighted.add(p);
+            }
+        }
+        return weighted.get(rng.nextInt(weighted.size()));
     }
 
     private SimPlayer chooseSecondResponder(SimPlayer first, String lower) {
@@ -3708,6 +3722,14 @@ final class SimWorldDirector {
             players.put(key(p.name), p);
         }
 
+        int nameSkillVersion=data.getInt("meta.name-skill-model-version",0);
+        if(nameSkillVersion<1) {
+            for(SimPlayer p:players.values()) {
+                p.skill=creatorSkillOverride(p.name,rebalanceExistingSkillForName(p.name,p.skill));
+            }
+            data.set("meta.name-skill-model-version",1);
+        }
+
         sotwTicks = data.getLong("meta.sotw-ticks", 0L);
         sotwStartedAt = data.getLong("meta.sotw-started-at", System.currentTimeMillis());
         factionNameCursor = data.getInt("meta.faction-name-cursor", 0);
@@ -3823,7 +3845,7 @@ final class SimWorldDirector {
             SimPlayer p = new SimPlayer();
             p.name = names.get(i);
             p.balance = plugin.getConfig().getDouble("economy.starting-balance", 500.0);
-            p.skill = creatorSkillOverride(p.name, skillRoll());
+            p.skill = creatorSkillOverride(p.name, skillRollForName(p.name));
             p.aggression = 25 + rng.nextInt(66);
             p.bargaining = 25 + rng.nextInt(66);
             p.leadership = 25 + rng.nextInt(71);
@@ -4917,6 +4939,49 @@ final class SimWorldDirector {
         for(int i=1;i<Math.min(4,candidates.size());i++) candidates.get(i).staffRole="MOD";
     }
 
+    private int namePrestigeTier(String name) {
+        if(name==null || name.isEmpty()) return 0;
+        if(plugin.isCreatorIdentity(name)) return 3;
+
+        String lower=name.toLowerCase(Locale.ENGLISH);
+        boolean letters=name.matches("[A-Za-z]+");
+        boolean digits=name.matches(".*\\d.*");
+        boolean casualMarker=lower.contains("pvp") || lower.contains("hd") || lower.contains("mc") ||
+            lower.contains("fan") || lower.contains("kid") || lower.contains("king") ||
+            lower.contains("rekt") || lower.contains("itz") || lower.contains("x_") ||
+            lower.startsWith("xx") || lower.endsWith("xx");
+
+        // Short clean single-word handles were culturally valuable on old PvP
+        // servers and are therefore a strong-but-noisy public signal.
+        if(letters && !casualMarker && name.length()>=4 && name.length()<=8) return 2;
+        if(letters && !casualMarker && name.length()<=11) return 1;
+        if(!digits && !casualMarker && name.length()<=10) return 1;
+        return 0;
+    }
+
+    private int skillRollForName(String name) {
+        int base=skillRoll();
+        int tier=namePrestigeTier(name);
+        int bias=tier==2?10:(tier==1?3:-6);
+        // Keep sleepers and overrated names. The handle predicts skill; it does
+        // not reveal it.
+        int noise=rng.nextInt(13)-6;
+        return Math.max(18,Math.min(100,base+bias+noise));
+    }
+
+    private int rebalanceExistingSkillForName(String name,int existing) {
+        int tier=namePrestigeTier(name);
+        int target=existing;
+        if(tier==2) target+=6+rng.nextInt(5);
+        else if(tier==1) target+=rng.nextInt(5)-1;
+        else target-=2+rng.nextInt(5);
+        return Math.max(18,Math.min(100,target));
+    }
+
+    int publicNamePrestige(String name) {
+        return namePrestigeTier(name);
+    }
+
     private int creatorSkillOverride(String name, int rolled) {
         String n = key(name);
         if (n.equals("stimpy") || n.equals("stimpypvp") || n.equals("marcel") || n.equals("painfulpvp")) return 95 + rng.nextInt(6);
@@ -5045,6 +5110,7 @@ final class SimWorldDirector {
         }
 
         data.set("meta.schema", 4);
+        data.set("meta.name-skill-model-version",1);
         data.set("meta.sotw-ticks", sotwTicks);
         data.set("meta.sotw-started-at", sotwStartedAt);
         data.set("meta.faction-name-cursor", factionNameCursor);

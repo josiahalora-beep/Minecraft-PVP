@@ -3447,6 +3447,9 @@ final class SimWorldDirector {
         kicked.faction="";
         kicked.role=kicked.preferredJob;
         kicked.currentGoal="social";
+        recordHistory("KICK",6,kicked.name+" was kicked from "+f.name+
+            (replacementName==null||replacementName.isEmpty()?"":" to make room for "+replacementName),
+            f.name,kicked.name,f.leader,replacementName);
         enqueue(kicked.name,rng.nextBoolean()?"wow kicked for no reason":"lff again lol",false);
     }
 
@@ -3518,6 +3521,9 @@ final class SimWorldDirector {
             target.healPots+=stolenHeals;
             rememberRelationship(relationship(old.leader,p.name,true),
                 p.name+" left "+oldName+" for "+target.name+" and took supplies");
+            recordHistory("BETRAYAL",9,p.name+" left "+oldName+" for "+target.name+
+                " and took "+stolenPearls+" pearls / "+stolenHeals+" heals",
+                oldName,p.name,old.leader,target.leader);
             enqueue(p.name,"joined "+target.name,false);
             recordRivalry(oldName,target.name,8);
         }
@@ -3560,6 +3566,7 @@ final class SimWorldDirector {
             p.pendingDonorKeys=Math.min(64,p.pendingDonorKeys+keys);
             p.donationUsd+=usd;
             plugin.broadcastCommunityEvent("&6[Store] &f"+p.name+" &7purchased &e"+keys+" Donor Keys&7.");
+            if(keys>=7) recordHistory("STORE",4,p.name+" bought "+keys+" Donor Keys",p.faction,p.name);
             if(rng.nextInt(100)<55) enqueue(p.name,oneOf("im opening keys at spawn","these keys better pay out","one more key bro"),false);
             return;
         }
@@ -3570,6 +3577,7 @@ final class SimWorldDirector {
         p.donationUsd+=paid;
         String rank=donorName(p.donorLevel);
         plugin.broadcastCommunityEvent("&6[Store] &f"+p.name+" &7upgraded to &f"+rank+"&7.");
+        if(p.donorLevel>=3) recordHistory("RANK",5,p.name+" became "+rank,p.faction,p.name);
         if(p.ownerAffinity>=20) enqueue(p.name,oneOf("worth it","server has been fun","finally got "+rank.toLowerCase(Locale.ENGLISH)),false);
         else if(rng.nextBoolean()) enqueue(p.name,"got "+rank.toLowerCase(Locale.ENGLISH)+" lets go",false);
     }
@@ -3580,6 +3588,7 @@ final class SimWorldDirector {
         p.donorLevel++;
         String rank=donorName(p.donorLevel);
         plugin.broadcastCommunityEvent("&d[Crates] &f"+p.name+" &7won a &f"+rank+" &7rank upgrade from "+source+"&7.");
+        recordHistory("RANK",7,p.name+" won "+rank+" from "+source,p.faction,p.name);
         rememberRelationship(relationship(p.name,plugin.getConfig().getString("owner.name","Owner"),true),
             "won "+rank+" from a "+source+" reward");
         save();
@@ -3656,6 +3665,7 @@ final class SimWorldDirector {
             target.logicalOnline=false;
             target.currentGoal="banned";
             plugin.broadcastCommunityEvent("&c[Staff] &f"+target.name+" &7was temporarily banned for &f"+mins+"m&7.");
+            recordHistory("MODERATION",6,target.name+" was temporarily banned by "+mod.name,target.faction,target.name,mod.name);
             plugin.sendSimulatedStaffChat(mod.name,"banned "+target.name+" after watching them, logs looked bad");
         } else {
             plugin.sendSimulatedStaffChat(mod.name,"cleared "+target.name+", not enough evidence to punish");
@@ -4862,7 +4872,10 @@ final class SimWorldDirector {
         contributeToFaction(best, f, 0.15);
         best.faction = f.name;
         best.role = "leader";
+        best.leaderExperience++;
         factions.put(key(f.name), f);
+        recordHistory("FOUNDING",7,best.name+" founded "+f.name+" as a "+leaderStyle(best),
+            f.name,best.name);
     }
 
     private String nextFactionName() {
@@ -5090,6 +5103,14 @@ final class SimWorldDirector {
         if (factionName == null || factionName.isEmpty()) return;
         SimFaction f = factions.get(key(factionName));
         if (f == null) return;
+        SimPlayer leader=players.get(key(f.leader));
+        if(leader!=null) {
+            leader.leaderExperience++;
+            if(raidable) {
+                leader.composure=Math.max(10,leader.composure-(leader.patience<50?2:0));
+                recordHistory("RAID",9,f.name+" went raidable after "+playerName+" died",f.name,playerName,f.leader);
+            }
+        }
         updateDtrStrategy(f);
         save();
     }
@@ -5109,10 +5130,15 @@ final class SimWorldDirector {
     }
 
     private double getDtrSafetyFloor(SimFaction f) {
-        // Better leaders become cautious slightly earlier; elite players still
-        // may defend at home, but the faction does not deliberately roam.
-        SimPlayer leader = players.get(key(f.leader));
-        if (leader != null && leader.leadership >= 75) return 1.5;
+        SimPlayer leader=players.get(key(f.leader));
+        if(leader==null) return 1.0;
+
+        int q=leaderQuality(leader);
+        // Smart/composed leaders preserve map progress. Reckless or immature
+        // leaders stay out too long and occasionally become cautionary stories.
+        if(q>=82 && leader.composure>=75) return 2.0;
+        if(q>=70) return 1.5;
+        if(q<48 && leader.riskTolerance>=65) return 0.55;
         return 1.0;
     }
 

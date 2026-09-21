@@ -87,6 +87,7 @@ final class SimWorldDirector {
         int pendingDonorKeys;
         long lastVoteAt;
         long lastDonorKeyAt;
+        long nextDuelRequestAt;
         boolean logicalOnline;
         int sessionTicksLeft;
         long nextGoalTick;
@@ -3217,16 +3218,17 @@ final class SimWorldDirector {
         maybeCommunityRewards();
 
         int roll=rng.nextInt(100);
-        if(roll<15) maybeHistoryGossip();
-        else if(roll<32) maybeSocialBond();
-        else if(roll<42) maybeFactionDrama();
-        else if(roll<47) maybeFactionUpgradeRecruit();
-        else if(roll<51) maybeFactionDefection();
-        else if(roll<59) maybeCreatorPvpDrama();
-        else if(roll<66) maybeDonorUpgrade();
-        else if(roll<72) maybeStaffReport();
-        else if(roll<75) maybeModerationAction();
-        else if(roll<86) maybeOwnerCommunityMessage();
+        if(roll<10) maybeDuelCulture();
+        else if(roll<22) maybeHistoryGossip();
+        else if(roll<38) maybeSocialBond();
+        else if(roll<48) maybeFactionDrama();
+        else if(roll<53) maybeFactionUpgradeRecruit();
+        else if(roll<57) maybeFactionDefection();
+        else if(roll<65) maybeCreatorPvpDrama();
+        else if(roll<72) maybeDonorUpgrade();
+        else if(roll<78) maybeStaffReport();
+        else if(roll<81) maybeModerationAction();
+        else if(roll<92) maybeOwnerCommunityMessage();
     }
 
     private void maybeCommunityRewards() {
@@ -3307,6 +3309,173 @@ final class SimWorldDirector {
         if(p==null || amount<=0) return;
         p.balance+=amount;
         save();
+    }
+
+    private void maybeDuelCulture() {
+        if(visibleFight!=null) return;
+        String ownerName=plugin.getConfig().getString("owner.name","");
+        Player owner=ownerName.isEmpty()?null:Bukkit.getPlayerExact(ownerName);
+        if(owner==null) return;
+
+        long now=System.currentTimeMillis();
+        List<SimPlayer> candidates=new ArrayList<SimPlayer>();
+        for(SimPlayer p:players.values()) {
+            if(!p.logicalOnline || p.bannedUntil>now || p.nextDuelRequestAt>now) continue;
+            SocialEdge rel=relationship(p.name,ownerName,true);
+            int urge=p.aggression/2+p.riskTolerance/3+p.sociability/4+p.reputation/5+
+                (plugin.isCreatorIdentity(p.name)?18:0)+(p.duelWins>p.duelLosses?8:0);
+            if("leader".equals(p.role)) urge+=p.standards/5;
+            if(rel.grudge>=40) urge+=18;
+            if(urge+rng.nextInt(45)>=72) candidates.add(p);
+        }
+        if(candidates.isEmpty()) return;
+
+        SimPlayer p=candidates.get(rng.nextInt(candidates.size()));
+        p.nextDuelRequestAt=now+(8+rng.nextInt(18))*60L*1000L;
+        String reason;
+        if("leader".equals(p.role) && p.standards>=72) reason="wants to see if you can actually fight";
+        else if(p.reputation>=35) reason="wants a clean 1v1";
+        else if(relationship(p.name,ownerName,true).grudge>=40) reason="called you out";
+        else reason="sent you a duel request";
+        plugin.offerSimulatedDuel(p.name,ownerName,reason);
+    }
+
+    String duelDecision(String challenger,String target,boolean challengerIsOwner) {
+        SimPlayer p=players.get(key(target));
+        if(p==null || !p.logicalOnline || p.bannedUntil>System.currentTimeMillis()) return "DECLINE|not online rn";
+        if(visibleFight!=null) return "DECLINE|im busy fighting rn";
+
+        SocialEdge rel=relationship(p.name,challenger,true);
+        int score=p.aggression/3+p.riskTolerance/3+p.sociability/5+p.reputation/6+
+            (plugin.isCreatorIdentity(p.name)?12:0)+(challengerIsOwner?12:0)+rng.nextInt(31);
+        score+=rel.respect/5-rel.grudge/7;
+
+        if("leader".equals(p.role)) {
+            // Calm leaders don't spam duels, but high-standard leaders use them
+            // deliberately to evaluate important people.
+            score+=p.standards/4;
+            score-=p.composure>=80?8:0;
+        }
+
+        if(score>=58) {
+            String msg;
+            if("leader".equals(p.role) && p.composure>=72)
+                msg=oneOf("yeah queue it","sure lets run it","one duel then i gotta lead");
+            else if(p.aggression>=75)
+                msg=oneOf("send it","yeah rn","queue me");
+            else msg=oneOf("sure","yeah im down","lets do it");
+            return "ACCEPT|"+msg;
+        }
+
+        return "DECLINE|"+oneOf("not rn","im good","maybe later","got stuff to do");
+    }
+
+    boolean startHumanVsSimDuel(Player human,String simName) {
+        if(human==null || visibleFight!=null) return false;
+        SimPlayer p=players.get(key(simName));
+        if(p==null || !p.logicalOnline || p.bannedUntil>System.currentTimeMillis()) return false;
+
+        World w=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
+        if(w==null) return false;
+        int y=Math.max(4,plugin.getConfig().getInt("map.surface-y",63)+1);
+        int cx=plugin.getConfig().getInt("duels.center-x",200);
+        int cz=plugin.getConfig().getInt("duels.center-z",0);
+
+        VisibleFight fight=new VisibleFight();
+        fight.id="DUEL_"+System.currentTimeMillis();
+        fight.type="DUEL";
+        fight.world=w.getName();
+        fight.centerX=cx; fight.centerY=y; fight.centerZ=cz;
+        fight.ownerName=human.getName();
+        fight.teamSize=1;
+        fight.expiresAt=System.currentTimeMillis()+
+            Math.max(60,plugin.getConfig().getInt("duels.timeout-seconds",180))*1000L;
+
+        CombatAssignment ca=new CombatAssignment();
+        ca.fightId=fight.id;
+        ca.name=p.name;
+        ca.faction=p.faction==null||p.faction.isEmpty()?"none":p.faction;
+        ca.enemyFaction="DUEL";
+        ca.world=w.getName();
+        ca.combatClass=CombatClass.DIAMOND;
+        ca.action="FOCUS";
+        ca.skill=p.skill;
+        ca.aggression=p.aggression;
+        ca.risk=p.riskTolerance;
+        ca.x=cx+12; ca.y=y; ca.z=cz;
+        ca.homeX=ca.x; ca.homeY=y; ca.homeZ=ca.z;
+        ca.focus=human.getName();
+        ca.enemies.add(human.getName());
+        fight.assignments.put(key(p.name),ca);
+
+        visibleFight=fight;
+        writeCombatFile();
+        recordHistory("DUEL",5,human.getName()+" and "+p.name+" agreed to duel",p.faction,human.getName(),p.name);
+        return true;
+    }
+
+    Location humanDuelSpawn() {
+        if(visibleFight==null || !"DUEL".equals(visibleFight.type)) return null;
+        World w=Bukkit.getWorld(visibleFight.world);
+        if(w==null) return null;
+        return new Location(w,visibleFight.centerX-12+0.5,visibleFight.centerY,visibleFight.centerZ+0.5,-90f,0f);
+    }
+
+    void finishDuel(String winner,String loser) {
+        SimPlayer win=players.get(key(winner));
+        SimPlayer lose=players.get(key(loser));
+        if(win!=null) {
+            win.duelWins++;
+            win.reputation=Math.min(999,win.reputation+3+(lose!=null?Math.max(0,lose.reputation/20):2));
+        }
+        if(lose!=null) lose.duelLosses++;
+
+        if(win!=null && loser!=null) {
+            SocialEdge e=relationship(win.name,loser,true);
+            e.respect=clampSocial(e.respect+3);
+            rememberRelationship(e,"beat "+loser+" in a duel");
+        }
+        if(lose!=null && winner!=null) {
+            SocialEdge e=relationship(lose.name,winner,true);
+            e.respect=clampSocial(e.respect+4);
+            rememberRelationship(e,"lost a duel to "+winner);
+        }
+
+        String faction=win!=null?win.faction:(lose!=null?lose.faction:"");
+        recordHistory("DUEL",7,winner+" beat "+loser+" in a duel",faction,winner,loser);
+        visibleFight=null;
+        writeCombatFile();
+        save();
+    }
+
+    void cancelDuel(String a,String b,String reason) {
+        if(reason!=null && !reason.isEmpty())
+            recordHistory("DUEL",3,a+" vs "+b+" ended: "+reason,"",a,b);
+        if(visibleFight!=null && "DUEL".equals(visibleFight.type)) {
+            visibleFight=null;
+            writeCombatFile();
+        }
+    }
+
+    void onDuelDeclined(String challenger,String target) {
+        SimPlayer sim=players.get(key(challenger));
+        String other=target;
+        if(sim==null) { sim=players.get(key(target)); other=challenger; }
+        if(sim==null) return;
+        SocialEdge e=relationship(sim.name,other,true);
+        // Most people do not treat a declined duel as betrayal.
+        if(sim.aggression>=80 && sim.composure<50) e.affinity=clampAffinity(e.affinity-2);
+        e.lastInteraction=System.currentTimeMillis();
+    }
+
+    int duelWinsFor(String name) {
+        SimPlayer p=players.get(key(name));
+        return p==null?0:p.duelWins;
+    }
+
+    int duelLossesFor(String name) {
+        SimPlayer p=players.get(key(name));
+        return p==null?0:p.duelLosses;
     }
 
     private void maybeHistoryGossip() {
@@ -4460,6 +4629,7 @@ final class SimWorldDirector {
             p.pendingDonorKeys = s.getInt("pending-donor-keys",p.donorLevel>0?1:0);
             p.lastVoteAt = s.getLong("last-vote-at",0L);
             p.lastDonorKeyAt = s.getLong("last-donor-key-at",0L);
+            p.nextDuelRequestAt = s.getLong("next-duel-request-at",0L);
             p.logicalOnline = s.getBoolean("logical-online", rng.nextInt(100)<45) && p.bannedUntil<=System.currentTimeMillis();
             p.sessionTicksLeft = s.getInt("session-ticks-left", Math.max(2,5+rng.nextInt(20)));
             p.nextGoalTick = s.getLong("next-goal-tick", 0L);
@@ -4654,6 +4824,7 @@ final class SimWorldDirector {
             p.pendingDonorKeys = p.donorLevel>0?1:0;
             p.lastVoteAt = 0L;
             p.lastDonorKeyAt = 0L;
+            p.nextDuelRequestAt = 0L;
             p.logicalOnline = rng.nextInt(100) < 48;
             p.sessionTicksLeft = 5 + rng.nextInt(20);
             p.currentGoal = "idle";
@@ -5954,6 +6125,7 @@ final class SimWorldDirector {
             data.set(b + ".pending-donor-keys",p.pendingDonorKeys);
             data.set(b + ".last-vote-at",p.lastVoteAt);
             data.set(b + ".last-donor-key-at",p.lastDonorKeyAt);
+            data.set(b + ".next-duel-request-at",p.nextDuelRequestAt);
             data.set(b + ".logical-online", p.logicalOnline);
             data.set(b + ".session-ticks-left", p.sessionTicksLeft);
             data.set(b + ".next-goal-tick", p.nextGoalTick);

@@ -207,8 +207,7 @@ final class HcfInfrastructureDirector {
         // to preserve malformed legacy terrain or floating fragments.
         for(int x=cx-core;x<=cx+core;x++) {
             for(int z=cz-core;z<=cz+core;z++) {
-                for(int yy=floorY+1;yy<=Math.min(w.getMaxHeight()-1,floorY+11);yy++)
-                    queue.add(new Op(w,x,yy,z,Material.AIR));
+                queueClearAboveGrade(w,x,floorY,z,14);
 
                 int ax=Math.abs(x-cx),az=Math.abs(z-cz);
                 Material floor=(ax%8==0 || az%8==0)?Material.QUARTZ_BLOCK:Material.SMOOTH_BRICK;
@@ -252,12 +251,10 @@ final class HcfInfrastructureDirector {
                 queue.add(new Op(w,cx+width,floorY,cz-d,Material.SMOOTH_BRICK));
                 queue.add(new Op(w,cx+d,floorY,cz+width,Material.SMOOTH_BRICK));
                 queue.add(new Op(w,cx-d,floorY,cz+width,Material.SMOOTH_BRICK));
-                for(int yy=floorY+1;yy<=floorY+5;yy++) {
-                    queue.add(new Op(w,cx+width,yy,cz+d,Material.AIR));
-                    queue.add(new Op(w,cx+width,yy,cz-d,Material.AIR));
-                    queue.add(new Op(w,cx+d,yy,cz+width,Material.AIR));
-                    queue.add(new Op(w,cx-d,yy,cz+width,Material.AIR));
-                }
+                queueClearAboveGrade(w,cx+width,floorY,cz+d,8);
+                queueClearAboveGrade(w,cx+width,floorY,cz-d,8);
+                queueClearAboveGrade(w,cx+d,floorY,cz+width,8);
+                queueClearAboveGrade(w,cx-d,floorY,cz+width,8);
             }
         }
 
@@ -293,7 +290,7 @@ final class HcfInfrastructureDirector {
     private void queueFunctionalPad(World w,int cx,int cz,int y,int rx,int rz,Material floor) {
         for(int x=cx-rx;x<=cx+rx;x++) for(int z=cz-rz;z<=cz+rz;z++) {
             queue.add(new Op(w,x,y,z,floor));
-            for(int yy=y+1;yy<=y+5;yy++) queue.add(new Op(w,x,yy,z,Material.AIR));
+            queueClearAboveGrade(w,x,y,z,8);
         }
         for(int x=cx-rx;x<=cx+rx;x+=Math.max(1,rx)) {
             for(int z=cz-rz;z<=cz+rz;z+=Math.max(1,rz)) {
@@ -301,6 +298,13 @@ final class HcfInfrastructureDirector {
                 queue.add(new Op(w,x,y+2,z,Material.GLOWSTONE));
             }
         }
+    }
+
+    private void queueClearAboveGrade(World w,int x,int floorY,int z,int headroom) {
+        int top=Math.min(w.getMaxHeight()-1,
+            Math.max(floorY+Math.max(4,headroom),w.getHighestBlockYAt(x,z)+8));
+        for(int yy=floorY+1;yy<=top;yy++)
+            queue.add(new Op(w,x,yy,z,Material.AIR));
     }
 
     private void queueDuelArena(World w,int cx,int floorY,int cz) {

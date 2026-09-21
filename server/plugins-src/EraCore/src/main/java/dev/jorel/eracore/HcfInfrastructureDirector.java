@@ -122,6 +122,16 @@ final class HcfInfrastructureDirector {
         return duelReady;
     }
 
+    Location safeSpawnLocation() {
+        Location spawn=warps.getSpawn();
+        if(spawn==null || spawn.getWorld()==null) return null;
+        Location safe=new Location(spawn.getWorld(),spawn.getBlockX()+0.5,
+            plugin.getConfig().getInt("map.surface-y",63)+1,spawn.getBlockZ()+0.5,
+            spawn.getYaw(),spawn.getPitch());
+        ensureSafePad(safe,2,Material.QUARTZ_BLOCK);
+        return safe;
+    }
+
     Location duelCenter(){return duelCenter==null?null:duelCenter.clone();}
     Location duelHumanSpawn(){return duelHuman==null?null:duelHuman.clone();}
     Location duelSimSpawn(){return duelSim==null?null:duelSim.clone();}

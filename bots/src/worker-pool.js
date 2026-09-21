@@ -417,16 +417,74 @@ function parseTagSeconds(text) {
   return m ? Math.max(1, Number(m[1]) || 0) : 60
 }
 
+const BOT_COMMAND_GAP_MS = Math.max(1000, Number(process.env.HCF_COMMAND_GAP_MS || 1250))
+
+function drainCommandQueue(state, value=false) {
+  const queued=Array.isArray(state.commandQueue)?state.commandQueue.splice(0):[]
+  state.queuedCommandKeys?.clear()
+  for(const item of queued) {
+    try { item.resolve(value) } catch {}
+  }
+}
+
+async function pumpCommandQueue(state) {
+  if(state.commandPump) return
+  state.commandPump=true
+  try {
+    while(Array.isArray(state.commandQueue) && state.commandQueue.length) {
+      if(state.closing || !state.bot?.entity) {
+        drainCommandQueue(state,false)
+        break
+      }
+      state.commandQueue.sort((a,b)=>(b.priority||0)-(a.priority||0)||(a.queuedAt||0)-(b.queuedAt||0))
+      const item=state.commandQueue.shift()
+      state.queuedCommandKeys?.delete(item.command)
+      const delay=Math.max(0,Number(state.nextCommandAt||0)-Date.now())
+      if(delay>0) await sleep(delay)
+      const bot=state.bot
+      if(state.closing || !bot?.entity) {
+        try { item.resolve(false) } catch {}
+        continue
+      }
+      try {
+        bot.chat(item.command)
+        const sentAt=Date.now()
+        state.lastCommandAt=sentAt
+        state.nextCommandAt=sentAt+Math.max(BOT_COMMAND_GAP_MS,Number(item.minGapMs||0))
+        try { item.resolve(true) } catch {}
+      } catch {
+        try { item.resolve(false) } catch {}
+      }
+    }
+  } finally {
+    state.commandPump=false
+  }
+}
+
+function queueBotCommand(state, command, minGapMs=BOT_COMMAND_GAP_MS, priority=0) {
+  if(!state?.bot?.entity || state.closing) return Promise.resolve(false)
+  const text=String(command||'').trim()
+  if(!text) return Promise.resolve(false)
+  if(!Array.isArray(state.commandQueue)) state.commandQueue=[]
+  if(!state.queuedCommandKeys) state.queuedCommandKeys=new Set()
+  // Coalesce identical sync/gear/stash requests while one is already waiting.
+  if(state.queuedCommandKeys.has(text)) return Promise.resolve(false)
+  // A bounded queue prevents a slow server from turning periodic work loops
+  // into a minutes-long command backlog.
+  if(state.commandQueue.length>=8 && priority<=0) return Promise.resolve(false)
+  return new Promise(resolve => {
+    state.queuedCommandKeys.add(text)
+    state.commandQueue.push({command:text,minGapMs,priority,queuedAt:Date.now(),resolve})
+    pumpCommandQueue(state).catch(() => {})
+  })
+}
+
 async function tryCommand(state, command, cooldownMs = 5000) {
   if (!state.bot?.entity || state.combat) return false
-  if (Date.now() - (state.lastCommandAt || 0) < cooldownMs) return false
-  try {
-    state.bot.chat(command)
-    state.lastCommandAt = Date.now()
-    return true
-  } catch {
-    return false
-  }
+  const now=Date.now()
+  if (now - (state.lastCommandRequestedAt || 0) < cooldownMs) return false
+  state.lastCommandRequestedAt=now
+  return await queueBotCommand(state,command,BOT_COMMAND_GAP_MS,10)
 }
 
 function inventoryFreeSlots(bot) {
@@ -468,7 +526,7 @@ async function finishCrateRun(state, force = false) {
   }
 
   if(now-(state.cratePhaseAt || 0)<1300 && !force) return false
-  try { bot.chat('/simworker stash') } catch {}
+  await queueBotCommand(state,'/simworker stash')
   state.lastDepositAt=now
   state.crateReturnNeeded=false
   state.cratePhase=''
@@ -498,7 +556,7 @@ async function commandBrain(state) {
   if(faction!=='none' && !tagged && nearAssignedHome(state) &&
      now-(state.lastGearRequestAt || 0)>(action==='gear'?3500:18000)) {
     state.lastGearRequestAt=now
-    try { bot.chat('/simworker gearup') } catch {}
+    await queueBotCommand(state,'/simworker gearup')
     if(action==='gear') return
   }
 
@@ -567,7 +625,7 @@ async function commandBrain(state) {
 
     if(faction!=='none' && state.cratePhase==='home') {
       if(now-(state.cratePhaseAt || 0)<1300) return
-      try { bot.chat('/simworker crateprep') } catch {}
+      await queueBotCommand(state,'/simworker crateprep')
       state.cratePhase='prepped'
       state.cratePhaseAt=now
       return
@@ -581,7 +639,7 @@ async function commandBrain(state) {
       const econ=Number(state.job?.economicIq || 50)
       const required=patience+econ>=130?12:(patience+econ>=90?9:6)
       if(inventoryFreeSlots(bot)<required) {
-        try { bot.chat('/simworker crateprep') } catch {}
+        await queueBotCommand(state,'/simworker crateprep')
         state.cratePhaseAt=now
         return
       }
@@ -712,7 +770,7 @@ async function sync(state) {
   if (!state.bot || !state.bot.entity || state.syncing) return
   state.syncing = true
   try {
-    state.bot.chat('/simworker sync')
+    await queueBotCommand(state,'/simworker sync',BOT_COMMAND_GAP_MS,20)
     state.lastSyncAt = Date.now()
   } catch {
   } finally {
@@ -724,7 +782,7 @@ async function deposit(state) {
   if (!state.bot || !state.bot.entity || state.depositing) return
   state.depositing = true
   try {
-    state.bot.chat('/simworker deposit')
+    await queueBotCommand(state,'/simworker deposit',BOT_COMMAND_GAP_MS,5)
     state.lastDepositAt = Date.now()
   } catch {
   } finally {
@@ -1222,7 +1280,7 @@ async function performPluginInteraction(state) {
     const used=await approachAndActivate(state,block,true)
     if(used && Date.now()-(state.lastGearRequestAt || 0)>1800) {
       state.lastGearRequestAt=Date.now()
-      try { state.bot.chat('/simworker gearup') } catch {}
+      await queueBotCommand(state,'/simworker gearup')
     }
     return used
   }
@@ -1335,7 +1393,7 @@ async function redeemCrate(state) {
     state.lastCrateUseAt=Date.now()
     state.crateOpensThisTrip=(state.crateOpensThisTrip || 0)+1
     await sleep(900)
-    try { bot.chat('/simworker sync') } catch {}
+    await queueBotCommand(state,'/simworker sync',BOT_COMMAND_GAP_MS,20)
 
     // A cautious/economy-minded player banks sooner. A gambler may open more
     // keys in one trip, but still returns before inventory pressure becomes risky.
@@ -1603,6 +1661,11 @@ async function connectIdentity(candidate, settings) {
     zoneArrivalAt: 0,
     lastTeleportAttempt: 0,
     lastCommandAt: 0,
+    lastCommandRequestedAt: 0,
+    nextCommandAt: Date.now() + 500 + Math.floor(Math.random()*700),
+    commandQueue: [],
+    queuedCommandKeys: new Set(),
+    commandPump: false,
     lastCommandBrainAt: 0,
     lastSurvivalAt: 0,
     lastSurvivalPot: 0,
@@ -1665,7 +1728,7 @@ async function connectIdentity(candidate, settings) {
           if(state.bot?.entity) {
             await sleep(starter?220:450)
             state.lastGearRequestAt=Date.now()
-            try { state.bot.chat('/simworker kitcycle') } catch {}
+            await queueBotCommand(state,'/simworker kitcycle',BOT_COMMAND_GAP_MS,15)
           }
         }, 250)
       }
@@ -1711,7 +1774,7 @@ async function connectIdentity(candidate, settings) {
       stopMovement(bot)
       state.combat = candidate.assignment
       state.lastCombatFightId = candidate.assignment?.fightId || ''
-      try { bot.chat('/simcombat sync') } catch {}
+      await queueBotCommand(state,'/simcombat sync',BOT_COMMAND_GAP_MS,100)
     } else {
       await sync(state)
       await sleep(350)
@@ -1723,6 +1786,7 @@ async function connectIdentity(candidate, settings) {
   } catch (err) {
     console.log(name + ' connect failed: ' + err.message)
     try { state.bot?.quit('connect failed') } catch {}
+    drainCommandQueue(state,false)
     state.bot = null
     state.reconnectAt = Date.now() + 7000
   }
@@ -1738,6 +1802,7 @@ function disconnectIdentity(name, reason = 'rotation') {
   const state = live.get(name)
   if (!state) return
   state.closing = true
+  drainCommandQueue(state,false)
   if (state.bot) {
     stopMovement(state.bot)
     try { state.bot.quit(reason) } catch {}
@@ -1831,15 +1896,15 @@ async function reconcileDistributed() {
         try { state.bot.pathfinder?.stop() } catch {}
         stopMovement(state.bot)
         state.lastCombatFightId=nextFight
-        try { state.bot.chat('/simcombat sync') } catch {}
+        await queueBotCommand(state,'/simcombat sync',BOT_COMMAND_GAP_MS,100)
       }
     } else if(state.combat) {
       state.combatController?.stop()
       state.combat=null
       if(state.bot) {
-        try { state.bot.chat('/simcombat release') } catch {}
+        await queueBotCommand(state,'/simcombat release',BOT_COMMAND_GAP_MS,100)
         await sleep(180)
-        try { state.bot.chat('/simworker sync') } catch {}
+        try { await queueBotCommand(state,'/simworker sync',BOT_COMMAND_GAP_MS,20) } catch {}
       }
     }
 
@@ -1939,15 +2004,15 @@ async function reconcile() {
         try { state.bot.pathfinder?.stop() } catch {}
         stopMovement(state.bot)
         state.lastCombatFightId = nextFight
-        try { state.bot.chat('/simcombat sync') } catch {}
+        await queueBotCommand(state,'/simcombat sync',BOT_COMMAND_GAP_MS,100)
       }
     } else if (state.combat) {
       state.combatController?.stop()
       state.combat = null
       if (state.bot) {
-        try { state.bot.chat('/simcombat release') } catch {}
+        await queueBotCommand(state,'/simcombat release',BOT_COMMAND_GAP_MS,100)
         await sleep(180)
-        try { state.bot.chat('/simworker sync') } catch {}
+        try { await queueBotCommand(state,'/simworker sync',BOT_COMMAND_GAP_MS,20) } catch {}
       }
     }
 

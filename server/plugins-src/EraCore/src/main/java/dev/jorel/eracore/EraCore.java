@@ -545,6 +545,23 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (simChat != null) simChat.onDeath(e);
     }
 
+    @EventHandler(priority=EventPriority.HIGHEST)
+    public void onRespawn(PlayerRespawnEvent e) {
+        if(activeDuel!=null && activeDuel.restoreOnRespawn &&
+           e.getPlayer().getName().equalsIgnoreCase(activeDuel.human)) {
+            if(activeDuel.returnLocation!=null) e.setRespawnLocation(activeDuel.returnLocation);
+            final Player p=e.getPlayer();
+            Bukkit.getScheduler().runTaskLater(this,new Runnable() {
+                public void run() {
+                    if(p.isOnline()) {
+                        restoreDuelHuman(p);
+                        clearDuelSnapshot();
+                    }
+                }
+            },2L);
+        }
+    }
+
     private void maybeClaimOwner(Player p) {
         if (!getConfig().getBoolean("owner.claim-first-human", true)) return;
         if (!getConfig().getString("owner.uuid", "").isEmpty()) {
@@ -1970,6 +1987,228 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         String fac=factionNameFor(name);
         if(fac!=null && !fac.isEmpty()) viewer.sendMessage(color("&7Faction: &f"+fac));
         return true;
+    }
+
+    private boolean cmdHistory(Player viewer,String[] a) {
+        if(simWorld==null) return true;
+        String subject=a.length>0?a[0]:viewer.getName();
+        List<String> lines=simWorld.historyLines(subject,10);
+        viewer.sendMessage(color("&6--- Community History: &f"+subject+" &6---"));
+        if(lines.isEmpty()) {
+            viewer.sendMessage(color("&7No major history recorded yet."));
+            return true;
+        }
+        for(String line:lines) viewer.sendMessage(color("&8• &7"+line));
+        return true;
+    }
+
+    void offerSimulatedDuel(String from,String toHuman,String reason) {
+        if(activeDuel!=null || from==null || toHuman==null) return;
+        Player target=Bukkit.getPlayerExact(toHuman);
+        if(target==null || simWorld==null || !simWorld.contains(from)) return;
+
+        DuelRequest req=new DuelRequest();
+        req.from=from;
+        req.to=toHuman;
+        req.simulatedFrom=true;
+        req.expiresAt=System.currentTimeMillis()+45000L;
+        duelRequests.put(toHuman.toLowerCase(Locale.ENGLISH),req);
+
+        sendSimulatedPrivate(target,from,reason+". duel me?");
+        target.sendMessage(color("&c&lDUEL REQUEST &8» &f"+from+
+            " &7challenged you. &a/duel accept "+from+" &8| &c/duel decline "+from));
+    }
+
+    private boolean cmdDuel(final Player p,String[] a) {
+        if(simWorld==null) return true;
+
+        if(a.length==0) {
+            DuelRequest pending=duelRequests.get(p.getName().toLowerCase(Locale.ENGLISH));
+            if(pending!=null && pending.expiresAt>System.currentTimeMillis()) {
+                p.sendMessage(color("&cPending duel from &f"+pending.from+
+                    "&7. /duel accept "+pending.from+" &8| &7/duel decline "+pending.from));
+            } else {
+                p.sendMessage(color("&7/duel <player> &8| &7/duel accept [player] &8| &7/duel decline [player] &8| &7/duel stats [player]"));
+            }
+            return true;
+        }
+
+        String sub=a[0].toLowerCase(Locale.ENGLISH);
+        if(sub.equals("stats")) {
+            String name=a.length>1?a[1]:p.getName();
+            int wins,losses;
+            if(simWorld.contains(name)) {
+                wins=simWorld.duelWinsFor(name);
+                losses=simWorld.duelLossesFor(name);
+            } else {
+                String b="players."+name.toLowerCase(Locale.ENGLISH)+".duels";
+                wins=statsData.getInt(b+".wins",0);
+                losses=statsData.getInt(b+".losses",0);
+            }
+            p.sendMessage(color("&cDuel Record &8» &f"+name+" &7"+wins+"W - "+losses+"L"));
+            return true;
+        }
+
+        if(sub.equals("accept")) {
+            DuelRequest req=duelRequests.get(p.getName().toLowerCase(Locale.ENGLISH));
+            if(req==null || req.expiresAt<System.currentTimeMillis() ||
+               (a.length>1 && !req.from.equalsIgnoreCase(a[1]))) {
+                duelRequests.remove(p.getName().toLowerCase(Locale.ENGLISH));
+                p.sendMessage(color("&cNo matching active duel request."));
+                return true;
+            }
+            duelRequests.remove(p.getName().toLowerCase(Locale.ENGLISH));
+            return beginCommunityDuel(p,req.from);
+        }
+
+        if(sub.equals("decline")) {
+            DuelRequest req=duelRequests.remove(p.getName().toLowerCase(Locale.ENGLISH));
+            if(req==null || req.expiresAt<System.currentTimeMillis() ||
+               (a.length>1 && !req.from.equalsIgnoreCase(a[1]))) {
+                p.sendMessage(color("&cNo matching active duel request."));
+                return true;
+            }
+            simWorld.onDuelDeclined(req.from,p.getName());
+            p.sendMessage(color("&7Declined "+req.from+"'s duel request."));
+            return true;
+        }
+
+        final String targetName=a[0];
+        if(!simWorld.contains(targetName)) {
+            p.sendMessage(color("&cThat simulated player is not part of this community."));
+            return true;
+        }
+        if(targetName.equalsIgnoreCase(p.getName())) {
+            p.sendMessage(color("&cYou cannot duel yourself."));
+            return true;
+        }
+        if(activeDuel!=null || simWorld.hasVisibleFight()) {
+            p.sendMessage(color("&cA visible fight/duel is already using the combat arena."));
+            return true;
+        }
+        if(hcfZones!=null && hcfZones.isTagged(p)) {
+            p.sendMessage(color("&cFinish your current HCF combat tag before starting a duel."));
+            return true;
+        }
+
+        String decision=simWorld.duelDecision(p.getName(),targetName,isOwnerPlayer(p));
+        String[] parts=decision.split("\\|",2);
+        boolean accepted=parts.length>0 && "ACCEPT".equalsIgnoreCase(parts[0]);
+        String reply=parts.length>1?parts[1]:(accepted?"yeah":"not rn");
+        sendSimulatedPrivate(p,targetName,reply);
+        if(!accepted) {
+            simWorld.onDuelDeclined(p.getName(),targetName);
+            return true;
+        }
+
+        Bukkit.getScheduler().runTaskLater(this,new Runnable() {
+            public void run() {
+                if(p.isOnline()) beginCommunityDuel(p,targetName);
+            }
+        },20L+rngDelayTicks(targetName));
+        return true;
+    }
+
+    private long rngDelayTicks(String seed) {
+        return 8L+Math.abs((seed==null?0:seed.hashCode()))%18L;
+    }
+
+    private boolean beginCommunityDuel(final Player human,String simName) {
+        if(human==null || simName==null || activeDuel!=null || simWorld==null) return true;
+        if(simWorld.hasVisibleFight()) {
+            human.sendMessage(color("&cAnother visible fight started first. Try again after it ends."));
+            return true;
+        }
+        if(hcfZones!=null && hcfZones.isTagged(human)) {
+            human.sendMessage(color("&cFinish your current combat tag first."));
+            return true;
+        }
+        if(!simWorld.startHumanVsSimDuel(human,simName)) {
+            human.sendMessage(color("&cCould not start that duel right now."));
+            return true;
+        }
+
+        DuelSnapshot d=new DuelSnapshot();
+        d.human=human.getName();
+        d.sim=simName;
+        d.fightId=simWorld.currentVisibleFightId();
+        d.contents=cloneItems(human.getInventory().getContents());
+        d.armor=cloneItems(human.getInventory().getArmorContents());
+        d.returnLocation=human.getLocation().clone();
+        d.health=human.getHealth();
+        d.food=human.getFoodLevel();
+        activeDuel=d;
+
+        preparePotKit(human);
+        Location spawn=simWorld.humanDuelSpawn();
+        if(spawn!=null) human.teleport(spawn);
+
+        Bukkit.broadcastMessage(color("&c&lDUEL &8» &f"+human.getName()+" &7vs &f"+simName));
+        human.sendMessage(color("&7Duel deaths do not affect DTR, normal K/D, inventory or economy."));
+
+        final String fightId=d.fightId;
+        long timeout=Math.max(60,getConfig().getInt("duels.timeout-seconds",180))*20L;
+        Bukkit.getScheduler().runTaskLater(this,new Runnable() {
+            public void run() {
+                if(activeDuel==null || !fightId.equals(activeDuel.fightId)) return;
+                String a=activeDuel.human,b=activeDuel.sim;
+                simWorld.cancelDuel(a,b,"timeout");
+                Player hp=Bukkit.getPlayerExact(a);
+                if(hp!=null) restoreDuelHuman(hp);
+                clearDuelSnapshot();
+                Bukkit.broadcastMessage(color("&7Duel between &f"+a+" &7and &f"+b+" &7timed out."));
+            }
+        },timeout);
+        return true;
+    }
+
+    private void finishCommunityDuel(String winner,String loser,boolean humanDied) {
+        if(activeDuel==null) return;
+        String human=activeDuel.human;
+        String sim=activeDuel.sim;
+        String fightId=activeDuel.fightId;
+
+        if(simWorld!=null) simWorld.finishDuel(winner,loser);
+        combatPreparedFight.remove(sim.toLowerCase(Locale.ENGLISH));
+
+        String hb="players."+human.toLowerCase(Locale.ENGLISH)+".duels";
+        if(winner.equalsIgnoreCase(human))
+            statsData.set(hb+".wins",statsData.getInt(hb+".wins",0)+1);
+        else if(loser.equalsIgnoreCase(human))
+            statsData.set(hb+".losses",statsData.getInt(hb+".losses",0)+1);
+        saveYaml(statsData,statsFile);
+
+        Bukkit.broadcastMessage(color("&c&lDUEL &8» &f"+winner+" &7defeated &f"+loser));
+        activeDuel.fightId=""; // resolved; do not permit further duel-damage bypass
+
+        Player simBody=Bukkit.getPlayerExact(sim);
+        if(simBody!=null && simWorld!=null) {
+            simBody.getInventory().clear();
+            simBody.getInventory().setArmorContents(new ItemStack[4]);
+            prepareWorkerProjection(simBody,simWorld.workerTaskFor(sim));
+        }
+
+        if(!humanDied) {
+            Player hp=Bukkit.getPlayerExact(human);
+            if(hp!=null) restoreDuelHuman(hp);
+            clearDuelSnapshot();
+        }
+    }
+
+    private void restoreDuelHuman(Player p) {
+        if(activeDuel==null || p==null || !p.getName().equalsIgnoreCase(activeDuel.human)) return;
+        p.getInventory().clear();
+        p.getInventory().setArmorContents(new ItemStack[4]);
+        if(activeDuel.contents!=null) p.getInventory().setContents(cloneItems(activeDuel.contents));
+        if(activeDuel.armor!=null) p.getInventory().setArmorContents(cloneItems(activeDuel.armor));
+        p.setFoodLevel(activeDuel.food);
+        if(!p.isDead()) p.setHealth(Math.max(1.0,Math.min(p.getMaxHealth(),activeDuel.health)));
+        p.updateInventory();
+        if(activeDuel.returnLocation!=null && !p.isDead()) p.teleport(activeDuel.returnLocation);
+    }
+
+    private void clearDuelSnapshot() {
+        activeDuel=null;
     }
 
     private void recordHumanDeathStats(Player victim,Player killer) {

@@ -42,11 +42,19 @@ final class SpawnRewardsDirector implements Listener {
 
     void start() {
         if(!plugin.getConfig().getBoolean("rewards.enabled",true)) return;
+
+        if(plugin.getConfig().getBoolean("spawn.external-schematic",false)) {
+            // Never carve a crate court into a purchased/pasted schematic.
+            // The owner marks the two real blocks once after paste.
+            voteCrate=readExternalCrate("vote");
+            donorCrate=readExternalCrate("donor");
+            plugin.getLogger().info("External spawn mode: crate marks vote="+locText(voteCrate)+
+                " donor="+locText(donorCrate));
+            return;
+        }
+
         buildSpawnCrates();
 
-        // Infrastructure v3 intentionally rebuilds spawn asynchronously. Reapply
-        // the functional crate stations after that queue so a world migration
-        // can never leave key items with no physical redemption point.
         Bukkit.getScheduler().runTaskLater(plugin,new Runnable() {
             public void run(){ buildSpawnCrates(); }
         },420L);
@@ -62,6 +70,39 @@ final class SpawnRewardsDirector implements Listener {
     Location crateLocation(String type) {
         if("donor".equalsIgnoreCase(type)) return donorCrate==null?null:donorCrate.clone();
         return voteCrate==null?null:voteCrate.clone();
+    }
+
+    boolean setExternalCrate(String type,Location location) {
+        if(location==null || location.getWorld()==null) return false;
+        String t="donor".equalsIgnoreCase(type)?"donor":"vote";
+        Location blockLoc=location.getBlock().getLocation();
+        String b="external-crates."+t;
+        data.set(b+".world",blockLoc.getWorld().getName());
+        data.set(b+".x",blockLoc.getBlockX());
+        data.set(b+".y",blockLoc.getBlockY());
+        data.set(b+".z",blockLoc.getBlockZ());
+        save();
+
+        if("donor".equals(t)) {
+            donorCrate=blockLoc;
+            donorCrate.getBlock().setType(Material.ENDER_CHEST);
+        } else {
+            voteCrate=blockLoc;
+            voteCrate.getBlock().setType(Material.CHEST);
+        }
+        return true;
+    }
+
+    private Location readExternalCrate(String type) {
+        String b="external-crates."+type.toLowerCase(Locale.ENGLISH);
+        if(!data.contains(b+".world")) return null;
+        World w=Bukkit.getWorld(data.getString(b+".world","world"));
+        if(w==null) return null;
+        return new Location(w,data.getInt(b+".x"),data.getInt(b+".y"),data.getInt(b+".z"));
+    }
+
+    private String locText(Location l) {
+        return l==null?"unset":l.getWorld().getName()+":"+l.getBlockX()+","+l.getBlockY()+","+l.getBlockZ();
     }
 
     String keyTypeForPending(String name) {

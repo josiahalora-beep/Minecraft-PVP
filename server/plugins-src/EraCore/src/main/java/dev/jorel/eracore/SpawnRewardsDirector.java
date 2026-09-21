@@ -250,7 +250,7 @@ final class SpawnRewardsDirector implements Listener {
         int target=Math.max(5,plugin.getConfig().getInt("rewards.vote-party-target",20));
         if(progress>=target) {
             progress=0;
-            plugin.broadcastCommunityEvent("&d&lVOTE PARTY! &r&f"+target+" votes reached. &eOnline players received a Vote Key.");
+            plugin.broadcastCommunityEvent("&dVote party! &r&f"+target+" votes reached. &eOnline players received a Vote Key.");
             plugin.rewardVoteParty();
             for(Player online:Bukkit.getOnlinePlayers()) {
                 if(plugin.isBotIdentity(online.getName())) continue;
@@ -391,7 +391,7 @@ final class SpawnRewardsDirector implements Listener {
         p.updateInventory();
         p.sendMessage(EraCore.colorText("&6Crates &8» &fYou won &e"+label+"&f."));
         try {
-            p.sendTitle(EraCore.colorText(rare?"&6&lRARE REWARD":"&eCRATE REWARD"),EraCore.colorText("&f"+label));
+            p.sendTitle(EraCore.colorText(rare?"&6Rare reward":"&eCrate reward"),EraCore.colorText("&f"+label));
         } catch(Throwable ignored) {}
         p.playSound(p.getLocation(),rare?Sound.LEVEL_UP:Sound.ORB_PICKUP,1f,rare?0.8f:1.25f);
         if(rare) plugin.broadcastCommunityEvent("&6[Crates] &f"+p.getName()+" &7won &e"+label+"&7.");
@@ -416,7 +416,7 @@ final class SpawnRewardsDirector implements Listener {
         boolean donor="donor".equalsIgnoreCase(type);
         ItemStack item=new ItemStack(donor?Material.BLAZE_ROD:Material.TRIPWIRE_HOOK,amount);
         ItemMeta meta=item.getItemMeta();
-        meta.setDisplayName(EraCore.colorText(donor?"&6&lDonor Crate Key":"&e&lVote Crate Key"));
+        meta.setDisplayName(EraCore.colorText(donor?"&6Donor Crate Key":"&eVote Crate Key"));
         List<String> lore=new ArrayList<String>();
         lore.add(EraCore.colorText("&7Redeem at the spawn "+(donor?"Donor":"Vote")+" Crate."));
         lore.add(EraCore.colorText("&8Era HCF reward key"));
@@ -529,7 +529,7 @@ final class SpawnRewardsDirector implements Listener {
         b.setType(Material.SIGN_POST);
         if(b.getState() instanceof Sign) {
             Sign s=(Sign)b.getState();
-            s.setLine(0,EraCore.colorText("&l"+line0));
+            s.setLine(0,EraCore.colorText(""+line0));
             s.setLine(1,EraCore.colorText("&7"+line1));
             s.update(true);
         }

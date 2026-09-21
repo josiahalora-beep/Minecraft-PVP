@@ -1189,6 +1189,15 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             return true;
         }
 
+        if (a[0].equalsIgnoreCase("crateprep")) {
+            if (!simIdentity) {
+                p.sendMessage(color("&cSimulation identities only."));
+                return true;
+            }
+            p.sendMessage("SIMCRATEPREP " + simWorld.prepareEmbodiedWorkerForCrates(p));
+            return true;
+        }
+
         if (a[0].equalsIgnoreCase("status")) {
             if (!ownerOnly(p)) return true;
             p.sendMessage(color("&7Worker candidates: &f" + simWorld.workerCandidateCount() +
@@ -1197,7 +1206,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             return true;
         }
 
-        p.sendMessage("/simworker <sync|deposit|stash|status>");
+        p.sendMessage("/simworker <sync|deposit|stash|crateprep|status>");
         return true;
     }
 
@@ -1232,7 +1241,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
         // Never bypass HCF combat tag with internal worker projection.
         boolean tagged=hcfZones!=null && hcfZones.isTagged(p);
-        if (!tagged && (!p.getWorld().equals(world) || p.getLocation().distanceSquared(target) > 48.0 * 48.0)) {
+        if (!tagged && !"crate".equals(task.action) &&
+            (!p.getWorld().equals(world) || p.getLocation().distanceSquared(target) > 48.0 * 48.0)) {
             p.teleport(target);
         }
 
@@ -1246,6 +1256,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         else if ("safe".equals(task.action)) tool = Material.COOKED_BEEF;
         else if ("scout".equals(task.action)) tool = Material.COMPASS;
         else if ("crate".equals(task.action)) tool = "donor".equalsIgnoreCase(task.keyType) ? Material.BLAZE_ROD : Material.TRIPWIRE_HOOK;
+
+        if("solo_build".equals(task.action)) simWorld.ensureSoloBuildMaterials(p);
 
         ItemStack hand = p.getInventory().getItem(0);
         if (hand == null || hand.getType() != tool) {

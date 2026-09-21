@@ -348,7 +348,7 @@ final class SimWorldDirector {
     }
 
     void repairExistingBaseTerrainAndClaims() {
-        if (data.getInt("meta.terrain-repair-version",0) >= 3) return;
+        if (data.getInt("meta.terrain-repair-version",0) >= 4) return;
 
         org.bukkit.World world=Bukkit.getWorlds().get(0);
         if(world==null) return;
@@ -365,7 +365,7 @@ final class SimWorldDirector {
             org.bukkit.Location home=new org.bukkit.Location(world,f.baseX+0.5,f.baseY+1,f.baseZ+0.5);
             plugin.setSimFactionHomeAndClaims(f.name,home,desired);
         }
-        data.set("meta.terrain-repair-version",3);
+        data.set("meta.terrain-repair-version",4);
         save();
     }
 
@@ -1623,7 +1623,7 @@ final class SimWorldDirector {
 
     void applyDonorKitClaim(String name,int rankLevel) {
         SimPlayer p=players.get(key(name));
-        if(p==null || p.faction.isEmpty() || rankLevel<=0) return;
+        if(p==null || p.faction.isEmpty() || rankLevel<0) return;
         SimFaction f=factions.get(key(p.faction));
         if(f==null) return;
 
@@ -1649,11 +1649,15 @@ final class SimWorldDirector {
             f.pearls+=8;
             f.healPots+=8;
             f.speedPots+=1;
-        } else {
+        } else if(rankLevel==1) {
             f.diamonds+=8;
             f.xp+=7;
             f.pearls+=4;
             f.healPots+=4;
+        } else {
+            // Member donor kit: full iron + iron sword + two pearls.
+            f.iron+=26;
+            f.pearls+=2;
         }
 
         p.reputation=Math.min(999,p.reputation+1);

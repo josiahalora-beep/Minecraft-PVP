@@ -15,6 +15,20 @@ jobs:
       - name: Build EraCore
         working-directory: server/plugins-src/EraCore
         run: mvn -B package
+      - name: Validate PowerShell updater
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path './Apply-HCF-Community-Intelligence.ps1'),
+            [ref]$tokens,
+            [ref]$errors
+          )
+          if ($errors.Count -gt 0) {
+            $errors | Format-List | Out-String | Write-Error
+            exit 1
+          }
       - name: Validate bot JavaScript
         run: |
           node --check bots/src/common.js

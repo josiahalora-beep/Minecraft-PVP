@@ -238,7 +238,7 @@ final class HcfAutoBrewerDirector {
             if(stage==1) return (short)8194;  // speed I
             return (short)8226;               // speed II
         }
-        return (short)0
+        return (short)0;
     }
 
     private String kindName(Kind kind) {

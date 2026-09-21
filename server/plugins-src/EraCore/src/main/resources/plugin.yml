@@ -5,7 +5,7 @@ commands:
   rank:
     usage: /rank set <player> <rank>
   kit:
-    usage: /kit <starter [diamond|bard|archer|miner|rogue]|member|vip|elite|legend|titan>
+    usage: /kit <starter [diamond|bard|archer|miner|rogue]|member|basic|silver|gold|platinum>
   kits:
     usage: /kits
   balance:

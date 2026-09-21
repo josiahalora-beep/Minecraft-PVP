@@ -68,7 +68,8 @@ final class SimWorldDirector {
         int reputation;      // persistent PvP reputation, 0+
         int kills;
         int deaths;
-        int donorLevel;       // 0 Member, 1 VIP, 2 Elite, 3 Legend, 4 Titan
+        int donorLevel;       // 0 Member, 1 Basic, 2 Silver, 3 Gold, 4 Platinum
+        double donationUsd;    // simulated lifetime store spend; rank may also be won
         String staffRole = ""; // "", MOD, ADMIN
         int ownerAffinity;    // -100..100, learned from owner interactions
         int moderationTrust;  // 0..100
@@ -1899,6 +1900,8 @@ final class SimWorldDirector {
          .append("; job=").append(p.preferredJob)
          .append("; class=").append(p.combatClass.name())
          .append("; donor=").append(donorName(p.donorLevel))
+         .append("; lifetimeStoreSpendUsd=").append((int)Math.round(p.donationUsd))
+         .append("; donorInfluence=").append(donorInfluence(p))
          .append("; staff=").append(p.staffRole==null||p.staffRole.isEmpty()?"none":p.staffRole)
          .append("; ownerAffinity=").append(p.ownerAffinity)
          .append("; skill=").append(p.skill)
@@ -2951,7 +2954,7 @@ final class SimWorldDirector {
         if(p==null) return Integer.MIN_VALUE/4;
         SimPlayer leader=players.get(key(f.leader));
         SocialEdge rel=leader==null?null:relationship(leader.name,p.name,true);
-        int score=p.donorLevel*18+p.reputation/3+p.teamwork/4+p.loyalty/4;
+        int score=donorInfluence(p)+p.reputation/3+p.teamwork/4+p.loyalty/4;
         if(plugin.isCreatorIdentity(p.name)) score+=45;
         if(rel!=null) score+=rel.affinity/2+(rel.trust-50)/2-rel.grudge/2;
         if(p.combatClass==CombatClass.BARD && classCount(f,CombatClass.BARD)<=1) score+=28;
@@ -3085,27 +3088,76 @@ final class SimWorldDirector {
     private void maybeDonorUpgrade() {
         List<SimPlayer> eligible=new ArrayList<SimPlayer>();
         for(SimPlayer p:players.values()) {
-            if(!p.logicalOnline || p.bannedUntil>System.currentTimeMillis() || p.donorLevel>=4) continue;
-            // Established or socially engaged players are more likely to support
-            // the server, but new/quiet players can still become donors.
-            int score=p.reputation/4+p.sociability/3+p.loyalty/4+p.ownerAffinity/5+rng.nextInt(35);
+            if(!p.logicalOnline || p.bannedUntil>System.currentTimeMillis()) continue;
+            int score=p.reputation/4+p.sociability/3+p.loyalty/4+p.ownerAffinity/5+
+                p.riskTolerance/5+rng.nextInt(35);
             if(score>=35) eligible.add(p);
         }
         if(eligible.isEmpty()) return;
+
         SimPlayer p=eligible.get(rng.nextInt(eligible.size()));
+        boolean gambler=p.riskTolerance>=68 || (p.pendingDonorKeys>0 && rng.nextBoolean());
+
+        // Some players support the server mostly by buying keys rather than
+        // climbing the rank ladder. Risk-tolerant players do this much more.
+        if(gambler && rng.nextInt(100)<62) {
+            int keys=p.riskTolerance>=85 ? (5+rng.nextInt(6)) : (2+rng.nextInt(4));
+            double usd=keys*2.5;
+            p.pendingDonorKeys=Math.min(64,p.pendingDonorKeys+keys);
+            p.donationUsd+=usd;
+            plugin.broadcastCommunityEvent("&6[Store] &f"+p.name+" &7purchased &e"+keys+" Donor Keys&7.");
+            if(rng.nextInt(100)<55) enqueue(p.name,oneOf("im opening keys at spawn","these keys better pay out","one more key bro"),false);
+            return;
+        }
+
+        if(p.donorLevel>=4) return;
         p.donorLevel=Math.min(4,p.donorLevel+1);
+        double paid=p.donorLevel==1?15.0:(p.donorLevel==2?20.0:(p.donorLevel==3?25.0:40.0));
+        p.donationUsd+=paid;
         String rank=donorName(p.donorLevel);
-        plugin.broadcastCommunityEvent("&6[Store] &f"+p.name+" &7purchased &f"+rank+"&7.");
+        plugin.broadcastCommunityEvent("&6[Store] &f"+p.name+" &7upgraded to &f"+rank+"&7.");
         if(p.ownerAffinity>=20) enqueue(p.name,oneOf("worth it","server has been fun","finally got "+rank.toLowerCase(Locale.ENGLISH)),false);
         else if(rng.nextBoolean()) enqueue(p.name,"got "+rank.toLowerCase(Locale.ENGLISH)+" lets go",false);
     }
 
+    boolean upgradeDonorRankFromReward(String name,String source) {
+        SimPlayer p=players.get(key(name));
+        if(p==null || p.donorLevel>=4) return false;
+        p.donorLevel++;
+        String rank=donorName(p.donorLevel);
+        plugin.broadcastCommunityEvent("&d[Crates] &f"+p.name+" &7won a &f"+rank+" &7rank upgrade from "+source+"&7.");
+        rememberRelationship(relationship(p.name,plugin.getConfig().getString("owner.name","Owner"),true),
+            "won "+rank+" from a "+source+" reward");
+        save();
+        return true;
+    }
+
     private String donorName(int level) {
-        if(level>=4) return "Titan";
-        if(level==3) return "Legend";
-        if(level==2) return "Elite";
-        if(level==1) return "VIP";
+        if(level>=4) return "Platinum";
+        if(level==3) return "Gold";
+        if(level==2) return "Silver";
+        if(level==1) return "Basic";
         return "Member";
+    }
+
+    private double initialDonationUsd(int donorLevel) {
+        if(donorLevel>=4) return 100.0;
+        if(donorLevel==3) return 60.0;
+        if(donorLevel==2) return 35.0;
+        if(donorLevel==1) return 15.0;
+        return 0.0;
+    }
+
+    private int donorInfluence(SimPlayer p) {
+        if(p==null) return 0;
+        int rank;
+        if(p.donorLevel>=4) rank=82;
+        else if(p.donorLevel==3) rank=48;
+        else if(p.donorLevel==2) rank=24;
+        else if(p.donorLevel==1) rank=8;
+        else rank=0;
+        int spend=(int)Math.min(38.0,Math.floor(Math.max(0.0,p.donationUsd)/8.0));
+        return rank+spend;
     }
 
     private void maybeStaffReport() {
@@ -3833,6 +3885,7 @@ final class SimWorldDirector {
             p.kills = s.getInt("kills", 0);
             p.deaths = s.getInt("deaths", 0);
             p.donorLevel = s.getInt("donor-level", initialDonorLevel(p.name));
+            p.donationUsd = s.getDouble("donation-usd", initialDonationUsd(p.donorLevel));
             p.staffRole = s.getString("staff-role", "");
             p.ownerAffinity = s.getInt("owner-affinity", rng.nextInt(31)-5);
             p.moderationTrust = s.getInt("moderation-trust", 30+rng.nextInt(51));
@@ -3993,6 +4046,7 @@ final class SimWorldDirector {
             p.kills = 0;
             p.deaths = 0;
             p.donorLevel = initialDonorLevel(p.name);
+            p.donationUsd = initialDonationUsd(p.donorLevel);
             p.staffRole = "";
             p.ownerAffinity = plugin.isCreatorIdentity(p.name) ? 10+rng.nextInt(18) : rng.nextInt(31)-5;
             p.moderationTrust = 30+rng.nextInt(51);
@@ -4264,7 +4318,7 @@ final class SimWorldDirector {
         SocialEdge rel=leader==null?null:relationship(leader.name,p.name,true);
 
         int score=p.teamwork/3+p.sociability/4+p.loyalty/4+p.reputation/3;
-        score+=p.donorLevel*14;
+        score+=donorInfluence(p);
         if(rel!=null) {
             score+=rel.affinity/2;
             score+=(rel.trust-50)/2;
@@ -5180,6 +5234,7 @@ final class SimWorldDirector {
             data.set(b + ".kills", p.kills);
             data.set(b + ".deaths", p.deaths);
             data.set(b + ".donor-level", p.donorLevel);
+            data.set(b + ".donation-usd", p.donationUsd);
             data.set(b + ".staff-role", p.staffRole);
             data.set(b + ".owner-affinity", p.ownerAffinity);
             data.set(b + ".moderation-trust", p.moderationTrust);

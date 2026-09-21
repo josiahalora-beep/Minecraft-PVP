@@ -13,6 +13,9 @@ import java.nio.charset.StandardCharsets;
  * The Minecraft thread never waits on network I/O. A local Node sidecar owns
  * the external model call; if it is unavailable, callers receive null and use
  * the deterministic ContextChatBrain fallback.
+ *
+ * The model may PROPOSE a social action, but authoritative Java code validates
+ * every proposal before changing factions, economy, moderation or other state.
  */
 final class AiChatBridge {
     interface Handler {
@@ -22,9 +25,29 @@ final class AiChatBridge {
     static final class AiReply {
         final String text;
         final int affinityDelta;
-        AiReply(String text,int affinityDelta) {
+        final int trustDelta;
+        final int respectDelta;
+        final String action;
+        final String memory;
+
+        AiReply(String text,int affinityDelta,int trustDelta,int respectDelta,
+                String action,String memory) {
             this.text=text==null?"":text.trim();
-            this.affinityDelta=Math.max(-2,Math.min(2,affinityDelta));
+            this.affinityDelta=clampDelta(affinityDelta);
+            this.trustDelta=clampDelta(trustDelta);
+            this.respectDelta=clampDelta(respectDelta);
+            this.action=cleanToken(action);
+            this.memory=sanitize(memory,140);
+        }
+
+        private static int clampDelta(int n) {
+            return Math.max(-2,Math.min(2,n));
+        }
+
+        private static String cleanToken(String s) {
+            if(s==null) return "NONE";
+            String x=s.trim().toUpperCase(java.util.Locale.ENGLISH).replaceAll("[^A-Z0-9_]", "");
+            return x.isEmpty()?"NONE":x;
         }
     }
 
@@ -77,16 +100,26 @@ final class AiChatBridge {
                         String line=reader.readLine();
                         reader.close();
                         if(line!=null && !line.trim().isEmpty()) {
-                            int tab=line.indexOf('\t');
-                            int delta=0;
-                            String text=line;
-                            if(tab>=0) {
-                                try { delta=Integer.parseInt(line.substring(0,tab).trim()); }
-                                catch(Exception ignored) {}
-                                text=line.substring(tab+1);
+                            String[] parts=line.split("\\t",-1);
+                            if(parts.length>=6) {
+                                int affinity=parseInt(parts[0]);
+                                int trust=parseInt(parts[1]);
+                                int respect=parseInt(parts[2]);
+                                String action=parts[3];
+                                String memory=parts[4];
+                                StringBuilder reply=new StringBuilder();
+                                for(int i=5;i<parts.length;i++) {
+                                    if(reply.length()>0) reply.append(' ');
+                                    reply.append(parts[i]);
+                                }
+                                String text=sanitize(reply.toString(),180);
+                                if(!text.isEmpty()) result=new AiReply(text,affinity,trust,respect,action,memory);
+                            } else if(parts.length>=2) {
+                                // Backward compatible with the original
+                                // affinity<TAB>reply sidecar response.
+                                String text=sanitize(parts[1],180);
+                                if(!text.isEmpty()) result=new AiReply(text,parseInt(parts[0]),0,0,"NONE","");
                             }
-                            text=sanitize(text);
-                            if(!text.isEmpty()) result=new AiReply(text,delta);
                         }
                     }
                 } catch(Throwable ignored) {
@@ -106,11 +139,16 @@ final class AiChatBridge {
         return true;
     }
 
-    private static String sanitize(String s) {
+    private static int parseInt(String s) {
+        try { return Integer.parseInt(s==null?"0":s.trim()); }
+        catch(Exception ignored) { return 0; }
+    }
+
+    private static String sanitize(String s,int max) {
         if(s==null) return "";
         String x=s.replace('\n',' ').replace('\r',' ').replace('\t',' ').trim();
         while(x.contains("  ")) x=x.replace("  "," ");
-        if(x.length()>180) x=x.substring(0,180).trim();
+        if(x.length()>max) x=x.substring(0,max).trim();
         return x;
     }
 

@@ -271,3 +271,9 @@ safezones:
   auto-build-borders: true
   archer-tag-seconds: 10
   archer-tag-damage-multiplier: 1.20
+
+duels:
+  center-x: 200
+  center-z: 0
+  timeout-seconds: 180
+  random-challenges: true

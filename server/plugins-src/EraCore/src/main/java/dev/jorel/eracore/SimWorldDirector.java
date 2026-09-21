@@ -56,7 +56,10 @@ final class SimWorldDirector {
         boolean leaderCandidate;
         boolean underdogLeader;
         double balance;
-        int skill;          // 0..100
+        int skill;          // 0..100 legacy/composite combat estimate
+        int mechanics;      // 0..100 aim/movement/pot/pearl execution
+        int pvpIq;          // 0..100 tactical fighting decisions
+        int gameSense;      // 0..100 terrain/inventory/HCF knowledge
         int aggression;     // 0..100
         int bargaining;     // 0..100
         int leadership;     // 0..100
@@ -249,6 +252,11 @@ final class SimWorldDirector {
         CombatClass combatClass;
         String action;
         int skill;
+        int mechanics;
+        int pvpIq;
+        int gameSense;
+        int composure;
+        int mistake;
         int aggression;
         int risk;
         int x;
@@ -273,6 +281,11 @@ final class SimWorldDirector {
                 " class=" + combatClass.name() +
                 " action=" + action +
                 " skill=" + skill +
+                " mechanics=" + mechanics +
+                " pvpIq=" + pvpIq +
+                " gameSense=" + gameSense +
+                " composure=" + composure +
+                " mistake=" + mistake +
                 " aggression=" + aggression +
                 " risk=" + risk +
                 " x=" + x + " y=" + y + " z=" + z +
@@ -1105,6 +1118,11 @@ final class SimWorldDirector {
             ca.world=fight.world;
             ca.combatClass=p.combatClass;
             ca.skill=p.skill;
+            ca.mechanics=p.mechanics;
+            ca.pvpIq=p.pvpIq;
+            ca.gameSense=p.gameSense;
+            ca.composure=p.composure;
+            ca.mistake=combatMistakePropensity(p);
             ca.aggression=p.aggression;
             ca.risk=p.riskTolerance;
             ca.homeX=own.baseX; ca.homeY=own.baseY+1; ca.homeZ=own.baseZ;
@@ -1255,6 +1273,11 @@ final class SimWorldDirector {
             ca.world=fight.world;
             ca.combatClass=p.combatClass;
             ca.skill=p.skill;
+            ca.mechanics=p.mechanics;
+            ca.pvpIq=p.pvpIq;
+            ca.gameSense=p.gameSense;
+            ca.composure=p.composure;
+            ca.mistake=combatMistakePropensity(p);
             ca.aggression=p.aggression;
             ca.risk=p.riskTolerance;
             ca.homeX=own.baseX; ca.homeY=own.baseY+1; ca.homeZ=own.baseZ;
@@ -1274,7 +1297,7 @@ final class SimWorldDirector {
             else if(p.combatClass==CombatClass.BARD) ca.action="BARD_SUPPORT";
             else if(p.combatClass==CombatClass.ARCHER) ca.action="ARCHER_RANGE";
             else if(p.combatClass==CombatClass.ROGUE) ca.action="ROGUE_FLANK";
-            else if(enemies.size()>=allies.size()+2 && p.skill<92) ca.action="KITE_HOME";
+            else if(enemies.size()>=allies.size()+2 && p.pvpIq<90) ca.action="KITE_HOME";
             else if(enemies.size()>=allies.size()+2) ca.action="CLUTCH";
             else ca.action="FOCUS";
 
@@ -1287,8 +1310,8 @@ final class SimWorldDirector {
         for(SimPlayer p:xs) {
             if(best==null) best=p;
             else {
-                int s=p.riskTolerance+p.skill+p.aggression;
-                int b=best.riskTolerance+best.skill+best.aggression;
+                int s=p.riskTolerance+p.pvpIq+p.gameSense+p.aggression/2;
+                int b=best.riskTolerance+best.pvpIq+best.gameSense+best.aggression/2;
                 if(s>b) best=p;
             }
         }
@@ -1325,6 +1348,11 @@ final class SimWorldDirector {
                 y.set(b+".class",ca.combatClass.name());
                 y.set(b+".action",ca.action);
                 y.set(b+".skill",ca.skill);
+                y.set(b+".mechanics",ca.mechanics);
+                y.set(b+".pvp-iq",ca.pvpIq);
+                y.set(b+".game-sense",ca.gameSense);
+                y.set(b+".composure",ca.composure);
+                y.set(b+".mistake",ca.mistake);
                 y.set(b+".aggression",ca.aggression);
                 y.set(b+".risk",ca.risk);
                 y.set(b+".x",ca.x);
@@ -2864,7 +2892,7 @@ final class SimWorldDirector {
         }
         if(killer!=null && victim!=null && !killer.name.equalsIgnoreCase(victim.name)) {
             killer.kills++;
-            killer.reputation=Math.min(999,killer.reputation+5+victim.skill/18+rng.nextInt(5));
+            killer.reputation=Math.min(999,killer.reputation+5+overallCombatSkill(victim)/18+rng.nextInt(5));
             plugin.broadcastKillCounter(killer.name,killer.kills,killer.deaths);
         }
 
@@ -3391,7 +3419,8 @@ final class SimWorldDirector {
         boolean passed;
 
         if(formal) {
-            int performance=candidate.skill+candidate.composure/3+candidate.duelWins*3+rng.nextInt(31)-15;
+            int performance=(candidate.mechanics*52+candidate.pvpIq*33+candidate.composure*15)/100+
+                candidate.duelWins*3+rng.nextInt(31)-15;
             int bar=70+leader.standards/4;
             passed=performance>=bar;
             candidate.duelWins+=passed?1:0;
@@ -3502,6 +3531,11 @@ final class SimWorldDirector {
         ca.combatClass=CombatClass.DIAMOND;
         ca.action="FOCUS";
         ca.skill=p.skill;
+        ca.mechanics=p.mechanics;
+        ca.pvpIq=p.pvpIq;
+        ca.gameSense=p.gameSense;
+        ca.composure=p.composure;
+        ca.mistake=combatMistakePropensity(p);
         ca.aggression=p.aggression;
         ca.risk=p.riskTolerance;
         ca.x=cx+12; ca.y=y; ca.z=cz;
@@ -4725,6 +4759,10 @@ final class SimWorldDirector {
             p.underdogLeader = s.getBoolean("underdog-leader", false);
             p.balance = s.getDouble("balance", 500);
             p.skill = s.getInt("skill", 50);
+            p.mechanics = s.getInt("mechanics",combatTrait(p.name,"mechanics",p.skill,18));
+            p.pvpIq = s.getInt("pvp-iq",combatTrait(p.name,"pvp-iq",p.skill,22));
+            p.gameSense = s.getInt("game-sense",combatTrait(p.name,"game-sense",Math.max(35,p.skill-3),26));
+            p.skill = overallCombatSkill(p);
             p.aggression = s.getInt("aggression", 50);
             p.bargaining = s.getInt("bargaining", 50);
             p.leadership = s.getInt("leadership", 50);
@@ -4921,6 +4959,11 @@ final class SimWorldDirector {
             p.name = names.get(i);
             p.balance = plugin.getConfig().getDouble("economy.starting-balance", 500.0);
             p.skill = creatorSkillOverride(p.name, skillRollForName(p.name));
+            p.mechanics = combatTrait(p.name,"mechanics",p.skill,18);
+            p.pvpIq = combatTrait(p.name,"pvp-iq",p.skill,22);
+            p.gameSense = combatTrait(p.name,"game-sense",Math.max(30,p.skill-4),28);
+            applyCreatorCombatOverrides(p);
+            p.skill = overallCombatSkill(p);
             p.aggression = 25 + rng.nextInt(66);
             p.bargaining = 25 + rng.nextInt(66);
             p.leadership = 25 + rng.nextInt(71);
@@ -5217,7 +5260,8 @@ final class SimWorldDirector {
         if(leader!=null && (f.powerFaction || leader.standards>=72) &&
            bestScore<threshold+35 && rng.nextInt(100)<55) {
             tryout=true;
-            int performance=best.skill+best.composure/3+best.duelWins*2+rng.nextInt(31)-15;
+            int performance=(best.mechanics*55+best.pvpIq*30+best.composure*15)/100+
+                best.duelWins*2+rng.nextInt(31)-15;
             int bar=68+leader.standards/4+(f.powerFaction?7:0);
             passed=performance>=bar;
             best.duelWins+=passed?1:0;
@@ -6173,6 +6217,47 @@ final class SimWorldDirector {
         return namePrestigeTier(name);
     }
 
+    private int combatTrait(String name,String trait,int base,int spread) {
+        int h=(key(name)+"|combat|"+trait).hashCode();
+        int positive=h==Integer.MIN_VALUE?0:Math.abs(h);
+        int noise=(positive%(spread*2+1))-spread;
+        return Math.max(12,Math.min(100,base+noise));
+    }
+
+    private int overallCombatSkill(SimPlayer p) {
+        if(p==null) return 50;
+        // Mechanics remains the largest component, but decision quality matters
+        // enough for a slightly weaker mechanical player to win intelligently.
+        return Math.max(1,Math.min(100,
+            (p.mechanics*55+p.pvpIq*30+p.gameSense*15)/100));
+    }
+
+    private int combatMistakePropensity(SimPlayer p) {
+        if(p==null) return 18;
+        int protection=(p.pvpIq*38+p.composure*30+p.gameSense*18+p.mechanics*14)/100;
+        int volatility=Math.max(0,p.riskTolerance-70)/5;
+        // Never zero: even elite players occasionally make a bad read/execution.
+        return Math.max(3,Math.min(34,29-protection/4+volatility));
+    }
+
+    private void applyCreatorCombatOverrides(SimPlayer p) {
+        if(p==null) return;
+        String n=key(p.name);
+        if(n.equals("stimpy")||n.equals("stimpypvp")||n.equals("marcel")||n.equals("painfulpvp")) {
+            p.mechanics=Math.max(p.mechanics,94);
+            p.pvpIq=Math.max(p.pvpIq,88);
+            p.gameSense=Math.max(p.gameSense,84);
+        } else if(n.equals("lolitsalex")) {
+            p.mechanics=Math.max(p.mechanics,82);
+            p.pvpIq=Math.max(p.pvpIq,88);
+            p.gameSense=Math.max(p.gameSense,94);
+        } else if(n.equals("skimpy")) {
+            p.mechanics=Math.max(p.mechanics,76);
+            p.pvpIq=Math.max(p.pvpIq,74);
+            p.gameSense=Math.max(p.gameSense,72);
+        }
+    }
+
     private int leadershipTrait(String name,String trait,int base) {
         int h=Math.abs((key(name)+"|"+trait).hashCode());
         int noise=(h%31)-15;
@@ -6240,6 +6325,9 @@ final class SimWorldDirector {
             data.set(b + ".underdog-leader", p.underdogLeader);
             data.set(b + ".balance", p.balance);
             data.set(b + ".skill", p.skill);
+            data.set(b + ".mechanics",p.mechanics);
+            data.set(b + ".pvp-iq",p.pvpIq);
+            data.set(b + ".game-sense",p.gameSense);
             data.set(b + ".aggression", p.aggression);
             data.set(b + ".bargaining", p.bargaining);
             data.set(b + ".leadership", p.leadership);

@@ -2419,6 +2419,7 @@ final class SimWorldDirector {
         if(killer!=null && victim!=null && !killer.name.equalsIgnoreCase(victim.name)) {
             killer.kills++;
             killer.reputation=Math.min(999,killer.reputation+5+victim.skill/18+rng.nextInt(5));
+            plugin.broadcastKillCounter(killer.name,killer.kills,killer.deaths);
         }
 
         if (victim != null && killer != null && !victim.faction.isEmpty() && !killer.faction.isEmpty()

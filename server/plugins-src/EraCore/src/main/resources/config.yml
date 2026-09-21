@@ -23,6 +23,37 @@ economy:
 kits:
   starter-cooldown-hours: 6
 
+rewards:
+  enabled: true
+  vote-cooldown-hours: 12
+  donor-key-hours: 24
+  vote-party-target: 20
+  # Exact historical Kohi vote/donor crate odds are not reliably documented.
+  # These tables are intentionally explicit and early-map balanced.
+  vote-odds:
+    money-250: 24.0
+    pearls-8: 18.0
+    iron-16: 15.0
+    obsidian-12: 12.0
+    diamonds-4: 10.0
+    heals-6: 8.0
+    wart-16: 5.0
+    glowstone-8: 4.0
+    sharp1-diamond: 2.5
+    donor-key: 1.5
+  donor-odds:
+    money-750: 20.0
+    pearls-16: 18.0
+    diamonds-8: 15.0
+    obsidian-16: 12.0
+    heals-12: 12.0
+    speed-fire: 8.0
+    p2-iron-set: 6.0
+    sharp2-diamond: 4.0
+    vote-keys-2: 3.0
+    p2-diamond-chest: 1.5
+    bonus-donor-key: 0.5
+
 pvp:
   pearl-cooldown-seconds: 16
 metrics:

@@ -194,6 +194,12 @@ final class SimWorldDirector {
         int y;
         int z;
         int priority;
+        int aggression;
+        int loyalty;
+        int teamwork;
+        int risk;
+        int patience;
+        int economicIq;
 
         String wire() {
             return "action=" + action +
@@ -204,7 +210,13 @@ final class SimWorldDirector {
                 " allies=" + allies +
                 " keyType=" + keyType +
                 " x=" + x + " y=" + y + " z=" + z +
-                " priority=" + priority;
+                " priority=" + priority +
+                " aggression=" + aggression +
+                " loyalty=" + loyalty +
+                " teamwork=" + teamwork +
+                " risk=" + risk +
+                " patience=" + patience +
+                " economicIq=" + economicIq;
         }
     }
 
@@ -1133,8 +1145,10 @@ final class SimWorldDirector {
         }
         Collections.sort(xs,new Comparator<SimPlayer>() {
             public int compare(SimPlayer a,SimPlayer b) {
-                int aa=("patrol".equals(a.currentGoal)?30:0)+a.aggression+a.skill/2+a.riskTolerance/3+a.reputation/3;
-                int bb=("patrol".equals(b.currentGoal)?30:0)+b.aggression+b.skill/2+b.riskTolerance/3+b.reputation/3;
+                int aa=("patrol".equals(a.currentGoal)?30:0)+a.aggression+a.skill/2+a.riskTolerance/3+
+                    a.reputation/3+a.loyalty/3+a.teamwork/3;
+                int bb=("patrol".equals(b.currentGoal)?30:0)+b.aggression+b.skill/2+b.riskTolerance/3+
+                    b.reputation/3+b.loyalty/3+b.teamwork/3;
                 return Integer.compare(bb,aa);
             }
         });
@@ -1314,6 +1328,14 @@ final class SimWorldDirector {
         t.zone = "spawn";
         t.combatClass = p == null ? "DIAMOND" : p.combatClass.name();
         t.preferredJob = p == null ? "member" : p.preferredJob;
+        if(p!=null) {
+            t.aggression=p.aggression;
+            t.loyalty=p.loyalty;
+            t.teamwork=p.teamwork;
+            t.risk=p.riskTolerance;
+            t.patience=p.patience;
+            t.economicIq=p.economicIq;
+        }
         org.bukkit.World world = Bukkit.getWorlds().get(0);
         org.bukkit.Location spawn = world == null ? null : world.getSpawnLocation();
         t.x = spawn == null ? 0 : spawn.getBlockX();
@@ -1323,23 +1345,22 @@ final class SimWorldDirector {
 
         if (p == null) return t;
 
-        if(p.logicalOnline && p.bannedUntil<=System.currentTimeMillis() &&
-           (p.pendingDonorKeys>0 || p.pendingVoteKeys>0)) {
-            String type=p.pendingDonorKeys>0?"donor":"vote";
-            Location crate=plugin.crateLocation(type);
-            if(crate!=null) {
-                t.action="crate";
-                t.zone="spawn";
-                t.keyType=type;
-                t.x=crate.getBlockX();
-                t.y=crate.getBlockY()+1;
-                t.z=crate.getBlockZ();
-                t.priority=106;
-                return t;
-            }
-        }
-
         if (p.faction.isEmpty()) {
+            if(p.logicalOnline && p.bannedUntil<=System.currentTimeMillis() &&
+               (p.pendingDonorKeys>0 || p.pendingVoteKeys>0)) {
+                String type=p.pendingDonorKeys>0?"donor":"vote";
+                Location crate=plugin.crateLocation(type);
+                if(crate!=null) {
+                    t.action="crate";
+                    t.zone="spawn";
+                    t.keyType=type;
+                    t.x=crate.getBlockX();
+                    t.y=crate.getBlockY()+1;
+                    t.z=crate.getBlockZ();
+                    t.priority=cratePriority(p,false);
+                    return t;
+                }
+            }
             if(!p.logicalOnline || p.bannedUntil>System.currentTimeMillis()) return t;
             t.action=soloActionFor(p);
             t.zone=soloZoneFor(p);
@@ -1388,12 +1409,61 @@ final class SimWorldDirector {
         int by = f.baseY > 0 ? f.baseY + 1 : t.y;
         int bz = f.baseZ;
 
+        boolean assignedFight=visibleFight!=null && visibleFight.assignments.containsKey(key(p.name));
+        boolean factionFight=factionInVisibleFight(f.name);
+        int helpPriority=factionFight?factionHelpPriority(p):0;
+
+        // An actual assigned fight is always more important than keys/economy.
+        // Combat workers are still controlled by combat-hot.yml; this task keeps
+        // their body reserved in the HOT pool if the normal selector asks.
+        if(assignedFight) {
+            t.action="combat_wait";
+            t.zone=zoneForFight(visibleFight);
+            t.x=visibleFight.centerX;
+            t.y=visibleFight.centerY;
+            t.z=visibleFight.centerZ;
+            t.priority=140;
+            return t;
+        }
+
         if (f.recoveryMode) {
             t.action = "safe";
             t.x = bx;
             t.y = by;
             t.z = bz;
-            t.priority = 95;
+            t.priority = Math.max(105,90+p.loyalty/5+p.patience/8);
+            return t;
+        }
+
+        if(p.pendingDonorKeys>0 || p.pendingVoteKeys>0) {
+            int cratePriority=cratePriority(p,true);
+            if(!factionFight || cratePriority>helpPriority) {
+                String type=p.pendingDonorKeys>0?"donor":"vote";
+                Location crate=plugin.crateLocation(type);
+                if(crate!=null) {
+                    t.action="crate";
+                    t.zone="spawn";
+                    t.keyType=type;
+                    t.x=crate.getBlockX();
+                    t.y=crate.getBlockY()+1;
+                    t.z=crate.getBlockZ();
+                    t.priority=cratePriority;
+                    return t;
+                }
+            }
+        }
+
+        // Loyal/team-oriented members who are not selected into the bounded
+        // visible fight stay available near the active front rather than going
+        // shopping/opening keys. The combat director can promote them next if a
+        // slot opens.
+        if(factionFight && helpPriority>=88 && visibleFight!=null) {
+            t.action="patrol";
+            t.zone=zoneForFight(visibleFight);
+            t.x=visibleFight.centerX;
+            t.y=visibleFight.centerY;
+            t.z=visibleFight.centerZ;
+            t.priority=helpPriority;
             return t;
         }
 
@@ -1503,6 +1573,35 @@ final class SimWorldDirector {
             }
         }
         return t;
+    }
+
+    private int cratePriority(SimPlayer p,boolean factioned) {
+        int score=62+p.economicIq/5+p.patience/6+p.riskTolerance/7;
+        if(p.pendingDonorKeys>0) score+=8;
+        if(p.pendingVoteKeys+p.pendingDonorKeys>=4) score+=8;
+        if(factioned) score-=p.loyalty/12;
+        return Math.max(55,Math.min(112,score));
+    }
+
+    private int factionHelpPriority(SimPlayer p) {
+        int score=58+p.loyalty/3+p.teamwork/3+p.aggression/5;
+        if(p.combatClass==CombatClass.BARD) score+=8;
+        else if(p.combatClass==CombatClass.ARCHER) score+=5;
+        if("farmer".equals(p.preferredJob) || "miner".equals(p.preferredJob)) score-=6;
+        return Math.max(60,Math.min(128,score));
+    }
+
+    private boolean factionInVisibleFight(String faction) {
+        if(visibleFight==null || faction==null || faction.isEmpty()) return false;
+        for(CombatAssignment ca:visibleFight.assignments.values())
+            if(faction.equalsIgnoreCase(ca.faction)) return true;
+        return false;
+    }
+
+    private String zoneForFight(VisibleFight fight) {
+        if(fight==null || fight.world==null) return "spawn";
+        World w=Bukkit.getWorld(fight.world);
+        return zoneForWorld(w);
     }
 
     private String soloActionFor(SimPlayer p) {
@@ -2033,7 +2132,10 @@ final class SimWorldDirector {
          .append("; donorInfluence=").append(donorInfluence(p))
          .append("; staff=").append(p.staffRole==null||p.staffRole.isEmpty()?"none":p.staffRole)
          .append("; ownerAffinity=").append(p.ownerAffinity)
-         .append("; skill=").append(p.skill)
+         .append("; publicNamePrestige=").append(namePrestigeTier(p.name))
+         .append("; knownCreator=").append(plugin.isCreatorIdentity(p.name))
+         .append("; kills=").append(p.kills)
+         .append("; deaths=").append(p.deaths)
          .append("; aggression=").append(p.aggression)
          .append("; sociability=").append(p.sociability)
          .append("; loyalty=").append(p.loyalty)

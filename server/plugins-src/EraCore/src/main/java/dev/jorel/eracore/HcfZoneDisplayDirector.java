@@ -150,6 +150,16 @@ final class HcfZoneDisplayDirector implements Listener {
         return p!=null && to!=null && !plugin.isOwnerPlayer(p) && isTagged(p) && isSafe(to) && !isSafe(p.getLocation());
     }
 
+    void syncDimensionZone(Location loc) {
+        if(loc==null || loc.getWorld()==null) return;
+        Zone z=new Zone();
+        z.world=loc.getWorld().getName();
+        z.x=loc.getX(); z.y=loc.getY(); z.z=loc.getZ();
+        z.radius=defaultRadius(loc.getWorld());
+        zones.put(key(z.world),z);
+        save();
+    }
+
     void syncMainSpawn(Location loc) {
         if(loc==null || loc.getWorld()==null) return;
         Zone z=zone(loc.getWorld());

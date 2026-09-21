@@ -3555,11 +3555,13 @@ final class SimWorldDirector {
                 boolean humanWon=winner.equalsIgnoreCase(human);
                 if(humanWon && tl!=null) {
                     executeFactionInvite(tl,human);
-                    plugin.sendSimulatedPrivate(Bukkit.getPlayerExact(human),tl.name,"you passed. leader sent the inv");
+                    Player hp=Bukkit.getPlayerExact(human);
+                    if(hp!=null) plugin.sendSimulatedPrivate(hp,tl.name,"you passed. leader sent the inv");
                     recordHistory("TRYOUT",8,human+" passed "+tryoutFaction+"'s live duel tryout",
                         tryoutFaction,human,tl.name);
                 } else if(tl!=null) {
-                    plugin.sendSimulatedPrivate(Bukkit.getPlayerExact(human),tl.name,"not yet. get better and ask again");
+                    Player hp=Bukkit.getPlayerExact(human);
+                    if(hp!=null) plugin.sendSimulatedPrivate(hp,tl.name,"not yet. get better and ask again");
                     recordHistory("TRYOUT",5,human+" failed "+tryoutFaction+"'s live duel tryout",
                         tryoutFaction,human,tl.name);
                 }
@@ -6064,6 +6066,21 @@ final class SimWorldDirector {
         if(roll<92) return 2;
         if(roll<98) return 3;
         return 4;
+    }
+
+    String factionTitleFor(String name) {
+        SimPlayer p=players.get(key(name));
+        return p==null?"member":p.factionTitle;
+    }
+
+    String publicLeaderStyleFor(String name) {
+        SimPlayer p=players.get(key(name));
+        return p==null?"unknown":leaderStyle(p);
+    }
+
+    String publicLeaderReputationFor(String name) {
+        SimPlayer p=players.get(key(name));
+        return p==null?"unproven":publicLeaderReputation(p);
     }
 
     int killsFor(String name) {

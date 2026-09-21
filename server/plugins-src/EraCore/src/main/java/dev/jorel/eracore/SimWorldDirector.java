@@ -1977,6 +1977,11 @@ final class SimWorldDirector {
                 else stash=true;
             } else if(m==Material.BOW || m==Material.ARROW) {
                 stash=true;
+            } else if(m==Material.DIAMOND_PICKAXE || m==Material.IRON_PICKAXE ||
+                      m==Material.STONE_PICKAXE || m==Material.GOLD_PICKAXE ||
+                      m==Material.WOOD_PICKAXE || m==Material.FEATHER) {
+                stash=true;
+                category="kits";
             } else if(m==Material.ENDER_PEARL) {
                 int keep=Math.max(0,8-pearlsKept);
                 if(item.getAmount()<=keep) { pearlsKept+=item.getAmount(); continue; }
@@ -2023,7 +2028,8 @@ final class SimWorldDirector {
             } else if(m==Material.NETHER_STALK || m==Material.SPECKLED_MELON ||
                       m==Material.GLOWSTONE_DUST || m==Material.REDSTONE ||
                       m==Material.SUGAR || m==Material.MAGMA_CREAM ||
-                      m==Material.SULPHUR) {
+                      m==Material.SULPHUR || m==Material.BLAZE_ROD ||
+                      m==Material.BLAZE_POWDER || m==Material.GHAST_TEAR) {
                 stash=true;
                 category="brewing";
             }
@@ -2038,6 +2044,335 @@ final class SimWorldDirector {
 
         body.updateInventory();
         return "moved="+moved;
+    }
+
+    String processClaimedKit(Player body) {
+        // Equip what this identity should actually use before touching storage.
+        // Then bank the remaining kit value for teammates, and finally fill any
+        // role-specific holes from the shared vault.
+        String before=gearEmbodiedWorker(body);
+        String stashed=stashEmbodiedWorker(body);
+        String after=gearEmbodiedWorker(body);
+        return "equip={"+before+"} stash={"+stashed+"} refill={"+after+"}";
+    }
+
+    String gearEmbodiedWorker(Player body) {
+        SimPlayer p=players.get(key(body.getName()));
+        if(p==null || p.faction.isEmpty()) return "no-faction";
+        SimFaction f=factions.get(key(p.faction));
+        if(f==null || !f.storage) return "no-storage";
+
+        org.bukkit.inventory.PlayerInventory inv=body.getInventory();
+        int armorChanged=0,weaponAdded=0,supplies=0,classItems=0;
+
+        Material[][] armorOptions=armorOptionsFor(p.combatClass);
+        String[] categories={"helmets","chestplates","leggings","boots"};
+        for(int part=0;part<4;part++) {
+            org.bukkit.inventory.ItemStack current=getArmorPiece(inv,part);
+            org.bukkit.inventory.ItemStack candidate=takeBestArmorCandidate(inv,f,categories[part],armorOptions[part]);
+            if(candidate==null) continue;
+
+            if(current!=null && armorAllowed(current.getType(),armorOptions[part]) &&
+               itemCombatValue(current)>=itemCombatValue(candidate)) {
+                // Put the unused withdrawal back; a teammate may need it.
+                putVisibleStorage(f,candidate,categories[part]);
+                continue;
+            }
+
+            if(current!=null) bankOrCarry(inv,f,current,categories[part]);
+            setArmorPiece(inv,part,candidate);
+            armorChanged++;
+        }
+
+        // Rogue's mechanic requires a gold sword. Everyone else carries the best
+        // sword available; the HOT combat controller may later switch to bow,
+        // bard item, pearl, potion, etc. as the situation requires.
+        Material requiredSword=p.combatClass==CombatClass.ROGUE?Material.GOLD_SWORD:null;
+        if(!hasUsableSword(inv,requiredSword)) {
+            org.bukkit.inventory.ItemStack sword=takeBestSword(inv,f,requiredSword);
+            if(sword!=null) {
+                java.util.Map<Integer,org.bukkit.inventory.ItemStack> overflow=inv.addItem(sword);
+                if(overflow.isEmpty()) weaponAdded++;
+                else putVisibleStorage(f,sword,"swords");
+            }
+        }
+
+        if(p.combatClass==CombatClass.ARCHER) {
+            if(countInventoryMaterial(inv,Material.BOW)<1) {
+                org.bukkit.inventory.ItemStack bow=takeMatchingFromStorage(f,"bows",Material.BOW,(short)-1);
+                if(bow!=null && inv.addItem(bow).isEmpty()) classItems++;
+            }
+            supplies+=refillMaterial(inv,f,"bows",Material.ARROW,32);
+        } else if(p.combatClass==CombatClass.BARD) {
+            classItems+=refillSingle(inv,f,"brewing",Material.BLAZE_ROD);
+            classItems+=refillSingle(inv,f,"brewing",Material.GHAST_TEAR);
+            classItems+=refillSingle(inv,f,"kits",Material.FEATHER);
+            classItems+=refillSingle(inv,f,"brewing",Material.MAGMA_CREAM);
+            classItems+=refillSingle(inv,f,"brewing",Material.SUGAR);
+            classItems+=refillSingle(inv,f,"brewing",Material.BLAZE_POWDER);
+        } else if(p.combatClass==CombatClass.MINER) {
+            if(!hasPickaxe(inv)) {
+                org.bukkit.inventory.ItemStack pick=takeBestPickaxe(f);
+                if(pick!=null && inv.addItem(pick).isEmpty()) classItems++;
+            }
+        }
+
+        supplies+=refillPotion(inv,f,(short)16421,20);
+        supplies+=refillPotion(inv,f,(short)8226,2);
+        supplies+=refillPotion(inv,f,(short)8259,1);
+        supplies+=refillMaterial(inv,f,"pearls",Material.ENDER_PEARL,8);
+        supplies+=refillMaterial(inv,f,"overflow",Material.COOKED_BEEF,32);
+
+        body.updateInventory();
+        return "class="+p.combatClass.name()+" armor="+armorChanged+
+            " weapon="+weaponAdded+" classItems="+classItems+" supplies="+supplies;
+    }
+
+    private Material[][] armorOptionsFor(CombatClass type) {
+        if(type==CombatClass.BARD) return new Material[][]{
+            {Material.GOLD_HELMET},{Material.GOLD_CHESTPLATE},{Material.GOLD_LEGGINGS},{Material.GOLD_BOOTS}};
+        if(type==CombatClass.ARCHER) return new Material[][]{
+            {Material.LEATHER_HELMET},{Material.LEATHER_CHESTPLATE},{Material.LEATHER_LEGGINGS},{Material.LEATHER_BOOTS}};
+        if(type==CombatClass.ROGUE) return new Material[][]{
+            {Material.CHAINMAIL_HELMET},{Material.CHAINMAIL_CHESTPLATE},{Material.CHAINMAIL_LEGGINGS},{Material.CHAINMAIL_BOOTS}};
+        if(type==CombatClass.MINER) return new Material[][]{
+            {Material.IRON_HELMET},{Material.IRON_CHESTPLATE},{Material.IRON_LEGGINGS},{Material.IRON_BOOTS}};
+        return new Material[][]{
+            {Material.DIAMOND_HELMET,Material.IRON_HELMET,Material.CHAINMAIL_HELMET,Material.GOLD_HELMET,Material.LEATHER_HELMET},
+            {Material.DIAMOND_CHESTPLATE,Material.IRON_CHESTPLATE,Material.CHAINMAIL_CHESTPLATE,Material.GOLD_CHESTPLATE,Material.LEATHER_CHESTPLATE},
+            {Material.DIAMOND_LEGGINGS,Material.IRON_LEGGINGS,Material.CHAINMAIL_LEGGINGS,Material.GOLD_LEGGINGS,Material.LEATHER_LEGGINGS},
+            {Material.DIAMOND_BOOTS,Material.IRON_BOOTS,Material.CHAINMAIL_BOOTS,Material.GOLD_BOOTS,Material.LEATHER_BOOTS}};
+    }
+
+    private boolean armorAllowed(Material material,Material[] options) {
+        if(material==null) return false;
+        for(Material m:options) if(m==material) return true;
+        return false;
+    }
+
+    private org.bukkit.inventory.ItemStack getArmorPiece(org.bukkit.inventory.PlayerInventory inv,int part) {
+        if(part==0) return inv.getHelmet();
+        if(part==1) return inv.getChestplate();
+        if(part==2) return inv.getLeggings();
+        return inv.getBoots();
+    }
+
+    private void setArmorPiece(org.bukkit.inventory.PlayerInventory inv,int part,org.bukkit.inventory.ItemStack item) {
+        if(part==0) inv.setHelmet(item);
+        else if(part==1) inv.setChestplate(item);
+        else if(part==2) inv.setLeggings(item);
+        else inv.setBoots(item);
+    }
+
+    private int itemCombatValue(org.bukkit.inventory.ItemStack item) {
+        if(item==null || item.getType()==Material.AIR) return -1;
+        int material=materialCombatTier(item.getType())*10000;
+        int prot=item.getEnchantmentLevel(org.bukkit.enchantments.Enchantment.PROTECTION_ENVIRONMENTAL)*500;
+        int sharp=item.getEnchantmentLevel(org.bukkit.enchantments.Enchantment.DAMAGE_ALL)*500;
+        int power=item.getEnchantmentLevel(org.bukkit.enchantments.Enchantment.ARROW_DAMAGE)*400;
+        int fire=item.getEnchantmentLevel(org.bukkit.enchantments.Enchantment.FIRE_ASPECT)*150;
+        int unbreaking=item.getEnchantmentLevel(org.bukkit.enchantments.Enchantment.DURABILITY)*25;
+        int durability=0;
+        if(item.getType().getMaxDurability()>0)
+            durability=Math.max(0,item.getType().getMaxDurability()-item.getDurability());
+        return material+prot+sharp+power+fire+unbreaking+durability;
+    }
+
+    private int materialCombatTier(Material m) {
+        String n=m.name();
+        if(n.startsWith("DIAMOND_")) return 5;
+        if(n.startsWith("IRON_")) return 4;
+        if(n.startsWith("CHAINMAIL_")) return 3;
+        if(n.startsWith("GOLD_")) return 2;
+        if(n.startsWith("LEATHER_") || n.startsWith("STONE_")) return 1;
+        if(n.startsWith("WOOD_")) return 0;
+        return 0;
+    }
+
+    private org.bukkit.inventory.ItemStack takeBestArmorCandidate(org.bukkit.inventory.PlayerInventory inv,SimFaction f,
+                                                                  String category,Material[] allowed) {
+        int bestSlot=-1,bestValue=-1;
+        for(int i=0;i<36;i++) {
+            org.bukkit.inventory.ItemStack item=inv.getItem(i);
+            if(item==null || !armorAllowed(item.getType(),allowed)) continue;
+            int v=itemCombatValue(item);
+            if(v>bestValue){bestValue=v;bestSlot=i;}
+        }
+
+        org.bukkit.inventory.ItemStack storageBest=peekBestStorageItem(f,category,allowed,false);
+        if(storageBest!=null && itemCombatValue(storageBest)>bestValue)
+            return takeExactStorageItem(f,category,storageBest);
+
+        if(bestSlot<0) return null;
+        org.bukkit.inventory.ItemStack item=inv.getItem(bestSlot);
+        org.bukkit.inventory.ItemStack one=item.clone();
+        one.setAmount(1);
+        if(item.getAmount()<=1) inv.setItem(bestSlot,null);
+        else { item.setAmount(item.getAmount()-1); inv.setItem(bestSlot,item); }
+        return one;
+    }
+
+    private org.bukkit.inventory.ItemStack peekBestStorageItem(SimFaction f,String category,Material[] allowed,boolean swords) {
+        org.bukkit.inventory.Inventory storage=factionStorageInventory(f,category);
+        if(storage==null) return null;
+        org.bukkit.inventory.ItemStack best=null;
+        for(org.bukkit.inventory.ItemStack item:storage.getContents()) {
+            if(item==null || item.getType()==Material.AIR) continue;
+            if(swords) {
+                if(!item.getType().name().endsWith("_SWORD")) continue;
+                if(allowed!=null && allowed.length>0 && item.getType()!=allowed[0]) continue;
+            } else if(!armorAllowed(item.getType(),allowed)) continue;
+            if(best==null || itemCombatValue(item)>itemCombatValue(best)) best=item.clone();
+        }
+        if(best!=null) best.setAmount(1);
+        return best;
+    }
+
+    private org.bukkit.inventory.ItemStack takeExactStorageItem(SimFaction f,String category,org.bukkit.inventory.ItemStack wanted) {
+        org.bukkit.inventory.Inventory storage=factionStorageInventory(f,category);
+        if(storage==null || wanted==null) return null;
+        int wantedValue=itemCombatValue(wanted);
+        for(int i=0;i<storage.getSize();i++) {
+            org.bukkit.inventory.ItemStack item=storage.getItem(i);
+            if(item==null || item.getType()!=wanted.getType() || itemCombatValue(item)!=wantedValue) continue;
+            org.bukkit.inventory.ItemStack one=item.clone();
+            one.setAmount(1);
+            if(item.getAmount()<=1) storage.setItem(i,null);
+            else { item.setAmount(item.getAmount()-1); storage.setItem(i,item); }
+            return one;
+        }
+        return null;
+    }
+
+    private void bankOrCarry(org.bukkit.inventory.PlayerInventory inv,SimFaction f,org.bukkit.inventory.ItemStack item,String category) {
+        if(item==null) return;
+        if(!putVisibleStorage(f,item,category)) inv.addItem(item);
+    }
+
+    private boolean hasUsableSword(org.bukkit.inventory.PlayerInventory inv,Material required) {
+        for(org.bukkit.inventory.ItemStack item:inv.getContents()) {
+            if(item==null || !item.getType().name().endsWith("_SWORD")) continue;
+            if(required==null || item.getType()==required) return true;
+        }
+        return false;
+    }
+
+    private org.bukkit.inventory.ItemStack takeBestSword(org.bukkit.inventory.PlayerInventory inv,SimFaction f,Material required) {
+        int bestSlot=-1,bestValue=-1;
+        for(int i=0;i<36;i++) {
+            org.bukkit.inventory.ItemStack item=inv.getItem(i);
+            if(item==null || !item.getType().name().endsWith("_SWORD")) continue;
+            if(required!=null && item.getType()!=required) continue;
+            int v=itemCombatValue(item);
+            if(v>bestValue){bestValue=v;bestSlot=i;}
+        }
+
+        Material[] filter=required==null?null:new Material[]{required};
+        org.bukkit.inventory.ItemStack storageBest=peekBestStorageItem(f,"swords",filter,true);
+        if(required==null) {
+            org.bukkit.inventory.Inventory storage=factionStorageInventory(f,"swords");
+            if(storage!=null) {
+                for(org.bukkit.inventory.ItemStack item:storage.getContents()) {
+                    if(item==null || !item.getType().name().endsWith("_SWORD")) continue;
+                    if(storageBest==null || itemCombatValue(item)>itemCombatValue(storageBest)) {
+                        storageBest=item.clone(); storageBest.setAmount(1);
+                    }
+                }
+            }
+        }
+        if(storageBest!=null && itemCombatValue(storageBest)>bestValue)
+            return takeExactStorageItem(f,"swords",storageBest);
+
+        if(bestSlot<0) return null;
+        org.bukkit.inventory.ItemStack item=inv.getItem(bestSlot);
+        org.bukkit.inventory.ItemStack one=item.clone(); one.setAmount(1);
+        if(item.getAmount()<=1) inv.setItem(bestSlot,null);
+        else {item.setAmount(item.getAmount()-1);inv.setItem(bestSlot,item);}
+        return one;
+    }
+
+    private org.bukkit.inventory.ItemStack takeMatchingFromStorage(SimFaction f,String category,Material material,short durability) {
+        org.bukkit.inventory.Inventory storage=factionStorageInventory(f,category);
+        if(storage==null) return null;
+        for(int i=0;i<storage.getSize();i++) {
+            org.bukkit.inventory.ItemStack item=storage.getItem(i);
+            if(item==null || item.getType()!=material) continue;
+            if(durability>=0 && item.getDurability()!=durability) continue;
+            org.bukkit.inventory.ItemStack one=item.clone(); one.setAmount(1);
+            if(item.getAmount()<=1) storage.setItem(i,null);
+            else {item.setAmount(item.getAmount()-1);storage.setItem(i,item);}
+            return one;
+        }
+        return null;
+    }
+
+    private int countInventoryMaterial(org.bukkit.inventory.PlayerInventory inv,Material material) {
+        int n=0;
+        for(org.bukkit.inventory.ItemStack item:inv.getContents())
+            if(item!=null && item.getType()==material) n+=item.getAmount();
+        return n;
+    }
+
+    private int countInventoryPotion(org.bukkit.inventory.PlayerInventory inv,short durability) {
+        int n=0;
+        for(org.bukkit.inventory.ItemStack item:inv.getContents())
+            if(item!=null && item.getType()==Material.POTION && item.getDurability()==durability) n+=item.getAmount();
+        return n;
+    }
+
+    private int refillMaterial(org.bukkit.inventory.PlayerInventory inv,SimFaction f,String category,Material material,int target) {
+        int have=countInventoryMaterial(inv,material),moved=0;
+        while(have<target) {
+            org.bukkit.inventory.ItemStack item=takeMatchingFromStorage(f,category,material,(short)-1);
+            if(item==null) break;
+            if(!inv.addItem(item).isEmpty()) { putVisibleStorage(f,item,category); break; }
+            have++; moved++;
+        }
+        return moved;
+    }
+
+    private int refillPotion(org.bukkit.inventory.PlayerInventory inv,SimFaction f,short durability,int target) {
+        int have=countInventoryPotion(inv,durability),moved=0;
+        while(have<target) {
+            org.bukkit.inventory.ItemStack item=takeMatchingFromStorage(f,"pots",Material.POTION,durability);
+            if(item==null) break;
+            if(!inv.addItem(item).isEmpty()) { putVisibleStorage(f,item,"pots"); break; }
+            have++; moved++;
+        }
+        return moved;
+    }
+
+    private int refillSingle(org.bukkit.inventory.PlayerInventory inv,SimFaction f,String category,Material material) {
+        if(countInventoryMaterial(inv,material)>0) return 0;
+        org.bukkit.inventory.ItemStack item=takeMatchingFromStorage(f,category,material,(short)-1);
+        if(item==null) return 0;
+        if(inv.addItem(item).isEmpty()) return 1;
+        putVisibleStorage(f,item,category);
+        return 0;
+    }
+
+    private boolean hasPickaxe(org.bukkit.inventory.PlayerInventory inv) {
+        for(org.bukkit.inventory.ItemStack item:inv.getContents())
+            if(item!=null && item.getType().name().endsWith("_PICKAXE")) return true;
+        return false;
+    }
+
+    private org.bukkit.inventory.ItemStack takeBestPickaxe(SimFaction f) {
+        org.bukkit.inventory.Inventory storage=factionStorageInventory(f,"kits");
+        if(storage==null) return null;
+        int best=-1,bestValue=-1;
+        for(int i=0;i<storage.getSize();i++) {
+            org.bukkit.inventory.ItemStack item=storage.getItem(i);
+            if(item==null || !item.getType().name().endsWith("_PICKAXE")) continue;
+            int v=materialCombatTier(item.getType())*100+item.getEnchantmentLevel(org.bukkit.enchantments.Enchantment.DIG_SPEED)*20;
+            if(v>bestValue){bestValue=v;best=i;}
+        }
+        if(best<0) return null;
+        org.bukkit.inventory.ItemStack item=storage.getItem(best);
+        org.bukkit.inventory.ItemStack one=item.clone();one.setAmount(1);
+        if(item.getAmount()<=1) storage.setItem(best,null);
+        else {item.setAmount(item.getAmount()-1);storage.setItem(best,item);}
+        return one;
     }
 
     String prepareEmbodiedWorkerForCrates(Player body) {
@@ -5713,6 +6048,9 @@ final class SimWorldDirector {
         if(n.endsWith("_BOOTS")) return "boots";
         if(n.endsWith("_SWORD")) return "swords";
         if(material==Material.BOW || material==Material.ARROW) return "bows";
+        if(material==Material.DIAMOND_PICKAXE || material==Material.IRON_PICKAXE ||
+           material==Material.STONE_PICKAXE || material==Material.GOLD_PICKAXE ||
+           material==Material.WOOD_PICKAXE || material==Material.FEATHER) return "kits";
         if(material==Material.POTION) return "pots";
         if(material==Material.ENDER_PEARL) return "pearls";
         if(material==Material.DIAMOND || material==Material.DIAMOND_ORE ||
@@ -5725,7 +6063,8 @@ final class SimWorldDirector {
         if(material==Material.NETHER_STALK || material==Material.GLOWSTONE_DUST ||
            material==Material.SUGAR || material==Material.MAGMA_CREAM ||
            material==Material.SULPHUR || material==Material.SPECKLED_MELON ||
-           material==Material.BLAZE_ROD || material==Material.GHAST_TEAR) return "brewing";
+           material==Material.BLAZE_ROD || material==Material.BLAZE_POWDER ||
+           material==Material.GHAST_TEAR) return "brewing";
         if(material==Material.SUGAR_CANE || material==Material.SUGAR_CANE_BLOCK ||
            material==Material.CACTUS || material==Material.PUMPKIN ||
            material==Material.MELON || material==Material.MELON_BLOCK ||

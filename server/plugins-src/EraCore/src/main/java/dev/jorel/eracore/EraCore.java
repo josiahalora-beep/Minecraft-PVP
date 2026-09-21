@@ -2230,6 +2230,25 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         return r==null?0:r.level;
     }
 
+    boolean upgradeRankFromReward(Player p,String source) {
+        if(p==null) return false;
+        if(simWorld!=null && simWorld.contains(p.getName()))
+            return simWorld.upgradeDonorRankFromReward(p.getName(),source);
+
+        Rank current=getRank(p.getName());
+        Rank next=null;
+        if(current==Rank.MEMBER) next=Rank.BASIC;
+        else if(current==Rank.BASIC) next=Rank.SILVER;
+        else if(current==Rank.SILVER) next=Rank.GOLD;
+        else if(current==Rank.GOLD) next=Rank.PLATINUM;
+        if(next==null) return false;
+
+        setRank(p.getName(),next);
+        Bukkit.broadcastMessage(color("&d[Crates] &f"+p.getName()+" &7won a "+next.prefix+" &7rank upgrade from "+source+"&7."));
+        p.sendMessage(color("&aYour donor rank is now "+next.prefix+"&a."));
+        return true;
+    }
+
 
     synchronized void resetSimFactionAuthority(List<String> simKeys) {
         Set<String> keys = new HashSet<String>();

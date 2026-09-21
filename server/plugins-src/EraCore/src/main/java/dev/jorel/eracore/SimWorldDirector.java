@@ -219,6 +219,7 @@ final class SimWorldDirector {
         String combatClass = "DIAMOND";
         String preferredJob = "member";
         String allies = "";
+        String leader = "";
         String keyType = "";
         String interaction = "none";
         String interactionAction = "none";
@@ -249,6 +250,7 @@ final class SimWorldDirector {
                 " class=" + combatClass +
                 " job=" + preferredJob +
                 " allies=" + allies +
+                " leader=" + leader +
                 " keyType=" + keyType +
                 " interaction=" + interaction +
                 " interactionAction=" + interactionAction +
@@ -1647,6 +1649,7 @@ final class SimWorldDirector {
         if (f == null) return t;
 
         t.faction = f.name;
+        t.leader = f.leader == null ? "" : f.leader;
         t.combatClass = p.combatClass.name();
         t.preferredJob = p.preferredJob;
         PvpIntent intent=pvpIntentFor(p,f);
@@ -2129,8 +2132,10 @@ final class SimWorldDirector {
         SimPlayer p=players.get(key(body.getName()));
         if(p==null || p.faction.isEmpty()) return "no-sim-player";
         SimFaction f=factions.get(key(p.faction));
-        if(f==null || !f.storage) return "no-storage";
+        if(f==null) return "no-faction";
 
+        // Equipping carried armor is always legal. Storage only contributes
+        // additional pieces if its physical chests already exist.
         org.bukkit.inventory.PlayerInventory inv=body.getInventory();
         int moved=0;
         int healsKept=0, pearlsKept=0, foodKept=0;
@@ -5012,13 +5017,52 @@ final class SimWorldDirector {
         save();
     }
 
+    private void equipRoleArmorFromInventory(Player body,CombatClass type) {
+        if(body==null) return;
+        org.bukkit.inventory.PlayerInventory inv=body.getInventory();
+        Material[][] options=armorOptionsFor(type);
+        String[] suffixes={"_HELMET","_CHESTPLATE","_LEGGINGS","_BOOTS"};
+
+        for(int part=0;part<4;part++) {
+            org.bukkit.inventory.ItemStack current=getArmorPiece(inv,part);
+            org.bukkit.inventory.ItemStack best=current;
+            int bestValue=(current!=null && armorAllowed(current.getType(),options[part]))
+                ? itemCombatValue(current) : -1;
+            int bestSlot=-1;
+
+            for(int slot=0;slot<36;slot++) {
+                org.bukkit.inventory.ItemStack item=inv.getItem(slot);
+                if(item==null || !item.getType().name().endsWith(suffixes[part])) continue;
+                if(!armorAllowed(item.getType(),options[part])) continue;
+                int value=itemCombatValue(item);
+                if(value>bestValue) { best=item; bestValue=value; bestSlot=slot; }
+            }
+
+            if(bestSlot>=0 && best!=null) {
+                org.bukkit.inventory.ItemStack one=best.clone();
+                one.setAmount(1);
+                if(best.getAmount()<=1) inv.setItem(bestSlot,null);
+                else { best.setAmount(best.getAmount()-1); inv.setItem(bestSlot,best); }
+                if(current!=null) inv.addItem(current);
+                setArmorPiece(inv,part,one);
+            }
+        }
+        body.updateInventory();
+    }
+
     private boolean hasPersonalPhysicalCombatKit(SimPlayer p) {
         if(p==null || p.combatClass!=CombatClass.DIAMOND) return false;
         Player body=Bukkit.getPlayerExact(p.name);
         if(body==null || !body.isOnline()) return false;
 
-        int diamondPieces=countArmorPieces(body,Material.DIAMOND_HELMET,Material.DIAMOND_CHESTPLATE,
-            Material.DIAMOND_LEGGINGS,Material.DIAMOND_BOOTS);
+        equipRoleArmorFromInventory(body,p.combatClass);
+        org.bukkit.inventory.PlayerInventory inv=body.getInventory();
+        boolean fullDiamond=
+            inv.getHelmet()!=null && inv.getHelmet().getType()==Material.DIAMOND_HELMET &&
+            inv.getChestplate()!=null && inv.getChestplate().getType()==Material.DIAMOND_CHESTPLATE &&
+            inv.getLeggings()!=null && inv.getLeggings().getType()==Material.DIAMOND_LEGGINGS &&
+            inv.getBoots()!=null && inv.getBoots().getType()==Material.DIAMOND_BOOTS;
+
         int swords=0;
         for(org.bukkit.inventory.ItemStack item:allPhysicalItems(body)) {
             if(item==null) continue;
@@ -5026,7 +5070,7 @@ final class SimWorldDirector {
         }
         int heals=countPotion(body,(short)16421);
         int pearls=countMaterial(body,Material.ENDER_PEARL);
-        return diamondPieces>=4 && swords>=1 && heals>=6 && pearls>=4;
+        return fullDiamond && swords>=1 && heals>=6 && pearls>=4;
     }
 
     private int personalCombatSlots(SimFaction f) {

@@ -844,15 +844,33 @@ final class SimWorldDirector {
             return;
         }
 
+        long now=System.currentTimeMillis();
+        Player observer = combatObserver();
+
         if (sotwProtectionActive()) {
+            if(visibleFight!=null && visibleFight.id!=null &&
+               visibleFight.id.startsWith("TESTTEAM_SOTW_")) {
+                if(now>=visibleFight.expiresAt) clearVisibleFight();
+                else writeCombatFile();
+                return;
+            }
             clearVisibleFight();
+            if(observer==null || now<nextVisibleFightAt) return;
+
+            int minS=Math.max(10,plugin.getConfig().getInt("combat-director.sotw-scrim-min-seconds",18));
+            int maxS=Math.max(minS,plugin.getConfig().getInt("combat-director.sotw-scrim-max-seconds",34));
+            nextVisibleFightAt=now+(minS+rng.nextInt(maxS-minS+1))*1000L;
+            if(rng.nextInt(100)<plugin.getConfig().getInt("combat-director.sotw-scrim-chance-percent",72)) {
+                VisibleFight scrim=createSotwScrim(observer);
+                if(scrim!=null) {
+                    visibleFight=scrim;
+                    writeCombatFile();
+                }
+            }
             return;
         }
 
-        Player observer = combatObserver();
         if (observer == null) return;
-
-        long now=System.currentTimeMillis();
         if (visibleFight != null) {
             if (now >= visibleFight.expiresAt || !fightStillRelevant(observer,visibleFight)) {
                 visibleFight=null;
@@ -876,6 +894,59 @@ final class SimWorldDirector {
             visibleFight=fight;
             writeCombatFile();
         }
+    }
+
+    private VisibleFight createSotwScrim(Player observer) {
+        if(observer==null || !plugin.duelArenaReady()) return null;
+        Location center=plugin.duelCenterLocation();
+        if(center==null || center.getWorld()==null) return null;
+
+        List<SimFaction> eligible=new ArrayList<SimFaction>();
+        for(SimFaction f:factions.values()) {
+            int online=0;
+            for(String n:f.members) {
+                SimPlayer p=players.get(key(n));
+                if(p!=null && p.logicalOnline && p.bannedUntil<=System.currentTimeMillis()) online++;
+            }
+            if(online>0) eligible.add(f);
+        }
+        if(eligible.size()<2) return null;
+
+        Collections.sort(eligible,new Comparator<SimFaction>() {
+            public int compare(SimFaction a,SimFaction b) {
+                return Integer.compare(teamStrength(b),teamStrength(a));
+            }
+        });
+
+        SimFaction a=eligible.get(rng.nextInt(Math.min(4,eligible.size())));
+        SimFaction b=null;
+        for(SimFaction candidate:eligible) {
+            if(candidate!=a){b=candidate;break;}
+        }
+        if(b==null) return null;
+
+        int desired=(a.members.size()>=2 && b.members.size()>=2 && rng.nextInt(100)<35)?2:1;
+        List<SimPlayer> aa=testTeam(a,desired);
+        List<SimPlayer> bb=testTeam(b,desired);
+        if(aa.size()<desired || bb.size()<desired) return null;
+
+        VisibleFight fight=new VisibleFight();
+        fight.id="TESTTEAM_SOTW_"+desired+"_"+System.currentTimeMillis();
+        fight.type="SOTW_SCRIM_"+desired+"v"+desired;
+        fight.world=center.getWorld().getName();
+        fight.centerX=center.getBlockX();
+        fight.centerY=center.getBlockY();
+        fight.centerZ=center.getBlockZ();
+        fight.anchorFaction=a.name;
+        fight.teamSize=desired;
+        fight.expiresAt=System.currentTimeMillis()+
+            Math.max(45,plugin.getConfig().getInt("combat-director.sotw-scrim-duration-seconds",75))*1000L;
+
+        addAssignments(fight,a,b,aa,bb,false);
+        addAssignments(fight,b,a,bb,aa,false);
+        recordHistory("SOTW_SCRIM",2,a.name+" and "+b.name+" ran a protected practice scrim",
+            a.name,a.leader,b.leader);
+        return fight;
     }
 
     private Player combatObserver() {

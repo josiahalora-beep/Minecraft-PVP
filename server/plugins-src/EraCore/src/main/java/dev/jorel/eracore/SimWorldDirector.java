@@ -1959,7 +1959,7 @@ final class SimWorldDirector {
         org.bukkit.inventory.PlayerInventory inv=body.getInventory();
         int moved=0;
         int healsKept=0, pearlsKept=0, foodKept=0;
-        boolean swordKept=false;
+        int keepSwordSlot=bestCarriedSwordSlot(inv,p.combatClass);
 
         for(int slot=0;slot<36;slot++) {
             org.bukkit.inventory.ItemStack item=inv.getItem(slot);
@@ -1973,8 +1973,7 @@ final class SimWorldDirector {
                 // Equipped armor lives outside these main slots, so inventory armor is spare.
                 stash=true;
             } else if(m.name().endsWith("_SWORD")) {
-                if(!swordKept) swordKept=true;
-                else stash=true;
+                stash=slot!=keepSwordSlot;
             } else if(m==Material.BOW || m==Material.ARROW) {
                 stash=true;
             } else if(m==Material.DIAMOND_PICKAXE || m==Material.IRON_PICKAXE ||
@@ -2088,19 +2087,20 @@ final class SimWorldDirector {
         // sword available; the HOT combat controller may later switch to bow,
         // bard item, pearl, potion, etc. as the situation requires.
         Material requiredSword=p.combatClass==CombatClass.ROGUE?Material.GOLD_SWORD:null;
-        if(!hasUsableSword(inv,requiredSword)) {
-            org.bukkit.inventory.ItemStack sword=takeBestSword(inv,f,requiredSword);
-            if(sword!=null) {
-                java.util.Map<Integer,org.bukkit.inventory.ItemStack> overflow=inv.addItem(sword);
-                if(overflow.isEmpty()) weaponAdded++;
-                else putVisibleStorage(f,sword,"swords");
-            }
+        org.bukkit.inventory.ItemStack sword=takeBestSword(inv,f,requiredSword);
+        if(sword!=null) {
+            java.util.Map<Integer,org.bukkit.inventory.ItemStack> overflow=inv.addItem(sword);
+            if(overflow.isEmpty()) weaponAdded++;
+            else putVisibleStorage(f,sword,"swords");
         }
 
         if(p.combatClass==CombatClass.ARCHER) {
             if(countInventoryMaterial(inv,Material.BOW)<1) {
                 org.bukkit.inventory.ItemStack bow=takeMatchingFromStorage(f,"bows",Material.BOW,(short)-1);
-                if(bow!=null && inv.addItem(bow).isEmpty()) classItems++;
+                if(bow!=null) {
+                    if(inv.addItem(bow).isEmpty()) classItems++;
+                    else putVisibleStorage(f,bow,"bows");
+                }
             }
             supplies+=refillMaterial(inv,f,"bows",Material.ARROW,32);
         } else if(p.combatClass==CombatClass.BARD) {
@@ -2113,7 +2113,10 @@ final class SimWorldDirector {
         } else if(p.combatClass==CombatClass.MINER) {
             if(!hasPickaxe(inv)) {
                 org.bukkit.inventory.ItemStack pick=takeBestPickaxe(f);
-                if(pick!=null && inv.addItem(pick).isEmpty()) classItems++;
+                if(pick!=null) {
+                    if(inv.addItem(pick).isEmpty()) classItems++;
+                    else putVisibleStorage(f,pick,"kits");
+                }
             }
         }
 
@@ -2122,6 +2125,9 @@ final class SimWorldDirector {
         supplies+=refillPotion(inv,f,(short)8259,1);
         supplies+=refillMaterial(inv,f,"pearls",Material.ENDER_PEARL,8);
         supplies+=refillMaterial(inv,f,"overflow",Material.COOKED_BEEF,32);
+
+        int hand=bestCarriedSwordSlot(inv,p.combatClass);
+        if(hand>=0 && hand<9) inv.setHeldItemSlot(hand);
 
         body.updateInventory();
         return "class="+p.combatClass.name()+" armor="+armorChanged+
@@ -2247,6 +2253,25 @@ final class SimWorldDirector {
     private void bankOrCarry(org.bukkit.inventory.PlayerInventory inv,SimFaction f,org.bukkit.inventory.ItemStack item,String category) {
         if(item==null) return;
         if(!putVisibleStorage(f,item,category)) inv.addItem(item);
+    }
+
+    private int bestCarriedSwordSlot(org.bukkit.inventory.PlayerInventory inv,CombatClass type) {
+        Material required=type==CombatClass.ROGUE?Material.GOLD_SWORD:null;
+        int best=-1,bestValue=-1;
+
+        // Prefer hotbar weapons so setting heldItemSlot is visible immediately.
+        for(int pass=0;pass<2;pass++) {
+            int from=pass==0?0:9;
+            int to=pass==0?9:36;
+            for(int slot=from;slot<to;slot++) {
+                org.bukkit.inventory.ItemStack item=inv.getItem(slot);
+                if(item==null || !item.getType().name().endsWith("_SWORD")) continue;
+                if(required!=null && item.getType()!=required) continue;
+                int v=itemCombatValue(item)+(pass==0?50:0);
+                if(v>bestValue){bestValue=v;best=slot;}
+            }
+        }
+        return best;
     }
 
     private boolean hasUsableSword(org.bukkit.inventory.PlayerInventory inv,Material required) {

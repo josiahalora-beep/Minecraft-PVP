@@ -272,6 +272,16 @@ function targetFor(settings, combat) {
   return Math.max(0, lastGlobalTarget)
 }
 
+function assignmentCapacity(node) {
+  const hard=node.capacity
+  const live=Math.min(hard,Array.isArray(node.live)?node.live.length:0)
+  if(node.cpu>=95) return Math.max(live,Math.max(1,hard-6))
+  if(node.cpu>=90) return Math.max(live,Math.max(1,hard-4))
+  if(node.cpu>=82) return Math.max(live,Math.max(1,hard-2))
+  if(node.cpu>=74) return Math.max(live,Math.max(1,hard-1))
+  return hard
+}
+
 function assignPlans(desired) {
   const activeNodes = [...nodes.values()]
   const desiredMap = new Map(desired.map(c => [c.name.toLowerCase(), c]))
@@ -298,11 +308,11 @@ function assignPlans(desired) {
     const lower = cand.name.toLowerCase()
     if (ownerNow.has(lower)) continue
 
-    const available = activeNodes.filter(n => (used.get(n.id) || 0) < n.capacity)
+    const available = activeNodes.filter(n => (used.get(n.id) || 0) < assignmentCapacity(n))
     if (!available.length) break
     available.sort((a,b) => {
-      const ar=(used.get(a.id)||0)/Math.max(1,a.capacity)
-      const br=(used.get(b.id)||0)/Math.max(1,b.capacity)
+      const ar=(used.get(a.id)||0)/Math.max(1,assignmentCapacity(a))
+      const br=(used.get(b.id)||0)/Math.max(1,assignmentCapacity(b))
       if (ar !== br) return ar-br
       if (a.priority !== b.priority) return b.priority-a.priority
       return a.id.localeCompare(b.id)

@@ -23,6 +23,7 @@ final class HcfBaseBuilder {
         final Material material;
         final byte data;
         final String label;
+        long deferUntil;
         Op(World world, int x, int y, int z, Material material) {
             this(world,x,y,z,material,(byte)0,null);
         }
@@ -53,17 +54,8 @@ final class HcfBaseBuilder {
         int radius = basePadRadius(preset, trapPreset);
         prepareTerrainPad(world,cx,y,cz,radius,radius);
 
-        if ("hcf_courtyard".equalsIgnoreCase(preset)) buildCourtyard(world,cx,y,cz);
-        else if ("hcf_brewer_base".equalsIgnoreCase(preset)) buildGlassBox(world,cx,y,cz,false);
-        else if ("hcf_trap_base".equalsIgnoreCase(preset)) buildTrapHouse(world,cx,y,cz);
-        else if ("hcf_compact_2015".equalsIgnoreCase(preset)) buildCompact2015(world,cx,y,cz);
-        else if ("hcf_split_level".equalsIgnoreCase(preset)) buildSplitLevel(world,cx,y,cz);
-        else if ("hcf_archer_tower".equalsIgnoreCase(preset)) buildArcherTower(world,cx,y,cz);
-        else if ("hcf_double_layer".equalsIgnoreCase(preset)) buildDoubleLayer(world,cx,y,cz);
-        else buildGlassBox(world,cx,y,cz,false);
-
-        addDistinctExterior(world,faction,preset,cx,y,cz);
-        buildOrganizedVault(world,preset,cx,y,cz);
+        buildFactionBlueprint(world,faction,preset,cx,y,cz);
+        buildOrganizedVault(world,faction,preset,cx,y,cz);
 
         if ("fall_trap".equalsIgnoreCase(trapPreset)) buildFallTrap(world,cx,y,cz);
         else if ("fence_gate_bow".equalsIgnoreCase(trapPreset)) buildFenceGateBowTrap(world,cx,y,cz);
@@ -159,7 +151,7 @@ final class HcfBaseBuilder {
         clearHomePocket(world,cx,y,cz);
         doorway(world,cx,y,frontZForPreset(preset,cz));
         addDistinctExterior(world,faction,preset,cx,y,cz);
-        buildOrganizedVault(world,preset,cx,y,cz);
+        buildOrganizedVault(world,faction,preset,cx,y,cz);
         rescueEmbeddedPlayers(world,cx,y,cz,radius);
         ensureRunner();
     }
@@ -267,14 +259,24 @@ final class HcfBaseBuilder {
         if (runner != null) return;
         runner = new BukkitRunnable() {
             public void run() {
-                int budget = Math.max(100, plugin.getConfig().getInt("base-builder.blocks-per-tick", 450));
+                int budget = Math.max(20, plugin.getConfig().getInt("base-builder.blocks-per-tick", 120));
                 int n = 0;
                 while (n < budget && !queue.isEmpty()) {
                     Op op = queue.poll();
                     // Never materialize a solid repair/build block through a live
                     // player's feet or head. Skipping one cosmetic/support block is
                     // preferable to suffocating or trapping a player in a wall.
+                    long now=System.currentTimeMillis();
+                    if(op.deferUntil>now) {
+                        queue.add(op);
+                        break;
+                    }
                     if (op.material != Material.AIR && intersectsPlayer(op)) {
+                        // Never turn a temporary player collision into a permanent
+                        // hole. Millenaire-style builders wait until the work site
+                        // is clear, then finish the same blueprint operation.
+                        op.deferUntil=now+1250L;
+                        queue.add(op);
                         n++;
                         continue;
                     }
@@ -294,7 +296,8 @@ final class HcfBaseBuilder {
                 }
             }
         };
-        runner.runTaskTimer(plugin,1L,1L);
+        long interval=Math.max(1L,plugin.getConfig().getLong("base-builder.interval-ticks",2L));
+        runner.runTaskTimer(plugin,1L,interval);
     }
 
     private int presetHalf(String preset) {
@@ -317,12 +320,12 @@ final class HcfBaseBuilder {
         return new int[]{cx,y+1,cz};
     }
 
-    private void buildOrganizedVault(World w,String preset,int cx,int y,int cz) {
+    private void buildOrganizedVault(World w,String faction,String preset,int cx,int y,int cz) {
         int half=presetHalf(preset);
         int rear=cz+half;
         int minX=cx-11,maxX=cx+11;
         int minZ=rear,maxZ=rear+8;
-        Material accent=Material.SMOOTH_BRICK;
+        Material accent=blueprintStyle(faction,preset).frame;
 
         // The vault is part of the base template, not a freestanding shed. Its
         // front wall overlaps the rear wall of the main preset and shares one
@@ -376,6 +379,184 @@ final class HcfBaseBuilder {
         queue.add(new Op(w,x,chestY+2,z,Material.AIR));
         queue.add(new Op(w,x+1,chestY+1,z,Material.AIR));
         queue.add(new Op(w,x+1,chestY+2,z,Material.AIR));
+    }
+
+
+    private static final class BlueprintStyle {
+        final Material frame,wall,floor,roof;
+        final int halfX,height,roofStyle,side;
+        BlueprintStyle(Material frame,Material wall,Material floor,Material roof,
+                       int halfX,int height,int roofStyle,int side) {
+            this.frame=frame;this.wall=wall;this.floor=floor;this.roof=roof;
+            this.halfX=halfX;this.height=height;this.roofStyle=roofStyle;this.side=side;
+        }
+    }
+
+    private int positiveHash(String text) {
+        int h=text==null?0:text.toLowerCase(java.util.Locale.ENGLISH).hashCode();
+        return h==Integer.MIN_VALUE?0:Math.abs(h);
+    }
+
+    private BlueprintStyle blueprintStyle(String faction,String preset) {
+        int h=positiveHash((faction==null?"":faction)+"|"+(preset==null?"":preset));
+        Material[] frames={Material.SMOOTH_BRICK,Material.COBBLESTONE,Material.NETHER_BRICK,
+            Material.BRICK,Material.SANDSTONE,Material.QUARTZ_BLOCK};
+        Material[] walls={Material.WOOD,Material.COBBLESTONE,Material.SMOOTH_BRICK,
+            Material.NETHER_BRICK,Material.BRICK,Material.SANDSTONE};
+        Material frame=frames[h%frames.length];
+        Material wall=walls[(h/7)%walls.length];
+        if(wall==frame) wall=walls[((h/7)+2)%walls.length];
+        Material floor=((h/13)&1)==0?frame:Material.WOOD;
+        Material roof=((h/17)&1)==0?frame:wall;
+        int halfX=8+(h%6);                 // 17..27 blocks wide
+        int height=6+((h/31)%6);           // 6..11 blocks tall
+        int roofStyle=(h/67)%3;
+        int side=((h/97)&1)==0?-1:1;
+
+        if("hcf_compact_2015".equalsIgnoreCase(preset)){halfX=Math.min(10,halfX);height=Math.min(8,height);}
+        if("hcf_archer_tower".equalsIgnoreCase(preset)){halfX=Math.max(10,halfX);height=Math.max(9,height);}
+        if("hcf_double_layer".equalsIgnoreCase(preset)){halfX=Math.max(12,halfX);height=Math.max(9,height);}
+        if("hcf_courtyard".equalsIgnoreCase(preset)){halfX=Math.max(12,halfX);}
+        return new BlueprintStyle(frame,wall,floor,roof,halfX,height,roofStyle,side);
+    }
+
+    /**
+     * Deterministic per-faction blueprint.
+     *
+     * The old builder had eight names for mostly the same smooth-brick/glass box.
+     * This keeps stable semantic anchors for AI navigation while varying width,
+     * height, palette, roof, wings, safe room, frontage and defensive silhouette.
+     * The queue order is deliberately construction-like: floor -> frame/walls ->
+     * roof -> rooms -> details. HOT builders can visibly work around a structure
+     * that grows over time instead of watching one prefab appear at once.
+     */
+    private void buildFactionBlueprint(World w,String faction,String preset,int cx,int y,int cz) {
+        BlueprintStyle s=blueprintStyle(faction,preset);
+        int hx=s.halfX;
+        int hz=presetHalf(preset);
+        int top=y+s.height;
+
+        // Foundation/floor and complete interior clearance.
+        for(int x=cx-hx;x<=cx+hx;x++) {
+            for(int z=cz-hz;z<=cz+hz;z++) {
+                queue.add(new Op(w,x,y,z,s.floor));
+                for(int yy=y+1;yy<=top+4;yy++) queue.add(new Op(w,x,yy,z,Material.AIR));
+            }
+        }
+
+        // Exterior shell. Windows are discrete openings, not full glass walls.
+        for(int x=cx-hx;x<=cx+hx;x++) {
+            for(int z=cz-hz;z<=cz+hz;z++) {
+                boolean edge=x==cx-hx||x==cx+hx||z==cz-hz||z==cz+hz;
+                if(!edge) continue;
+                boolean corner=(x==cx-hx||x==cx+hx)&&(z==cz-hz||z==cz+hz);
+                for(int yy=y+1;yy<=top;yy++) {
+                    boolean beam=corner || yy==y+1 || yy==top || ((x+z+yy)%7==0);
+                    boolean window=!beam && yy>=y+3 && yy<=top-2 && ((Math.abs(x-cx)+Math.abs(z-cz))%4==0);
+                    queue.add(new Op(w,x,yy,z,beam?s.frame:(window?Material.STAINED_GLASS:s.wall)));
+                }
+            }
+        }
+
+        // Different roof silhouettes.
+        if(s.roofStyle==0) {
+            for(int x=cx-hx;x<=cx+hx;x++) for(int z=cz-hz;z<=cz+hz;z++)
+                queue.add(new Op(w,x,top+1,z,s.roof));
+            for(int x=cx-hx;x<=cx+hx;x+=2) {
+                queue.add(new Op(w,x,top+2,cz-hz,s.frame));
+                queue.add(new Op(w,x,top+2,cz+hz,s.frame));
+            }
+        } else if(s.roofStyle==1) {
+            // Open parapet roof with central skylight/courtyard feel.
+            for(int x=cx-hx;x<=cx+hx;x++) {
+                queue.add(new Op(w,x,top+1,cz-hz,s.roof));
+                queue.add(new Op(w,x,top+1,cz+hz,s.roof));
+            }
+            for(int z=cz-hz;z<=cz+hz;z++) {
+                queue.add(new Op(w,cx-hx,top+1,z,s.roof));
+                queue.add(new Op(w,cx+hx,top+1,z,s.roof));
+            }
+            for(int x=cx-3;x<=cx+3;x++) for(int z=cz-3;z<=cz+3;z++)
+                queue.add(new Op(w,x,top+1,z,Material.GLASS));
+        } else {
+            // Stepped ridge roof.
+            for(int step=0;step<=Math.min(4,hz-2);step++) {
+                int z0=cz-hz+step,z1=cz+hz-step;
+                int yy=top+1+step;
+                for(int x=cx-hx;x<=cx+hx;x++) {
+                    queue.add(new Op(w,x,yy,z0,s.roof));
+                    queue.add(new Op(w,x,yy,z1,s.roof));
+                }
+            }
+            for(int x=cx-hx;x<=cx+hx;x++)
+                queue.add(new Op(w,x,top+5,cz,s.frame));
+        }
+
+        // Stable front gate for worker navigation.
+        doorway(w,cx,y,cz-hz);
+
+        // Asymmetric side utility wing. Side differs by faction, so neighboring
+        // bases do not read as rotated clones.
+        int wingCenterX=cx+s.side*(hx+4);
+        int wingHalfX=3,wingHalfZ=5;
+        for(int x=wingCenterX-wingHalfX;x<=wingCenterX+wingHalfX;x++) {
+            for(int z=cz-wingHalfZ;z<=cz+wingHalfZ;z++) {
+                queue.add(new Op(w,x,y,z,s.frame));
+                for(int yy=y+1;yy<=y+5;yy++) {
+                    boolean wall=x==wingCenterX-wingHalfX||x==wingCenterX+wingHalfX||
+                                 z==cz-wingHalfZ||z==cz+wingHalfZ||yy==y+5;
+                    queue.add(new Op(w,x,yy,z,wall?s.wall:Material.AIR));
+                }
+            }
+        }
+        doorwayX(w,wingCenterX-s.side*wingHalfX,y,cz);
+
+        // Offset panic/refill room rather than the same centered cube every time.
+        int roomX=cx-s.side*Math.max(2,hx/3);
+        int roomZ=cz+Math.max(1,hz/4);
+        int rx=4,rz=4;
+        for(int x=roomX-rx;x<=roomX+rx;x++) for(int z=roomZ-rz;z<=roomZ+rz;z++) {
+            for(int yy=y+1;yy<=y+5;yy++) {
+                boolean wall=x==roomX-rx||x==roomX+rx||z==roomZ-rz||z==roomZ+rz||yy==y+5;
+                if(wall) queue.add(new Op(w,x,yy,z,s.frame));
+            }
+        }
+
+        // Preset-specific silhouettes remain meaningful, but are layered over the
+        // faction blueprint instead of defining the entire building.
+        if("hcf_archer_tower".equalsIgnoreCase(preset)) {
+            tower(w,cx-hx+3,y+1,cz-hz+3,3,10);
+            tower(w,cx+hx-3,y+1,cz-hz+3,3,12);
+        } else if("hcf_double_layer".equalsIgnoreCase(preset)) {
+            int inner=Math.max(5,Math.min(hx,hz)-4);
+            for(int x=cx-inner;x<=cx+inner;x++) for(int z=cz-inner;z<=cz+inner;z++) {
+                boolean edge=x==cx-inner||x==cx+inner||z==cz-inner||z==cz+inner;
+                if(!edge) continue;
+                for(int yy=y+1;yy<=y+6;yy++) queue.add(new Op(w,x,yy,z,s.frame));
+            }
+            doorway(w,cx,y,cz-inner);
+        } else if("hcf_courtyard".equalsIgnoreCase(preset)) {
+            for(int sx:new int[]{-1,1}) for(int sz:new int[]{-1,1}) {
+                int px=cx+sx*(hx-2),pz=cz+sz*(hz-2);
+                for(int yy=y+1;yy<=top+3;yy++) queue.add(new Op(w,px,yy,pz,s.frame));
+                queue.add(new Op(w,px,top+4,pz,Material.GLOWSTONE));
+            }
+        } else if("hcf_trap_base".equalsIgnoreCase(preset)) {
+            for(int x=cx-hx+2;x<=cx+hx-2;x+=2)
+                queue.add(new Op(w,x,y+1,cz-hz-2,Material.OBSIDIAN));
+        } else if("hcf_brewer_base".equalsIgnoreCase(preset)) {
+            int chimneyX=cx-s.side*(hx-2);
+            for(int yy=y+1;yy<=top+6;yy++)
+                queue.add(new Op(w,chimneyX,yy,cz+hz-2,(yy%3==0)?Material.IRON_FENCE:s.frame));
+        } else if("hcf_split_level".equalsIgnoreCase(preset)) {
+            for(int x=cx;x<=cx+hx-1;x++) for(int z=cz-hz+2;z<=cz+hz-2;z++)
+                queue.add(new Op(w,x,y+4,z,s.frame));
+        }
+
+        // Interior utility landmarks.
+        queue.add(new Op(w,cx+s.side*(hx-2),y+1,cz+hz-3,Material.ENCHANTMENT_TABLE));
+        queue.add(new Op(w,cx+s.side*(hx-3),y+1,cz+hz-3,Material.ANVIL));
+        queue.add(new Op(w,cx,y+Math.max(4,s.height-1),cz,Material.GLOWSTONE));
     }
 
     private void buildGlassBox(World w, int cx, int y, int cz, boolean brewerWing) {

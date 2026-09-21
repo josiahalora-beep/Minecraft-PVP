@@ -298,16 +298,90 @@ export function createTeamCombatController(bot, assignmentProvider) {
   let lastMoveSample = null
   let lastEscapeAt = 0
   let lastLootEquipAt = 0
+  let currentAssignment = null
+  let nextMistakeCheckAt = 0
+  let mistakeType = ''
+  let mistakeUntil = 0
 
   function ensureProfile(a) {
-    const key = String(a?.skill || 50) + ':' + String(a?.aggression || 50)
+    const mechanics=Number(a?.mechanics ?? a?.skill ?? 50)
+    const pvpIq=Number(a?.pvpIq ?? a?.skill ?? 50)
+    const gameSense=Number(a?.gameSense ?? a?.skill ?? 50)
+    const composure=Number(a?.composure ?? 50)
+    const mistake=Number(a?.mistake ?? 18)
+    const key=[mechanics,pvpIq,gameSense,composure,mistake,Number(a?.aggression || 50)].join(':')
+    currentAssignment=a
     if (profile && profileKey === key) return
     profileKey = key
     profile = combatProfileFor(
       bot.username,
-      tierFromSkill(Number(a?.skill || 50)),
+      tierFromSkill(mechanics),
       styleFromAggression(Number(a?.aggression || 50))
     )
+    profile.mechanics=mechanics
+    profile.pvpIq=pvpIq
+    profile.gameSense=gameSense
+    profile.composure=composure
+    profile.mistake=Math.max(1,Math.min(40,mistake))
+    // A mechanically gifted player still executes quickly even if his reads are
+    // mediocre; pressure primarily hurts low-composure execution.
+    profile.pressureAimMult=1+Math.max(0,65-composure)/110
+    profile.pressureReactionMult=1+Math.max(0,60-composure)/120
+  }
+
+  function decisionRoll(a, base=0.5) {
+    const iq=Math.max(0,Math.min(100,Number(a?.pvpIq ?? 50)))
+    return Math.random() < Math.max(0.05,Math.min(0.95,base+(iq-50)/180))
+  }
+
+  async function humanMistakeTick(a,target) {
+    if(!bot.entity || !profile) return false
+    const now=Date.now()
+
+    if(mistakeUntil>now) {
+      if(mistakeType==='hesitate') {
+        stop(bot)
+        return true
+      }
+      if(mistakeType==='overcommit' && target) {
+        moveToward(bot,target.entity.position.x,target.entity.position.z,true)
+        if(target.dist<3.2) await aimAndAttack(target.entity,target.dist)
+        return true
+      }
+      if(mistakeType==='bad_strafe' && target) {
+        stop(bot)
+        bot.setControlState('forward',target.dist>2.0)
+        bot.setControlState('right',true)
+        bot.setControlState('sprint',true)
+        return true
+      }
+      if(mistakeType==='late_pot' && bot.health<=profile.potHealth) {
+        // Human hesitation: they know they should heal, but react late.
+        moveAway(bot,target?.entity)
+        return true
+      }
+    } else if(mistakeType) {
+      mistakeType=''
+      mistakeUntil=0
+    }
+
+    if(now<nextMistakeCheckAt) return false
+    nextMistakeCheckAt=now+Math.round(rand(3500,6500))
+
+    let chance=Math.max(0.01,Math.min(0.35,profile.mistake/100))
+    if(bot.health<=10) chance*=1+Math.max(0,60-profile.composure)/90
+    if(Math.random()>=chance) return false
+
+    const roll=Math.random()
+    if(bot.health<=profile.potHealth && roll<0.34) mistakeType='late_pot'
+    else if(target && roll<0.63) mistakeType='overcommit'
+    else if(target && roll<0.84) mistakeType='bad_strafe'
+    else mistakeType='hesitate'
+
+    const composure=Math.max(0,Math.min(100,profile.composure))
+    const durationBase=650+Math.max(0,65-composure)*8
+    mistakeUntil=now+Math.round(rand(durationBase*0.65,durationBase*1.25))
+    return await humanMistakeTick(a,target)
   }
 
   async function equipNamed(names) {
@@ -427,7 +501,9 @@ export function createTeamCombatController(bot, assignmentProvider) {
 
       // Do not let support classes drown in a water fight. Swim first, then
       // spend a pearl if movement has not solved it quickly.
-      if (now-liquidSince>1100 && now-lastEscapeAt>1200) {
+      const sense=Math.max(0,Math.min(100,Number(a?.gameSense ?? 50)))
+      const waterReadMs=Math.round(1550-sense*8)
+      if (now-liquidSince>Math.max(650,waterReadMs) && now-lastEscapeAt>1200) {
         lastEscapeAt=now
         if (dry && await pearlToPoint(dry.x,dry.y,dry.z,'escape')) return true
         if (target && await pearlToward(target.entity,true)) return true
@@ -450,7 +526,9 @@ export function createTeamCombatController(bot, assignmentProvider) {
       lastMoveSampleAt=now
     }
 
-    if (stuckSince && now-stuckSince>850) {
+    const sense=Math.max(0,Math.min(100,Number(a?.gameSense ?? 50)))
+    const stuckReadMs=Math.max(520,1250-sense*7)
+    if (stuckSince && now-stuckSince>stuckReadMs) {
       bot.setControlState('jump',true)
       if (Math.random()<0.5) bot.setControlState('left',true)
       else bot.setControlState('right',true)
@@ -524,9 +602,15 @@ export function createTeamCombatController(bot, assignmentProvider) {
 
     const enemiesNear=countNearby(bot,a.enemies,9)
     const alliesNear=countNearby(bot,a.allies,9)
-    // Don't greed a set while being hard collapsed unless it is almost underfoot.
-    if(enemiesNear>alliesNear+1 && loot.dist>2.5) return false
-    if(loot.score>=72 && emptyInventorySlots(bot)===0) await makeLootSpace()
+    const sense=Math.max(0,Math.min(100,Number(a?.gameSense ?? 50)))
+    const pressured=enemiesNear>alliesNear+1
+    // Smart players preserve their life; low-game-sense players occasionally
+    // greed a dropped set even when it is a bad timing window.
+    if(pressured && loot.dist>2.5) {
+      const greedChance=Math.max(0.03,(62-sense)/120)
+      if(Math.random()>=greedChance) return false
+    }
+    if(loot.score>=72 && emptyInventorySlots(bot)===0 && sense>=35) await makeLootSpace()
     if(emptyInventorySlots(bot)===0) return false
 
     if(loot.dist>1.15) {
@@ -541,10 +625,14 @@ export function createTeamCombatController(bot, assignmentProvider) {
     const heals=healingPotionCount(bot)
     const enemiesNear=countNearby(bot,a.enemies,12)
     const alliesNear=countNearby(bot,a.allies,12)
-    const criticalStock=heals===0 || (heals<=2 && enemiesNear>=Math.max(1,alliesNear))
+    const iq=Math.max(0,Math.min(100,Number(a?.pvpIq ?? 50)))
+    const smartThreshold=iq>=75?4:(iq>=50?2:1)
+    const criticalStock=heals===0 || (heals<=smartThreshold && enemiesNear>=Math.max(1,alliesNear))
     if(!criticalStock) return false
 
-    // A player with no healing should stop taking an even/open-field trade.
+    // Low-IQ/aggressive players sometimes recognize the danger too late.
+    if(iq<55 && heals>0 && Math.random()<Math.max(0.08,(55-iq)/100)) return false
+
     moveAway(bot,target.entity)
     bot.setControlState('jump',aheadBlocked(bot,
       bot.entity.position.x-(target.entity.position.x-bot.entity.position.x),
@@ -609,7 +697,8 @@ export function createTeamCombatController(bot, assignmentProvider) {
       }
     }
 
-    if (a.action !== 'CLUTCH' && (a.allies?.length || 0) >= 2 && alliesNear < Math.min(2, a.allies.length) && dist > 5.5) {
+    if (a.action !== 'CLUTCH' && Number(a?.pvpIq ?? 50)>=48 &&
+        (a.allies?.length || 0) >= 2 && alliesNear < Math.min(2, a.allies.length) && dist > 5.5) {
       const ally = nearestAlly(bot, a.allies)
       if (ally) {
         moveToward(bot, ally.entity.position.x, ally.entity.position.z, true)
@@ -664,7 +753,8 @@ export function createTeamCombatController(bot, assignmentProvider) {
     if (now >= nextAimAt) {
       nextAimAt = now + Math.round(rand(profile.aimIntervalMin, profile.aimIntervalMax))
       try {
-        const e = profile.aimError
+        const pressured=bot.health<=10 || (Date.now()-lastDamageAt<450)
+        const e = profile.aimError * (pressured ? profile.pressureAimMult : 1)
         await bot.lookAt(target.position.offset(rand(-e,e), 1.25 + rand(-e,e), rand(-e,e)), false)
       } catch {}
     }
@@ -830,10 +920,14 @@ export function createTeamCombatController(bot, assignmentProvider) {
         lastFightId = a.fightId
         stop(bot)
         previousHealth = bot.health
+        mistakeType=''
+        mistakeUntil=0
+        nextMistakeCheckAt=Date.now()+Math.round(rand(2500,5500))
       }
 
       let target = null
-      if (a.focus) {
+      const iq=Math.max(0,Math.min(100,Number(a?.pvpIq ?? 50)))
+      if (a.focus && (iq>=82 || Math.random()<Math.max(0.20,iq/105))) {
         const focusEntity = bot.players?.[a.focus]?.entity
         if (focusEntity && bot.entity) {
           const d = bot.entity.position.distanceTo(focusEntity.position)
@@ -844,6 +938,7 @@ export function createTeamCombatController(bot, assignmentProvider) {
       const cls = String(a.class || 'DIAMOND').toUpperCase()
 
       if (await terrainEscapeTick(a,target)) return
+      if (await humanMistakeTick(a,target)) return
 
       // Loot is a tactical objective: after a kill or when pressure briefly
       // drops, sweep valuable sets/swords/pearls instead of walking past them.

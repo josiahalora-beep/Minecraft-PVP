@@ -17,6 +17,8 @@ foreach ($p in $required) {
   if (!(Test-Path $p)) { throw "Missing required Phase-0 file: $p" }
 }
 
+Write-Host 'IMPORTANT: stop the Minecraft server and worker pool before running this updater.' -ForegroundColor Yellow
+
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $backup = Join-Path $root "community-intelligence-backup-$stamp"
 New-Item -ItemType Directory -Force -Path $backup | Out-Null
@@ -92,9 +94,8 @@ foreach ($remote in $files) {
 if ($ResetWorld) {
   Write-Host "ResetWorld requested: replacing legacy physical worlds after backup..." -ForegroundColor Yellow
 
-  # The simulation/economy/ranks stay persistent. Only physical terrain and
-  # generated infrastructure state are reset, so factions can rematerialize on
-  # clean low-relief terrain using their saved templates.
+  # Keep simulation/ranks/economy/faction history. Replace only physical worlds
+  # and generated-map state so the saved factions rematerialize from templates.
   foreach ($worldName in @('world','world_nether','world_the_end')) {
     $worldPath = Join-Path $root "server\$worldName"
     if (Test-Path $worldPath) {
@@ -108,139 +109,43 @@ if ($ResetWorld) {
     if (Test-Path $p) { Remove-Item $p -Force }
   }
 
+  # Force SimWorldDirector's structural migration to rebuild every saved base,
+  # storage vault, brewer and claim footprint onto the regenerated terrain.
   $simulation = Join-Path $runtime 'simulation.yml'
   if (Test-Path $simulation) {
-    $text = Get-Content $simulation -Raw
-    if ($text -match '(?m)^\s*terrain-repair-version:\s*\d+\s*
-Push-Location (Join-Path $root 'bots')
-try {
-  Get-ChildItem .\src\*.js | ForEach-Object {
-    node --check $_.FullName
-    if ($LASTEXITCODE -ne 0) { throw "JavaScript syntax check failed: $($_.Name)" }
-  }
-} finally {
-  Pop-Location
-}
+    $sourceLines = @(Get-Content $simulation)
+    $outputLines = New-Object System.Collections.Generic.List[string]
+    $versionFound = $false
+    $metaSeen = $false
 
-$javaHome = ([System.IO.File]::ReadAllText((Join-Path $root 'server\java8-home.txt'))).Trim()
-$spigot = Join-Path $root 'server\spigot-1.8.8.jar'
+    foreach ($line in $sourceLines) {
+      if ($line -match '^\s*terrain-repair-version:\s*\d+\s*$') {
+        $indent = ([regex]::Match($line,'^\s*')).Value
+        $outputLines.Add($indent + 'terrain-repair-version: 0')
+        $versionFound = $true
+        continue
+      }
 
-Write-Host "Rebuilding EraCore with Java 8..." -ForegroundColor Cyan
-& (Join-Path $root 'server\build-plugin.ps1') -SpigotJar $spigot -JavaHome $javaHome
-if ($LASTEXITCODE -ne 0) { throw 'EraCore rebuild failed.' }
-
-Write-Host ''
-Write-Host 'HCF Community Intelligence update installed.' -ForegroundColor Green
-Write-Host "Backup: $backup" -ForegroundColor DarkGray
-Write-Host ''
-if ($ResetWorld) {
-  Write-Host 'This install preserved simulation/rank/economy state but intentionally regenerated physical worlds.' -ForegroundColor Green
-} else {
-  Write-Host 'This install preserved live worlds and EraCore runtime state.' -ForegroundColor Green
-}
-Write-Host 'Restart the server and worker pool, then test:' -ForegroundColor Yellow
-if (!$ResetWorld) {
-  Write-Host '  Tip: rerun with -ResetWorld if you want all legacy mountainous/generated terrain replaced.' -ForegroundColor DarkYellow
-}
-Write-Host '  /f show <faction>'
-Write-Host '  /stuck'
-Write-Host '  /warp duels'
-Write-Host '  /warp nether'
-Write-Host '  /warp end'
-Write-Host '  /history <player-or-faction>'
-Write-Host '  /duel <simulated-player>'
-Write-Host '  /duel stats <player>'
-Write-Host '  /teamfight test 3'
-Write-Host '  /simprobe'
-Write-Host ''
-Write-Host 'For performance calibration, run /teamfight test 3 first, then 4, then 5.' -ForegroundColor Yellow
-) {
-      $text = [regex]::Replace(
-        $text,
-        '(?m)^(\s*terrain-repair-version:)\s*\d+\s*
-Push-Location (Join-Path $root 'bots')
-try {
-  Get-ChildItem .\src\*.js | ForEach-Object {
-    node --check $_.FullName
-    if ($LASTEXITCODE -ne 0) { throw "JavaScript syntax check failed: $($_.Name)" }
-  }
-} finally {
-  Pop-Location
-}
-
-$javaHome = ([System.IO.File]::ReadAllText((Join-Path $root 'server\java8-home.txt'))).Trim()
-$spigot = Join-Path $root 'server\spigot-1.8.8.jar'
-
-Write-Host "Rebuilding EraCore with Java 8..." -ForegroundColor Cyan
-& (Join-Path $root 'server\build-plugin.ps1') -SpigotJar $spigot -JavaHome $javaHome
-if ($LASTEXITCODE -ne 0) { throw 'EraCore rebuild failed.' }
-
-Write-Host ''
-Write-Host 'HCF Community Intelligence update installed.' -ForegroundColor Green
-Write-Host "Backup: $backup" -ForegroundColor DarkGray
-Write-Host ''
-Write-Host 'This install preserved live worlds and EraCore runtime state.' -ForegroundColor Green
-Write-Host 'Restart the server and worker pool, then test:' -ForegroundColor Yellow
-Write-Host '  /f show <faction>'
-Write-Host '  /stuck'
-Write-Host '  /warp duels'
-Write-Host '  /warp nether'
-Write-Host '  /warp end'
-Write-Host '  /history <player-or-faction>'
-Write-Host '  /duel <simulated-player>'
-Write-Host '  /duel stats <player>'
-Write-Host '  /teamfight test 3'
-Write-Host '  /simprobe'
-Write-Host ''
-Write-Host 'For performance calibration, run /teamfight test 3 first, then 4, then 5.' -ForegroundColor Yellow
-,
-        '$1 0'
-      )
-    } else {
-      $replacement = 'meta:' + [Environment]::NewLine + '  terrain-repair-version: 0'
-      $text = [regex]::Replace($text,'(?m)^meta:\s*
-Push-Location (Join-Path $root 'bots')
-try {
-  Get-ChildItem .\src\*.js | ForEach-Object {
-    node --check $_.FullName
-    if ($LASTEXITCODE -ne 0) { throw "JavaScript syntax check failed: $($_.Name)" }
-  }
-} finally {
-  Pop-Location
-}
-
-$javaHome = ([System.IO.File]::ReadAllText((Join-Path $root 'server\java8-home.txt'))).Trim()
-$spigot = Join-Path $root 'server\spigot-1.8.8.jar'
-
-Write-Host "Rebuilding EraCore with Java 8..." -ForegroundColor Cyan
-& (Join-Path $root 'server\build-plugin.ps1') -SpigotJar $spigot -JavaHome $javaHome
-if ($LASTEXITCODE -ne 0) { throw 'EraCore rebuild failed.' }
-
-Write-Host ''
-Write-Host 'HCF Community Intelligence update installed.' -ForegroundColor Green
-Write-Host "Backup: $backup" -ForegroundColor DarkGray
-Write-Host ''
-Write-Host 'This install preserved live worlds and EraCore runtime state.' -ForegroundColor Green
-Write-Host 'Restart the server and worker pool, then test:' -ForegroundColor Yellow
-Write-Host '  /f show <faction>'
-Write-Host '  /stuck'
-Write-Host '  /warp duels'
-Write-Host '  /warp nether'
-Write-Host '  /warp end'
-Write-Host '  /history <player-or-faction>'
-Write-Host '  /duel <simulated-player>'
-Write-Host '  /duel stats <player>'
-Write-Host '  /teamfight test 3'
-Write-Host '  /simprobe'
-Write-Host ''
-Write-Host 'For performance calibration, run /teamfight test 3 first, then 4, then 5.' -ForegroundColor Yellow
-,$replacement,1)
+      $outputLines.Add($line)
+      if (!$metaSeen -and $line.Trim() -eq 'meta:') {
+        $metaSeen = $true
+        if (!$versionFound) {
+          $outputLines.Add('  terrain-repair-version: 0')
+          $versionFound = $true
+        }
+      }
     }
-    Set-Content -Path $simulation -Value $text -Encoding UTF8
+
+    if (!$versionFound) {
+      $outputLines.Add('meta:')
+      $outputLines.Add('  terrain-repair-version: 0')
+    }
+
+    Set-Content -Path $simulation -Value $outputLines -Encoding UTF8
   }
 
-  Write-Host "Legacy worlds removed. Backup remains at: $backup" -ForegroundColor Green
-  Write-Host "Saved factions/simulation state will rebuild onto the clean world on next start." -ForegroundColor Green
+  Write-Host "Legacy physical worlds removed. Backup: $backup" -ForegroundColor Green
+  Write-Host "Saved simulation/factions will rebuild on clean low-relief terrain at next start." -ForegroundColor Green
 }
 
 Write-Host "Validating bot JavaScript..." -ForegroundColor Cyan
@@ -262,20 +167,23 @@ Write-Host "Rebuilding EraCore with Java 8..." -ForegroundColor Cyan
 if ($LASTEXITCODE -ne 0) { throw 'EraCore rebuild failed.' }
 
 Write-Host ''
-Write-Host 'HCF Community Intelligence update installed.' -ForegroundColor Green
+Write-Host 'HCF world/base/AI update installed.' -ForegroundColor Green
 Write-Host "Backup: $backup" -ForegroundColor DarkGray
 Write-Host ''
-Write-Host 'This install preserved live worlds and EraCore runtime state.' -ForegroundColor Green
-Write-Host 'Restart the server and worker pool, then test:' -ForegroundColor Yellow
+if ($ResetWorld) {
+  Write-Host 'Physical worlds will regenerate; simulation/rank/economy/faction state was preserved.' -ForegroundColor Green
+} else {
+  Write-Host 'Live worlds were preserved. Existing bases will receive the v6 structural migration.' -ForegroundColor Green
+  Write-Host 'Use -ResetWorld for the cleanest terrain/floating-block correction.' -ForegroundColor DarkYellow
+}
+Write-Host 'Restart the server first, then restart the worker pool.' -ForegroundColor Yellow
+Write-Host 'Recommended checks:' -ForegroundColor Yellow
 Write-Host '  /f show <faction>'
-Write-Host '  /stuck'
+Write-Host '  /keys'
+Write-Host '  /crates vote'
+Write-Host '  /crates donor'
 Write-Host '  /warp duels'
-Write-Host '  /warp nether'
-Write-Host '  /warp end'
-Write-Host '  /history <player-or-faction>'
-Write-Host '  /duel <simulated-player>'
-Write-Host '  /duel stats <player>'
-Write-Host '  /teamfight test 3'
 Write-Host '  /simprobe'
+Write-Host '  /teamfight test 3'
 Write-Host ''
 Write-Host 'For performance calibration, run /teamfight test 3 first, then 4, then 5.' -ForegroundColor Yellow

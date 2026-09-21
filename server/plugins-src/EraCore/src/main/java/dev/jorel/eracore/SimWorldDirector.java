@@ -68,6 +68,12 @@ final class SimWorldDirector {
         int reputation;      // persistent PvP reputation, 0+
         int kills;
         int deaths;
+        int donorLevel;       // 0 Member, 1 VIP, 2 Elite, 3 Legend, 4 Titan
+        String staffRole = ""; // "", MOD, ADMIN
+        int ownerAffinity;    // -100..100, learned from owner interactions
+        int moderationTrust;  // 0..100
+        long bannedUntil;
+        long communityJoinedTick;
         boolean logicalOnline;
         int sessionTicksLeft;
         long nextGoalTick;
@@ -269,6 +275,7 @@ final class SimWorldDirector {
     private final EraCore plugin;
     private final SimEconomyModel economy;
     private final ContextChatBrain chatBrain;
+    private final AiChatBridge aiChat;
     private final Random rng = new Random(881994L);
     private final File file;
     private final File combatFile;
@@ -333,6 +340,7 @@ final class SimWorldDirector {
         this.plugin = plugin;
         this.economy = new SimEconomyModel(plugin);
         this.chatBrain = new ContextChatBrain();
+        this.aiChat = new AiChatBridge(plugin);
         this.file = new File(plugin.getDataFolder(), "simulation.yml");
         this.combatFile = new File(plugin.getDataFolder(), "combat-hot.yml");
         this.data = YamlConfiguration.loadConfiguration(file);
@@ -3046,7 +3054,13 @@ final class SimWorldDirector {
             p.reputation = s.getInt("reputation", 0);
             p.kills = s.getInt("kills", 0);
             p.deaths = s.getInt("deaths", 0);
-            p.logicalOnline = s.getBoolean("logical-online", rng.nextInt(100)<45);
+            p.donorLevel = s.getInt("donor-level", initialDonorLevel(p.name));
+            p.staffRole = s.getString("staff-role", "");
+            p.ownerAffinity = s.getInt("owner-affinity", rng.nextInt(31)-5);
+            p.moderationTrust = s.getInt("moderation-trust", 30+rng.nextInt(51));
+            p.bannedUntil = s.getLong("banned-until", 0L);
+            p.communityJoinedTick = s.getLong("community-joined-tick", 0L);
+            p.logicalOnline = s.getBoolean("logical-online", rng.nextInt(100)<45) && p.bannedUntil<=System.currentTimeMillis();
             p.sessionTicksLeft = s.getInt("session-ticks-left", Math.max(2,5+rng.nextInt(20)));
             p.nextGoalTick = s.getLong("next-goal-tick", 0L);
             p.currentGoal = s.getString("current-goal", "idle");
@@ -3123,6 +3137,7 @@ final class SimWorldDirector {
         }
 
         normalizeFactionClasses();
+        seedStaffRolesIfNeeded();
         syncFactionAuthority();
     }
 
@@ -3165,6 +3180,12 @@ final class SimWorldDirector {
             p.reputation = plugin.isCreatorIdentity(p.name) ? 12 + rng.nextInt(10) : rng.nextInt(6);
             p.kills = 0;
             p.deaths = 0;
+            p.donorLevel = initialDonorLevel(p.name);
+            p.staffRole = "";
+            p.ownerAffinity = plugin.isCreatorIdentity(p.name) ? 10+rng.nextInt(18) : rng.nextInt(31)-5;
+            p.moderationTrust = 30+rng.nextInt(51);
+            p.bannedUntil = 0L;
+            p.communityJoinedTick = sotwTicks;
             p.logicalOnline = rng.nextInt(100) < 48;
             p.sessionTicksLeft = 5 + rng.nextInt(20);
             p.currentGoal = "idle";
@@ -3199,6 +3220,7 @@ final class SimWorldDirector {
 
         // Critical SOTW rule: nobody is preassigned to a faction.
         for (SimPlayer p : players.values()) p.faction = "";
+        seedStaffRolesIfNeeded();
     }
 
     void resetForSotw() {
@@ -4180,6 +4202,47 @@ final class SimWorldDirector {
         return CombatClass.MINER;
     }
 
+    private int initialDonorLevel(String name) {
+        int roll=Math.abs(key(name).hashCode())%100;
+        if(roll<66) return 0;
+        if(roll<82) return 1;
+        if(roll<92) return 2;
+        if(roll<98) return 3;
+        return 4;
+    }
+
+    int simulatedDonorLevelFor(String name) {
+        SimPlayer p=players.get(key(name));
+        return p==null?-1:Math.max(0,Math.min(4,p.donorLevel));
+    }
+
+    String simulatedStaffRole(String name) {
+        SimPlayer p=players.get(key(name));
+        return p==null?"":p.staffRole;
+    }
+
+    private void seedStaffRolesIfNeeded() {
+        int existing=0;
+        for(SimPlayer p:players.values()) if(p.staffRole!=null && !p.staffRole.isEmpty()) existing++;
+        if(existing>0) return;
+
+        List<SimPlayer> candidates=new ArrayList<SimPlayer>();
+        for(SimPlayer p:players.values()) {
+            if(plugin.isCreatorIdentity(p.name)) continue;
+            candidates.add(p);
+        }
+        Collections.sort(candidates,new Comparator<SimPlayer>() {
+            public int compare(SimPlayer a,SimPlayer b) {
+                int sa=a.leadership+a.patience+a.loyalty+a.moderationTrust;
+                int sb=b.leadership+b.patience+b.loyalty+b.moderationTrust;
+                return Integer.compare(sb,sa);
+            }
+        });
+
+        if(!candidates.isEmpty()) candidates.get(0).staffRole="ADMIN";
+        for(int i=1;i<Math.min(4,candidates.size());i++) candidates.get(i).staffRole="MOD";
+    }
+
     private int creatorSkillOverride(String name, int rolled) {
         String n = key(name);
         if (n.equals("stimpy") || n.equals("stimpypvp") || n.equals("marcel") || n.equals("painfulpvp")) return 95 + rng.nextInt(6);
@@ -4223,6 +4286,12 @@ final class SimWorldDirector {
             data.set(b + ".reputation", p.reputation);
             data.set(b + ".kills", p.kills);
             data.set(b + ".deaths", p.deaths);
+            data.set(b + ".donor-level", p.donorLevel);
+            data.set(b + ".staff-role", p.staffRole);
+            data.set(b + ".owner-affinity", p.ownerAffinity);
+            data.set(b + ".moderation-trust", p.moderationTrust);
+            data.set(b + ".banned-until", p.bannedUntil);
+            data.set(b + ".community-joined-tick", p.communityJoinedTick);
             data.set(b + ".logical-online", p.logicalOnline);
             data.set(b + ".session-ticks-left", p.sessionTicksLeft);
             data.set(b + ".next-goal-tick", p.nextGoalTick);

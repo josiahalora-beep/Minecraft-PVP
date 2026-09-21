@@ -34,6 +34,10 @@ let shuttingDown = false
 let lastCpu = process.cpuUsage()
 let lastCpuAt = process.hrtime.bigint()
 let nodeCpuPct = 0
+let coordinatorFailures = 0
+let coordinatorLastError = ''
+let coordinatorLastErrorLogAt = 0
+let coordinatorWasDown = false
 const cpuCount = Math.max(1, os.cpus()?.length || 1)
 
 function clamp(n, lo, hi) {
@@ -114,9 +118,26 @@ async function coordinatorHeartbeat(settings) {
       })
     })
     if(!response.ok) throw new Error('HTTP '+response.status)
-    return await response.json()
+    const plan=await response.json()
+    if(coordinatorWasDown) {
+      console.log('[cluster] coordinator connection restored after '+coordinatorFailures+' failed heartbeat(s)')
+    }
+    coordinatorFailures=0
+    coordinatorLastError=''
+    coordinatorWasDown=false
+    return plan
   } catch(err) {
-    console.log('[cluster] coordinator heartbeat failed: '+err.message)
+    coordinatorFailures++
+    coordinatorWasDown=true
+    const message=String(err?.message || err || 'unknown error')
+    const now=Date.now()
+    const changed=message!==coordinatorLastError
+    if(changed || coordinatorFailures===1 || now-coordinatorLastErrorLogAt>=30000) {
+      console.log('[cluster] coordinator unavailable: '+message+
+        ' (keeping current bodies; retry '+coordinatorFailures+')')
+      coordinatorLastError=message
+      coordinatorLastErrorLogAt=now
+    }
     return null
   } finally {
     clearTimeout(timer)
@@ -2193,7 +2214,11 @@ async function reconcileDistributed() {
   const settings=runtimeSettings()
   sampleCpu()
   const plan=await coordinatorHeartbeat(settings)
-  if(!plan) return settings.reassessMs
+  if(!plan) {
+    // Preserve existing bodies and assignments during a temporary control-plane
+    // outage. Back off retries so a stopped coordinator does not flood logs.
+    return Math.min(30000,Math.max(settings.reassessMs,4000*Math.min(6,coordinatorFailures)))
+  }
 
   const desired=Array.isArray(plan.leases)?plan.leases:[]
   const wanted=new Set(desired.map(x=>String(x.name||'').toLowerCase()).filter(Boolean))

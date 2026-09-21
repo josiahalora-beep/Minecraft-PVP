@@ -264,6 +264,10 @@ function combatCandidatesFrom(combat) {
         trapZ: Number(p['trap-z'] || p['home-z'] || 0),
         trapType: String(p['trap-type'] || 'none'),
         focus: String(p.focus || ''),
+        lootHealNeed: Number(p['loot-heal-need'] || 0),
+        lootPearlNeed: Number(p['loot-pearl-need'] || 0),
+        lootSpeedNeed: Number(p['loot-speed-need'] || 0),
+        lootSetNeed: Number(p['loot-set-need'] || 0),
         enemies: Array.isArray(p.enemies) ? p.enemies.map(String) : [],
         allies: Array.isArray(p.allies) ? p.allies.map(String) : []
       }
@@ -2088,7 +2092,11 @@ async function connectIdentity(candidate, settings) {
       }
     })
 
-    state.combatController = createTeamCombatController(bot, () => state.combat)
+    state.combatController = createTeamCombatController(bot, () => state.combat, event => {
+      if(event?.type!=='loot' || !event.item || !state.combat) return
+      const safeItem=String(event.item).replace(/[^A-Za-z0-9_.-]/g,'').slice(0,48) || 'loot'
+      queueBotCommand(state,'/simcombat loot '+safeItem,BOT_COMMAND_GAP_MS,15).catch(()=>{})
+    })
     bot.on('physicsTick', () => {
       if (state.combatController && state.combat) {
         state.combatController.tick().catch(() => {})

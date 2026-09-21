@@ -177,6 +177,13 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
                 }
             }.runTaskLater(this, 80L);
         }
+
+        new BukkitRunnable() {
+            public void run() {
+                World world=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
+                if(world!=null) scheduleWarzoneSmoothing(world);
+            }
+        }.runTaskLater(this,220L);
         getLogger().info("EraCore 0.2 enabled: classic warps, paced sim chat, factions, economy and PvP baseline ready.");
     }
 
@@ -2472,6 +2479,110 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         return true;
     }
 
+    private void scheduleWarzoneSmoothing(final World world) {
+        if(getConfig().getInt("map.warzone-smoothing-version",0)>=1) return;
+
+        final int y=getConfig().getInt("map.surface-y",63);
+        final int inner=Math.max(65,(int)Math.ceil(getConfig().getDouble("map.safezone-radius",60.0))+8);
+        final int outer=Math.max(inner+40,getConfig().getInt("map.warzone-smoothing-radius",420));
+        final int cx=world.getSpawnLocation().getBlockX();
+        final int cz=world.getSpawnLocation().getBlockZ();
+
+        getLogger().info("Warzone smoothing queued: radius "+inner+"-"+outer+" around spawn.");
+
+        new BukkitRunnable() {
+            int x=-outer;
+            int z=-outer;
+            int touched=0;
+
+            public void run() {
+                int columns=0;
+                while(columns<420 && x<=outer) {
+                    int wx=cx+x;
+                    int wz=cz+z;
+                    smoothWarzoneColumn(world,wx,wz,y,cx,cz,inner,outer);
+                    columns++;
+                    touched++;
+
+                    z++;
+                    if(z>outer) {
+                        z=-outer;
+                        x++;
+                    }
+                }
+
+                if(x>outer) {
+                    getConfig().set("map.warzone-smoothing-version",1);
+                    saveConfig();
+                    getLogger().info("Warzone smoothing complete: "+touched+" columns scanned.");
+                    cancel();
+                }
+            }
+        }.runTaskTimer(this,1L,1L);
+    }
+
+    private void smoothWarzoneColumn(World world,int x,int z,int y,int spawnX,int spawnZ,int inner,int outer) {
+        long dx=(long)x-spawnX, dz=(long)z-spawnZ;
+        long d2=dx*dx+dz*dz;
+        if(d2<(long)inner*inner || d2>(long)outer*outer) return;
+
+        // Preserve the purpose-built PotPvP lab and cane farm.
+        int rx=x-spawnX, rz=z-spawnZ;
+        if(rx>=170 && rx<=230 && rz>=-30 && rz<=30) return;
+        if(rx>=-360 && rx<=-240 && rz>=-55 && rz<=55) return;
+
+        // Never terraform claimed faction land.
+        String ck=world.getName()+":"+(x>>4)+":"+(z>>4);
+        if(claimOwners.containsKey(ck)) return;
+
+        // Don't move terrain through a currently visible body.
+        for(Player p:Bukkit.getOnlinePlayers()) {
+            if(!p.getWorld().equals(world)) continue;
+            if(Math.abs(p.getLocation().getBlockX()-x)<=2 && Math.abs(p.getLocation().getBlockZ()-z)<=2) return;
+        }
+
+        Material grade=world.getBlockAt(x,y,z).getType();
+        if(!isWarzoneNatural(grade) && grade!=Material.AIR) return;
+
+        // Preserve any real build crossing this column. Trees, water and other
+        // natural clutter are fair game; chests/glass/brick/redstone are not.
+        for(int yy=y+1;yy<=Math.min(world.getMaxHeight()-1,y+13);yy++) {
+            Material m=world.getBlockAt(x,yy,z).getType();
+            if(m!=Material.AIR && !isWarzoneNatural(m)) return;
+        }
+
+        for(int yy=y+1;yy<=Math.min(world.getMaxHeight()-1,y+13);yy++) {
+            Material m=world.getBlockAt(x,yy,z).getType();
+            if(m!=Material.AIR) world.getBlockAt(x,yy,z).setType(Material.AIR);
+        }
+
+        // Consistent flat PvP grade with enough solid support that holes/water
+        // pockets do not become accidental trap pits.
+        world.getBlockAt(x,y,z).setType(Material.GRASS);
+        world.getBlockAt(x,y-1,z).setType(Material.DIRT);
+        world.getBlockAt(x,y-2,z).setType(Material.DIRT);
+        for(int yy=Math.max(2,y-5);yy<=y-3;yy++) {
+            Material m=world.getBlockAt(x,yy,z).getType();
+            if(m==Material.AIR || isWarzoneLiquid(m)) world.getBlockAt(x,yy,z).setType(Material.STONE);
+        }
+    }
+
+    private boolean isWarzoneLiquid(Material m) {
+        return m==Material.WATER || m==Material.STATIONARY_WATER ||
+            m==Material.LAVA || m==Material.STATIONARY_LAVA;
+    }
+
+    private boolean isWarzoneNatural(Material m) {
+        return m==Material.GRASS || m==Material.DIRT || m==Material.STONE ||
+            m==Material.SAND || m==Material.GRAVEL || m==Material.CLAY ||
+            m==Material.LONG_GRASS || m==Material.YELLOW_FLOWER || m==Material.RED_ROSE ||
+            m==Material.SNOW || m==Material.SNOW_BLOCK ||
+            m==Material.LEAVES || m==Material.LEAVES_2 ||
+            m==Material.LOG || m==Material.LOG_2 ||
+            m==Material.VINE || m==Material.DEAD_BUSH ||
+            m==Material.MYCEL || isWarzoneLiquid(m);
+    }
+
     private void bootstrapMap(final World world, boolean rebuild) {
         if(getConfig().getBoolean("map.complete",false)&&!rebuild) return;
         final int y=getConfig().getInt("map.surface-y",63);
@@ -2544,7 +2655,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
                 if(q.isEmpty()) {
                     getConfig().set("map.complete",true);
                     saveConfig();
-                    Bukkit.broadcastMessage(color("&aEra map bootstrap complete. Spawn, roads, PotPvP lab, KoTH, cane farm, faction sites and chokepoints are ready."));
+                    Bukkit.broadcastMessage(color("&aEra map bootstrap complete. Spawn, roads, PotPvP lab, cane farm, faction sites and chokepoints are ready."));
                     getLogger().info("Map bootstrap complete: "+done+"/"+total);
                     cancel();
                 }

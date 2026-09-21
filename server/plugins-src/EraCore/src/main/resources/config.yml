@@ -26,7 +26,10 @@ kits:
 rewards:
   enabled: true
   vote-cooldown-hours: 12
-  donor-key-hours: 24
+  basic-key-hours: 24
+  silver-key-hours: 18
+  gold-key-hours: 12
+  platinum-key-hours: 8
   vote-party-target: 20
   # Exact historical Kohi vote/donor crate odds are not reliably documented.
   # These tables are intentionally explicit and early-map balanced.
@@ -40,7 +43,8 @@ rewards:
     wart-16: 5.0
     glowstone-8: 4.0
     sharp1-diamond: 2.5
-    donor-key: 1.5
+    donor-key: 1.2
+    rank-upgrade: 0.3
   donor-odds:
     money-750: 20.0
     pearls-16: 18.0
@@ -51,8 +55,9 @@ rewards:
     p2-iron-set: 6.0
     sharp2-diamond: 4.0
     vote-keys-2: 3.0
-    p2-diamond-chest: 1.5
+    p2-diamond-chest: 1.0
     bonus-donor-key: 0.5
+    rank-upgrade: 0.5
 
 pvp:
   pearl-cooldown-seconds: 16

@@ -212,22 +212,17 @@ final class HcfBaseBuilder {
      * trees/leaves being trapped inside bases.
      */
     private void prepareTerrainPad(World w,int cx,int y,int cz,int rx,int rz) {
-        int clearTop=Math.min(w.getMaxHeight()-1,y+16);
         for(int x=cx-rx;x<=cx+rx;x++) {
             for(int z=cz-rz;z<=cz+rz;z++) {
                 int surface=solidSurfaceY(w,x,z);
+                int clearTop=Math.min(w.getMaxHeight()-1,
+                    Math.max(y+24,w.getHighestBlockYAt(x,z)+8));
 
-                // Cut hills and vegetation above grade.
-                if(surface>y) {
-                    for(int yy=y+1;yy<=Math.min(clearTop,surface+6);yy++)
-                        queue.add(new Op(w,x,yy,z,Material.AIR));
-                } else {
-                    // Still clear tree canopies / overhangs above a low surface.
-                    for(int yy=y+1;yy<=clearTop;yy++) {
-                        Material m=w.getBlockAt(x,yy,z).getType();
-                        if(isVegetationOrLiquid(m)) queue.add(new Op(w,x,yy,z,Material.AIR));
-                    }
-                }
+                // Clear the complete column above grade. The previous +16 cap
+                // cut the bottom out of tall hills and literally created
+                // floating mountain fragments over bases.
+                for(int yy=y+1;yy<=clearTop;yy++)
+                    queue.add(new Op(w,x,yy,z,Material.AIR));
 
                 // Fill every gap up to grade. Use stone deeper down and dirt near top.
                 int from=Math.max(2,surface+1);

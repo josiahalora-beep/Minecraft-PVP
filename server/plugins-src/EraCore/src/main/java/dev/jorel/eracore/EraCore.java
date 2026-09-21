@@ -61,6 +61,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     private HcfZoneDisplayDirector hcfZones;
     private LogicalTabListDirector logicalTab;
     private SpawnRewardsDirector spawnRewards;
+    private HcfAutoBrewerDirector autoBrewer;
 
     enum Rank {
         MEMBER(0, "&7[Member]", 24),
@@ -134,6 +135,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         spawnPresence = new SpawnPresenceDirector(this, warpManager);
         hcfClasses = new HcfClassDirector(this);
         hcfBaseBuilder = new HcfBaseBuilder(this);
+        autoBrewer = new HcfAutoBrewerDirector(this);
         hcfZones = new HcfZoneDisplayDirector(this, warpManager);
         logicalTab = new LogicalTabListDirector(this, simWorld);
         spawnRewards = new SpawnRewardsDirector(this, warpManager);
@@ -156,6 +158,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         hcfZones.start();
         spawnPresence.start();
         spawnRewards.start();
+        autoBrewer.start();
+        simWorld.registerExistingAutoBrewers();
 
         if (getConfig().getBoolean("base-builder.repair-existing-on-start", true)) {
             new BukkitRunnable() {
@@ -177,6 +181,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     @Override public void onDisable() {
+        if (autoBrewer != null) autoBrewer.stop();
         if (spawnRewards != null) spawnRewards.stop();
         if (spawnPresence != null) spawnPresence.stop();
         if (logicalTab != null) logicalTab.stop();
@@ -1391,6 +1396,26 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     int[] evaluateSimBaseSite(int x, int z, int radius) {
         if (hcfBaseBuilder == null) return new int[]{64,999,999};
         return hcfBaseBuilder.evaluateSite(x,z,radius);
+    }
+
+    void registerAutoBrewerSite(String faction,int x,int y,int z) {
+        if(autoBrewer!=null) autoBrewer.register(faction,x,y,z);
+    }
+
+    boolean autoBrewerPhysicalActive(String faction) {
+        return autoBrewer!=null && autoBrewer.physicallyActive(faction);
+    }
+
+    org.bukkit.inventory.Inventory simFactionStorage(String faction,String category) {
+        return simWorld==null?null:simWorld.visibleFactionStorage(faction,category);
+    }
+
+    int simBrewerNeed(String faction,String type) {
+        return simWorld==null?0:simWorld.brewerNeed(faction,type);
+    }
+
+    void creditSimBrewedPotions(String faction,String type,int amount) {
+        if(simWorld!=null) simWorld.creditBrewedPotions(faction,type,amount);
     }
 
     void queueSimBrewerBuild(String faction, int x, int y, int z) {

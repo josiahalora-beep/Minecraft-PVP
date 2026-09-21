@@ -88,21 +88,27 @@ function itemNameFromDrop(bot, entity) {
   return ''
 }
 
-function lootScore(name) {
+function lootScore(name,a=null) {
   const n=String(name || '')
-  if (n.startsWith('diamond_') && (n.endsWith('_helmet') || n.endsWith('_chestplate') || n.endsWith('_leggings') || n.endsWith('_boots'))) return 120
-  if (n === 'diamond_sword') return 115
-  if (n === 'diamond') return 105
-  if (n === 'ender_pearl') return 95
-  if (n.startsWith('iron_') && n.endsWith('_sword')) return 82
+  const setNeed=Math.max(0,Number(a?.lootSetNeed || 0))
+  const pearlNeed=Math.max(0,Number(a?.lootPearlNeed || 0))
+  const healNeed=Math.max(0,Number(a?.lootHealNeed || 0))
+  const speedNeed=Math.max(0,Number(a?.lootSpeedNeed || 0))
+  if (n.startsWith('diamond_') && (n.endsWith('_helmet') || n.endsWith('_chestplate') || n.endsWith('_leggings') || n.endsWith('_boots')))
+    return 115+(setNeed>0?55:0)
+  if (n === 'diamond_sword') return 112+(setNeed>0?45:0)
+  if (n === 'ender_pearl') return 90+(pearlNeed>0?65:0)
+  if (n === 'potion') return 45+((healNeed>0||speedNeed>0)?55:0)
+  if (n === 'diamond') return 95
+  if (n.startsWith('iron_') && n.endsWith('_sword')) return 76
   if ((n.startsWith('golden_') || n.startsWith('gold_') || n.startsWith('leather_') || n.startsWith('chainmail_')) &&
-      (n.endsWith('_helmet') || n.endsWith('_chestplate') || n.endsWith('_leggings') || n.endsWith('_boots'))) return 78
-  if (n === 'bow') return 72
-  if (n === 'potion') return 25
+      (n.endsWith('_helmet') || n.endsWith('_chestplate') || n.endsWith('_leggings') || n.endsWith('_boots'))) return 74
+  if (n === 'bow') return 70
+  if (n === 'cooked_beef' || n === 'steak') return 28
   return 0
 }
 
-function bestNearbyLoot(bot, radius=11) {
+function bestNearbyLoot(bot, a=null, radius=11) {
   if (!bot.entity) return null
   let best=null
   for(const e of Object.values(bot.entities || {})) {
@@ -112,7 +118,7 @@ function bestNearbyLoot(bot, radius=11) {
     const dist=bot.entity.position.distanceTo(e.position)
     if (dist>radius) continue
     const name=itemNameFromDrop(bot,e)
-    const score=lootScore(name)
+    const score=lootScore(name,a)
     if(score<=0) continue
     const total=score-dist*2
     if(!best || total>best.total) best={entity:e,name,dist,score,total}
@@ -298,7 +304,7 @@ function moveAway(bot, entity) {
   moveToward(bot, me.x + dx / mag * 8, me.z + dz / mag * 8, true)
 }
 
-export function createTeamCombatController(bot, assignmentProvider) {
+export function createTeamCombatController(bot, assignmentProvider, eventReporter = null) {
   let profile = null
   let profileKey = ''
   let busy = false
@@ -761,20 +767,22 @@ export function createTeamCombatController(bot, assignmentProvider) {
   }
 
   async function lootTick(a,target) {
-    const loot=bestNearbyLoot(bot,12)
+    const loot=bestNearbyLoot(bot,a,16)
     if(!loot) return false
 
     const enemiesNear=countNearby(bot,a.enemies,9)
     const alliesNear=countNearby(bot,a.allies,9)
     const sense=Math.max(0,Math.min(100,Number(a?.gameSense ?? 50)))
     const pressured=enemiesNear>alliesNear+1
+    const factionNeed=Number(a?.lootHealNeed||0)+Number(a?.lootPearlNeed||0)+
+      Number(a?.lootSpeedNeed||0)+Number(a?.lootSetNeed||0)
     // Smart players preserve their life; low-game-sense players occasionally
     // greed a dropped set even when it is a bad timing window.
     if(pressured && loot.dist>2.5) {
       const greedChance=Math.max(0.03,(62-sense)/120)
       if(Math.random()>=greedChance) return false
     }
-    if(loot.score>=72 && emptyInventorySlots(bot)===0 && sense>=35) await makeLootSpace()
+    if((loot.score>=72 || factionNeed>0) && emptyInventorySlots(bot)===0 && sense>=35) await makeLootSpace()
     if(emptyInventorySlots(bot)===0) return false
 
     if(loot.dist>1.15) {
@@ -1146,6 +1154,16 @@ export function createTeamCombatController(bot, assignmentProvider) {
   bot.on('health', () => {
     if (bot.health < previousHealth - 0.01) lastDamageAt = Date.now()
     previousHealth = bot.health
+  })
+
+  bot.on('playerCollect', (collector,collected) => {
+    try {
+      if(!bot.entity || !collector || collector.id!==bot.entity.id) return
+      const a=assignmentProvider()
+      if(!a?.fightId || typeof eventReporter!=='function') return
+      const item=itemNameFromDrop(bot,collected) || 'loot'
+      eventReporter({type:'loot',item,fightId:a.fightId})
+    } catch {}
   })
 
   return { tick, stop: () => stop(bot) }

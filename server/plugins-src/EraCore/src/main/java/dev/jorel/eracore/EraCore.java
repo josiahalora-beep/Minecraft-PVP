@@ -72,10 +72,10 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     enum Rank {
         MEMBER(0, "&7[Member]", 24),
         BASIC(1, "&a[Basic]", 24),
-        SILVER(2, "&f&l[Silver]&r", 18),
-        GOLD(3, "&6&l[Gold]&r", 12),
-        PLATINUM(4, "&b&l[Platinum]&r", 8),
-        OWNER(99, "&4&l[OWNER]&r", 0);
+        SILVER(2, "&f[Silver]", 18),
+        GOLD(3, "&6[Gold]", 12),
+        PLATINUM(4, "&b[Platinum]", 8),
+        OWNER(99, "&4[Owner]", 0);
         final int level;
         final String prefix;
         final int cooldownHours;
@@ -282,22 +282,44 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     private void migrateLivingWorldConfig() {
         int version=getConfig().getInt("migration.living-world-version",0);
-        if(version>=1) return;
 
-        // Visible construction should be progressive without turning terrain
-        // preparation into a multi-minute server stall.
-        getConfig().set("base-builder.blocks-per-tick",120);
-        getConfig().set("base-builder.interval-ticks",2);
-        getConfig().set("base-builder.repair-existing-on-start",true);
+        if(version<1) {
+            // Visible construction should be progressive without turning terrain
+            // preparation into a multi-minute server stall.
+            getConfig().set("base-builder.blocks-per-tick",120);
+            getConfig().set("base-builder.interval-ticks",2);
+            getConfig().set("base-builder.repair-existing-on-start",true);
 
-        // Creator identities represent established PvP players. Give them a
-        // useful SOTW donor entitlement instead of randomly leaving some YTs
-        // on Member/iron progression for the opening phase of the map.
-        getConfig().set("creator-tag.minimum-donor-level",3);
+            // Creator identities represent established PvP players. Give them a
+            // useful SOTW donor entitlement instead of randomly leaving some YTs
+            // on Member/iron progression for the opening phase of the map.
+            getConfig().set("creator-tag.minimum-donor-level",3);
+            version=1;
+        }
 
-        getConfig().set("migration.living-world-version",1);
+        if(version<2) {
+            // Keep the server visually busy without flooding chat. Tab population
+            // is independent from physical Mineflayer bodies.
+            getConfig().set("logical-tab.visible-identities",100);
+            getConfig().set("logical-tab.refresh-seconds",10);
+
+            getConfig().set("creator-tag.head-prefix","&c[Yt] &f");
+            getConfig().set("creator-tag.chat-prefix","&c[Yt] ");
+            getConfig().set("sim-chat.second-responder-chance-percent",15);
+            getConfig().set("sim-chat.min-delay-seconds",6);
+            getConfig().set("sim-chat.max-delay-seconds",14);
+            getConfig().set("sim-chat.quiet-min-delay-seconds",20);
+            getConfig().set("sim-chat.quiet-max-delay-seconds",40);
+            getConfig().set("sim-chat.identity-cooldown-seconds",35);
+            getConfig().set("sim-chat.line-cooldown-seconds",120);
+            getConfig().set("sim-chat.fan-reaction-cooldown-seconds",30);
+            getConfig().set("sim-chat.max-fan-reactions",2);
+            version=2;
+        }
+
+        getConfig().set("migration.living-world-version",version);
         saveConfig();
-        getLogger().info("Applied living-world v1: varied staged bases and creator SOTW combat access.");
+        getLogger().info("Applied living-world v"+version+": staged bases, combat presentation, quieter chat and logical tab population.");
     }
 
     private void bindCommands() {
@@ -402,7 +424,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (bot) {
             e.setJoinMessage(null);
         } else {
-            e.setJoinMessage(color((r==Rank.OWNER?"&4&l[OWNER ONLINE] &r":"&8[&a+&8] ") + identityPrefix(p.getName(), r) + rankNameColor(r) + p.getName()));
+            e.setJoinMessage(color((r==Rank.OWNER?"&4[Owner online] &r":"&8[&a+&8] ") + identityPrefix(p.getName(), r) + rankNameColor(r) + p.getName()));
             if (simChat != null) simChat.onJoin(p);
         }
 
@@ -700,7 +722,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (p != null) {
             applyCreatorTag(p);
             p.setPlayerListName(color(identityPrefix(p.getName(), rank) +
-                (rank==Rank.OWNER?"&c&l":"&f") + p.getName()));
+                (rank==Rank.OWNER?"&c":"&f") + p.getName()));
         }
     }
 
@@ -712,7 +734,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     private String identityPrefix(String name, Rank rank) {
-        String creator = isCreatorIdentity(name) ? getConfig().getString("creator-tag.chat-prefix", "&c&l[YT]&r ") : "";
+        String creator = isCreatorIdentity(name) ? getConfig().getString("creator-tag.chat-prefix", "&c[Yt]&r ") : "";
         String staff="";
         if(simWorld!=null && simWorld.contains(name)) {
             String role=simWorld.simulatedStaffRole(name);
@@ -757,7 +779,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     private String rankNameColor(Rank rank) {
-        if(rank==Rank.OWNER) return "&c&l";
+        if(rank==Rank.OWNER) return "&c";
         if(rank==Rank.PLATINUM) return "&b";
         if(rank==Rank.GOLD) return "&6";
         if(rank==Rank.SILVER) return "&f";
@@ -807,7 +829,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         Scoreboard board = Bukkit.getScoreboardManager().getMainScoreboard();
         Team team = board.getTeam("youtube");
         if (team == null) team = board.registerNewTeam("youtube");
-        String headPrefix = getConfig().getString("creator-tag.head-prefix", "&c&l[YT]&r &f");
+        String headPrefix = getConfig().getString("creator-tag.head-prefix", "&c[YT]&r &f");
         team.setPrefix(color(headPrefix));
         if (isCreatorIdentity(p.getName())) {
             team.addPlayer(p);
@@ -860,7 +882,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     String simulatedPrimaryPrefix(String name) {
-        if (isCreatorIdentity(name)) return "&c&l[YT]&r ";
+        if (isCreatorIdentity(name)) return "&c[YT]&r ";
         return simRankFor(name).prefix + " ";
     }
 
@@ -2266,7 +2288,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         duelRequests.put(toHuman.toLowerCase(Locale.ENGLISH),req);
 
         sendSimulatedPrivate(target,from,reason+". duel me?");
-        target.sendMessage(color("&c&lDUEL REQUEST &8» &f"+from+
+        target.sendMessage(color("&cDuel request &8» &f"+from+
             " &7challenged you. &a/duel accept "+from+" &8| &c/duel decline "+from));
     }
 
@@ -2399,7 +2421,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         Location spawn=simWorld.humanDuelSpawn();
         if(spawn!=null) human.teleport(spawn);
 
-        Bukkit.broadcastMessage(color("&c&lDUEL &8» &f"+human.getName()+" &7vs &f"+simName));
+        Bukkit.broadcastMessage(color("&cDUEL &8» &f"+human.getName()+" &7vs &f"+simName));
         human.sendMessage(color("&7Duel deaths do not affect DTR, normal K/D, inventory or economy."));
 
         final String fightId=d.fightId;
@@ -2434,7 +2456,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             statsData.set(hb+".losses",statsData.getInt(hb+".losses",0)+1);
         saveYaml(statsData,statsFile);
 
-        Bukkit.broadcastMessage(color("&c&lDUEL &8» &f"+winner+" &7defeated &f"+loser));
+        Bukkit.broadcastMessage(color("&cDUEL &8» &f"+winner+" &7defeated &f"+loser));
         activeDuel.fightId=""; // resolved; do not permit further duel-damage bypass
 
         Player simBody=Bukkit.getPlayerExact(sim);
@@ -2714,7 +2736,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     private void sendFactionShow(Player viewer,Faction q) {
         viewer.sendMessage(color("&8&m--------------------------------"));
-        viewer.sendMessage(color("&6&l"+q.name+" &7(" + q.members.size()+"/"+SimWorldDirector.MAX_FACTION_MEMBERS + ")"));
+        viewer.sendMessage(color("&6"+q.name+" &7(" + q.members.size()+"/"+SimWorldDirector.MAX_FACTION_MEMBERS + ")"));
         viewer.sendMessage(color("&7Leader: &f"+q.leader+
             " &7DTR: "+dtrColor(q)+fmtDtr(q.dtr)+"&7/&f"+fmtDtr(maxDtr(q))+
             " &7Claims: &f"+q.claims.size()));

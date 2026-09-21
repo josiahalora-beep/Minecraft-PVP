@@ -1918,6 +1918,8 @@ final class SimWorldDirector {
             SimFaction f=factions.get(key(p.faction));
             if(f!=null) {
                 b.append("; responderIsFactionLeader=").append(f.leader!=null && f.leader.equalsIgnoreCase(p.name))
+                 .append("; responderCanVouch=true")
+                 .append("; factionLeader=").append(f.leader)
                  .append("; factionHasSpace=").append(f.members.size()<MAX_FACTION_MEMBERS)
                  .append("; speakerAlreadyFactioned=").append(plugin.humanAlreadyFactioned(speaker))
                  .append("; factionMembers=").append(f.members.size()).append("/").append(MAX_FACTION_MEMBERS)

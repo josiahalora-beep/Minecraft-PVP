@@ -35,7 +35,10 @@ $stateItems = @(
   'server\plugins-src\EraCore',
   'bots\src',
   'bots\package.json',
-  'server\build-plugin.ps1'
+  'server\build-plugin.ps1',
+  'server\server.properties',
+  'Start-HCF-ControlPlane.ps1',
+  'Start-HCF-LocalWorker.ps1'
 )
 
 foreach ($relative in $stateItems) {
@@ -57,6 +60,12 @@ $files = @(
   'bots/src/state-handoff.js',
   'bots/src/team-combat.js',
   'bots/src/worker-pool.js',
+  'bots/src/worker-coordinator.js',
+  'bots/start-worker-linux.sh',
+  'bots/setup-linux-worker.sh',
+  'Start-HCF-ControlPlane.ps1',
+  'Start-HCF-LocalWorker.ps1',
+  'server/server.properties',
   'server/build-plugin.ps1',
   'server/plugins-src/EraCore/pom.xml',
   'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/AiChatBridge.java',
@@ -204,3 +213,8 @@ Write-Host '  3. Stand inside the real rooms: /spawnpreset kraken mark shop  and
 Write-Host '  4. Look at each physical crate block: /spawnpreset kraken mark votecrate  and  /spawnpreset kraken mark donorcrate'
 Write-Host '  5. Verify everything: /spawnpreset kraken status'
 Write-Host '  Director debug: /simcombat director'
+Write-Host ''
+Write-Host 'Distributed workers:' -ForegroundColor Cyan
+Write-Host '  Home control plane: .\Start-HCF-ControlPlane.ps1 -CoordinatorToken <TOKEN>'
+Write-Host '  Local worker:      .\Start-HCF-LocalWorker.ps1 -CoordinatorToken <TOKEN> -Bodies 10'
+Write-Host '  Oracle workers use bots/start-worker-linux.sh with the same coordinator token.'

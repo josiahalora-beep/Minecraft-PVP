@@ -22,6 +22,7 @@ final class LogicalTabListDirector {
     private final SimWorldDirector world;
     private final Map<String,Object> fakeEntityByName = new HashMap<String,Object>();
     private final Map<UUID,Set<String>> sentByViewer = new HashMap<UUID,Set<String>>();
+    private final Map<UUID,Long> lastRefreshByViewer = new HashMap<UUID,Long>();
     private BukkitTask task;
 
     LogicalTabListDirector(EraCore plugin, SimWorldDirector world) {
@@ -44,6 +45,7 @@ final class LogicalTabListDirector {
             if(!plugin.isBotIdentity(p.getName())) clearViewer(p);
         }
         sentByViewer.clear();
+        lastRefreshByViewer.clear();
         fakeEntityByName.clear();
     }
 
@@ -82,12 +84,30 @@ final class LogicalTabListDirector {
     private void syncViewer(Player viewer) {
         if(viewer==null || !viewer.isOnline()) return;
 
-        Set<String> desired=new LinkedHashSet<String>();
+        int visible=Math.max(20,Math.min(150,
+            plugin.getConfig().getInt("logical-tab.visible-identities",100)));
+
+        // The tab roster is a logical population view, independent from the small
+        // number of HOT Mineflayer bodies. Keep currently embodied identities in
+        // the roster first, then deterministically fill to the configured count.
+        Set<String> roster=new LinkedHashSet<String>();
+        for(Player online:Bukkit.getOnlinePlayers()) {
+            if(plugin.isBotIdentity(online.getName()) && world.identityDisplayName(online.getName())!=null)
+                roster.add(key(online.getName()));
+        }
         for(String name:world.allIdentityNames()) {
-            if(name.equalsIgnoreCase(viewer.getName())) continue;
-            if(Bukkit.getPlayerExact(name)!=null) continue;
-            desired.add(key(name));
-            applyFakeRankTeam(name);
+            if(roster.size()>=visible) break;
+            roster.add(key(name));
+        }
+
+        Set<String> desired=new LinkedHashSet<String>();
+        for(String lower:roster) {
+            String display=world.identityDisplayName(lower);
+            if(display==null || display.isEmpty()) display=lower;
+            if(display.equalsIgnoreCase(viewer.getName())) continue;
+            if(Bukkit.getPlayerExact(display)!=null) continue;
+            desired.add(lower);
+            applyFakeRankTeam(display);
         }
 
         Set<String> sent=sentByViewer.get(viewer.getUniqueId());
@@ -96,22 +116,38 @@ final class LogicalTabListDirector {
             sentByViewer.put(viewer.getUniqueId(),sent);
         }
 
+        List<String> remove=new ArrayList<String>();
         for(String existing:new ArrayList<String>(sent)) {
             if(!desired.contains(existing)) {
-                send(viewer,existing,false);
+                remove.add(existing);
                 sent.remove(existing);
             }
         }
+        if(!remove.isEmpty()) sendBatch(viewer,remove,false);
 
+        List<String> add=new ArrayList<String>();
         for(String name:desired) {
-            if(sent.add(name)) send(viewer,name,true);
+            if(sent.add(name)) add.add(name);
+        }
+        if(!add.isEmpty()) sendBatch(viewer,add,true);
+
+        // Reassert the logical roster periodically. One batched packet is cheap
+        // and repairs clients/modded tab overlays that discard synthetic entries
+        // after their initial join burst.
+        long now=System.currentTimeMillis();
+        long refreshMs=Math.max(5,plugin.getConfig().getInt("logical-tab.refresh-seconds",10))*1000L;
+        Long last=lastRefreshByViewer.get(viewer.getUniqueId());
+        if(last==null || now-last>=refreshMs) {
+            if(!desired.isEmpty()) sendBatch(viewer,desired,true);
+            lastRefreshByViewer.put(viewer.getUniqueId(),now);
         }
     }
 
     private void clearViewer(Player viewer) {
         Set<String> sent=sentByViewer.remove(viewer.getUniqueId());
+        lastRefreshByViewer.remove(viewer.getUniqueId());
         if(sent==null) return;
-        for(String name:sent) send(viewer,name,false);
+        if(!sent.isEmpty()) sendBatch(viewer,sent,false);
     }
 
     private void ensureTeams() {
@@ -121,7 +157,7 @@ final class LogicalTabListDirector {
         makeTeam(b,"simtab2","&b[Elite] ");
         makeTeam(b,"simtab3","&d[Legend] ");
         makeTeam(b,"simtab4","&6[Titan] ");
-        makeTeam(b,"simtabyt","&c[YT] ");
+        makeTeam(b,"simtabyt","&c[Yt] ");
     }
 
     private Team makeTeam(Scoreboard b,String name,String prefix) {
@@ -183,16 +219,23 @@ final class LogicalTabListDirector {
         return ep;
     }
 
-    @SuppressWarnings({"unchecked","rawtypes"})
     private void send(Player viewer,String lowerName,boolean add) {
+        sendBatch(viewer,Collections.singletonList(lowerName),add);
+    }
+
+    @SuppressWarnings({"unchecked","rawtypes"})
+    private void sendBatch(Player viewer,Collection<String> lowerNames,boolean add) {
+        if(viewer==null || lowerNames==null || lowerNames.isEmpty()) return;
         try {
-            Object ep=fakeEntity(lowerName);
             Class<?> epClass=Class.forName("net.minecraft.server.v1_8_R3.EntityPlayer");
             Class<?> actionClass=Class.forName("net.minecraft.server.v1_8_R3.PacketPlayOutPlayerInfo$EnumPlayerInfoAction");
             Object action=Enum.valueOf((Class<Enum>)actionClass.asSubclass(Enum.class),add?"ADD_PLAYER":"REMOVE_PLAYER");
 
-            Object arr=Array.newInstance(epClass,1);
-            Array.set(arr,0,ep);
+            List<Object> entities=new ArrayList<Object>();
+            for(String lowerName:lowerNames) entities.add(fakeEntity(lowerName));
+
+            Object arr=Array.newInstance(epClass,entities.size());
+            for(int i=0;i<entities.size();i++) Array.set(arr,i,entities.get(i));
 
             Class<?> packetClass=Class.forName("net.minecraft.server.v1_8_R3.PacketPlayOutPlayerInfo");
             Constructor<?> ctor=packetClass.getConstructor(actionClass,arr.getClass());
@@ -205,7 +248,8 @@ final class LogicalTabListDirector {
             Class<?> packetBase=Class.forName("net.minecraft.server.v1_8_R3.Packet");
             pc.getClass().getMethod("sendPacket",packetBase).invoke(pc,packet);
         } catch(Throwable t) {
-            if(add) plugin.getLogger().warning("Logical tab entry failed for "+lowerName+": "+t.getClass().getSimpleName()+": "+t.getMessage());
+            if(add) plugin.getLogger().warning("Logical tab batch failed for "+lowerNames.size()+
+                " identities: "+t.getClass().getSimpleName()+": "+t.getMessage());
         }
     }
 

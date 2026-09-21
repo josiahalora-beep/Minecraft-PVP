@@ -3869,12 +3869,29 @@ final class SimWorldDirector {
     }
 
     private int candidateScore(SimFaction f, SimPlayer p) {
-        int score = p.teamwork / 2 + p.leadership / 5;
-        score += f.powerFaction ? p.skill : p.skill / 2;
+        // Recruitment cannot see hidden PvP skill. Leaders judge only signals
+        // that would plausibly be known on a real server: relationships,
+        // reputation, donor status, activity/personality, role fit and public
+        // creator notoriety.
+        SimPlayer leader=players.get(key(f.leader));
+        SocialEdge rel=leader==null?null:relationship(leader.name,p.name,true);
+
+        int score=p.teamwork/3+p.sociability/4+p.loyalty/4+p.reputation/3;
+        score+=p.donorLevel*14;
+        if(rel!=null) {
+            score+=rel.affinity/2;
+            score+=(rel.trust-50)/2;
+            score+=(rel.respect-50)/3;
+            score-=rel.grudge/2;
+        }
+
+        // Configured creator personas have public PvP notoriety. This models
+        // reputation/fame, not omniscient access to their hidden skill value.
+        if(plugin.isCreatorIdentity(p.name)) score+=38;
 
         if (classCount(f, CombatClass.BARD) == 0 && p.combatClass == CombatClass.BARD) score += 45;
         if (classCount(f, CombatClass.ARCHER) == 0 && p.combatClass == CombatClass.ARCHER) score += 34;
-        if (classCount(f, CombatClass.DIAMOND) < 2 && p.combatClass == CombatClass.DIAMOND) score += 25;
+        if (classCount(f, CombatClass.DIAMOND) < 2 && p.combatClass == CombatClass.DIAMOND) score += 20;
 
         if (jobCount(f, "miner") == 0 && "miner".equals(p.preferredJob)) score += 35;
         if (jobCount(f, "farmer") == 0 && "farmer".equals(p.preferredJob)) score += 30;
@@ -3883,7 +3900,7 @@ final class SimWorldDirector {
 
         if (f.underdog) {
             if ("farmer".equals(p.preferredJob) || "miner".equals(p.preferredJob) || "brewer".equals(p.preferredJob)) score += 28;
-            score += p.teamwork / 2;
+            score += p.teamwork / 3;
         }
 
         return score;
@@ -3964,7 +3981,9 @@ final class SimWorldDirector {
         if ("miner".equals(p.preferredJob) || "builder".equals(p.preferredJob) || "brewer".equals(p.preferredJob)) {
             return "lff " + p.preferredJob + " can " + cls;
         }
-        if (p.skill >= 70) return "lff " + cls + " good at pvp";
+        if (plugin.isCreatorIdentity(p.name)) return "lff " + cls + " you know me";
+        if (p.donorLevel>=2) return "lff " + cls + " active donor";
+        if (p.reputation>=35) return "lff " + cls + " been active";
         return "lff " + cls + " active";
     }
 

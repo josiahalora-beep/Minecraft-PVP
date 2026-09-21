@@ -27,6 +27,10 @@ commands:
     usage: /crates [vote|donor]
   stats:
     usage: /stats [player]
+  history:
+    usage: /history [player|faction|server]
+  duel:
+    usage: /duel <player|accept|decline|stats>
   f:
     aliases: [faction, factions]
     usage: /f <create|invite|join|leave|kick|disband|claim|unclaim|sethome|home|show|who|list|c>
@@ -60,7 +64,7 @@ commands:
   sotw:
     usage: /sotw <status|reset|end>
   simworker:
-    usage: /simworker <sync|deposit|stash|status>
+    usage: /simworker <sync|deposit|stash|crateprep|status>
   simcombat:
     usage: /simcombat <sync|release|status>
   safezone:

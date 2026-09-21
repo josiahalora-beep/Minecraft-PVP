@@ -1337,6 +1337,24 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             return true;
         }
 
+        if (a[0].equalsIgnoreCase("gearup")) {
+            if (!simIdentity) {
+                p.sendMessage(color("&cSimulation identities only."));
+                return true;
+            }
+            p.sendMessage("SIMGEAR " + simWorld.gearEmbodiedWorker(p));
+            return true;
+        }
+
+        if (a[0].equalsIgnoreCase("kitcycle")) {
+            if (!simIdentity) {
+                p.sendMessage(color("&cSimulation identities only."));
+                return true;
+            }
+            p.sendMessage("SIMKITCYCLE " + simWorld.processClaimedKit(p));
+            return true;
+        }
+
         if (a[0].equalsIgnoreCase("status")) {
             if (!ownerOnly(p)) return true;
             p.sendMessage(color("&7Worker candidates: &f" + simWorld.workerCandidateCount() +
@@ -1345,7 +1363,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             return true;
         }
 
-        p.sendMessage("/simworker <sync|deposit|stash|crateprep|status>");
+        p.sendMessage("/simworker <sync|deposit|stash|crateprep|gearup|kitcycle|status>");
         return true;
     }
 

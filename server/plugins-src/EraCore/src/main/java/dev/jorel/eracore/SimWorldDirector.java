@@ -727,7 +727,7 @@ final class SimWorldDirector {
         int s=0;
         for(String n:f.members) {
             SimPlayer p=players.get(key(n));
-            if(p!=null) s+=p.skill+p.teamwork/3;
+            if(p!=null) s+=overallCombatSkill(p)+p.teamwork/3+p.pvpIq/8;
         }
         return s;
     }
@@ -739,7 +739,7 @@ final class SimWorldDirector {
             if(p!=null) xs.add(p);
         }
         Collections.sort(xs,new Comparator<SimPlayer>() {
-            public int compare(SimPlayer a,SimPlayer b){return Integer.compare(b.skill,a.skill);}
+            public int compare(SimPlayer a,SimPlayer b){return Integer.compare(overallCombatSkill(b),overallCombatSkill(a));}
         });
         while(xs.size()>count) xs.remove(xs.size()-1);
         return xs;
@@ -759,7 +759,13 @@ final class SimWorldDirector {
             CombatAssignment ca=new CombatAssignment();
             ca.fightId=fight.id;ca.name=p.name;ca.faction=own.name;ca.enemyFaction=enemy.name;
             ca.world=fight.world;
-            ca.skill=p.skill;ca.aggression=p.aggression;ca.risk=p.riskTolerance;
+            ca.skill=p.skill;
+            ca.mechanics=p.mechanics;
+            ca.pvpIq=p.pvpIq;
+            ca.gameSense=p.gameSense;
+            ca.composure=p.composure;
+            ca.mistake=combatMistakePropensity(p);
+            ca.aggression=p.aggression;ca.risk=p.riskTolerance;
             ca.homeX=own.baseX;ca.homeY=own.baseY+1;ca.homeZ=own.baseZ;
             ca.trapType="none";
             if(!ownerOnOwnSide && rng.nextInt(100)<40) ca.focus=ownerName;
@@ -784,8 +790,8 @@ final class SimWorldDirector {
         for(SimPlayer p:xs) {
             if(p==exclude) continue;
             int score;
-            if(bard) score=p.teamwork+p.patience+p.riskTolerance+p.skill/2;
-            else score=p.skill+p.aggression+p.riskTolerance+p.teamwork/2;
+            if(bard) score=p.teamwork+p.patience+p.gameSense+p.pvpIq/2;
+            else score=p.mechanics+p.pvpIq+p.aggression/2+p.teamwork/2;
             if(score>bestScore){best=p;bestScore=score;}
         }
         return best;
@@ -796,7 +802,7 @@ final class SimWorldDirector {
         SimPlayer best=enemies.get(0);
         int bestScore=Integer.MAX_VALUE;
         for(SimPlayer p:enemies) {
-            int score=p.skill+p.teamwork/2+p.riskTolerance/3;
+            int score=overallCombatSkill(p)+p.teamwork/2+p.composure/3+p.gameSense/4;
             if(score<bestScore){best=p;bestScore=score;}
         }
         return best;
@@ -4762,6 +4768,7 @@ final class SimWorldDirector {
             p.mechanics = s.getInt("mechanics",combatTrait(p.name,"mechanics",p.skill,18));
             p.pvpIq = s.getInt("pvp-iq",combatTrait(p.name,"pvp-iq",p.skill,22));
             p.gameSense = s.getInt("game-sense",combatTrait(p.name,"game-sense",Math.max(35,p.skill-3),26));
+            applyCreatorCombatOverrides(p);
             p.skill = overallCombatSkill(p);
             p.aggression = s.getInt("aggression", 50);
             p.bargaining = s.getInt("bargaining", 50);
@@ -5950,23 +5957,21 @@ final class SimWorldDirector {
         Collections.shuffle(cluster, rng);
         while (cluster.size() > 4) cluster.remove(cluster.size()-1);
 
-        // Recovery factions never get dragged back into a brawl.
-        SimFaction loser = weightedBrawlLoser(cluster);
-        if (loser == null) return;
+        // Sample one performance for this encounter. Real ability anchors
+        // the result; form, pressure and mistakes can swing close fights.
+        Map<SimFaction,Double> performances=new LinkedHashMap<SimFaction,Double>();
+        SimFaction loser=null,winner=null;
+        double worst=Double.MAX_VALUE,best=-Double.MAX_VALUE;
+        for(SimFaction candidate:cluster) {
+            double performance=sampleFactionFightPerformance(candidate);
+            performances.put(candidate,performance);
+            if(performance<worst){worst=performance;loser=candidate;}
+            if(performance>best){best=performance;winner=candidate;}
+        }
+        if(loser==null || winner==null || loser==winner) return;
 
         SimPlayer victim = weakestExposedMember(loser);
         if (victim == null) return;
-
-        SimFaction winner = null;
-        double bestStrength = -1;
-        for (SimFaction candidate : cluster) {
-            if (candidate == loser) continue;
-            double strength = factionFightStrength(candidate);
-            if (winner == null || strength > bestStrength) {
-                winner = candidate;
-                bestStrength = strength;
-            }
-        }
 
         plugin.applySimulatedFactionDeath(loser.name, victim.name);
         SimPlayer killer = null;
@@ -5982,7 +5987,7 @@ final class SimWorldDirector {
         victim.reputation=Math.max(0,victim.reputation-2);
         if(killer!=null) {
             killer.kills++;
-            killer.reputation=Math.min(999,killer.reputation+5+victim.skill/18+rng.nextInt(5));
+            killer.reputation=Math.min(999,killer.reputation+5+overallCombatSkill(victim)/18+rng.nextInt(5));
         }
 
         int lostHeals=Math.min(loser.healPots,10+rng.nextInt(10));
@@ -6016,41 +6021,53 @@ final class SimWorldDirector {
 
     }
 
-    private SimFaction weightedBrawlLoser(List<SimFaction> cluster) {
-        double totalInverse = 0.0;
-        List<Double> weights = new ArrayList<Double>();
-        for (SimFaction f : cluster) {
-            double strength = factionFightStrength(f);
-            double w = 1.0 / Math.max(1.0, strength);
-            weights.add(w);
-            totalInverse += w;
+    private double sampleFactionFightPerformance(SimFaction f) {
+        double base=factionFightStrength(f);
+        if(f==null || f.members.isEmpty()) return base;
+
+        double mistake=0,composure=0,pvpIq=0;
+        int n=0;
+        for(String name:f.members) {
+            SimPlayer p=players.get(key(name));
+            if(p==null) continue;
+            mistake+=combatMistakePropensity(p);
+            composure+=p.composure;
+            pvpIq+=p.pvpIq;
+            n++;
         }
-        if (totalInverse <= 0) return null;
-        double roll = rng.nextDouble() * totalInverse;
-        for (int i=0;i<cluster.size();i++) {
-            roll -= weights.get(i);
-            if (roll <= 0) return cluster.get(i);
-        }
-        return cluster.get(cluster.size()-1);
+        if(n==0) return base;
+        mistake/=n; composure/=n; pvpIq/=n;
+
+        // Close teams can trade wins. Stronger teams retain a real edge because
+        // variance is bounded instead of replacing strength with a lottery.
+        double sigma=3.0 + mistake*0.18 + Math.max(0,55-composure)*0.05;
+        double form=rng.nextGaussian()*sigma;
+        double smartConsistency=Math.max(-2.0,Math.min(3.0,(pvpIq-55.0)/18.0));
+        return base+form+smartConsistency;
     }
 
     private double factionFightStrength(SimFaction f) {
-        double score = 0;
-        int n = 0;
-        for (String member : f.members) {
-            SimPlayer p = players.get(key(member));
-            if (p == null) continue;
-            score += p.skill * 1.0 + p.teamwork * 0.35 + p.aggression * 0.12;
-            if (p.combatClass == CombatClass.BARD) score += 16;
-            else if (p.combatClass == CombatClass.ARCHER) score += 9;
-            else if (p.combatClass == CombatClass.ROGUE) score += 6;
+        double score=0;
+        int n=0;
+        for(String member:f.members) {
+            SimPlayer p=players.get(key(member));
+            if(p==null) continue;
+            score += p.mechanics*0.52 + p.pvpIq*0.30 + p.gameSense*0.12 +
+                p.teamwork*0.18 + p.composure*0.08 + p.aggression*0.05;
+            if(p.combatClass==CombatClass.BARD) score+=12+p.gameSense*0.05;
+            else if(p.combatClass==CombatClass.ARCHER) score+=7+p.mechanics*0.03;
+            else if(p.combatClass==CombatClass.ROGUE) score+=5+p.pvpIq*0.03;
             n++;
         }
-        if (n == 0) return 1;
-        score /= n;
-        score += Math.min(f.members.size(),3) * 7;
-        if (f.healPots >= f.members.size()*20) score += 8;
-        if (f.pearls >= f.members.size()*6) score += 5;
+        if(n==0) return 1;
+        score/=n;
+
+        SimPlayer leader=players.get(key(f.leader));
+        if(leader!=null) score+=(leaderQuality(leader)-50)*0.10;
+
+        score+=Math.min(f.members.size(),3)*6;
+        if(f.healPots>=f.members.size()*20) score+=8;
+        if(f.pearls>=f.members.size()*6) score+=5;
         return score;
     }
 
@@ -6063,7 +6080,9 @@ final class SimWorldDirector {
         if (candidates.isEmpty()) return null;
         Collections.sort(candidates, new Comparator<SimPlayer>() {
             public int compare(SimPlayer a, SimPlayer b) {
-                return Integer.compare(a.skill + a.teamwork/3, b.skill + b.teamwork/3);
+                int sa=overallCombatSkill(a)+a.teamwork/3+a.composure/3+a.gameSense/4;
+                int sb=overallCombatSkill(b)+b.teamwork/3+b.composure/3+b.gameSense/4;
+                return Integer.compare(sa,sb);
             }
         });
         int bound = Math.min(2, candidates.size());

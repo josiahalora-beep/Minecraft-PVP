@@ -1294,7 +1294,16 @@ final class SimWorldDirector {
         t.z = spawn == null ? 0 : spawn.getBlockZ();
         t.priority = 0;
 
-        if (p == null || p.faction.isEmpty()) return t;
+        if (p == null) return t;
+        if (p.faction.isEmpty()) {
+            if(!p.logicalOnline || p.bannedUntil>System.currentTimeMillis()) return t;
+            t.action="solo";
+            t.zone=soloZoneFor(p);
+            t.priority=26+p.sociability/5+p.aggression/8+p.reputation/10;
+            t.combatClass=p.combatClass.name();
+            t.preferredJob=p.preferredJob;
+            return t;
+        }
         if (!p.logicalOnline) {
             if (!plugin.isCreatorIdentity(p.name)) return t;
             t.faction = p.faction;
@@ -1434,6 +1443,20 @@ final class SimWorldDirector {
             }
         }
         return t;
+    }
+
+    private String soloZoneFor(SimPlayer p) {
+        long epoch=Math.max(0L,sotwTicks/10L);
+        int roll=Math.abs((key(p.name).hashCode()*31+(int)epoch*13)%100);
+        if(p.aggression>=70) {
+            if(roll<48) return "spawn";
+            if(roll<76) return "end";
+            return "nether";
+        }
+        if("miner".equals(p.preferredJob) && roll<45) return "nether";
+        if(roll<62) return "spawn";
+        if(roll<82) return "end";
+        return "nether";
     }
 
     private String warzoneForFaction(SimFaction f) {

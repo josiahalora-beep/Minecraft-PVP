@@ -40,15 +40,30 @@ export function sleep(ms) {
 
 export function waitForSpawn(bot, timeoutMs = 15000) {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`${bot.username} spawn timeout`)), timeoutMs)
-    bot.once('spawn', () => {
+    let settled=false
+    const cleanup=() => {
       clearTimeout(timer)
-      resolve()
-    })
-    bot.once('error', err => {
-      clearTimeout(timer)
-      reject(err)
-    })
+      bot.removeListener('spawn',onSpawn)
+      bot.removeListener('error',onError)
+      bot.removeListener('kicked',onKicked)
+      bot.removeListener('end',onEnd)
+    }
+    const finish=(err) => {
+      if(settled) return
+      settled=true
+      cleanup()
+      if(err) reject(err)
+      else resolve()
+    }
+    const onSpawn=() => finish()
+    const onError=err => finish(err)
+    const onKicked=reason => finish(new Error(`${bot.username} kicked before spawn: ${String(reason)}`))
+    const onEnd=reason => finish(new Error(`${bot.username} connection ended before spawn: ${String(reason || 'unknown')}`))
+    const timer=setTimeout(() => finish(new Error(`${bot.username} spawn timeout after ${timeoutMs}ms`)),timeoutMs)
+    bot.once('spawn',onSpawn)
+    bot.once('error',onError)
+    bot.once('kicked',onKicked)
+    bot.once('end',onEnd)
   })
 }
 

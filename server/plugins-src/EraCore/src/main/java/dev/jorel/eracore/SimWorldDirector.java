@@ -212,6 +212,15 @@ final class SimWorldDirector {
         String preferredJob = "member";
         String allies = "";
         String keyType = "";
+        String interaction = "none";
+        String interactionAction = "none";
+        String targetBlock = "";
+        int homeX;
+        int homeY;
+        int homeZ;
+        int gateX;
+        int gateY;
+        int gateZ;
         int x;
         int y;
         int z;
@@ -231,6 +240,11 @@ final class SimWorldDirector {
                 " job=" + preferredJob +
                 " allies=" + allies +
                 " keyType=" + keyType +
+                " interaction=" + interaction +
+                " interactionAction=" + interactionAction +
+                " targetBlock=" + targetBlock +
+                " homeX=" + homeX + " homeY=" + homeY + " homeZ=" + homeZ +
+                " gateX=" + gateX + " gateY=" + gateY + " gateZ=" + gateZ +
                 " x=" + x + " y=" + y + " z=" + z +
                 " priority=" + priority +
                 " aggression=" + aggression +
@@ -422,12 +436,12 @@ final class SimWorldDirector {
     void registerExistingAutoBrewers() {
         for(SimFaction f:factions.values()) {
             if(f.brewer && (f.baseX!=0 || f.baseZ!=0))
-                plugin.registerAutoBrewerSite(f.name,f.baseX,f.baseY,f.baseZ);
+                plugin.registerAutoBrewerSite(f.name,f.basePreset,f.baseX,f.baseY,f.baseZ);
         }
     }
 
     void repairExistingBaseTerrainAndClaims() {
-        if (data.getInt("meta.terrain-repair-version",0) >= 5) return;
+        if (data.getInt("meta.terrain-repair-version",0) >= 6) return;
 
         org.bukkit.World world=Bukkit.getWorlds().get(0);
         if(world==null) return;
@@ -435,17 +449,19 @@ final class SimWorldDirector {
         for(SimFaction f : factions.values()) {
             if(f.baseX==0 && f.baseZ==0) continue;
 
-            // Fill support below already-built structures and reapply the
-            // chosen preset exactly once for this migration.
-            plugin.queueSimFoundationRepair(f.name,f.basePreset,f.trapPreset,f.baseX,f.baseY,f.baseZ);
-            if(f.brewer) plugin.queueSimBrewerBuild(f.name,f.baseX,f.baseY,f.baseZ);
+            // Version 6 is an intentional structural migration. Rebuild the
+            // complete selected template so legacy detached rooms, partial
+            // doors and single-chest vaults are replaced consistently. This
+            // also reconstructs bases after an optional world reset.
+            plugin.queueSimBaseBuild(f.name,f.basePreset,f.trapPreset,f.baseX,f.baseY,f.baseZ);
+            if(f.brewer) plugin.queueSimBrewerBuild(f.name,f.basePreset,f.baseX,f.baseY,f.baseZ);
 
             // Expand legacy claims to the complete base/farm/trap footprint.
             List<String> desired=baseFootprintClaims(world.getName(),f);
             org.bukkit.Location home=new org.bukkit.Location(world,f.baseX+0.5,f.baseY+1,f.baseZ+0.5);
             plugin.setSimFactionHomeAndClaims(f.name,home,desired);
         }
-        data.set("meta.terrain-repair-version",5);
+        data.set("meta.terrain-repair-version",6);
         save();
     }
 
@@ -1415,6 +1431,9 @@ final class SimWorldDirector {
                     t.action="crate";
                     t.zone="spawn";
                     t.keyType=type;
+                    t.interaction="crate";
+                    t.interactionAction="open";
+                    t.targetBlock="donor".equals(type)?"ender_chest":"chest";
                     t.x=crate.getBlockX();
                     t.y=crate.getBlockY()+1;
                     t.z=crate.getBlockZ();
@@ -1469,6 +1488,13 @@ final class SimWorldDirector {
         int bx = f.baseX;
         int by = f.baseY > 0 ? f.baseY + 1 : t.y;
         int bz = f.baseZ;
+        t.homeX=bx;
+        t.homeY=by;
+        t.homeZ=bz;
+        int[] frontGate=plugin.simBaseAnchor(f.basePreset,"gate",f.baseX,f.baseY,f.baseZ);
+        t.gateX=frontGate[0];
+        t.gateY=frontGate[1];
+        t.gateZ=frontGate[2];
 
         boolean assignedFight=visibleFight!=null && visibleFight.assignments.containsKey(key(p.name));
         boolean factionFight=factionInVisibleFight(f.name);
@@ -1505,6 +1531,9 @@ final class SimWorldDirector {
                     t.action="crate";
                     t.zone="spawn";
                     t.keyType=type;
+                    t.interaction="crate";
+                    t.interactionAction="open";
+                    t.targetBlock="donor".equals(type)?"ender_chest":"chest";
                     t.x=crate.getBlockX();
                     t.y=crate.getBlockY()+1;
                     t.z=crate.getBlockZ();
@@ -1578,9 +1607,13 @@ final class SimWorldDirector {
             case BREWER:
                 if ("brewer".equals(p.preferredJob)) {
                     t.action = "brew";
-                    t.x = bx + 20;
-                    t.y = by;
-                    t.z = bz;
+                    int[] brewer=plugin.simBaseAnchor(f.basePreset,"brewer",f.baseX,f.baseY,f.baseZ);
+                    t.x = brewer[0];
+                    t.y = brewer[1]+1;
+                    t.z = brewer[2];
+                    t.interaction="brewer";
+                    t.interactionAction="operate";
+                    t.targetBlock="brewing_stand";
                     t.priority = 96;
                 } else {
                     t.action = "supply";
@@ -1608,9 +1641,13 @@ final class SimWorldDirector {
                     t.priority = 66;
                 } else if ("brewer".equals(p.preferredJob)) {
                     t.action = "brew";
-                    t.x = bx + 20;
-                    t.y = by;
-                    t.z = bz;
+                    int[] brewer=plugin.simBaseAnchor(f.basePreset,"brewer",f.baseX,f.baseY,f.baseZ);
+                    t.x = brewer[0];
+                    t.y = brewer[1]+1;
+                    t.z = brewer[2];
+                    t.interaction="brewer";
+                    t.interactionAction="operate";
+                    t.targetBlock="brewing_stand";
                     t.priority = 70;
                 } else {
                     t.action = "patrol";
@@ -1632,6 +1669,23 @@ final class SimWorldDirector {
                 if("patrol".equals(g)) t.zone=warzoneForFaction(f);
                 t.priority=Math.max(t.priority,goalPriority(p,g));
             }
+        }
+
+        // Re-derive the physical interaction target after goal overrides. The
+        // semantic target and the movement coordinates therefore cannot drift
+        // apart when COLD-state planning changes a worker's current goal.
+        if("brew".equals(t.action)) {
+            int[] brewer=plugin.simBaseAnchor(f.basePreset,"brewer",f.baseX,f.baseY,f.baseZ);
+            t.x=brewer[0]; t.y=brewer[1]+1; t.z=brewer[2];
+            t.interaction="brewer";
+            t.interactionAction="operate";
+            t.targetBlock="brewing_stand";
+        } else if("gear".equals(t.action)) {
+            int[] storage=plugin.simBaseAnchor(f.basePreset,"storage",f.baseX,f.baseY,f.baseZ);
+            t.x=storage[0]; t.y=storage[1]; t.z=storage[2];
+            t.interaction="storage";
+            t.interactionAction="open";
+            t.targetBlock="chest";
         }
         return t;
     }
@@ -4112,8 +4166,7 @@ final class SimWorldDirector {
                         mirrorConsumeFromStorage(f,Material.IRON_INGOT,35);
                         mirrorConsumeFromStorage(f,Material.COBBLESTONE,96);
                         f.brewer = true;
-                        plugin.queueSimBrewerBuild(f.name, f.baseX, f.baseY, f.baseZ);
-                        plugin.registerAutoBrewerSite(f.name,f.baseX,f.baseY,f.baseZ);
+                        plugin.queueSimBrewerBuild(f.name,f.basePreset,f.baseX,f.baseY,f.baseZ);
                     }
                 }
                 if (f.brewer) f.stage = Stage.GEARING;
@@ -5588,22 +5641,24 @@ final class SimWorldDirector {
         else if("hcf_split_level".equalsIgnoreCase(f.basePreset)) half=11;
         else if("hcf_archer_tower".equalsIgnoreCase(f.basePreset)) half=10;
         else if("hcf_double_layer".equalsIgnoreCase(f.basePreset)) half=13;
-        int nearZ=half+3, farZ=half+5;
+        int nearZ=half+3, farZ=half+6;
 
-        int dx=6,dz=nearZ;
-        if("pots".equals(cat)){dx=-6;dz=nearZ;}
-        else if("pearls".equals(cat)){dx=-4;dz=nearZ;}
-        else if("valuables".equals(cat)){dx=-2;dz=nearZ;}
-        else if("blocks".equals(cat)){dx=0;dz=nearZ;}
+        // First half of each physical double chest. Pairs are spaced by one
+        // block so every category gets a stable 54-slot visual bank.
+        int dx=8,dz=nearZ;
+        if("pots".equals(cat)){dx=-10;dz=nearZ;}
+        else if("pearls".equals(cat)){dx=-7;dz=nearZ;}
+        else if("valuables".equals(cat)){dx=-4;dz=nearZ;}
+        else if("blocks".equals(cat)){dx=-1;dz=nearZ;}
         else if("brewing".equals(cat)){dx=2;dz=nearZ;}
-        else if("farm".equals(cat)){dx=4;dz=nearZ;}
-        else if("helmets".equals(cat)){dx=-6;dz=farZ;}
-        else if("chestplates".equals(cat)){dx=-4;dz=farZ;}
-        else if("leggings".equals(cat)){dx=-2;dz=farZ;}
-        else if("boots".equals(cat)){dx=0;dz=farZ;}
+        else if("farm".equals(cat)){dx=5;dz=nearZ;}
+        else if("helmets".equals(cat)){dx=-10;dz=farZ;}
+        else if("chestplates".equals(cat)){dx=-7;dz=farZ;}
+        else if("leggings".equals(cat)){dx=-4;dz=farZ;}
+        else if("boots".equals(cat)){dx=-1;dz=farZ;}
         else if("swords".equals(cat)){dx=2;dz=farZ;}
-        else if("bows".equals(cat)){dx=4;dz=farZ;}
-        else if("kits".equals(cat)){dx=6;dz=farZ;}
+        else if("bows".equals(cat)){dx=5;dz=farZ;}
+        else if("kits".equals(cat)){dx=8;dz=farZ;}
 
         String cacheKey=key(f.name)+":"+cat;
         org.bukkit.Location cached=storageChestCache.get(cacheKey);
@@ -5626,8 +5681,8 @@ final class SimWorldDirector {
         // Compatibility fallback for a base whose retrofit has not materialized yet.
         org.bukkit.block.Chest best=null;
         double bestD=Double.MAX_VALUE;
-        for(int x=f.baseX-14;x<=f.baseX+14;x++) {
-            for(int z=f.baseZ-14;z<=f.baseZ+14;z++) {
+        for(int x=f.baseX-30;x<=f.baseX+30;x++) {
+            for(int z=f.baseZ-30;z<=f.baseZ+30;z++) {
                 for(int y=Math.max(2,f.baseY-6);y<=Math.min(w.getMaxHeight()-1,f.baseY+6);y++) {
                     org.bukkit.block.Block b=w.getBlockAt(x,y,z);
                     if(b.getType()!=Material.CHEST && b.getType()!=Material.TRAPPED_CHEST) continue;
@@ -5824,7 +5879,7 @@ final class SimWorldDirector {
     }
 
     private int baseTerrainRadius(SimFaction f) {
-        int r=16;
+        int r=22;
         if ("hcf_courtyard".equalsIgnoreCase(f.basePreset)) r=18;
         else if ("hcf_double_layer".equalsIgnoreCase(f.basePreset)) r=17;
         else if ("hcf_split_level".equalsIgnoreCase(f.basePreset)) r=15;

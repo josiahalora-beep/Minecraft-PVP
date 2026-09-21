@@ -64,11 +64,11 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     enum Rank {
         MEMBER(0, "&7[Member]", 24),
-        VIP(1, "&a[Vip]", 24),
-        ELITE(2, "&b[Elite]", 36),
-        LEGEND(3, "&d[Legend]", 48),
-        TITAN(4, "&6[Titan]", 72),
-        OWNER(99, "&4[Owner]", 0);
+        BASIC(1, "&a[Basic]", 24),
+        SILVER(2, "&f&l[Silver]&r", 18),
+        GOLD(3, "&6&l[Gold]&r", 12),
+        PLATINUM(4, "&b&l[Platinum]&r", 8),
+        OWNER(99, "&4&l[OWNER]&r", 0);
         final int level;
         final String prefix;
         final int cooldownHours;
@@ -76,7 +76,15 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             this.level = level; this.prefix = prefix; this.cooldownHours = cooldownHours;
         }
         static Rank parse(String s) {
-            try { return Rank.valueOf(s.toUpperCase(Locale.ENGLISH)); }
+            if(s==null) return null;
+            String n=s.toUpperCase(Locale.ENGLISH);
+            // Migrate the earlier placeholder hierarchy without invalidating
+            // existing ranks.yml files.
+            if("VIP".equals(n)) n="BASIC";
+            else if("ELITE".equals(n)) n="SILVER";
+            else if("LEGEND".equals(n)) n="GOLD";
+            else if("TITAN".equals(n)) n="PLATINUM";
+            try { return Rank.valueOf(n); }
             catch (Exception e) { return null; }
         }
     }
@@ -518,7 +526,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         Player p = Bukkit.getPlayerExact(name);
         if (p != null) {
             applyCreatorTag(p);
-            p.setPlayerListName(color(identityPrefix(p.getName(), rank) + "&f" + p.getName()));
+            p.setPlayerListName(color(identityPrefix(p.getName(), rank) +
+                (rank==Rank.OWNER?"&c&l":"&f") + p.getName()));
         }
     }
 
@@ -537,7 +546,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             if("ADMIN".equalsIgnoreCase(role)) staff="&c[Admin] ";
             else if("MOD".equalsIgnoreCase(role)) staff="&2[Mod] ";
         }
-        String rankPrefix = rank.prefix.replace("&l", "").replace("&L", "");
+        String rankPrefix = rank.prefix;
         return staff + creator + rankPrefix + " ";
     }
 
@@ -559,19 +568,19 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     private Rank simRankFor(String name) {
         int level=simWorld==null?-1:simWorld.simulatedDonorLevelFor(name);
         if(level>=0) {
-            if(level>=4) return Rank.TITAN;
-            if(level==3) return Rank.LEGEND;
-            if(level==2) return Rank.ELITE;
-            if(level==1) return Rank.VIP;
+            if(level>=4) return Rank.PLATINUM;
+            if(level==3) return Rank.GOLD;
+            if(level==2) return Rank.SILVER;
+            if(level==1) return Rank.BASIC;
             return Rank.MEMBER;
         }
 
         int roll = Math.abs(name.toLowerCase(Locale.ENGLISH).hashCode()) % 100;
         if (roll < 66) return Rank.MEMBER;
-        if (roll < 82) return Rank.VIP;
-        if (roll < 92) return Rank.ELITE;
-        if (roll < 98) return Rank.LEGEND;
-        return Rank.TITAN;
+        if (roll < 82) return Rank.BASIC;
+        if (roll < 92) return Rank.SILVER;
+        if (roll < 98) return Rank.GOLD;
+        return Rank.PLATINUM;
     }
 
     private String factionSuffix(String name) {
@@ -1501,7 +1510,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         }
 
         if (a.length != 1) {
-            p.sendMessage("/kit <starter [diamond|bard|archer|miner|rogue]|member|vip|elite|legend|titan>");
+            p.sendMessage("/kit <starter [diamond|bard|archer|miner|rogue]|member|basic|silver|gold|platinum>");
             return true;
         }
         Rank requested = Rank.parse(a[0]);
@@ -1562,7 +1571,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         String starterStatus=own==Rank.OWNER || System.currentTimeMillis()>=starterNext ? "&aReady" :
             "&e"+Math.max(1,(starterNext-System.currentTimeMillis())/60000L)+"m";
         p.sendMessage(color("&fStarter &7- "+Math.max(1,getConfig().getInt("kits.starter-cooldown-hours",6))+"h - "+starterStatus));
-        for (Rank r : new Rank[]{Rank.MEMBER,Rank.VIP,Rank.ELITE,Rank.LEGEND,Rank.TITAN}) {
+        for (Rank r : new Rank[]{Rank.MEMBER,Rank.BASIC,Rank.SILVER,Rank.GOLD,Rank.PLATINUM}) {
             boolean eligible = own == Rank.OWNER || own.level >= r.level;
             String key = p.getName().toLowerCase(Locale.ENGLISH) + "." + r.name().toLowerCase(Locale.ENGLISH);
             long next = kitsData.getLong(key,0L);
@@ -1573,31 +1582,60 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     private void grantKit(Player p, Rank r) {
-        int prot = 0, sharp = 0, pearls = 0, pots = 0;
-        switch (r) {
-            case MEMBER: sharp=0; pearls=2; pots=0; break;
-            case VIP: prot=1; sharp=1; pearls=4; pots=4; break;
-            case ELITE: prot=2; sharp=2; pearls=8; pots=8; break;
-            case LEGEND: prot=3; sharp=3; pearls=12; pots=12; break;
-            case TITAN: prot=4; sharp=4; pearls=16; pots=16; break;
-            default: break;
+        int prot=0,sharp=0,fire=0,pearls=0,pots=0,steak=32;
+        boolean diamond=false;
+        int speed=0,fireRes=0;
+
+        switch(r) {
+            case MEMBER:
+                pearls=2;
+                break;
+            case BASIC:
+                // Entry donor: useful convenience, still close to a member.
+                prot=1; sharp=1; pearls=4; pots=4; speed=1;
+                break;
+            case SILVER:
+                diamond=true; prot=1; sharp=1; pearls=8; pots=8; speed=2; fireRes=1;
+                break;
+            case GOLD:
+                diamond=true; prot=2; sharp=2; pearls=12; pots=14; speed=2; fireRes=1;
+                break;
+            case PLATINUM:
+                diamond=true; prot=3; sharp=3; fire=1; pearls=16; pots=22; speed=3; fireRes=2; steak=64;
+                break;
+            default:
+                break;
         }
-        if (r == Rank.MEMBER) {
-            add(p,new ItemStack(Material.IRON_HELMET));
-            add(p,new ItemStack(Material.IRON_CHESTPLATE));
-            add(p,new ItemStack(Material.IRON_LEGGINGS));
-            add(p,new ItemStack(Material.IRON_BOOTS));
-            add(p,sword(Material.IRON_SWORD,sharp));
+
+        if(!diamond) {
+            add(p,armor(Material.IRON_HELMET,prot));
+            add(p,armor(Material.IRON_CHESTPLATE,prot));
+            add(p,armor(Material.IRON_LEGGINGS,prot));
+            add(p,armor(Material.IRON_BOOTS,prot));
+            add(p,pvpSword(r==Rank.MEMBER?Material.IRON_SWORD:Material.DIAMOND_SWORD,sharp,fire));
         } else {
             add(p,armor(Material.DIAMOND_HELMET,prot));
             add(p,armor(Material.DIAMOND_CHESTPLATE,prot));
             add(p,armor(Material.DIAMOND_LEGGINGS,prot));
             add(p,armor(Material.DIAMOND_BOOTS,prot));
-            add(p,sword(Material.DIAMOND_SWORD,sharp));
+            add(p,pvpSword(Material.DIAMOND_SWORD,sharp,fire));
         }
-        add(p,new ItemStack(Material.ENDER_PEARL,pearls));
-        add(p,new ItemStack(Material.COOKED_BEEF,32));
-        for (int i=0;i<pots;i++) add(p,new ItemStack(Material.POTION,1,(short)16421));
+
+        if(pearls>0) add(p,new ItemStack(Material.ENDER_PEARL,pearls));
+        add(p,new ItemStack(Material.COOKED_BEEF,steak));
+        for(int i=0;i<pots;i++) add(p,new ItemStack(Material.POTION,1,(short)16421));
+        for(int i=0;i<speed;i++) add(p,new ItemStack(Material.POTION,1,(short)8226));
+        for(int i=0;i<fireRes;i++) add(p,new ItemStack(Material.POTION,1,(short)8259));
+
+        // Top tiers are valuable to factions even beyond the armor itself.
+        if(r==Rank.GOLD) {
+            add(p,new ItemStack(Material.NETHER_STALK,8));
+            add(p,new ItemStack(Material.GLOWSTONE_DUST,4));
+        } else if(r==Rank.PLATINUM) {
+            add(p,new ItemStack(Material.NETHER_STALK,16));
+            add(p,new ItemStack(Material.GLOWSTONE_DUST,8));
+            add(p,new ItemStack(Material.OBSIDIAN,8));
+        }
     }
 
     private void grantStarterKit(Player p,String type) {

@@ -558,7 +558,6 @@ async function commandBrain(state) {
      now-(state.lastGearRequestAt || 0)>(action==='gear'?3500:18000)) {
     state.lastGearRequestAt=now
     await queueBotCommand(state,'/simworker gearup')
-    if(action==='gear') return
   }
 
   // Donor value is faction value: safely return home, claim the highest kit
@@ -943,6 +942,205 @@ async function eatIfNeeded(state) {
     await bot.consume()
     return true
   } catch { return false }
+}
+
+const HOSTILE_MOBS = new Set([
+  'zombie','skeleton','spider','cave_spider','creeper','witch',
+  'slime','magma_cube','silverfish','blaze','ghast'
+])
+
+function entityMobName(entity) {
+  return String(entity?.mobType || entity?.name || entity?.displayName || '').toLowerCase().replace(/\s+/g,'_')
+}
+
+function nearestHostileMob(state, radius=14) {
+  const bot=state.bot
+  if(!bot?.entity) return null
+  let best=null,bestDist=Infinity
+  for(const entity of Object.values(bot.entities || {})) {
+    if(!entity || entity===bot.entity || entity.type!=='mob') continue
+    const mob=entityMobName(entity)
+    if(!HOSTILE_MOBS.has(mob)) continue
+    const d=bot.entity.position.distanceTo(entity.position)
+    if(d<=radius && d<bestDist) { best=entity; bestDist=d }
+  }
+  return best
+}
+
+function waterBlock(block) {
+  const n=String(block?.name || '').toLowerCase()
+  return n==='water' || n==='flowing_water' || n==='stationary_water'
+}
+
+function botInWater(bot) {
+  if(!bot?.entity) return false
+  if(bot.entity.isInWater) return true
+  try {
+    const feet=bot.blockAt(bot.entity.position.floored())
+    const head=bot.blockAt(bot.entity.position.offset(0,1,0).floored())
+    return waterBlock(feet) || waterBlock(head)
+  } catch {
+    return false
+  }
+}
+
+function dryEscapeTarget(bot, radius=7) {
+  if(!bot?.entity) return null
+  const base=bot.entity.position.floored()
+  let best=null,bestScore=Infinity
+  for(let r=1;r<=radius;r++) {
+    for(let dx=-r;dx<=r;dx++) for(let dz=-r;dz<=r;dz++) {
+      if(Math.abs(dx)!==r && Math.abs(dz)!==r) continue
+      for(let dy=-1;dy<=3;dy++) {
+        try {
+          const x=base.x+dx,y=base.y+dy,z=base.z+dz
+          const feet=bot.blockAt({x,y,z})
+          const head=bot.blockAt({x,y:y+1,z})
+          const below=bot.blockAt({x,y:y-1,z})
+          if(!feet || !head || !below) continue
+          if(waterBlock(feet) || waterBlock(head) || waterBlock(below)) continue
+          const feetOpen=feet.boundingBox==='empty' || feet.name==='air'
+          const headOpen=head.boundingBox==='empty' || head.name==='air'
+          const support=below.boundingBox==='block'
+          if(!feetOpen || !headOpen || !support) continue
+          const score=dx*dx+dz*dz+Math.abs(dy)*2
+          if(score<bestScore){best={x,y,z};bestScore=score}
+        } catch {}
+      }
+    }
+    if(best) return best
+  }
+  return best
+}
+
+async function recoverFromWater(state) {
+  const bot=state.bot
+  if(!bot?.entity || state.combat) return false
+  if(!botInWater(bot)) {
+    state.waterSince=0
+    return false
+  }
+
+  const now=Date.now()
+  if(!state.waterSince) state.waterSince=now
+  if(now-(state.lastWaterRecoveryAt || 0)<1200) return true
+  state.lastWaterRecoveryAt=now
+
+  const target=dryEscapeTarget(bot,7)
+  if(target) {
+    const reached=await smartGoto(state,target.x,target.y,target.z,1,3500,false)
+    if(reached && !botInWater(bot)) {
+      state.waterSince=0
+      return true
+    }
+  }
+
+  stopMovement(bot)
+  bot.setControlState('jump',true)
+  bot.setControlState('forward',true)
+  bot.setControlState('sprint',true)
+  if(Math.random()<0.5) bot.setControlState('left',true)
+  else bot.setControlState('right',true)
+  await sleep(950)
+  stopMovement(bot)
+
+  if(now-state.waterSince>7000 && !commandTagged(state) &&
+     now-(state.lastStuckCommandAt || 0)>65000) {
+    state.lastStuckCommandAt=now
+    await queueBotCommand(state,'/stuck',BOT_COMMAND_GAP_MS,90)
+  }
+  return true
+}
+
+async function defendAgainstHostileMob(state) {
+  const bot=state.bot
+  if(!bot?.entity || state.combat || state.mobDefenseBusy) return false
+  if(Date.now()-(state.lastMobDefenseAt || 0)<450) return false
+  const mob=nearestHostileMob(state,14)
+  if(!mob) return false
+
+  state.mobDefenseBusy=true
+  state.lastMobDefenseAt=Date.now()
+  try {
+    const name=entityMobName(mob)
+    let dist=bot.entity.position.distanceTo(mob.position)
+
+    if(name==='creeper' && dist<4.2) {
+      stopMovement(bot)
+      try { await bot.lookAt(mob.position.offset(0,1,0),false) } catch {}
+      bot.setControlState('back',true)
+      bot.setControlState('sprint',true)
+      if(Math.random()<0.5) bot.setControlState('left',true)
+      else bot.setControlState('right',true)
+      await sleep(850)
+      stopMovement(bot)
+      return true
+    }
+
+    await equipBestWeapon(state)
+    for(let hit=0;hit<5 && state.bot?.entity && mob.isValid!==false;hit++) {
+      dist=bot.entity.position.distanceTo(mob.position)
+      if(dist>3.3) {
+        const reached=await smartGoto(state,mob.position.x,mob.position.y,mob.position.z,2,2600,false)
+        if(!reached) break
+      }
+      try {
+        await bot.lookAt(mob.position.offset(0,Math.min(1.2,mob.height || 1),0),false)
+        bot.attack(mob)
+      } catch { break }
+      await sleep(Math.round(rand(360,560)))
+      if(bot.health!=null && bot.health<=7) {
+        await emergencyRetreat(state)
+        break
+      }
+    }
+    return true
+  } finally {
+    state.mobDefenseBusy=false
+  }
+}
+
+function recordMovementProgress(state) {
+  const bot=state.bot
+  if(!bot?.entity) return
+  const p=bot.entity.position
+  const last=state.lastProgressPos
+  if(!last) {
+    state.lastProgressPos={x:p.x,y:p.y,z:p.z}
+    state.lastMovedAt=Date.now()
+    return
+  }
+  const dx=p.x-last.x,dy=p.y-last.y,dz=p.z-last.z
+  if(dx*dx+dy*dy+dz*dz>=1.0) {
+    state.lastProgressPos={x:p.x,y:p.y,z:p.z}
+    state.lastMovedAt=Date.now()
+  }
+}
+
+async function recoverIfStalled(state, action) {
+  const bot=state.bot
+  if(!bot?.entity || state.combat) return false
+  recordMovementProgress(state)
+  const mobile=['patrol','scout','mine','gather','supply','farm','build','crate','solo','solo_loot','solo_build'].includes(action)
+  if(!mobile || Date.now()-(state.lastMovedAt || Date.now())<14000) return false
+  if(Date.now()-(state.lastStallRecoveryAt || 0)<6000) return true
+  state.lastStallRecoveryAt=Date.now()
+
+  try { bot.pathfinder?.stop() } catch {}
+  stopMovement(bot)
+  bot.setControlState('jump',true)
+  bot.setControlState('back',true)
+  if(Math.random()<0.5) bot.setControlState('left',true)
+  else bot.setControlState('right',true)
+  await sleep(700)
+  stopMovement(bot)
+
+  if(Date.now()-(state.lastMovedAt || 0)>28000 && !commandTagged(state) &&
+     Date.now()-(state.lastStuckCommandAt || 0)>65000) {
+    state.lastStuckCommandAt=Date.now()
+    await queueBotCommand(state,'/stuck',BOT_COMMAND_GAP_MS,90)
+  }
+  return true
 }
 
 async function maintainSurvival(state, urgent = false) {
@@ -1554,6 +1752,22 @@ function startWorkLoop(state, settings) {
       }
 
       if (Date.now() - state.lastSyncAt >= settings.syncMs) await sync(state)
+
+      if (await recoverFromWater(state)) {
+        await sleep(Math.round(rand(180,360)))
+        continue
+      }
+
+      if (await defendAgainstHostileMob(state)) {
+        await sleep(Math.round(rand(160,320)))
+        continue
+      }
+
+      if (await recoverIfStalled(state,action)) {
+        await sleep(Math.round(rand(180,360)))
+        continue
+      }
+
       await gateDiscipline(state)
       const survivalAction = await maintainSurvival(state)
       if (survivalAction) {
@@ -1683,7 +1897,15 @@ async function connectIdentity(candidate, settings) {
     lastGateCloseAt: 0,
     soloBuildOrigin: null,
     soloBuildStep: 0,
-    survivalBusy: false
+    survivalBusy: false,
+    mobDefenseBusy: false,
+    lastMobDefenseAt: 0,
+    waterSince: 0,
+    lastWaterRecoveryAt: 0,
+    lastStuckCommandAt: 0,
+    lastProgressPos: null,
+    lastMovedAt: Date.now(),
+    lastStallRecoveryAt: 0
   }
   live.set(name, state)
 

@@ -304,11 +304,11 @@ function commandTagged(state) {
 
 function kitsForRank(rank) {
   const r = String(rank || '').toUpperCase()
-  const all=['titan','legend','elite','vip','member']
-  if (r === 'TITAN') return all
-  if (r === 'LEGEND') return all.slice(1)
-  if (r === 'ELITE') return all.slice(2)
-  if (r === 'VIP') return all.slice(3)
+  const all=['platinum','gold','silver','basic','member']
+  if (r === 'PLATINUM') return all
+  if (r === 'GOLD') return all.slice(1)
+  if (r === 'SILVER') return all.slice(2)
+  if (r === 'BASIC') return all.slice(3)
   if (r === 'MEMBER') return ['member']
   return []
 }

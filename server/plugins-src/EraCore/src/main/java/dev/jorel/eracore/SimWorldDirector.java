@@ -46,6 +46,14 @@ final class SimWorldDirector {
         MINER
     }
 
+    enum PvpIntent {
+        AVOID,
+        SOLO_HUNT,
+        SMALL_TEAM,
+        TEAMFIGHT,
+        TRAP_PLAY
+    }
+
     static final class SimPlayer {
         String name;
         String faction = "";
@@ -215,6 +223,8 @@ final class SimWorldDirector {
         String interaction = "none";
         String interactionAction = "none";
         String targetBlock = "";
+        String pvpIntent = "AVOID";
+        int desiredPartySize = 1;
         int homeX;
         int homeY;
         int homeZ;
@@ -243,6 +253,8 @@ final class SimWorldDirector {
                 " interaction=" + interaction +
                 " interactionAction=" + interactionAction +
                 " targetBlock=" + targetBlock +
+                " pvpIntent=" + pvpIntent +
+                " partySize=" + desiredPartySize +
                 " homeX=" + homeX + " homeY=" + homeY + " homeZ=" + homeZ +
                 " gateX=" + gateX + " gateY=" + gateY + " gateZ=" + gateZ +
                 " x=" + x + " y=" + y + " z=" + z +
@@ -837,11 +849,8 @@ final class SimWorldDirector {
             return;
         }
 
-        Player observer = nearestHumanObserver();
-        if (observer == null) {
-            clearVisibleFight();
-            return;
-        }
+        Player observer = combatObserver();
+        if (observer == null) return;
 
         long now=System.currentTimeMillis();
         if (visibleFight != null) {
@@ -856,11 +865,11 @@ final class SimWorldDirector {
 
         if (now < nextVisibleFightAt) return;
 
-        int minS=Math.max(12,plugin.getConfig().getInt("combat-director.visible-fight-min-seconds",25));
-        int maxS=Math.max(minS,plugin.getConfig().getInt("combat-director.visible-fight-max-seconds",55));
+        int minS=Math.max(6,plugin.getConfig().getInt("combat-director.visible-fight-min-seconds",10));
+        int maxS=Math.max(minS,plugin.getConfig().getInt("combat-director.visible-fight-max-seconds",22));
         nextVisibleFightAt=now+(minS+rng.nextInt(maxS-minS+1))*1000L;
 
-        if (rng.nextInt(100) >= plugin.getConfig().getInt("combat-director.visible-fight-chance-percent",62)) return;
+        if (rng.nextInt(100) >= plugin.getConfig().getInt("combat-director.visible-fight-chance-percent",94)) return;
 
         VisibleFight fight=createVisibleFight(observer);
         if(fight!=null) {
@@ -869,23 +878,36 @@ final class SimWorldDirector {
         }
     }
 
-    private Player nearestHumanObserver() {
-        Player best=null;
-        for(Player p:Bukkit.getOnlinePlayers()) {
-            if(plugin.isBotIdentity(p.getName())) continue;
-            if(best==null) best=p;
+    private Player combatObserver() {
+        // Prefer a human so visible combat naturally forms around the player.
+        for(Player body:Bukkit.getOnlinePlayers())
+            if(!plugin.isBotIdentity(body.getName())) return body;
+
+        // Offline/solo-server mode still needs a living PvP scene. Prefer a HOT
+        // worker who is already roaming for fights, then any embodied worker.
+        Player fallback=null;
+        for(Player body:Bukkit.getOnlinePlayers()) {
+            if(!plugin.isBotIdentity(body.getName())) continue;
+            SimPlayer p=players.get(key(body.getName()));
+            if(p!=null && "patrol".equals(p.currentGoal) && shouldSeekPvp(p.name)) return body;
+            if(fallback==null) fallback=body;
         }
-        return best;
+        return fallback;
     }
 
     private boolean fightStillRelevant(Player observer, VisibleFight f) {
-        if(observer==null || f==null) return false;
-        if(f.world==null || !observer.getWorld().getName().equalsIgnoreCase(f.world)) return false;
+        if(f==null) return false;
 
         for(CombatAssignment ca:f.assignments.values()) {
             SimFaction sf=factions.get(key(ca.faction));
             if(sf!=null && (sf.recoveryMode || plugin.factionRaidable(sf.name))) return false;
         }
+
+        // Autonomous fights are strategic events, not camera tricks. Once
+        // started they persist until timeout/recovery even if the worker that
+        // happened to seed the encounter rotates out.
+        if(observer==null || plugin.isBotIdentity(observer.getName())) return true;
+        if(f.world==null || !observer.getWorld().getName().equalsIgnoreCase(f.world)) return false;
 
         int radius=Math.max(80,plugin.getConfig().getInt("combat-director.observation-radius",160));
         double dx=observer.getLocation().getX()-f.centerX;
@@ -896,7 +918,8 @@ final class SimWorldDirector {
     private VisibleFight createVisibleFight(Player observer) {
         List<SimFaction> allReady=new ArrayList<SimFaction>();
         for(SimFaction f:factions.values()) {
-            if(f.stage!=Stage.PVP_READY || f.recoveryMode || plugin.factionRaidable(f.name)) continue;
+            if((f.stage!=Stage.PVP_READY && f.stage!=Stage.GEARING) ||
+               f.recoveryMode || plugin.factionRaidable(f.name) || combatStockSlots(f)<=0) continue;
             int active=0;
             for(String member:f.members) {
                 SimPlayer p=players.get(key(member));
@@ -1172,19 +1195,30 @@ final class SimWorldDirector {
     private int[] rollFightSizes(SimFaction a,SimFaction b) {
         int maxA=Math.max(1,activeFightMembers(a));
         int maxB=Math.max(1,activeFightMembers(b));
-        int r=rng.nextInt(100);
+        int wantA=Math.max(1,Math.min(maxA,factionDesiredPvpSize(a)));
+        int wantB=Math.max(1,Math.min(maxB,factionDesiredPvpSize(b)));
+
+        // Match intent instead of rolling arbitrary lobby sizes. Two solo hunters
+        // naturally produce a 1v1; small parties produce 2v2/3v3; two factions
+        // explicitly looking for a teamfight consume the available HOT budget.
         int sa,sb;
-        if(r<10) { sa=1; sb=1; }
-        else if(r<22) { sa=1; sb=2; }
-        else if(r<40) { sa=2; sb=2; }
-        else if(r<58) { sa=3; sb=3; }
-        else if(r<72) { sa=3; sb=4; }
-        else if(r<84) { sa=4; sb=4; }
-        else if(r<92) { sa=4; sb=5; }
-        else if(r<98) { sa=5; sb=5; }
-        else { sa=1; sb=5; } // rare clutch / trap-bait clip
-        sa=Math.min(sa,maxA);
-        sb=Math.min(sb,maxB);
+        int common=Math.min(wantA,wantB);
+        if(common>=3) {
+            sa=common; sb=common;
+            if(wantA>wantB && rng.nextInt(100)<28) sa=Math.min(maxA,sb+1);
+            else if(wantB>wantA && rng.nextInt(100)<28) sb=Math.min(maxB,sa+1);
+        } else if(common==2) {
+            sa=2; sb=2;
+            if(wantA>=3 && rng.nextInt(100)<18) sa=Math.min(3,maxA);
+            if(wantB>=3 && rng.nextInt(100)<18) sb=Math.min(3,maxB);
+        } else {
+            sa=1; sb=1;
+            // Organic 1v2s happen, but they are an exception rather than the
+            // director manufacturing constant unfair fights.
+            if(wantA>=2 && rng.nextInt(100)<15) sa=Math.min(2,maxA);
+            else if(wantB>=2 && rng.nextInt(100)<15) sb=Math.min(2,maxB);
+        }
+
         int budget=Math.max(4,Math.min(12,hotCombatBudget()));
         while(sa+sb>budget) {
             if(sa>=sb && sa>1) sa--;
@@ -1200,7 +1234,7 @@ final class SimWorldDirector {
             SimPlayer p=players.get(key(member));
             if(p!=null && p.logicalOnline && shouldSeekPvp(p.name)) n++;
         }
-        return n;
+        return Math.min(n,combatStockSlots(f));
     }
 
     private List<SimPlayer> pickFightMembers(SimFaction f,int count) {
@@ -1478,6 +1512,9 @@ final class SimWorldDirector {
         t.faction = f.name;
         t.combatClass = p.combatClass.name();
         t.preferredJob = p.preferredJob;
+        PvpIntent intent=pvpIntentFor(p,f);
+        t.pvpIntent=intent.name();
+        t.desiredPartySize=desiredPartySize(intent,f);
         StringBuilder allyNames=new StringBuilder();
         for(String member:f.members) {
             if(allyNames.length()>0) allyNames.append(',');
@@ -1745,29 +1782,24 @@ final class SimWorldDirector {
 
     private String warzoneForFaction(SimFaction f) {
         if(f==null) return "spawn";
-        int members=Math.max(1,f.members.size());
 
-        // Real resource pressure creates destination choice first.
-        if(f.pearls < members*8) return "end";
-        if(!f.brewer || f.healPots < members*18 || f.firePots < members) return "nether";
+        // Population-aware funnel: most PvP-ready factions share one rotating
+        // prime hotspot, so "looking for a fight" actually finds another roam.
+        // Some independent roams remain for the End/Nether to avoid a scripted
+        // single-lane server.
+        long epoch=Math.max(0L,sotwTicks/6L);
+        int global=Math.abs((int)((epoch*37L+17L)%100L));
+        String prime=global<62?"spawn":(global<84?"end":"nether");
 
-        // Once supplied, personality determines where a faction looks for fights.
-        long epoch=Math.max(0L,f.actionCounter/12L); // roughly stable for ~1-2 minutes
-        int roll=Math.abs((f.name.toLowerCase(Locale.ENGLISH).hashCode()*31 + (int)epoch*17) % 100);
+        if("TRAPPER".equals(f.archetype)) return "spawn";
 
-        if(f.powerFaction || "PVP".equals(f.archetype)) {
-            if(roll<46) return "end";
-            if(roll<72) return "nether";
-            return "spawn";
-        }
-        if("TRAPPER".equals(f.archetype)) {
-            if(roll<58) return "spawn";
-            if(roll<78) return "end";
-            return "nether";
-        }
-        if(roll<46) return "spawn";
-        if(roll<73) return "end";
-        return "nether";
+        int personal=Math.abs((f.name.toLowerCase(Locale.ENGLISH).hashCode()*31+(int)epoch*19)%100);
+        int funnel=plugin.getConfig().getInt("combat-director.hotspot-funnel-percent",76);
+        if(personal<Math.max(50,Math.min(95,funnel))) return prime;
+
+        if("PVP".equals(f.archetype) || f.powerFaction)
+            return personal%2==0?"spawn":"end";
+        return personal%3==0?"nether":(personal%2==0?"end":"spawn");
     }
 
     private String zoneForWorld(World w) {
@@ -4535,7 +4567,11 @@ final class SimWorldDirector {
             case GEARING:
                 craftBooksAndGear(f);
                 brewCombatStock(f);
-                if (combatReady(f)) f.stage = Stage.PVP_READY;
+                // A real HCF faction does not wait until every member owns a
+                // complete endgame loadout before anyone leaves base. As soon as
+                // it can field one genuine combat loadout, PvP and gearing run
+                // concurrently.
+                if (combatStockSlots(f) > 0) f.stage = Stage.PVP_READY;
                 break;
 
             case PVP_READY:
@@ -4834,47 +4870,91 @@ final class SimWorldDirector {
     }
 
     private boolean combatReady(SimFaction f) {
-        int diamonds = 0;
-        int bards = 0;
-        int archers = 0;
-        int rogues = 0;
-        for (String member : f.members) {
-            SimPlayer p = players.get(key(member));
-            if (p == null) continue;
-            if (p.combatClass == CombatClass.BARD) bards++;
-            else if (p.combatClass == CombatClass.ARCHER) archers++;
-            else if (p.combatClass == CombatClass.ROGUE) rogues++;
-            else diamonds++;
+        // Deep-stock readiness remains useful for strategy/UI, but no longer
+        // blocks the first geared member from roaming.
+        return combatStockSlots(f) >= Math.max(1,Math.min(f.members.size(),3));
+    }
+
+    private int combatStockSlots(SimFaction f) {
+        if(f==null) return 0;
+        int gear=Math.max(0,Math.min(f.p4Sets,f.sharp4Swords))+
+            Math.max(0,f.bardSets)+Math.max(0,f.archerSets)+Math.max(0,f.rogueSets)+
+            Math.max(0,f.iron/24);
+        int consumables=Math.min(
+            Math.min(Math.max(0,f.healPots/24),Math.max(0,f.pearls/8)),
+            Math.min(Math.max(0,f.speedPots/2),Math.max(0,f.firePots))
+        );
+        return Math.max(0,Math.min(gear,consumables));
+    }
+
+    private boolean canFieldCombatant(SimFaction f,SimPlayer p) {
+        if(f==null || p==null || combatStockSlots(f)<=0) return false;
+        if(f.healPots<24 || f.pearls<8 || f.speedPots<2 || f.firePots<1) return false;
+        if(p.combatClass==CombatClass.DIAMOND) return f.p4Sets>0 && f.sharp4Swords>0;
+        if(p.combatClass==CombatClass.BARD) return f.bardSets>0;
+        if(p.combatClass==CombatClass.ARCHER) return f.archerSets>0;
+        if(p.combatClass==CombatClass.ROGUE) return f.rogueSets>0;
+        return f.iron>=24;
+    }
+
+    private PvpIntent pvpIntentFor(SimPlayer p,SimFaction f) {
+        if(p==null || f==null || !p.logicalOnline || !canFieldCombatant(f,p)) return PvpIntent.AVOID;
+        if(sotwProtectionActive() || f.recoveryMode || plugin.factionRaidable(f.name) ||
+           plugin.factionDtr(f.name)<=getDtrSafetyFloor(f)) return PvpIntent.AVOID;
+
+        int fightDrive=p.aggression+p.riskTolerance+p.mechanics/2+p.pvpIq/2+
+            Math.min(40,p.reputation/2);
+        int teamDrive=p.teamwork+p.loyalty+p.gameSense/2+
+            ("leader".equals(p.role)?p.leadership/2:0);
+        if("PVP".equals(f.archetype)) fightDrive+=28;
+        if("TRAPPER".equals(f.archetype)) {
+            fightDrive+=18;
+            if(p.gameSense+p.patience>=120) return PvpIntent.TRAP_PLAY;
+        }
+        if(f.campTarget!=null && !f.campTarget.isEmpty()) {
+            fightDrive+=18;
+            teamDrive+=12;
         }
 
-        // P4 + Sharp4 is the baseline for diamond fighters. Support classes use
-        // their complete HCF armor sets instead, and nobody roams without pots/pearls.
-        return f.p4Sets >= diamonds
-            && f.sharp4Swords >= Math.max(1, diamonds)
-            && f.bardSets >= bards
-            && f.archerSets >= archers
-            && f.rogueSets >= rogues
-            && f.healPots >= Math.max(1, f.members.size()) * 24
-            && f.pearls >= Math.max(1, f.members.size()) * 8
-            && f.speedPots >= Math.max(1, f.members.size()) * 2
-            && f.firePots >= Math.max(1, f.members.size());
+        if(fightDrive<105) return PvpIntent.AVOID;
+        if(combatStockSlots(f)>=3 && teamDrive>=150) return PvpIntent.TEAMFIGHT;
+        if(combatStockSlots(f)>=2 && teamDrive>=112) return PvpIntent.SMALL_TEAM;
+        return PvpIntent.SOLO_HUNT;
+    }
+
+    private int desiredPartySize(PvpIntent intent,SimFaction f) {
+        int stock=Math.max(1,combatStockSlots(f));
+        if(intent==PvpIntent.TEAMFIGHT) return Math.min(5,Math.max(3,stock));
+        if(intent==PvpIntent.SMALL_TEAM) return Math.min(3,Math.max(2,stock));
+        return 1;
+    }
+
+    private int factionDesiredPvpSize(SimFaction f) {
+        int solo=0,small=0,team=0,trap=0,eligible=0;
+        for(String member:f.members) {
+            SimPlayer p=players.get(key(member));
+            if(p==null || !p.logicalOnline) continue;
+            PvpIntent intent=pvpIntentFor(p,f);
+            if(intent==PvpIntent.AVOID) continue;
+            eligible++;
+            if(intent==PvpIntent.TEAMFIGHT) team++;
+            else if(intent==PvpIntent.SMALL_TEAM) small++;
+            else if(intent==PvpIntent.TRAP_PLAY) trap++;
+            else solo++;
+        }
+        int cap=Math.min(Math.min(eligible,combatStockSlots(f)),hotCombatPerFactionCap());
+        if(cap<=0) return 0;
+        if(team>=2 && cap>=3) return Math.min(5,cap);
+        if((small+team)>=2 && cap>=2) return Math.min(3,cap);
+        if(trap>0 && cap>=2) return Math.min(2,cap);
+        return 1;
     }
 
     boolean shouldSeekPvp(String name) {
         SimPlayer p = players.get(key(name));
         if (p == null || p.faction.isEmpty()) return false;
         SimFaction f = factions.get(key(p.faction));
-        if (f == null) return false;
-        if (sotwProtectionActive()) return false;
-        if (f.recoveryMode || plugin.factionRaidable(f.name) || plugin.factionDtr(f.name) <= getDtrSafetyFloor(f)) return false;
-        if (f.stage == Stage.PVP_READY) {
-            if (!combatReady(f)) return false;
-            int motive=p.aggression+p.riskTolerance+p.skill/2+p.reputation/2;
-            if ("PVP".equals(f.archetype) || "TRAPPER".equals(f.archetype)) motive+=35;
-            if (f.campTarget!=null && !f.campTarget.isEmpty()) motive+=25;
-            return motive>=125;
-        }
-        return false;
+        return pvpIntentFor(p,f)!=PvpIntent.AVOID;
     }
 
     String tacticalDecision(String name, int enemiesNearby, int alliesNearby, boolean nearHome, boolean bardNearby) {

@@ -62,10 +62,55 @@ final class SpawnRewardsDirector implements Listener {
 
     void ensurePhysicalPendingKey(Player p,String type) {
         if(p==null || type==null || type.isEmpty()) return;
-        if(hasKey(p,type)) return;
         if(plugin.simPendingKeyCount(p.getName(),type)<=0) return;
-        p.getInventory().addItem(keyItem(type,1));
+
+        org.bukkit.inventory.PlayerInventory inv=p.getInventory();
+        int keySlot=findKeySlot(p,type);
+        if(keySlot<0) {
+            ItemStack key=keyItem(type,1);
+            int hotbar=-1;
+            for(int i=0;i<9;i++) {
+                ItemStack item=inv.getItem(i);
+                if(item==null || item.getType()==Material.AIR) { hotbar=i; break; }
+            }
+            if(hotbar<0) {
+                int empty=-1;
+                for(int i=9;i<36;i++) {
+                    ItemStack item=inv.getItem(i);
+                    if(item==null || item.getType()==Material.AIR) { empty=i; break; }
+                }
+                hotbar=8;
+                if(empty>=0) inv.setItem(empty,inv.getItem(hotbar));
+            }
+            inv.setItem(hotbar,key);
+            keySlot=hotbar;
+        }
+
+        // Put the genuine NBT/display-name key in-hand. This matters for Donor
+        // Keys because Bard players may also legitimately own ordinary blaze rods.
+        if(keySlot>=9) {
+            int hotbar=-1;
+            for(int i=0;i<9;i++) {
+                ItemStack item=inv.getItem(i);
+                if(item==null || item.getType()==Material.AIR) { hotbar=i; break; }
+            }
+            if(hotbar<0) hotbar=8;
+            ItemStack swap=inv.getItem(hotbar);
+            inv.setItem(hotbar,inv.getItem(keySlot));
+            inv.setItem(keySlot,swap);
+            keySlot=hotbar;
+        }
+        inv.setHeldItemSlot(Math.max(0,Math.min(8,keySlot)));
         p.updateInventory();
+    }
+
+    private int findKeySlot(Player p,String type) {
+        org.bukkit.inventory.PlayerInventory inv=p.getInventory();
+        for(int i=0;i<36;i++) {
+            ItemStack item=inv.getItem(i);
+            if(item!=null && isKeyItem(item,type)) return i;
+        }
+        return -1;
     }
 
     void onHumanJoin(Player p) {

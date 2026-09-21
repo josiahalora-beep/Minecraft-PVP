@@ -1238,11 +1238,11 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
         Material tool = Material.WOOD_PICKAXE;
         if ("mine".equals(task.action) || "gather".equals(task.action) || "supply".equals(task.action)) tool = Material.IRON_PICKAXE;
-        else if ("build".equals(task.action)) tool = Material.STONE;
+        else if ("build".equals(task.action) || "solo_build".equals(task.action)) tool = Material.STONE_PICKAXE;
         else if ("farm".equals(task.action)) tool = Material.IRON_HOE;
         else if ("brew".equals(task.action)) tool = Material.BREWING_STAND_ITEM;
         else if ("gear".equals(task.action)) tool = Material.BOOK;
-        else if ("patrol".equals(task.action)) tool = Material.DIAMOND_SWORD;
+        else if ("patrol".equals(task.action) || "solo_loot".equals(task.action) || "solo".equals(task.action)) tool = Material.DIAMOND_SWORD;
         else if ("safe".equals(task.action)) tool = Material.COOKED_BEEF;
         else if ("scout".equals(task.action)) tool = Material.COMPASS;
         else if ("crate".equals(task.action)) tool = "donor".equalsIgnoreCase(task.keyType) ? Material.BLAZE_ROD : Material.TRIPWIRE_HOOK;

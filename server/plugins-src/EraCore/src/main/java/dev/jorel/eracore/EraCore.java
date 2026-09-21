@@ -1159,9 +1159,9 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             }
 
             SimWorldDirector.WorkerTask task = simWorld.workerTaskFor(p.getName());
-            prepareWorkerProjection(p,task);
             if("crate".equals(task.action) && task.keyType!=null && !task.keyType.isEmpty())
                 ensurePhysicalPendingKey(p,task.keyType);
+            prepareWorkerProjection(p,task);
             int humans = humanOnlineCount();
             int workerBudget = adaptiveWorkerBudget(getConfig().getInt("worker-pool.max-bodies",4));
             Rank simRank=effectiveRank(p.getName());
@@ -1255,15 +1255,16 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         else if ("patrol".equals(task.action) || "solo_loot".equals(task.action) || "solo".equals(task.action)) tool = Material.DIAMOND_SWORD;
         else if ("safe".equals(task.action)) tool = Material.COOKED_BEEF;
         else if ("scout".equals(task.action)) tool = Material.COMPASS;
-        else if ("crate".equals(task.action)) tool = "donor".equalsIgnoreCase(task.keyType) ? Material.BLAZE_ROD : Material.TRIPWIRE_HOOK;
 
         if("solo_build".equals(task.action)) simWorld.ensureSoloBuildMaterials(p);
 
-        ItemStack hand = p.getInventory().getItem(0);
-        if (hand == null || hand.getType() != tool) {
-            p.getInventory().setItem(0,new ItemStack(tool,1));
+        if(!"crate".equals(task.action)) {
+            ItemStack hand = p.getInventory().getItem(0);
+            if (hand == null || hand.getType() != tool) {
+                p.getInventory().setItem(0,new ItemStack(tool,1));
+            }
+            p.getInventory().setHeldItemSlot(0);
         }
-        p.getInventory().setHeldItemSlot(0);
         // Ordinary worker sync must not magically heal/refeed the physical body.
         // Survival is handled by the Mineflayer inventory/food/potion layer.
         // Combat projection still receives its deliberate benchmark loadout.

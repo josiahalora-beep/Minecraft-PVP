@@ -177,12 +177,12 @@ final class SimChatDirector {
     private void scheduleFanReaction(final String creator, final String event) {
         long now = System.currentTimeMillis();
         if (now < fanCooldownUntil) return;
-        fanCooldownUntil = now + plugin.getConfig().getLong("sim-chat.fan-reaction-cooldown-seconds", 28L) * 1000L;
+        fanCooldownUntil = now + plugin.getConfig().getLong("sim-chat.fan-reaction-cooldown-seconds", 10L) * 1000L;
 
         final List<String> fans = plugin.getConfig().getStringList("sim-chat.fans");
         if (fans.isEmpty()) return;
 
-        int count = 1 + rng.nextInt(Math.max(1, plugin.getConfig().getInt("sim-chat.max-fan-reactions", 2)));
+        int count = 2 + rng.nextInt(Math.max(1, plugin.getConfig().getInt("sim-chat.max-fan-reactions", 4) - 1));
         for (int i = 0; i < count; i++) {
             final String fan = fans.get(rng.nextInt(fans.size()));
             final String msg = fanLine(creator, event);
@@ -200,18 +200,18 @@ final class SimChatDirector {
 
     private String fanLine(String creator, String event) {
         if ("join".equals(event)) {
-            String[] x = {"yo " + creator, creator + " is on", "no way " + creator + " joined", "watch " + creator};
+            String[] x = {"yo " + creator, creator + " is on", "no way " + creator + " joined", "watch " + creator, creator + " come spawn", "someone fight " + creator, "yt is on lol"};
             return x[rng.nextInt(x.length)];
         }
         if ("kill".equals(event)) {
-            String[] x = {"gg", creator + " is farming", "that combo", "rip"};
+            String[] x = {"gg", creator + " is farming", "that combo", "rip", "who is fighting " + creator, creator + " is cooking", "clip that"};
             return x[rng.nextInt(x.length)];
         }
         if ("death".equals(event)) {
-            String[] x = {"no way lol", "gg", creator + " actually died", "rip"};
+            String[] x = {"no way lol", "gg", creator + " actually died", "rip", "who killed " + creator, "clip that death lol"};
             return x[rng.nextInt(x.length)];
         }
-        String[] x = {"lol", "yo " + creator, "gg", "watch chat"};
+        String[] x = {"lol", "yo " + creator, "gg", "watch chat", creator + " what faction", creator + " come end", "1v1 me " + creator, "yt chat is active"};
         return x[rng.nextInt(x.length)];
     }
 }

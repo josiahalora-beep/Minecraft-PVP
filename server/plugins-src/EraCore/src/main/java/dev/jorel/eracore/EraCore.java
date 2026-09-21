@@ -524,8 +524,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     private String identityPrefix(String name, Rank rank) {
-        String creator = isCreatorIdentity(name) ? getConfig().getString("creator-tag.chat-prefix", "&c[YT] ") : "";
-        creator = creator.replace("&l", "").replace("&L", "");
+        String creator = isCreatorIdentity(name) ? getConfig().getString("creator-tag.chat-prefix", "&c&l[YT]&r ") : "";
         String staff="";
         if(simWorld!=null && simWorld.contains(name)) {
             String role=simWorld.simulatedStaffRole(name);
@@ -604,7 +603,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         Scoreboard board = Bukkit.getScoreboardManager().getMainScoreboard();
         Team team = board.getTeam("youtube");
         if (team == null) team = board.registerNewTeam("youtube");
-        String headPrefix = getConfig().getString("creator-tag.head-prefix", "&c[YT] &f").replace("&l", "").replace("&L", "");
+        String headPrefix = getConfig().getString("creator-tag.head-prefix", "&c&l[YT]&r &f");
         team.setPrefix(color(headPrefix));
         if (isCreatorIdentity(p.getName())) {
             team.addPlayer(p);
@@ -657,7 +656,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     String simulatedPrimaryPrefix(String name) {
-        if (isCreatorIdentity(name)) return "&c[YT] ";
+        if (isCreatorIdentity(name)) return "&c&l[YT]&r ";
         return simRankFor(name).prefix + " ";
     }
 

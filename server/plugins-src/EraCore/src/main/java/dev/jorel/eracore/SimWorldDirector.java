@@ -4532,29 +4532,36 @@ final class SimWorldDirector {
             p.role = p.preferredJob;
             p.combatClass = classFor(p);
 
-            // Every strong/elite identity begins SOTW solo and is expected to
-            // form/lead a power faction rather than being auto-slotted under another leader.
-            p.leaderCandidate = p.skill >= 80;
+            // Leadership is separate from PvP. Strong public PvPers can become
+            // leaders, but most serious factions are seeded by people with
+            // actual command/composure/decision traits.
+            int lq=leaderQuality(p);
+            p.leaderCandidate = lq>=73 ||
+                (plugin.isCreatorIdentity(p.name) && p.charisma>=58) ||
+                (p.reputation>=15 && p.leadership>=68 && p.decisiveness>=65);
             economy.initializePlayer(p);
             players.put(key(p.name), p);
         }
 
-        // A small number of non-elite leaders become underdog power-faction seeds.
+        // Underdogs are intentionally heterogeneous: one can be a smart captain
+        // with weak teammates; another can simply be a kid/casual leader whose
+        // faction later discovers a sleeper PvPer.
         List<SimPlayer> underdogPool = new ArrayList<SimPlayer>();
-        for (SimPlayer p : players.values()) {
-            if (!p.leaderCandidate && p.skill >= 52 && p.skill < 80) underdogPool.add(p);
-        }
-        Collections.sort(underdogPool, new Comparator<SimPlayer>() {
-            public int compare(SimPlayer a, SimPlayer b) {
-                int sa = a.leadership + a.teamwork + ("farmer".equals(a.preferredJob) || "miner".equals(a.preferredJob) ? 20 : 0);
-                int sb = b.leadership + b.teamwork + ("farmer".equals(b.preferredJob) || "miner".equals(b.preferredJob) ? 20 : 0);
-                return Integer.compare(sb, sa);
+        for (SimPlayer p : players.values()) if(!p.leaderCandidate) underdogPool.add(p);
+        Collections.sort(underdogPool,new Comparator<SimPlayer>() {
+            public int compare(SimPlayer a,SimPlayer b) {
+                return Integer.compare(leaderQuality(b),leaderQuality(a));
             }
         });
-        int underdogs = Math.min(plugin.getConfig().getInt("sim-world.underdog-leaders", 2), underdogPool.size());
-        for (int i = 0; i < underdogs; i++) {
-            underdogPool.get(i).leaderCandidate = true;
-            underdogPool.get(i).underdogLeader = true;
+        int underdogs=Math.min(plugin.getConfig().getInt("sim-world.underdog-leaders",2),underdogPool.size());
+        if(underdogs>0) {
+            SimPlayer smart=underdogPool.get(0);
+            smart.leaderCandidate=true; smart.underdogLeader=true;
+        }
+        if(underdogs>1 && underdogPool.size()>1) {
+            int start=Math.max(1,underdogPool.size()/2);
+            SimPlayer messy=underdogPool.get(start+rng.nextInt(underdogPool.size()-start));
+            messy.leaderCandidate=true; messy.underdogLeader=true;
         }
 
         // Critical SOTW rule: nobody is preassigned to a faction.
@@ -4690,9 +4697,9 @@ final class SimWorldDirector {
             if (!p.leaderCandidate || !p.faction.isEmpty() || !p.logicalOnline) continue;
             if (best == null) best = p;
             else {
-                int ps = p.skill + p.leadership + (p.underdogLeader ? -18 : 20);
-                int bs = best.skill + best.leadership + (best.underdogLeader ? -18 : 20);
-                if (ps > bs) best = p;
+                int ps=leaderQuality(p)+p.charisma/3+p.reputation/4+(p.underdogLeader?-10:12);
+                int bs=leaderQuality(best)+best.charisma/3+best.reputation/4+(best.underdogLeader?-10:12);
+                if(ps>bs) best=p;
             }
         }
         if (best == null) return;
@@ -4701,16 +4708,22 @@ final class SimWorldDirector {
         SimFaction f = new SimFaction();
         f.name = name;
         f.leader = best.name;
-        int sizeRoll = rng.nextInt(100);
-        if (best.underdogLeader) {
-            f.targetSize = sizeRoll < 25 ? 2 : (sizeRoll < 65 ? 3 : (sizeRoll < 90 ? 4 : 5));
+        int sizeRoll=rng.nextInt(100);
+        int quality=leaderQuality(best);
+        if(best.underdogLeader) {
+            if(quality>=70) f.targetSize=sizeRoll<20?3:(sizeRoll<55?4:5);
+            else f.targetSize=sizeRoll<48?2:(sizeRoll<84?3:4);
+        } else if(quality>=78 && best.charisma>=65) {
+            f.targetSize=sizeRoll<15?4:5;
+        } else if(quality>=64) {
+            f.targetSize=sizeRoll<25?3:(sizeRoll<70?4:5);
         } else {
-            f.targetSize = sizeRoll < 20 ? 3 : (sizeRoll < 70 ? 4 : 5);
+            f.targetSize=sizeRoll<55?2:(sizeRoll<90?3:4);
         }
-        f.targetSize = Math.min(MAX_FACTION_MEMBERS, f.targetSize);
-        f.basePreset = BASE_PRESETS[rng.nextInt(BASE_PRESETS.length)];
-        f.powerFaction = !best.underdogLeader;
-        f.underdog = best.underdogLeader;
+        f.targetSize=Math.min(MAX_FACTION_MEMBERS,f.targetSize);
+        f.basePreset=BASE_PRESETS[rng.nextInt(BASE_PRESETS.length)];
+        f.powerFaction=!best.underdogLeader && quality>=70;
+        f.underdog=best.underdogLeader;
         f.archetype = archetypeForLeader(best);
         if (key(best.name).equals("lolitsalex")) {
             f.archetype = "TRAPPER";
@@ -4758,13 +4771,48 @@ final class SimWorldDirector {
             }
         }
 
-        if (best == null) return false;
+        if(best==null) return false;
+
+        SimPlayer leader=players.get(key(f.leader));
+        int quality=leaderQuality(leader);
+        int threshold=55;
+        if(leader!=null) threshold+=Math.max(0,(leader.standards-50)/2);
+        if(f.powerFaction) threshold+=12;
+        if(f.underdog) threshold-=10;
+
+        boolean tryout=false;
+        boolean passed=true;
+        if(leader!=null && (f.powerFaction || leader.standards>=72) &&
+           bestScore<threshold+35 && rng.nextInt(100)<55) {
+            tryout=true;
+            int performance=best.skill+best.composure/3+best.duelWins*2+rng.nextInt(31)-15;
+            int bar=68+leader.standards/4+(f.powerFaction?7:0);
+            passed=performance>=bar;
+            best.duelWins+=passed?1:0;
+            best.duelLosses+=passed?0:1;
+            recordHistory("TRYOUT",passed?6:4,
+                best.name+(passed?" passed ":" failed ")+f.name+"'s duel tryout",
+                f.name,best.name,leader.name);
+            SocialEdge edge=relationship(leader.name,best.name,true);
+            edge.respect=clampSocial(edge.respect+(passed?5:-1));
+            rememberRelationship(edge,best.name+(passed?" impressed me in a recruitment duel":" did not pass my recruitment duel"));
+        }
+
+        // Weak/inexperienced leaders sometimes make a questionable signing.
+        if(bestScore<threshold && !tryout) {
+            int mistakeChance=leader==null?12:Math.max(3,38-leaderQuality(leader)/2);
+            if(rng.nextInt(100)>=mistakeChance) return false;
+        }
+        if(tryout && !passed) return false;
+
         if (!plugin.joinSimFactionAuthority(f.name, best.name)) return false;
         best.faction = f.name;
         best.role = best.preferredJob;
         f.members.add(best.name);
         contributeToFaction(best, f, 0.12);
         normalizeFactionClasses(f);
+        recordHistory("RECRUIT",4,best.name+" joined "+f.name+(tryout?" after a duel tryout":""),
+            f.name,best.name,f.leader);
         return true;
     }
 

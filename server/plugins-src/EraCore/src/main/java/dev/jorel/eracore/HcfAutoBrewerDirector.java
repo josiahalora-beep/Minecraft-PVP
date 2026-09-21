@@ -18,6 +18,10 @@ import java.util.*;
  * Unloaded bases stay COLD in SimWorldDirector and do not keep chunks/tile
  * entities ticking just to simulate brewing.
  *
+ * The physical coordinates are supplied by the base template anchor system;
+ * this controller never guesses that a brewer lives at baseX+20. This keeps the
+ * visual machine, worker target and functional brewing lanes on the same blocks.
+ *
  * This is an HCF-style functional machine, not a claim that one exact historical
  * Kohi redstone schematic has been recovered.
  */
@@ -48,7 +52,7 @@ final class HcfAutoBrewerDirector {
 
     private static final class Site {
         String faction;
-        int baseX,baseY,baseZ;
+        int centerX,floorY,centerZ;
         final List<Lane> lanes=new ArrayList<Lane>();
     }
 
@@ -73,7 +77,7 @@ final class HcfAutoBrewerDirector {
         sites.clear();
     }
 
-    void register(String faction,int baseX,int baseY,int baseZ) {
+    void register(String faction,int centerX,int floorY,int centerZ) {
         if(faction==null || faction.trim().isEmpty()) return;
         String key=faction.toLowerCase(Locale.ENGLISH);
         Site s=sites.get(key);
@@ -90,9 +94,9 @@ final class HcfAutoBrewerDirector {
             s.lanes.add(new Lane(Kind.FIRE,5));
             sites.put(key,s);
         }
-        s.baseX=baseX;
-        s.baseY=baseY;
-        s.baseZ=baseZ;
+        s.centerX=centerX;
+        s.floorY=floorY;
+        s.centerZ=centerZ;
     }
 
     boolean physicallyActive(String faction) {
@@ -100,8 +104,7 @@ final class HcfAutoBrewerDirector {
         if(s==null) return false;
         World w=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
         if(w==null) return false;
-        int rx=s.baseX+20, rz=s.baseZ;
-        return w.isChunkLoaded(rx>>4,rz>>4);
+        return w.isChunkLoaded(s.centerX>>4,s.centerZ>>4);
     }
 
     private void tick() {
@@ -109,10 +112,9 @@ final class HcfAutoBrewerDirector {
         World w=Bukkit.getWorlds().get(0);
 
         for(Site s:sites.values()) {
-            int rx=s.baseX+20, rz=s.baseZ;
             // Critical CPU rule: do not load remote faction chunks merely to
             // advance brewing. The COLD simulation handles those factions.
-            if(!w.isChunkLoaded(rx>>4,rz>>4)) continue;
+            if(!w.isChunkLoaded(s.centerX>>4,s.centerZ>>4)) continue;
 
             Inventory brewing=plugin.simFactionStorage(s.faction,"brewing");
             Inventory pots=plugin.simFactionStorage(s.faction,"pots");
@@ -199,10 +201,11 @@ final class HcfAutoBrewerDirector {
     }
 
     private BrewingStand standFor(World w,Site s,int laneIndex) {
-        int rx=s.baseX+20;
-        int x=rx-5+(laneIndex*2);
-        int z=s.baseZ;
-        Block b=w.getBlockAt(x,s.baseY+1,z);
+        // Base templates register the exact brewer core. No coordinate guess is
+        // allowed here: moving or resizing a base cannot disconnect the machine.
+        int x=s.centerX+1;
+        int z=s.centerZ-5+(laneIndex*2);
+        Block b=w.getBlockAt(x,s.floorY+1,z);
         if(b.getType()!=Material.BREWING_STAND || !(b.getState() instanceof BrewingStand)) return null;
         return (BrewingStand)b.getState();
     }

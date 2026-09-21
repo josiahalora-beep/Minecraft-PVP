@@ -150,6 +150,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     @Override public void onEnable() {
         saveDefaultConfig();
+        migrateDirectorIntelligenceConfig();
         initFiles();
         initShops();
         loadFactions();
@@ -232,6 +233,24 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (simWorld != null) simWorld.stop();
         saveAll();
         if (metricsTask != -1) Bukkit.getScheduler().cancelTask(metricsTask);
+    }
+
+    private void migrateDirectorIntelligenceConfig() {
+        int version=getConfig().getInt("migration.director-intelligence-version",0);
+        if(version>=1) return;
+
+        getConfig().set("combat-director.visible-fight-min-seconds",10);
+        getConfig().set("combat-director.visible-fight-max-seconds",22);
+        getConfig().set("combat-director.visible-fight-duration-seconds",110);
+        getConfig().set("combat-director.visible-fight-chance-percent",94);
+        getConfig().set("combat-director.observation-radius",220);
+        getConfig().set("combat-director.offscreen-brawl-chance-percent",18);
+        getConfig().set("combat-director.brawl-radius",520);
+        getConfig().set("combat-director.hotspot-funnel-percent",76);
+        getConfig().set("sotw.protection-minutes",12);
+        getConfig().set("migration.director-intelligence-version",1);
+        saveConfig();
+        getLogger().info("Applied director intelligence v1: intent-driven frequent PvP cadence.");
     }
 
     private void bindCommands() {

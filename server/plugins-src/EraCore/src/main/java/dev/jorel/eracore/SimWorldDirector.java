@@ -2057,59 +2057,89 @@ final class SimWorldDirector {
             (m.contains("fac") || m.contains("faction") || m.contains("team") || m.contains("you guys") || m.contains("yall"));
     }
 
+    private int recruitInfluenceForSpeaker(SimFaction f,SimPlayer responder,String speaker) {
+        SocialEdge responderRel=relationship(responder.name,speaker,true);
+        SimPlayer leader=players.get(key(f.leader));
+        SocialEdge leaderRel=leader==null?null:relationship(leader.name,speaker,true);
+
+        int score=responderRel.affinity/2+(responderRel.trust-50)/2+(responderRel.respect-50)/3;
+        if(leaderRel!=null) score+=leaderRel.affinity/3+(leaderRel.trust-50)/4;
+
+        int donor=plugin.publicRankLevel(speaker);
+        if(donor==1) score+=10;
+        else if(donor==2) score+=28;
+        else if(donor==3) score+=55;
+        else if(donor>=4) score+=90;
+
+        if(isConfiguredOwner(speaker)) score+=110;
+        if(plugin.isCreatorIdentity(speaker)) score+=50;
+        return score;
+    }
+
     private boolean mayInviteSpeaker(SimPlayer responder,String speaker) {
         if(responder==null || responder.faction==null || responder.faction.isEmpty()) return false;
         SimFaction f=factions.get(key(responder.faction));
-        if(f==null || f.leader==null || !f.leader.equalsIgnoreCase(responder.name)) return false;
+        if(f==null || f.leader==null || f.leader.isEmpty()) return false;
         if(plugin.humanAlreadyFactioned(speaker)) return false;
 
         SocialEdge rel=relationship(responder.name,speaker,true);
         if(rel.affinity<=-55 || rel.grudge>=75) return false;
-        if(f.members.size()<MAX_FACTION_MEMBERS) return true;
 
-        int incoming=rel.affinity/2+(rel.trust-50)/2+(rel.respect-50)/3;
-        incoming+=plugin.publicRankLevel(speaker)*22;
-        if(isConfiguredOwner(speaker)) incoming+=90;
-        if(plugin.isCreatorIdentity(speaker)) incoming+=45;
-        return replaceableMember(f,incoming)!=null;
+        // A normal member can vouch to the leader. Owners are influential, but
+        // a player who genuinely dislikes/distrusts the owner still does not
+        // automatically help them.
+        if(isConfiguredOwner(speaker) && rel.affinity<0 && rel.trust<45) return false;
+        if(!isConfiguredOwner(speaker) && rel.affinity<5 && rel.trust<48 &&
+           plugin.publicRankLevel(speaker)<2 && !plugin.isCreatorIdentity(speaker)) return false;
+
+        if(f.members.size()<MAX_FACTION_MEMBERS) return true;
+        return replaceableMember(f,recruitInfluenceForSpeaker(f,responder,speaker))!=null;
+    }
+
+    private boolean executeFactionInvite(SimPlayer responder,String speaker) {
+        if(!mayInviteSpeaker(responder,speaker)) return false;
+        SimFaction f=factions.get(key(responder.faction));
+        if(f==null) return false;
+
+        if(f.members.size()>=MAX_FACTION_MEMBERS) {
+            SimPlayer kicked=replaceableMember(f,recruitInfluenceForSpeaker(f,responder,speaker));
+            if(kicked==null || !plugin.removeSimFactionMemberAuthority(f.name,kicked.name)) return false;
+            f.members.remove(kicked.name);
+            recordFactionKick(f,kicked,speaker);
+            enqueue(f.leader,"made room for "+speaker,false);
+        }
+
+        if(!plugin.inviteHumanToSimFaction(f.name,f.leader,speaker)) return false;
+
+        SocialEdge e=relationship(responder.name,speaker,true);
+        e.affinity=clampAffinity(e.affinity+3);
+        e.trust=clampSocial(e.trust+1);
+        rememberRelationship(e,"vouched for "+speaker+" to join "+f.name);
+
+        SimPlayer leader=players.get(key(f.leader));
+        if(leader!=null) {
+            SocialEdge leaderEdge=relationship(leader.name,speaker,true);
+            rememberRelationship(leaderEdge,responder.name+" vouched for "+speaker+" to join "+f.name);
+        }
+
+        if(!f.leader.equalsIgnoreCase(responder.name)) {
+            enqueue(responder.name,"leader sent you the inv",true);
+        }
+        return true;
     }
 
     private void handleAiSocialAction(SimPlayer responder,String speaker,AiChatBridge.AiReply ai) {
         if(responder==null || ai==null) return;
-        if("INVITE_FACTION".equals(ai.action) && mayInviteSpeaker(responder,speaker)) {
-            SimFaction f=factions.get(key(responder.faction));
-            if(f==null) return;
-
-            if(f.members.size()>=MAX_FACTION_MEMBERS) {
-                SocialEdge rel=relationship(responder.name,speaker,true);
-                int incoming=rel.affinity/2+(rel.trust-50)/2+(rel.respect-50)/3+
-                    plugin.publicRankLevel(speaker)*22+(isConfiguredOwner(speaker)?90:0)+
-                    (plugin.isCreatorIdentity(speaker)?45:0);
-                SimPlayer kicked=replaceableMember(f,incoming);
-                if(kicked==null || !plugin.removeSimFactionMemberAuthority(f.name,kicked.name)) return;
-                f.members.remove(kicked.name);
-                recordFactionKick(f,kicked,speaker);
-            }
-
-            if(plugin.inviteHumanToSimFaction(responder.faction,responder.name,speaker)) {
-                SocialEdge e=relationship(responder.name,speaker,true);
-                e.affinity=clampAffinity(e.affinity+3);
-                e.trust=clampSocial(e.trust+1);
-                rememberRelationship(e,"invited "+speaker+" to "+responder.faction);
-                SocialEdge reverse=relationship(speaker,responder.name,true);
-                rememberRelationship(reverse,responder.name+" invited me to "+responder.faction);
-            }
-        }
+        if("INVITE_FACTION".equals(ai.action)) executeFactionInvite(responder,speaker);
     }
 
     private void maybeFallbackFactionInvite(SimPlayer responder,String speaker,String message) {
         if(!looksFactionJoinRequest(message) || !mayInviteSpeaker(responder,speaker)) return;
         SocialEdge e=relationship(responder.name,speaker,true);
-        int threshold=isConfiguredOwner(speaker)?-35:5;
-        if(e.affinity<threshold && e.trust<45) return;
-        if(plugin.inviteHumanToSimFaction(responder.faction,responder.name,speaker)) {
-            rememberRelationship(e,"invited "+speaker+" to "+responder.faction);
-        }
+        int threshold=isConfiguredOwner(speaker)?0:8;
+        if(e.affinity<threshold && e.trust<48 &&
+           plugin.publicRankLevel(speaker)<2 && !plugin.isCreatorIdentity(speaker)) return;
+        executeFactionInvite(responder,speaker);
     }
 
     private boolean isTradeIntent(String lower) {

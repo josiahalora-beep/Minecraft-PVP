@@ -374,8 +374,15 @@ final class SimWorldDirector {
         }, 20L * 8L, period);
     }
 
+    void registerExistingAutoBrewers() {
+        for(SimFaction f:factions.values()) {
+            if(f.brewer && (f.baseX!=0 || f.baseZ!=0))
+                plugin.registerAutoBrewerSite(f.name,f.baseX,f.baseY,f.baseZ);
+        }
+    }
+
     void repairExistingBaseTerrainAndClaims() {
-        if (data.getInt("meta.terrain-repair-version",0) >= 4) return;
+        if (data.getInt("meta.terrain-repair-version",0) >= 5) return;
 
         org.bukkit.World world=Bukkit.getWorlds().get(0);
         if(world==null) return;
@@ -386,13 +393,14 @@ final class SimWorldDirector {
             // Fill support below already-built structures and reapply the
             // chosen preset exactly once for this migration.
             plugin.queueSimFoundationRepair(f.name,f.basePreset,f.trapPreset,f.baseX,f.baseY,f.baseZ);
+            if(f.brewer) plugin.queueSimBrewerBuild(f.name,f.baseX,f.baseY,f.baseZ);
 
             // Expand legacy claims to the complete base/farm/trap footprint.
             List<String> desired=baseFootprintClaims(world.getName(),f);
             org.bukkit.Location home=new org.bukkit.Location(world,f.baseX+0.5,f.baseY+1,f.baseZ+0.5);
             plugin.setSimFactionHomeAndClaims(f.name,home,desired);
         }
-        data.set("meta.terrain-repair-version",4);
+        data.set("meta.terrain-repair-version",5);
         save();
     }
 
@@ -3311,7 +3319,8 @@ final class SimWorldDirector {
 
             case BREWER:
                 if (!f.brewer) {
-                    // Abstract the known 1.8 hopper/timed-output brewery blueprint.
+                    // Build the physical six-lane 1.8 HCF brewery. Remote bases
+                    // remain COLD; loaded brewer chunks become physically active.
                     if (f.iron >= 35 && f.stone >= 96) {
                         f.iron -= 35;
                         f.stone -= 96;
@@ -3319,6 +3328,7 @@ final class SimWorldDirector {
                         mirrorConsumeFromStorage(f,Material.COBBLESTONE,96);
                         f.brewer = true;
                         plugin.queueSimBrewerBuild(f.name, f.baseX, f.baseY, f.baseZ);
+                        plugin.registerAutoBrewerSite(f.name,f.baseX,f.baseY,f.baseZ);
                     }
                 }
                 if (f.brewer) f.stage = Stage.GEARING;
@@ -3493,45 +3503,136 @@ final class SimWorldDirector {
 
     private void brewCombatStock(SimFaction f) {
         if (!f.brewer) return;
+        plugin.registerAutoBrewerSite(f.name,f.baseX,f.baseY,f.baseZ);
 
-        int members = Math.max(1, f.members.size());
-        double healCost = (plugin.buyUnitPrice("netherwart") + plugin.buyUnitPrice("glisteringmelon")
-                         + plugin.buyUnitPrice("glowstone") + plugin.buyUnitPrice("gunpowder")) / 3.0;
-        double speedCost = (plugin.buyUnitPrice("netherwart") + plugin.buyUnitPrice("sugar")
-                          + plugin.buyUnitPrice("glowstone")) / 3.0;
-        double fireCost = (plugin.buyUnitPrice("netherwart") + plugin.buyUnitPrice("magmacream")
-                         + plugin.buyUnitPrice("redstone")) / 3.0;
+        int members=Math.max(1,f.members.size());
 
-        int healNeed = Math.max(0, members * 28 - f.healPots);
-        int healBatch = Math.min(9, healNeed);
-        int canHeal = Math.min(healBatch, (int)Math.floor(f.treasury / healCost));
-        if (canHeal > 0) {
-            f.healPots += canHeal;
-            f.treasury -= canHeal * healCost;
+        // When the brewery chunk is visible/loaded, the physical stands become
+        // authoritative. We only buy real ingredients/water bottles into the
+        // faction Brewing chest and wait for actual 20-second stages.
+        if(plugin.autoBrewerPhysicalActive(f.name)) {
+            stockPhysicalBrewerInputs(f);
+        } else {
+            // COLD path: preserve 24/7 progression without loading remote chunks.
+            // Costs are ingredient-batch costs; one ingredient set brews 3 pots.
+            double waterCost=Math.max(1.0,plugin.buyUnitPrice("glass"));
+            double healBatchCost=waterCost*3.0+plugin.buyUnitPrice("netherwart")+
+                plugin.buyUnitPrice("glisteringmelon")+plugin.buyUnitPrice("glowstone")+
+                plugin.buyUnitPrice("gunpowder");
+            double speedBatchCost=waterCost*3.0+plugin.buyUnitPrice("netherwart")+
+                plugin.buyUnitPrice("sugar")+plugin.buyUnitPrice("glowstone");
+            double fireBatchCost=waterCost*3.0+plugin.buyUnitPrice("netherwart")+
+                plugin.buyUnitPrice("magmacream")+plugin.buyUnitPrice("redstone");
+
+            int healNeed=Math.max(0,members*28-f.healPots);
+            if(healNeed>0 && f.treasury>=healBatchCost) {
+                int batches=Math.min(4,Math.min((healNeed+2)/3,(int)Math.floor(f.treasury/healBatchCost)));
+                f.healPots+=batches*3;
+                f.treasury-=batches*healBatchCost;
+            }
+
+            int speedNeed=Math.max(0,members*3-f.speedPots);
+            if(speedNeed>0 && f.treasury>=speedBatchCost) {
+                int batches=Math.min(1,Math.min((speedNeed+2)/3,(int)Math.floor(f.treasury/speedBatchCost)));
+                f.speedPots+=batches*3;
+                f.treasury-=batches*speedBatchCost;
+            }
+
+            int fireNeed=Math.max(0,members*2-f.firePots);
+            if(fireNeed>0 && f.treasury>=fireBatchCost) {
+                int batches=Math.min(1,Math.min((fireNeed+2)/3,(int)Math.floor(f.treasury/fireBatchCost)));
+                f.firePots+=batches*3;
+                f.treasury-=batches*fireBatchCost;
+            }
         }
 
-        int speedNeed = Math.max(0, members * 3 - f.speedPots);
-        int speedBatch = Math.min(3, speedNeed);
-        int canSpeed = Math.min(speedBatch, (int)Math.floor(f.treasury / speedCost));
-        if (canSpeed > 0) {
-            f.speedPots += canSpeed;
-            f.treasury -= canSpeed * speedCost;
+        double pearlPrice=plugin.buyUnitPrice("pearl");
+        if(f.pearls<members*8 && f.treasury>=pearlPrice) {
+            int buy=Math.min(3,Math.min(members*8-f.pearls,(int)(f.treasury/pearlPrice)));
+            f.pearls+=buy;
+            f.treasury-=buy*pearlPrice;
         }
+    }
 
-        int fireNeed = Math.max(0, members * 2 - f.firePots);
-        int fireBatch = Math.min(2, fireNeed);
-        int canFire = Math.min(fireBatch, (int)Math.floor(f.treasury / fireCost));
-        if (canFire > 0) {
-            f.firePots += canFire;
-            f.treasury -= canFire * fireCost;
-        }
+    private void stockPhysicalBrewerInputs(SimFaction f) {
+        org.bukkit.inventory.Inventory inv=factionStorageInventory(f,"brewing");
+        if(inv==null) return;
 
-        double pearlPrice = plugin.buyUnitPrice("pearl");
-        if (f.pearls < members * 8 && f.treasury >= pearlPrice) {
-            int buy = Math.min(3, Math.min(members * 8 - f.pearls, (int)(f.treasury / pearlPrice)));
-            f.pearls += buy;
-            f.treasury -= buy * pearlPrice;
+        int members=Math.max(1,f.members.size());
+        int healNeed=Math.max(0,members*28-f.healPots);
+        int speedNeed=Math.max(0,members*3-f.speedPots);
+        int fireNeed=Math.max(0,members*2-f.firePots);
+        if(healNeed+speedNeed+fireNeed<=0) return;
+
+        int activeKinds=(healNeed>0?1:0)+(speedNeed>0?1:0)+(fireNeed>0?1:0);
+        int bottleTarget=Math.min(24,Math.max(6,activeKinds*6+(healNeed>18?6:0)));
+        buyBrewerItemToTarget(f,inv,Material.POTION,(short)0,bottleTarget,"glass",1.0);
+
+        int wartTarget=(healNeed>0?4:0)+(speedNeed>0?2:0)+(fireNeed>0?2:0);
+        buyBrewerItemToTarget(f,inv,Material.NETHER_STALK,(short)0,wartTarget,"netherwart",1.0);
+        if(healNeed>0) {
+            buyBrewerItemToTarget(f,inv,Material.SPECKLED_MELON,(short)0,4,"glisteringmelon",1.0);
+            buyBrewerItemToTarget(f,inv,Material.GLOWSTONE_DUST,(short)0,5,"glowstone",1.0);
+            buyBrewerItemToTarget(f,inv,Material.SULPHUR,(short)0,4,"gunpowder",1.0);
         }
+        if(speedNeed>0) {
+            buyBrewerItemToTarget(f,inv,Material.SUGAR,(short)0,2,"sugar",1.0);
+            buyBrewerItemToTarget(f,inv,Material.GLOWSTONE_DUST,(short)0,5,"glowstone",1.0);
+        }
+        if(fireNeed>0) {
+            buyBrewerItemToTarget(f,inv,Material.MAGMA_CREAM,(short)0,2,"magmacream",1.0);
+            buyBrewerItemToTarget(f,inv,Material.REDSTONE,(short)0,2,"redstone",1.0);
+        }
+    }
+
+    private void buyBrewerItemToTarget(SimFaction f,org.bukkit.inventory.Inventory inv,Material material,
+                                       short dataValue,int target,String shopKey,double multiplier) {
+        int have=countInventoryItem(inv,material,dataValue);
+        int missing=Math.max(0,target-have);
+        if(missing<=0) return;
+
+        double unit=plugin.buyUnitPrice(shopKey)*Math.max(0.01,multiplier);
+        if(!Double.isFinite(unit) || unit<=0.0) return;
+        int can=Math.min(missing,(int)Math.floor(f.treasury/unit));
+        if(can<=0) return;
+
+        int added=0;
+        for(int i=0;i<can;i++) {
+            org.bukkit.inventory.ItemStack item=new org.bukkit.inventory.ItemStack(material,1,dataValue);
+            if(inv.addItem(item).isEmpty()) added++;
+            else break;
+        }
+        f.treasury-=added*unit;
+    }
+
+    private int countInventoryItem(org.bukkit.inventory.Inventory inv,Material material,short dataValue) {
+        int n=0;
+        for(org.bukkit.inventory.ItemStack item:inv.getContents()) {
+            if(item==null || item.getType()!=material) continue;
+            if(material==Material.POTION && item.getDurability()!=dataValue) continue;
+            n+=item.getAmount();
+        }
+        return n;
+    }
+
+    int brewerNeed(String faction,String type) {
+        SimFaction f=factions.get(key(faction));
+        if(f==null || !f.brewer) return 0;
+        int members=Math.max(1,f.members.size());
+        if("heal".equalsIgnoreCase(type)) return Math.max(0,members*28-f.healPots);
+        if("speed".equalsIgnoreCase(type)) return Math.max(0,members*3-f.speedPots);
+        if("fire".equalsIgnoreCase(type)) return Math.max(0,members*2-f.firePots);
+        return 0;
+    }
+
+    void creditBrewedPotions(String faction,String type,int amount) {
+        if(amount<=0) return;
+        SimFaction f=factions.get(key(faction));
+        if(f==null) return;
+        if("heal".equalsIgnoreCase(type)) f.healPots+=amount;
+        else if("speed".equalsIgnoreCase(type)) f.speedPots+=amount;
+        else if("fire".equalsIgnoreCase(type)) f.firePots+=amount;
+        save();
     }
 
     private boolean combatReady(SimFaction f) {
@@ -4634,6 +4735,11 @@ final class SimWorldDirector {
         if(best==null) return null;
         storageChestCache.put(cacheKey,best.getLocation());
         return best.getInventory();
+    }
+
+    org.bukkit.inventory.Inventory visibleFactionStorage(String faction,String category) {
+        SimFaction f=factions.get(key(faction));
+        return f==null?null:factionStorageInventory(f,category);
     }
 
     private String storageCategory(Material material) {

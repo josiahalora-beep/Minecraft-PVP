@@ -1490,7 +1490,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             return true;
         }
         if (a.length != 3 || !a[0].equalsIgnoreCase("set")) {
-            s.sendMessage("/rank set <player> <member|vip|elite|legend|titan|owner>");
+            s.sendMessage("/rank set <player> <member|basic|silver|gold|platinum|owner>");
             return true;
         }
         Rank r = Rank.parse(a[2]);

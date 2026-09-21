@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import YAML from 'yaml'
-import { createBot, sleep, waitForSpawn } from './common.js'
+import { createBot, sleep, waitForSpawn, Movements, goals } from './common.js'
 import { createTeamCombatController } from './team-combat.js'
 import { startCommunityAiBridge } from './community-ai.js'
 
@@ -663,8 +663,43 @@ async function deposit(state) {
 }
 
 function stopMovement(bot) {
+  try { bot.pathfinder?.stop() } catch {}
   for (const key of ['forward', 'back', 'left', 'right', 'jump', 'sprint', 'sneak']) {
     try { bot.setControlState(key, false) } catch {}
+  }
+}
+
+function smartMovements(bot, canDig = false) {
+  const moves = new Movements(bot)
+  moves.canDig = Boolean(canDig)
+  moves.allow1by1towers = false
+  moves.allowParkour = true
+  return moves
+}
+
+async function smartGoto(state, x, y, z, radius = 2, timeoutMs = 9000, canDig = false) {
+  const bot=state.bot
+  if(!bot?.entity || !bot.pathfinder || state.combat) return false
+  if(![x,y,z].every(Number.isFinite)) return false
+
+  const goal=new goals.GoalNear(Math.floor(x),Math.floor(y),Math.floor(z),Math.max(1,Math.floor(radius)))
+  try {
+    bot.pathfinder.setMovements(smartMovements(bot,canDig))
+    let timer
+    const timeout=new Promise(resolve => {
+      timer=setTimeout(() => resolve(false),timeoutMs)
+    })
+    const travel=bot.pathfinder.goto(goal).then(() => true).catch(() => false)
+    const ok=await Promise.race([travel,timeout])
+    clearTimeout(timer)
+    if(!ok) {
+      try { bot.pathfinder.stop() } catch {}
+      return false
+    }
+    return true
+  } catch {
+    try { bot.pathfinder.stop() } catch {}
+    return false
   }
 }
 
@@ -824,13 +859,24 @@ function nearbyBlocks(bot, names, distance = 7, count = 24) {
 async function digBest(state, names, predicate = null) {
   const bot = state.bot
   if (!bot?.entity) return false
-  const blocks = nearbyBlocks(bot, names, 7, 28)
-  for (const block of blocks) {
-    if (!block || (predicate && !predicate(block))) continue
+  const blocks = nearbyBlocks(bot, names, 32, 48)
+    .filter(block => block && (!predicate || predicate(block)))
+    .sort((a,b) => bot.entity.position.distanceTo(a.position)-bot.entity.position.distanceTo(b.position))
+
+  for (const block of blocks.slice(0,8)) {
     try {
-      if (!bot.canDigBlock(block)) continue
-      await bot.lookAt(block.position.offset(0.5, 0.5, 0.5), true)
-      await bot.dig(block, true)
+      const dist=bot.entity.position.distanceTo(block.position)
+      if(dist>4.2) {
+        const reached=await smartGoto(state,block.position.x,block.position.y,block.position.z,3,9000,false)
+        if(!reached || state.combat) continue
+      }
+      const fresh=bot.blockAt(block.position)
+      if(!fresh || !bot.canDigBlock(fresh)) continue
+      if(bot.tool?.equipForBlock) {
+        try { await bot.tool.equipForBlock(fresh,{ requireHarvest:false }) } catch {}
+      }
+      await bot.lookAt(fresh.position.offset(0.5,0.5,0.5),true)
+      await bot.dig(fresh,true)
       state.physicalOps++
       return true
     } catch {}
@@ -855,27 +901,27 @@ function nearestDroppedItem(state, radius=20) {
 
 async function lootNearbyDrop(state) {
   const bot=state.bot
-  const target=nearestDroppedItem(state,22)
-  if(!bot?.entity || !target) return false
+  const target=nearestDroppedItem(state,28)
+  if(!bot?.entity || !target?.position) return false
 
-  const end=Date.now()+4200
-  while(Date.now()<end && bot.entity && target.position && !state.combat) {
+  for(let attempt=0;attempt<3 && target.position && !state.combat;attempt++) {
     const dist=bot.entity.position.distanceTo(target.position)
-    if(dist<=1.25) {
-      stopMovement(bot)
+    if(dist<=1.35) {
       state.physicalOps++
-      await sleep(250)
+      await sleep(220)
       return true
     }
-    try { await bot.lookAt(target.position.offset(0,0.15,0),false) } catch {}
-    stopMovement(bot)
-    bot.setControlState('forward',true)
-    bot.setControlState('sprint',dist>5)
-    if(Math.random()<0.16) bot.setControlState('jump',true)
-    await sleep(250)
+    const reached=await smartGoto(
+      state,target.position.x,target.position.y,target.position.z,1,
+      Math.min(7000,2500+Math.round(dist*140)),false
+    )
+    if(reached && bot.entity.position.distanceTo(target.position)<=1.8) {
+      state.physicalOps++
+      await sleep(220)
+      return true
+    }
   }
-  stopMovement(bot)
-  return true
+  return false
 }
 
 function placeableSoloBlock(bot) {
@@ -896,13 +942,7 @@ async function soloBuildStep(state) {
     const dx=tx-bot.entity.position.x, dz=tz-bot.entity.position.z
     const dist=Math.sqrt(dx*dx+dz*dz)
     if(dist>5) {
-      try { await bot.lookAt(bot.entity.position.offset(dx,0,dz),false) } catch {}
-      stopMovement(bot)
-      bot.setControlState('forward',true)
-      bot.setControlState('sprint',dist>12)
-      await sleep(Math.round(rand(450,900)))
-      stopMovement(bot)
-      return true
+      return await smartGoto(state,tx,bot.entity.position.y,tz,3,10000,false)
     }
   }
 
@@ -1045,16 +1085,11 @@ async function approachAndActivate(state, block, closeWindow=true) {
   if(!bot?.entity || !block) return false
   try {
     const dist=bot.entity.position.distanceTo(block.position)
-    await bot.lookAt(block.position.offset(0.5,0.5,0.5),false)
     if(dist>4.1) {
-      stopMovement(bot)
-      bot.setControlState('forward',true)
-      bot.setControlState('sprint',false)
-      await sleep(Math.round(rand(420,850)))
-      stopMovement(bot)
-      return true
+      const reached=await smartGoto(state,block.position.x,block.position.y,block.position.z,3,8500,false)
+      if(!reached) return false
     }
-
+    await bot.lookAt(block.position.offset(0.5,0.5,0.5),false)
     await bot.activateBlock(block)
     state.lastSemanticInteractionAt=Date.now()
     await sleep(Math.round(rand(180,360)))

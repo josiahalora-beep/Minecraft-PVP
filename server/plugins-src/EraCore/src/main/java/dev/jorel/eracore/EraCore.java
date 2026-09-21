@@ -64,6 +64,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     private LogicalTabListDirector logicalTab;
     private SpawnRewardsDirector spawnRewards;
     private HcfAutoBrewerDirector autoBrewer;
+    private HcfInfrastructureDirector infrastructure;
 
     enum Rank {
         MEMBER(0, "&7[Member]", 24),
@@ -118,6 +119,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         Location returnLocation;
         double health;
         int food;
+        float saturation;
         boolean restoreOnRespawn;
     }
 
@@ -158,6 +160,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         hcfBaseBuilder = new HcfBaseBuilder(this);
         autoBrewer = new HcfAutoBrewerDirector(this);
         hcfZones = new HcfZoneDisplayDirector(this, warpManager);
+        infrastructure = new HcfInfrastructureDirector(this,warpManager,hcfZones);
         logicalTab = new LogicalTabListDirector(this, simWorld);
         spawnRewards = new SpawnRewardsDirector(this, warpManager);
         bindCommands();
@@ -177,6 +180,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         simChat.start();
         hcfClasses.start();
         hcfZones.start();
+        infrastructure.start();
         spawnPresence.start();
         spawnRewards.start();
         autoBrewer.start();
@@ -209,6 +213,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     @Override public void onDisable() {
+        if (infrastructure != null) infrastructure.stop();
         if (autoBrewer != null) autoBrewer.stop();
         if (spawnRewards != null) spawnRewards.stop();
         if (spawnPresence != null) spawnPresence.stop();
@@ -1124,7 +1129,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         String prepared = combatPreparedFight.get(k);
 
         if (!ca.fightId.equals(prepared)) {
-            prepareHcfCombatKit(p,ca.combatClass);
+            if(ca.fightId.startsWith("DUEL_")) preparePotKit(p);
+            else prepareHcfCombatKit(p,ca.combatClass);
             combatPreparedFight.put(k,ca.fightId);
         }
 
@@ -2132,6 +2138,10 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             human.sendMessage(color("&cFinish your current combat tag first."));
             return true;
         }
+        if(infrastructure==null || !infrastructure.duelReady()) {
+            human.sendMessage(color("&cThe duel arena is still being prepared. Try again in a moment."));
+            return true;
+        }
         if(!simWorld.startHumanVsSimDuel(human,simName)) {
             human.sendMessage(color("&cCould not start that duel right now."));
             return true;
@@ -2146,6 +2156,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         d.returnLocation=human.getLocation().clone();
         d.health=human.getHealth();
         d.food=human.getFoodLevel();
+        d.saturation=human.getSaturation();
         activeDuel=d;
 
         preparePotKit(human);
@@ -2211,6 +2222,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if(activeDuel.contents!=null) p.getInventory().setContents(cloneItems(activeDuel.contents));
         if(activeDuel.armor!=null) p.getInventory().setArmorContents(cloneItems(activeDuel.armor));
         p.setFoodLevel(activeDuel.food);
+        p.setSaturation(activeDuel.saturation);
         if(!p.isDead()) p.setHealth(Math.max(1.0,Math.min(p.getMaxHealth(),activeDuel.health)));
         p.updateInventory();
         if(activeDuel.returnLocation!=null && !p.isDead()) p.teleport(activeDuel.returnLocation);
@@ -3030,12 +3042,17 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             owner.sendMessage(color("&cStart the duel bot first."));
             return true;
         }
+        if(infrastructure==null || !infrastructure.duelReady()) {
+            owner.sendMessage(color("&cThe duel arena is still being prepared."));
+            return true;
+        }
         preparePotKit(owner);
         preparePotKit(bot);
-        int y=getConfig().getInt("map.surface-y",63)+1;
-        owner.teleport(new Location(owner.getWorld(),187.5,y,0.5,-90f,0f));
-        bot.teleport(new Location(owner.getWorld(),212.5,y,0.5,90f,0f));
-        Bukkit.broadcastMessage(color("&cPotPvP lab ready: &f"+owner.getName()+" &7vs &f"+bot.getName()));
+        Location humanSpawn=infrastructure.duelHumanSpawn();
+        Location botSpawn=infrastructure.duelSimSpawn();
+        if(humanSpawn!=null) owner.teleport(humanSpawn);
+        if(botSpawn!=null) bot.teleport(botSpawn);
+        Bukkit.broadcastMessage(color("&cPotPvP arena ready: &f"+owner.getName()+" &7vs &f"+bot.getName()));
         return true;
     }
 
@@ -3048,20 +3065,22 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         inv.setBoots(armor(Material.DIAMOND_BOOTS,2));
         inv.setItem(0,pvpSword(Material.DIAMOND_SWORD,2,2));
 
-        // Hotbar: sword, five Healing II splashes, Fire Resistance, Speed II, pearls.
+        // Hotbar: sword, five Healing II splashes, steak, Speed II, pearls.
         for(int slot=1;slot<=5;slot++) inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
-        inv.setItem(6,new ItemStack(Material.POTION,1,(short)8259));
+        inv.setItem(6,new ItemStack(Material.COOKED_BEEF,16));
         inv.setItem(7,new ItemStack(Material.POTION,1,(short)8226));
         inv.setItem(8,new ItemStack(Material.ENDER_PEARL,16));
 
-        // Reserve inventory: healing pots plus replacement drinkable buffs.
-        for(int slot=9;slot<33;slot++) inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
-        inv.setItem(33,new ItemStack(Material.POTION,1,(short)8259));
-        inv.setItem(34,new ItemStack(Material.POTION,1,(short)8226));
+        // Reserve inventory: healing pots plus drinkable Fire Resistance/Speed.
+        for(int slot=9;slot<=31;slot++) inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
+        inv.setItem(32,new ItemStack(Material.POTION,1,(short)8259));
+        inv.setItem(33,new ItemStack(Material.POTION,1,(short)8226));
+        inv.setItem(34,new ItemStack(Material.POTION,1,(short)8259));
         inv.setItem(35,new ItemStack(Material.POTION,1,(short)8226));
 
         p.setHealth(20.0);
         p.setFoodLevel(20);
+        p.setSaturation(5.0f);
         p.removePotionEffect(PotionEffectType.SPEED);
         p.removePotionEffect(PotionEffectType.FIRE_RESISTANCE);
     }
@@ -3122,6 +3141,22 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         double p95=v[Math.min(v.length-1,(int)Math.floor(v.length*0.95))];
         double max=v[v.length-1];
         return new double[]{avg,p95,max,v.length};
+    }
+
+    boolean duelArenaReady() {
+        return infrastructure!=null && infrastructure.duelReady();
+    }
+
+    Location duelCenterLocation() {
+        return infrastructure==null?null:infrastructure.duelCenter();
+    }
+
+    Location duelHumanSpawnLocation() {
+        return infrastructure==null?null:infrastructure.duelHumanSpawn();
+    }
+
+    Location duelSimSpawnLocation() {
+        return infrastructure==null?null:infrastructure.duelSimSpawn();
     }
 
     int adaptiveHotBodyBudget(int requested) {

@@ -28,6 +28,7 @@ export function createBot(username, options = {}) {
   // World competence is shared by every HOT body. Combat still uses the
   // custom HCF controller, but normal Minecraft movement/tool selection no
   // longer relies on blind forward/jump timers.
+  bot._hcfIdentity = String(username)
   bot.loadPlugin(pathfinder)
   bot.loadPlugin(toolPlugin)
   bot.loadPlugin(collectBlockPlugin)
@@ -57,9 +58,10 @@ export function waitForSpawn(bot, timeoutMs = 15000) {
     }
     const onSpawn=() => finish()
     const onError=err => finish(err)
-    const onKicked=reason => finish(new Error(`${bot.username} kicked before spawn: ${String(reason)}`))
-    const onEnd=reason => finish(new Error(`${bot.username} connection ended before spawn: ${String(reason || 'unknown')}`))
-    const timer=setTimeout(() => finish(new Error(`${bot.username} spawn timeout after ${timeoutMs}ms`)),timeoutMs)
+    const label=String(bot._hcfIdentity || bot.username || 'unknown-bot')
+    const onKicked=reason => finish(new Error(`${label} kicked before spawn: ${String(reason)}`))
+    const onEnd=reason => finish(new Error(`${label} connection ended before spawn: ${String(reason || 'unknown')}`))
+    const timer=setTimeout(() => finish(new Error(`${label} spawn timeout after ${timeoutMs}ms`)),timeoutMs)
     bot.once('spawn',onSpawn)
     bot.once('error',onError)
     bot.once('kicked',onKicked)

@@ -1787,6 +1787,80 @@ function effectiveTarget(settings, data, combat = null) {
   return clamp(target, combatCount > 0 ? Math.min(combatCount, settings.maxBodies) : (creatorsPresent || 1), settings.maxBodies)
 }
 
+async function reconcileDistributed() {
+  const settings=runtimeSettings()
+  sampleCpu()
+  const plan=await coordinatorHeartbeat(settings)
+  if(!plan) return settings.reassessMs
+
+  const desired=Array.isArray(plan.leases)?plan.leases:[]
+  const wanted=new Set(desired.map(x=>String(x.name||'').toLowerCase()).filter(Boolean))
+
+  // Coordinator leases are authoritative. Revocation is immediate so an
+  // identity can never intentionally remain connected on two healthy nodes.
+  for(const name of [...live.keys()]) {
+    if(!wanted.has(name.toLowerCase())) disconnectIdentity(name,'cluster lease revoked')
+  }
+
+  for(const cand of desired) {
+    if(!cand?.name) continue
+    const current=[...live.keys()].find(n=>n.toLowerCase()===String(cand.name).toLowerCase())
+    if(!current) {
+      if(live.size>=settings.maxBodies) continue
+      await connectIdentity(cand,settings)
+      await sleep(300)
+      continue
+    }
+
+    const state=live.get(current)
+    state.faction=String(cand.faction||'none')
+    state.stage=String(cand.stage||'')
+    state.pinned=Boolean(cand.pinned)
+    state.missingCycles=0
+    state.lastCandidateScore=Number(cand.score||state.lastCandidateScore||0)
+
+    const previousFight=state.combat?.fightId || ''
+    const nextFight=cand.combat ? (cand.assignment?.fightId || '') : ''
+    if(nextFight) {
+      state.combat=cand.assignment
+      if(state.bot && previousFight!==nextFight) {
+        try { state.bot.pathfinder?.stop() } catch {}
+        stopMovement(state.bot)
+        state.lastCombatFightId=nextFight
+        try { state.bot.chat('/simcombat sync') } catch {}
+      }
+    } else if(state.combat) {
+      state.combatController?.stop()
+      state.combat=null
+      if(state.bot) {
+        try { state.bot.chat('/simcombat release') } catch {}
+        await sleep(180)
+        try { state.bot.chat('/simworker sync') } catch {}
+      }
+    }
+
+    if(!state.bot && Date.now()>=state.reconnectAt) {
+      live.delete(current)
+      await connectIdentity(cand,settings)
+    }
+  }
+
+  const rss=Math.round(process.memoryUsage().rss/1048576)
+  console.log(
+    '[cluster '+NODE_ID+'] hot='+live.size+
+    ' leases='+desired.length+
+    ' globalTarget='+Number(plan.globalTarget||0)+
+    ' totalCapacity='+Number(plan.totalCapacity||0)+
+    ' humans='+humanCount+
+    ' serverBudget='+serverBudget+
+    ' nodeCPU='+nodeCpuPct.toFixed(1)+'%'+
+    ' rssMB='+rss+
+    ' candidates='+Number(plan.candidates||0)+
+    ' combat='+Number(plan.combat||0)
+  )
+  return settings.reassessMs
+}
+
 async function reconcile() {
   const data = readYaml(simulationFile)
   if (!data) return
@@ -1897,22 +1971,36 @@ async function reconcile() {
 
 process.on('SIGINT', () => {
   shuttingDown = true
-  try { communityAiServer.close() } catch {}
+  try { communityAiServer?.close() } catch {}
   for (const name of [...live.keys()]) disconnectIdentity(name, 'shutdown')
 })
 
 process.on('SIGTERM', () => {
   shuttingDown = true
-  try { communityAiServer.close() } catch {}
+  try { communityAiServer?.close() } catch {}
   for (const name of [...live.keys()]) disconnectIdentity(name, 'shutdown')
 })
 
 console.log('Persistent shared worker pool starting.')
-console.log('Simulation state: ' + simulationFile)
-console.log('Creator bodies are reserved; extra faction workers scale with MSPT and Node CPU.')
+if(distributedMode) {
+  console.log('[cluster] node='+NODE_ID+' coordinator='+COORDINATOR_URL+
+    ' maxBodies='+runtimeSettings().maxBodies+' priority='+NODE_PRIORITY)
+  console.log('[cluster] local simulation/combat YAML is not used for leasing on this node.')
+} else {
+  console.log('Simulation state: ' + simulationFile)
+  console.log('Standalone mode: creator bodies are reserved; workers scale with MSPT and Node CPU.')
+}
 
 while (!shuttingDown) {
   let delay = 8000
-  try { delay = await reconcile() || delay } catch (err) { console.log('reconcile: ' + err.message) }
+  try {
+    delay = distributedMode
+      ? (await reconcileDistributed() || delay)
+      : (await reconcile() || delay)
+  } catch (err) {
+    console.log('reconcile: ' + err.message)
+  }
   await sleep(delay)
 }
+
+await releaseCoordinatorNode()

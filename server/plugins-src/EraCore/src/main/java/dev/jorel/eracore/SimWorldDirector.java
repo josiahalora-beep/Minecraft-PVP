@@ -859,14 +859,20 @@ final class SimWorldDirector {
 
         // Prefer real neighbors/rivals before teleporting a distant rivalry into view.
         int neighborRadius=Math.max(250,plugin.getConfig().getInt("combat-director.brawl-radius",420)*2);
-        for(int i=1;b==null && i<ready.size();i++) {
-            SimFaction candidate=ready.get(i);
+        for(SimFaction candidate:ready) {
+            if(b!=null) break;
+            if(candidate==a) continue;
             if(distSq(a.baseX,a.baseZ,candidate.baseX,candidate.baseZ)<=neighborRadius*neighborRadius) {
                 b=candidate;
                 break;
             }
         }
-        if(b==null) b=ready.get(1);
+        if(b==null) {
+            for(SimFaction candidate:ready) {
+                if(candidate!=a){b=candidate;break;}
+            }
+        }
+        if(b==null) return null;
 
         boolean atBase=observedBase!=null && a==observedBase;
 

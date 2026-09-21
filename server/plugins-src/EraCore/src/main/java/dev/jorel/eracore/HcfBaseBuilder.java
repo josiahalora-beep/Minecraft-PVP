@@ -109,6 +109,7 @@ final class HcfBaseBuilder {
         World world = Bukkit.getWorlds().get(0);
         if (world == null) return;
         buildBrewerRoom(world,cx,y,cz);
+        plugin.registerAutoBrewerSite(faction,cx,y,cz);
         ensureRunner();
     }
 
@@ -787,25 +788,62 @@ final class HcfBaseBuilder {
     }
 
     private void buildBrewerRoom(World w, int cx, int y, int cz) {
-        int bx=cx+6, bz=cz-6;
+        // Dedicated side annex: never carve a brewer through the defensive
+        // shell. Six lanes give 4x heal throughput plus speed/fire production.
+        int rx=cx+20, rz=cz;
+        prepareTerrainPad(w,rx,y,rz,8,6);
 
-        // 6-station compact HCF-style brewer wall: ingredient/input chest -> hoppers -> stands -> output hoppers/chest.
-        queue.add(new Op(w,bx-1,y+1,bz,Material.CHEST));
-        queue.add(new Op(w,bx+6,y+1,bz,Material.CHEST));
-
-        for(int i=0;i<6;i++) {
-            int x=bx+i;
-            queue.add(new Op(w,x,y+1,bz+1,Material.HOPPER));
-            queue.add(new Op(w,x,y+2,bz+1,Material.BREWING_STAND));
-            queue.add(new Op(w,x,y+3,bz+1,Material.HOPPER));
-            queue.add(new Op(w,x,y+4,bz+1,Material.CHEST));
+        for(int x=rx-8;x<=rx+8;x++) {
+            for(int z=rz-6;z<=rz+6;z++) {
+                queue.add(new Op(w,x,y,z,Material.SMOOTH_BRICK));
+                boolean edge=x==rx-8||x==rx+8||z==rz-6||z==rz+6;
+                for(int yy=y+1;yy<=y+5;yy++) {
+                    if(edge || yy==y+5) {
+                        Material wall=(yy>=y+2 && yy<=y+4 && (z==rz-6||z==rz+6))
+                            ? Material.STAINED_GLASS : Material.SMOOTH_BRICK;
+                        queue.add(new Op(w,x,yy,z,wall));
+                    } else {
+                        queue.add(new Op(w,x,yy,z,Material.AIR));
+                    }
+                }
+            }
         }
 
-        // Simple clock/visual redstone spine.
-        for(int i=0;i<6;i++) {
-            queue.add(new Op(w,bx+i,y+1,bz+3,Material.REDSTONE_BLOCK));
-            queue.add(new Op(w,bx+i,y+2,bz+3,Material.SMOOTH_BRICK));
+        // Base-facing fence-gate connection.
+        for(int yy=y+1;yy<=y+3;yy++) {
+            queue.add(new Op(w,rx-8,yy,rz,Material.AIR));
+            queue.add(new Op(w,rx-7,yy,rz,Material.AIR));
         }
+        queue.add(new Op(w,rx-8,y+1,rz,Material.FENCE_GATE));
+        queue.add(new Op(w,rx-7,y+1,rz,Material.FENCE_GATE));
+
+        String[] labels={"Heal A","Heal B","Heal C","Heal D","Speed II","Fire Res"};
+        for(int i=0;i<6;i++) {
+            int x=rx-5+i*2;
+
+            // Each real BrewingStand is surrounded by hopper/input/output
+            // infrastructure. The lightweight controller only replaces the
+            // always-ticking redstone clock/locking logic; bottles and
+            // ingredients themselves are real inventory items.
+            queue.add(new Op(w,x,y+1,rz,Material.BREWING_STAND));
+            queue.add(new Op(w,x,y+2,rz,Material.HOPPER));
+            queue.add(new Op(w,x,y+1,rz+1,Material.HOPPER));
+            queue.add(new Op(w,x,y+1,rz-1,Material.HOPPER));
+            queue.add(new Op(w,x,y+1,rz+2,Material.CHEST));
+            queue.add(new Op(w,x,y+2,rz+2,Material.SIGN_POST,(byte)8,labels[i]));
+
+            // A lever/torch spine gives the room the classic lockable
+            // autobrewer look without running six permanent redstone clocks.
+            queue.add(new Op(w,x,y+1,rz-3,Material.SMOOTH_BRICK));
+            queue.add(new Op(w,x,y+2,rz-3,Material.REDSTONE_TORCH_ON));
+        }
+
+        // Shared ingredient and finished-pot access points.
+        queue.add(new Op(w,rx-7,y+1,rz+4,Material.CHEST));
+        queue.add(new Op(w,rx-7,y+2,rz+4,Material.SIGN_POST,(byte)8,"Ingredients"));
+        queue.add(new Op(w,rx+7,y+1,rz+4,Material.CHEST));
+        queue.add(new Op(w,rx+7,y+2,rz+4,Material.SIGN_POST,(byte)8,"Finished Pots"));
+        queue.add(new Op(w,rx,y+4,rz,Material.GLOWSTONE));
     }
 
     private void buildFenceGateBowTrap(World w,int cx,int y,int cz) {

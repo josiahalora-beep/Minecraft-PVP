@@ -26,7 +26,15 @@ final class WarpManager {
 
     void bootstrapDefaults() {
         World world = Bukkit.getWorlds().get(0);
-        if (!data.contains("spawn.world")) setSpawn(world.getSpawnLocation(), false);
+        if (!data.contains("spawn.world")) {
+            // A clean/reset HCF world must have one deterministic origin. Using
+            // Mojang's randomly selected natural spawn here used to let the
+            // infrastructure spawn and the map bootstrap disagree on centers.
+            int y=plugin.getConfig().getInt("map.surface-y",63)+1;
+            int x=plugin.getConfig().getInt("map.spawn-x",0);
+            int z=plugin.getConfig().getInt("map.spawn-z",0);
+            setSpawn(new Location(world,x+0.5,y,z+0.5,0f,0f),false);
+        }
 
         if (!data.contains("warps.pvp.world")) {
             int y = plugin.getConfig().getInt("map.surface-y", 63) + 1;

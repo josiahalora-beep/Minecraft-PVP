@@ -2262,6 +2262,8 @@ final class SimWorldDirector {
          .append("; sociability=").append(p.sociability)
          .append("; loyalty=").append(p.loyalty)
          .append("; reputation=").append(p.reputation)
+         .append("; leaderStyle=").append("leader".equals(p.role)?leaderStyle(p):"not-leader")
+         .append("; leaderQualityPublic=").append("leader".equals(p.role)?publicLeaderReputation(p):"n/a")
          .append("; goal=").append(p.currentGoal)
          .append("; speaker=").append(speaker)
          .append("; speakerIsOwner=").append(isConfiguredOwner(speaker))
@@ -2286,6 +2288,9 @@ final class SimWorldDirector {
                  .append("/").append(plugin.factionMaxDtr(f.name));
             }
         }
+
+        String historyContext=historyContextFor(p);
+        if(!historyContext.isEmpty()) b.append("; rememberedServerHistory=[").append(historyContext.replace(';',',')).append("]");
 
         if(!rel.memories.isEmpty()) {
             b.append("; durableMemories=");
@@ -2336,6 +2341,70 @@ final class SimWorldDirector {
                 save();
             }
         });
+    }
+
+    private void recordHistory(String type,int importance,String summary,String faction,String... people) {
+        if(summary==null || summary.trim().isEmpty()) return;
+        HistoryEvent e=new HistoryEvent();
+        e.at=System.currentTimeMillis();
+        e.importance=Math.max(1,Math.min(10,importance));
+        e.type=type==null?"EVENT":type;
+        e.summary=summary.replace('\n',' ').replace('\r',' ').trim();
+        if(e.summary.length()>180) e.summary=e.summary.substring(0,180).trim();
+        e.faction=faction==null?"":faction;
+        if(people!=null) {
+            for(String person:people) {
+                if(person==null || person.trim().isEmpty()) continue;
+                if(!e.people.contains(person)) e.people.add(person);
+            }
+        }
+        communityHistory.addLast(e);
+        while(communityHistory.size()>180) communityHistory.removeFirst();
+    }
+
+    private List<HistoryEvent> relevantHistory(String person,String faction,int limit) {
+        List<HistoryEvent> out=new ArrayList<HistoryEvent>();
+        Iterator<HistoryEvent> it=communityHistory.descendingIterator();
+        while(it.hasNext() && out.size()<limit) {
+            HistoryEvent e=it.next();
+            boolean relevant=false;
+            if(faction!=null && !faction.isEmpty() && faction.equalsIgnoreCase(e.faction)) relevant=true;
+            if(!relevant && person!=null && !person.isEmpty()) {
+                for(String p:e.people) if(person.equalsIgnoreCase(p)) { relevant=true; break; }
+            }
+            if(relevant || e.importance>=8) out.add(e);
+        }
+        return out;
+    }
+
+    List<String> historyLines(String subject,int limit) {
+        String faction="";
+        String person=subject==null?"":subject;
+        SimFaction f=factions.get(key(subject));
+        if(f!=null) { faction=f.name; person=""; }
+        else {
+            SimPlayer p=players.get(key(subject));
+            if(p!=null) faction=p.faction;
+        }
+
+        List<String> lines=new ArrayList<String>();
+        for(HistoryEvent e:relevantHistory(person,faction,Math.max(1,Math.min(20,limit)))) {
+            lines.add("["+e.type+"] "+e.summary);
+        }
+        return lines;
+    }
+
+    private String historyContextFor(SimPlayer p) {
+        String faction=p==null?"":p.faction;
+        List<HistoryEvent> xs=relevantHistory(p==null?"":p.name,faction,6);
+        if(xs.isEmpty()) return "";
+        StringBuilder b=new StringBuilder();
+        for(HistoryEvent e:xs) {
+            if(b.length()>0) b.append(" | ");
+            b.append(e.summary);
+            if(b.length()>700) break;
+        }
+        return b.toString();
     }
 
     private String socialKey(String from,String to) {
@@ -3148,15 +3217,16 @@ final class SimWorldDirector {
         maybeCommunityRewards();
 
         int roll=rng.nextInt(100);
-        if(roll<20) maybeSocialBond();
-        else if(roll<31) maybeFactionDrama();
-        else if(roll<35) maybeFactionUpgradeRecruit();
-        else if(roll<38) maybeFactionDefection();
-        else if(roll<45) maybeCreatorPvpDrama();
-        else if(roll<52) maybeDonorUpgrade();
-        else if(roll<58) maybeStaffReport();
-        else if(roll<61) maybeModerationAction();
-        else if(roll<73) maybeOwnerCommunityMessage();
+        if(roll<15) maybeHistoryGossip();
+        else if(roll<32) maybeSocialBond();
+        else if(roll<42) maybeFactionDrama();
+        else if(roll<47) maybeFactionUpgradeRecruit();
+        else if(roll<51) maybeFactionDefection();
+        else if(roll<59) maybeCreatorPvpDrama();
+        else if(roll<66) maybeDonorUpgrade();
+        else if(roll<72) maybeStaffReport();
+        else if(roll<75) maybeModerationAction();
+        else if(roll<86) maybeOwnerCommunityMessage();
     }
 
     private void maybeCommunityRewards() {
@@ -3237,6 +3307,30 @@ final class SimWorldDirector {
         if(p==null || amount<=0) return;
         p.balance+=amount;
         save();
+    }
+
+    private void maybeHistoryGossip() {
+        if(communityHistory.isEmpty()) return;
+        List<SimPlayer> online=onlineCommunityPlayers();
+        if(online.isEmpty()) return;
+
+        List<HistoryEvent> candidates=new ArrayList<HistoryEvent>();
+        Iterator<HistoryEvent> it=communityHistory.descendingIterator();
+        int seen=0;
+        while(it.hasNext() && seen++<30) {
+            HistoryEvent e=it.next();
+            if(e.importance>=5) candidates.add(e);
+        }
+        if(candidates.isEmpty()) return;
+
+        HistoryEvent e=candidates.get(rng.nextInt(candidates.size()));
+        SimPlayer speaker=online.get(rng.nextInt(online.size()));
+        String line;
+        if("BETRAYAL".equals(e.type)) line=oneOf("still wild that "+e.summary,"people forgot "+e.summary,"thats why i dont trust everyone");
+        else if("DUEL".equals(e.type)||"TRYOUT".equals(e.type)) line=oneOf("remember "+e.summary,"that duel changed how people looked at them",e.summary);
+        else if("RAID".equals(e.type)) line=oneOf("remember when "+e.summary,e.summary,"that was a crazy map moment");
+        else line=e.summary;
+        enqueue(speaker.name,line,false);
     }
 
     private List<SimPlayer> onlineCommunityPlayers() {
@@ -4385,6 +4479,30 @@ final class SimWorldDirector {
         ConfigurationSection rr = data.getConfigurationSection("rivalries");
         if (rr != null) for (String k : rr.getKeys(false)) rivalries.put(k,rr.getInt(k,0));
 
+        ConfigurationSection history=data.getConfigurationSection("history");
+        if(history!=null) {
+            List<String> keys=new ArrayList<String>(history.getKeys(false));
+            Collections.sort(keys,new Comparator<String>() {
+                public int compare(String a,String b) {
+                    try { return Long.compare(Long.parseLong(a),Long.parseLong(b)); }
+                    catch(Exception ignored) { return a.compareTo(b); }
+                }
+            });
+            for(String hk:keys) {
+                ConfigurationSection h=history.getConfigurationSection(hk);
+                if(h==null) continue;
+                HistoryEvent e=new HistoryEvent();
+                e.at=h.getLong("at",0L);
+                e.importance=h.getInt("importance",1);
+                e.type=h.getString("type","");
+                e.summary=h.getString("summary","");
+                e.faction=h.getString("faction","");
+                e.people.addAll(h.getStringList("people"));
+                if(!e.summary.isEmpty()) communityHistory.addLast(e);
+            }
+            while(communityHistory.size()>180) communityHistory.removeFirst();
+        }
+
         ConfigurationSection social = data.getConfigurationSection("social");
         if(social!=null) {
             for(String sk:social.getKeys(false)) {
@@ -4480,6 +4598,7 @@ final class SimWorldDirector {
         players.clear();
         factions.clear();
         rivalries.clear();
+        communityHistory.clear();
         pendingChat.clear();
         sotwTicks = 0;
         sotwStartedAt = System.currentTimeMillis();
@@ -5724,6 +5843,15 @@ final class SimWorldDirector {
             p.economicIq*10+p.charisma*8+p.teamwork*6)/100;
     }
 
+    private String publicLeaderReputation(SimPlayer p) {
+        int q=leaderQuality(p);
+        if(p.leaderExperience<4) return q>=72?"promising":"unproven";
+        if(q>=82) return "widely respected";
+        if(q>=70) return "respected";
+        if(q>=56) return "mixed";
+        return "questioned";
+    }
+
     private String leaderStyle(SimPlayer p) {
         if(p==null) return "unknown";
         int q=leaderQuality(p);
@@ -5876,6 +6004,18 @@ final class SimWorldDirector {
             data.set(b+".grudge",e.grudge);
             data.set(b+".last-interaction",e.lastInteraction);
             data.set(b+".memories",new ArrayList<String>(e.memories));
+        }
+
+        data.set("history",null);
+        int hi=0;
+        for(HistoryEvent e:communityHistory) {
+            String b="history."+String.format(Locale.ENGLISH,"%04d",hi++);
+            data.set(b+".at",e.at);
+            data.set(b+".importance",e.importance);
+            data.set(b+".type",e.type);
+            data.set(b+".summary",e.summary);
+            data.set(b+".faction",e.faction);
+            data.set(b+".people",new ArrayList<String>(e.people));
         }
 
         data.set("meta.schema", 4);

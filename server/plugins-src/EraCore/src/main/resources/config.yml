@@ -81,6 +81,11 @@ creator-tag:
     - loolitsalex
     - Skimpy
 
+ai-chat:
+  enabled: true
+  endpoint: 'http://127.0.0.1:8765/reply'
+  timeout-ms: 6500
+
 sim-chat:
   enabled: true
   contextual-chat: true
@@ -174,7 +179,7 @@ sim-chat:
     - 'who is rich rn'
 
 sim-world:
-  population: 96
+  population: 150
   tick-seconds: 8
   factions-per-tick: 100
   underdog-leaders: 2
@@ -183,9 +188,9 @@ sim-world:
   max-base-y: 110
   max-base-site-relief: 4
   max-base-site-liquid-samples: 1
-  logical-online-min: 62
-  logical-online-peak: 88
-  logical-online-late-night: 34
+  logical-online-min: 88
+  logical-online-peak: 132
+  logical-online-late-night: 52
   session-min-minutes: 25
   session-max-minutes: 140
 
@@ -262,15 +267,18 @@ combat-director:
   sotw-scrim-chance-percent: 72
 
 worker-pool:
-  max-bodies: 12
-  offline-bodies: 8
-  max-per-faction: 4
+  # Global HOT-body ceiling across every registered machine. The coordinator
+  # subdivides this budget into per-node leases.
+  max-bodies: 40
+  offline-bodies: 24
+  node-default-bodies: 12
+  max-per-faction: 5
   reassess-seconds: 8
   sync-seconds: 10
   minimum-lease-seconds: 120
   missing-candidate-grace-cycles: 4
   rotation-score-margin: 18
-  fight-ambient-bodies: 1
+  fight-ambient-bodies: 2
   creator-bodies:
     - Stimpypvp
     - Marcel

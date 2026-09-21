@@ -188,6 +188,24 @@ function candidatesFrom(data, settings, combat = null) {
     if (c && !combatNames.has(c.name.toLowerCase())) out.push(c)
   }
 
+  // Unaffiliated players remain part of the visible community. A bounded
+  // subset can become HOT as solos instead of disappearing once factions form.
+  for (const p of Object.values(players)) {
+    if (!p || p['logical-online'] === false || p.faction) continue
+    const name=String(p.name || '')
+    if(!name || pinnedNames.has(name.toLowerCase()) || combatNames.has(name.toLowerCase())) continue
+    const score=26 + Number(p.sociability || 50)*0.12 +
+      Number(p.aggression || 50)*0.08 + Number(p.reputation || 0)*0.08
+    out.push({
+      name,
+      faction:'none',
+      stage:'SOLO',
+      score,
+      recovery:false,
+      pinned:false
+    })
+  }
+
   for (const [fk, faction] of Object.entries(factions)) {
     const factionName = String(faction?.name || fk)
     const stage = String(faction?.stage || 'RECRUITING')

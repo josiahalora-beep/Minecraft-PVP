@@ -148,6 +148,15 @@ if ($ResetWorld) {
   Write-Host "Saved simulation/factions will rebuild on clean low-relief terrain at next start." -ForegroundColor Green
 }
 
+Write-Host "Installing Mineflayer world-intelligence dependencies..." -ForegroundColor Cyan
+Push-Location (Join-Path $root 'bots')
+try {
+  npm install --no-audit --no-fund
+  if ($LASTEXITCODE -ne 0) { throw 'npm install failed.' }
+} finally {
+  Pop-Location
+}
+
 Write-Host "Validating bot JavaScript..." -ForegroundColor Cyan
 Push-Location (Join-Path $root 'bots')
 try {

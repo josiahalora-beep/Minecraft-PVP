@@ -2191,7 +2191,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         activeDuel.fightId=""; // resolved; do not permit further duel-damage bypass
 
         Player simBody=Bukkit.getPlayerExact(sim);
-        if(simBody!=null && simWorld!=null) {
+        if(simBody!=null && !simBody.isDead() && simWorld!=null) {
             simBody.getInventory().clear();
             simBody.getInventory().setArmorContents(new ItemStack[4]);
             prepareWorkerProjection(simBody,simWorld.workerTaskFor(sim));
@@ -2470,16 +2470,22 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         viewer.sendMessage(color("&7Leader: &f"+q.leader+
             " &7DTR: "+dtrColor(q)+fmtDtr(q.dtr)+"&7/&f"+fmtDtr(maxDtr(q))+
             " &7Claims: &f"+q.claims.size()));
+        if(simWorld!=null && simWorld.contains(q.leader)) {
+            viewer.sendMessage(color("&7Leadership: &f"+simWorld.publicLeaderStyleFor(q.leader)+
+                " &8• &7"+simWorld.publicLeaderReputationFor(q.leader)));
+        }
 
         for(String member:q.members) {
             boolean physical=Bukkit.getPlayerExact(member)!=null;
             boolean logical=physical || (simWorld!=null && simWorld.logicalOnlineFor(member));
             Rank rank=effectiveRank(member);
             String marker=logical?"&a●":"&7●";
-            String leader=q.leader.equalsIgnoreCase(member)?" &6★ Leader":"";
+            String title="";
+            if(q.leader.equalsIgnoreCase(member)) title=" &6★ Leader";
+            else if(simWorld!=null && "officer".equalsIgnoreCase(simWorld.factionTitleFor(member))) title=" &e◆ Officer";
             int kills=simWorld!=null && simWorld.contains(member)?simWorld.killsFor(member):statsData.getInt("players."+member.toLowerCase(Locale.ENGLISH)+".kills",0);
             viewer.sendMessage(color(" "+marker+" "+identityPrefix(member,rank)+rankNameColor(rank)+member+
-                "&7  Kills: &f"+kills+leader));
+                "&7  Kills: &f"+kills+title));
         }
         viewer.sendMessage(color("&8&m--------------------------------"));
     }

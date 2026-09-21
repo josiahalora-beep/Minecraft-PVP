@@ -865,6 +865,17 @@ async function digBest(state, names, predicate = null) {
 
   for (const block of blocks.slice(0,8)) {
     try {
+      // collectBlock is the full Minecraft action: route to the target, choose
+      // the correct tool, break it, then walk to the actual item drop. Keep the
+      // lower-level fallback because old 1.8 block edge cases can still fail.
+      if(bot.collectBlock?.collect && !state.combat) {
+        try {
+          await bot.collectBlock.collect(block,{ ignoreNoPath:true })
+          state.physicalOps++
+          return true
+        } catch {}
+      }
+
       const dist=bot.entity.position.distanceTo(block.position)
       if(dist>4.2) {
         const reached=await smartGoto(state,block.position.x,block.position.y,block.position.z,3,9000,false)
@@ -903,6 +914,14 @@ async function lootNearbyDrop(state) {
   const bot=state.bot
   const target=nearestDroppedItem(state,28)
   if(!bot?.entity || !target?.position) return false
+
+  if(bot.collectBlock?.collect && !state.combat) {
+    try {
+      await bot.collectBlock.collect(target,{ ignoreNoPath:true })
+      state.physicalOps++
+      return true
+    } catch {}
+  }
 
   for(let attempt=0;attempt<3 && target.position && !state.combat;attempt++) {
     const dist=bot.entity.position.distanceTo(target.position)

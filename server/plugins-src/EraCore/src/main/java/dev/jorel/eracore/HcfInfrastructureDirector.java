@@ -21,7 +21,7 @@ import java.util.*;
  */
 @SuppressWarnings("deprecation")
 final class HcfInfrastructureDirector {
-    private static final int VERSION=2;
+    private static final int VERSION=3;
 
     private static final class Op {
         final World world;
@@ -98,6 +98,7 @@ final class HcfInfrastructureDirector {
 
         if(data.getInt("version",0)<VERSION) {
             queueSpawnFoundationRepair(overworld);
+            queueClassicHcfSpawn(overworld);
             queueDuelArena(overworld,dcx,dfloor,dcz);
             if(netherHub!=null) queueDimensionHub(netherHub,Material.NETHER_BRICK,Material.NETHER_FENCE,Material.GLOWSTONE);
             if(endHub!=null) queueDimensionHub(endHub,Material.ENDER_STONE,Material.IRON_FENCE,Material.GLOWSTONE);
@@ -192,6 +193,114 @@ final class HcfInfrastructureDirector {
         Block feet=l.getWorld().getBlockAt(l.getBlockX(),l.getBlockY(),l.getBlockZ());
         Block head=l.getWorld().getBlockAt(l.getBlockX(),l.getBlockY()+1,l.getBlockZ());
         return floor.getType()!=Material.AIR && feet.getType()==Material.AIR && head.getType()==Material.AIR;
+    }
+
+    private void queueClassicHcfSpawn(World w) {
+        Location s=warps.getSpawn();
+        if(s==null || s.getWorld()==null || !s.getWorld().equals(w)) s=w.getSpawnLocation();
+        int cx=s.getBlockX(),cz=s.getBlockZ();
+        int floorY=plugin.getConfig().getInt("map.surface-y",63);
+        int core=42;
+
+        // Deterministic old-school HCF spawn: low, symmetrical, readable and
+        // movement-first. The core is intentionally rebuilt rather than trying
+        // to preserve malformed legacy terrain or floating fragments.
+        for(int x=cx-core;x<=cx+core;x++) {
+            for(int z=cz-core;z<=cz+core;z++) {
+                for(int yy=floorY+1;yy<=Math.min(w.getMaxHeight()-1,floorY+11);yy++)
+                    queue.add(new Op(w,x,yy,z,Material.AIR));
+
+                int ax=Math.abs(x-cx),az=Math.abs(z-cz);
+                Material floor=(ax%8==0 || az%8==0)?Material.QUARTZ_BLOCK:Material.SMOOTH_BRICK;
+                if(ax<=12 && az<=12) floor=((ax+az)%4==0)?Material.QUARTZ_BLOCK:Material.SMOOTH_BRICK;
+                queue.add(new Op(w,x,floorY,z,floor));
+
+                // Seal the upper surface so old holes/ravines never remain
+                // immediately below a player route.
+                queue.add(new Op(w,x,floorY-1,z,Material.DIRT));
+                queue.add(new Op(w,x,floorY-2,z,Material.DIRT));
+                for(int yy=Math.max(2,floorY-5);yy<=floorY-3;yy++) {
+                    Material m=w.getBlockAt(x,yy,z).getType();
+                    if(m==Material.AIR || isLiquid(m)) queue.add(new Op(w,x,yy,z,Material.STONE));
+                }
+            }
+        }
+
+        // Four cardinal exits in a low perimeter. A nine-block opening gives
+        // teams room to kite/refill without decorative geometry choking paths.
+        for(int x=cx-core;x<=cx+core;x++) {
+            boolean gate=Math.abs(x-cx)<=4;
+            if(!gate) for(int yy=floorY+1;yy<=floorY+4;yy++) {
+                Material m=(yy==floorY+1||yy==floorY+4)?Material.SMOOTH_BRICK:Material.STAINED_GLASS;
+                queue.add(new Op(w,x,yy,cz-core,m));
+                queue.add(new Op(w,x,yy,cz+core,m));
+            }
+        }
+        for(int z=cz-core;z<=cz+core;z++) {
+            boolean gate=Math.abs(z-cz)<=4;
+            if(!gate) for(int yy=floorY+1;yy<=floorY+4;yy++) {
+                Material m=(yy==floorY+1||yy==floorY+4)?Material.SMOOTH_BRICK:Material.STAINED_GLASS;
+                queue.add(new Op(w,cx-core,yy,z,m));
+                queue.add(new Op(w,cx+core,yy,z,m));
+            }
+        }
+
+        // Wide protected roads continue beyond the wall into Warzone.
+        for(int d=core+1;d<=78;d++) {
+            for(int width=-4;width<=4;width++) {
+                queue.add(new Op(w,cx+width,floorY,cz+d,Material.SMOOTH_BRICK));
+                queue.add(new Op(w,cx+width,floorY,cz-d,Material.SMOOTH_BRICK));
+                queue.add(new Op(w,cx+d,floorY,cz+width,Material.SMOOTH_BRICK));
+                queue.add(new Op(w,cx-d,floorY,cz+width,Material.SMOOTH_BRICK));
+                for(int yy=floorY+1;yy<=floorY+5;yy++) {
+                    queue.add(new Op(w,cx+width,yy,cz+d,Material.AIR));
+                    queue.add(new Op(w,cx+width,yy,cz-d,Material.AIR));
+                    queue.add(new Op(w,cx+d,yy,cz+width,Material.AIR));
+                    queue.add(new Op(w,cx-d,yy,cz+width,Material.AIR));
+                }
+            }
+        }
+
+        // Four recognizable corner towers without the oversized hub aesthetic.
+        int[][] corners={{-32,-32},{32,-32},{-32,32},{32,32}};
+        for(int[] off:corners) {
+            int tx=cx+off[0],tz=cz+off[1];
+            for(int x=tx-3;x<=tx+3;x++) for(int z=tz-3;z<=tz+3;z++) {
+                boolean edge=x==tx-3||x==tx+3||z==tz-3||z==tz+3;
+                if(edge) for(int yy=floorY+1;yy<=floorY+8;yy++)
+                    queue.add(new Op(w,x,yy,z,(yy==floorY+1||yy==floorY+8)?Material.QUARTZ_BLOCK:Material.SMOOTH_BRICK));
+                queue.add(new Op(w,x,floorY+9,z,Material.QUARTZ_BLOCK));
+            }
+            queue.add(new Op(w,tx,floorY+10,tz,Material.GLOWSTONE));
+        }
+
+        // Reserved functional pads keep the layout obvious: crates north,
+        // shops east/west, information/leaderboards south.
+        queueFunctionalPad(w,cx,cz+16,floorY,13,5,Material.QUARTZ_BLOCK);
+        queueFunctionalPad(w,cx+25,cz,floorY,8,10,Material.SMOOTH_BRICK);
+        queueFunctionalPad(w,cx-25,cz,floorY,8,10,Material.SMOOTH_BRICK);
+        queueFunctionalPad(w,cx,cz-23,floorY,12,6,Material.QUARTZ_BLOCK);
+
+        // Compact central marker; no giant structure blocks sight lines.
+        for(int x=cx-4;x<=cx+4;x++) for(int z=cz-4;z<=cz+4;z++)
+            queue.add(new Op(w,x,floorY,z,Material.QUARTZ_BLOCK));
+        queue.add(new Op(w,cx,floorY,cz,Material.EMERALD_BLOCK));
+        for(int yy=floorY+1;yy<=floorY+4;yy++) queue.add(new Op(w,cx,yy,cz,Material.AIR));
+
+        w.setSpawnLocation(cx,floorY+1,cz);
+    }
+
+    private void queueFunctionalPad(World w,int cx,int cz,int y,int rx,int rz,Material floor) {
+        for(int x=cx-rx;x<=cx+rx;x++) for(int z=cz-rz;z<=cz+rz;z++) {
+            queue.add(new Op(w,x,y,z,floor));
+            for(int yy=y+1;yy<=y+5;yy++) queue.add(new Op(w,x,yy,z,Material.AIR));
+        }
+        for(int x=cx-rx;x<=cx+rx;x+=Math.max(1,rx)) {
+            for(int z=cz-rz;z<=cz+rz;z+=Math.max(1,rz)) {
+                queue.add(new Op(w,x,y+1,z,Material.QUARTZ_BLOCK));
+                queue.add(new Op(w,x,y+2,z,Material.GLOWSTONE));
+            }
+        }
     }
 
     private void queueDuelArena(World w,int cx,int floorY,int cz) {

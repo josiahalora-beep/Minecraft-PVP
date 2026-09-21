@@ -84,7 +84,7 @@ final class SpawnRewardsDirector implements Listener {
         data.set(k,now);
         save();
         p.sendMessage(EraCore.colorText("&6Donor perk: &f+"+amount+" Donor Crate Key"+(amount==1?"":"s")+"&7. Visit the crates at spawn."));
-        try { p.sendTitle(EraCore.colorText("&6DONOR KEY"),EraCore.colorText("&fRedeem it at spawn"),10,45,10); } catch(Throwable ignored) {}
+        try { p.sendTitle(EraCore.colorText("&6DONOR KEY"),EraCore.colorText("&fRedeem it at spawn")); } catch(Throwable ignored) {}
     }
 
     boolean commandVote(Player p,String[] args) {
@@ -108,7 +108,7 @@ final class SpawnRewardsDirector implements Listener {
         save();
         registerVote(p.getName());
         p.sendMessage(EraCore.colorText("&eThanks for voting. &fYou received 1 Vote Crate Key."));
-        try { p.sendTitle(EraCore.colorText("&eVOTE RECEIVED"),EraCore.colorText("&f+1 Vote Key"),10,45,10); } catch(Throwable ignored) {}
+        try { p.sendTitle(EraCore.colorText("&eVOTE RECEIVED"),EraCore.colorText("&f+1 Vote Key")); } catch(Throwable ignored) {}
         return true;
     }
 
@@ -155,7 +155,7 @@ final class SpawnRewardsDirector implements Listener {
             for(Player online:Bukkit.getOnlinePlayers()) {
                 if(plugin.isBotIdentity(online.getName())) continue;
                 online.getInventory().addItem(keyItem("vote",1));
-                try { online.sendTitle(EraCore.colorText("&dVOTE PARTY"),EraCore.colorText("&e+1 Vote Key"),10,50,10); } catch(Throwable ignored) {}
+                try { online.sendTitle(EraCore.colorText("&dVOTE PARTY"),EraCore.colorText("&e+1 Vote Key")); } catch(Throwable ignored) {}
             }
         } else {
             plugin.broadcastCommunityEvent("&e[Vote] &f"+name+" &7voted. &dVote Party &f"+progress+"&7/&f"+target);
@@ -279,7 +279,7 @@ final class SpawnRewardsDirector implements Listener {
         p.updateInventory();
         p.sendMessage(EraCore.colorText("&6Crates &8» &fYou won &e"+label+"&f."));
         try {
-            p.sendTitle(EraCore.colorText(rare?"&6&lRARE REWARD":"&eCRATE REWARD"),EraCore.colorText("&f"+label),8,42,12);
+            p.sendTitle(EraCore.colorText(rare?"&6&lRARE REWARD":"&eCRATE REWARD"),EraCore.colorText("&f"+label));
         } catch(Throwable ignored) {}
         p.playSound(p.getLocation(),rare?Sound.LEVEL_UP:Sound.ORB_PICKUP,1f,rare?0.8f:1.25f);
         if(rare) plugin.broadcastCommunityEvent("&6[Crates] &f"+p.getName()+" &7won &e"+label+"&7.");

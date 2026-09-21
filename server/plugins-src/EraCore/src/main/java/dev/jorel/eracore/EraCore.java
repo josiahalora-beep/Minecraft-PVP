@@ -152,6 +152,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         saveDefaultConfig();
         migrateDirectorIntelligenceConfig();
         migrateDistributedWorkerConfig();
+        migrateLivingWorldConfig();
         initFiles();
         initShops();
         loadFactions();
@@ -277,6 +278,26 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         getConfig().set("migration.distributed-workers-version",1);
         saveConfig();
         getLogger().info("Applied distributed worker v1 config: 150 logical identities, global HOT budget 40.");
+    }
+
+    private void migrateLivingWorldConfig() {
+        int version=getConfig().getInt("migration.living-world-version",0);
+        if(version>=1) return;
+
+        // Visible construction should be progressive without turning terrain
+        // preparation into a multi-minute server stall.
+        getConfig().set("base-builder.blocks-per-tick",120);
+        getConfig().set("base-builder.interval-ticks",2);
+        getConfig().set("base-builder.repair-existing-on-start",true);
+
+        // Creator identities represent established PvP players. Give them a
+        // useful SOTW donor entitlement instead of randomly leaving some YTs
+        // on Member/iron progression for the opening phase of the map.
+        getConfig().set("creator-tag.minimum-donor-level",3);
+
+        getConfig().set("migration.living-world-version",1);
+        saveConfig();
+        getLogger().info("Applied living-world v1: varied staged bases and creator SOTW combat access.");
     }
 
     private void bindCommands() {

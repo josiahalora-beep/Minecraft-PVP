@@ -3488,6 +3488,28 @@ final class SimWorldDirector {
         ConfigurationSection rr = data.getConfigurationSection("rivalries");
         if (rr != null) for (String k : rr.getKeys(false)) rivalries.put(k,rr.getInt(k,0));
 
+        ConfigurationSection social = data.getConfigurationSection("social");
+        if(social!=null) {
+            for(String sk:social.getKeys(false)) {
+                ConfigurationSection s=social.getConfigurationSection(sk);
+                if(s==null) continue;
+                SocialEdge e=new SocialEdge();
+                e.from=s.getString("from","");
+                e.to=s.getString("to","");
+                if(e.from.isEmpty() || e.to.isEmpty()) continue;
+                e.affinity=clampAffinity(s.getInt("affinity",0));
+                e.trust=clampSocial(s.getInt("trust",50));
+                e.respect=clampSocial(s.getInt("respect",50));
+                e.grudge=clampSocial(s.getInt("grudge",0));
+                e.lastInteraction=s.getLong("last-interaction",0L);
+                for(String memory:s.getStringList("memories")) {
+                    if(memory!=null && !memory.trim().isEmpty()) e.memories.addLast(memory);
+                }
+                while(e.memories.size()>10) e.memories.removeFirst();
+                socialEdges.put(socialKey(e.from,e.to),e);
+            }
+        }
+
         ConfigurationSection fs = data.getConfigurationSection("factions");
         if (fs != null) {
             for (String k : fs.getKeys(false)) {
@@ -4762,6 +4784,20 @@ final class SimWorldDirector {
 
         data.set("rivalries", null);
         for (Map.Entry<String,Integer> e : rivalries.entrySet()) data.set("rivalries." + e.getKey(), e.getValue());
+
+        data.set("social",null);
+        for(Map.Entry<String,SocialEdge> entry:socialEdges.entrySet()) {
+            SocialEdge e=entry.getValue();
+            String b="social."+entry.getKey();
+            data.set(b+".from",e.from);
+            data.set(b+".to",e.to);
+            data.set(b+".affinity",e.affinity);
+            data.set(b+".trust",e.trust);
+            data.set(b+".respect",e.respect);
+            data.set(b+".grudge",e.grudge);
+            data.set(b+".last-interaction",e.lastInteraction);
+            data.set(b+".memories",new ArrayList<String>(e.memories));
+        }
 
         data.set("meta.schema", 4);
         data.set("meta.sotw-ticks", sotwTicks);

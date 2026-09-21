@@ -27,7 +27,7 @@ import java.util.*;
  */
 @SuppressWarnings("deprecation")
 final class HcfAutoBrewerDirector {
-    private enum Kind { HEAL, SPEED, FIRE }
+    private enum Kind { HEAL, SPEED }
 
     private static final class Lane {
         final Kind kind;
@@ -85,13 +85,13 @@ final class HcfAutoBrewerDirector {
             s=new Site();
             s.faction=faction;
             // Four healing lanes are deliberate: a 5-man HCF faction needs
-            // dozens of heals, while speed/fire demand is much lower.
+            // dozens of heals, while speed demand is much lower.
             s.lanes.add(new Lane(Kind.HEAL,0));
             s.lanes.add(new Lane(Kind.HEAL,1));
             s.lanes.add(new Lane(Kind.HEAL,2));
             s.lanes.add(new Lane(Kind.HEAL,3));
             s.lanes.add(new Lane(Kind.SPEED,4));
-            s.lanes.add(new Lane(Kind.FIRE,5));
+            s.lanes.add(new Lane(Kind.SPEED,5));
             sites.put(key,s);
         }
         s.centerX=centerX;
@@ -224,9 +224,6 @@ final class HcfAutoBrewerDirector {
             if(stage==2) return Material.GLOWSTONE_DUST;
             return null;
         }
-        if(stage==0) return Material.NETHER_STALK;
-        if(stage==1) return Material.MAGMA_CREAM;
-        if(stage==2) return Material.REDSTONE;
         return null;
     }
 
@@ -241,14 +238,12 @@ final class HcfAutoBrewerDirector {
             if(stage==1) return (short)8194;  // speed I
             return (short)8226;               // speed II
         }
-        if(stage==1) return (short)8195;      // fire resistance
-        return (short)8259;                   // extended fire resistance
+        return (short)0
     }
 
     private String kindName(Kind kind) {
         if(kind==Kind.HEAL) return "heal";
-        if(kind==Kind.SPEED) return "speed";
-        return "fire";
+        return "speed";
     }
 
     private List<ItemStack> takePotions(Inventory inv,short data,int amount) {

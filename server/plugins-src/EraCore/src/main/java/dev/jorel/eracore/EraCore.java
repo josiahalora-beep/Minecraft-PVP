@@ -2016,6 +2016,51 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         return true;
     }
 
+    synchronized boolean inviteHumanToSimFaction(String factionName,String inviterName,String humanName) {
+        Faction f=factions.get(factionName.toLowerCase(Locale.ENGLISH));
+        if(f==null || humanName==null || humanName.trim().isEmpty()) return false;
+        if(f.leader==null || !f.leader.equalsIgnoreCase(inviterName)) return false;
+        if(f.members.size()>=SimWorldDirector.MAX_FACTION_MEMBERS) return false;
+
+        Faction existing=factionOf(humanName);
+        if(existing!=null) return existing.name.equalsIgnoreCase(f.name);
+
+        f.invites.add(humanName.toLowerCase(Locale.ENGLISH));
+        saveFactions();
+
+        Player target=Bukkit.getPlayerExact(humanName);
+        if(target!=null) {
+            target.sendMessage(color("&a"+inviterName+" invited you to &f"+f.name+"&a. &7Use &f/f join "+f.name));
+        }
+        return true;
+    }
+
+    synchronized boolean removeSimFactionMemberAuthority(String factionName,String memberName) {
+        Faction f=factions.get(factionName.toLowerCase(Locale.ENGLISH));
+        if(f==null || memberName==null) return false;
+        if(f.leader!=null && f.leader.equalsIgnoreCase(memberName)) return false;
+
+        boolean removed=false;
+        Iterator<String> it=f.members.iterator();
+        while(it.hasNext()) {
+            if(it.next().equalsIgnoreCase(memberName)) {
+                it.remove();
+                removed=true;
+                break;
+            }
+        }
+        if(!removed) return false;
+
+        f.dtr=Math.min(f.dtr,maxDtr(f));
+        saveFactions();
+        return true;
+    }
+
+    synchronized boolean humanAlreadyFactioned(String humanName) {
+        return humanName!=null && factionOf(humanName)!=null;
+    }
+
+
     synchronized void resetSimFactionAuthority(List<String> simKeys) {
         Set<String> keys = new HashSet<String>();
         for (String s : simKeys) keys.add(s.toLowerCase(Locale.ENGLISH));

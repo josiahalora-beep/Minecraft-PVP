@@ -1273,37 +1273,43 @@ final class SimWorldDirector {
             if(p==null || !p.logicalOnline || !shouldSeekPvp(p.name)) continue;
             xs.add(p);
         }
+
+        final boolean large=count>=3;
         Collections.sort(xs,new Comparator<SimPlayer>() {
             public int compare(SimPlayer a,SimPlayer b) {
                 int aa=("patrol".equals(a.currentGoal)?30:0)+a.aggression+a.skill/2+a.riskTolerance/3+
                     a.reputation/3+a.loyalty/3+a.teamwork/3;
                 int bb=("patrol".equals(b.currentGoal)?30:0)+b.aggression+b.skill/2+b.riskTolerance/3+
                     b.reputation/3+b.loyalty/3+b.teamwork/3;
+                if(large) {
+                    if(a.combatClass==CombatClass.BARD) aa+=55;
+                    else if(a.combatClass==CombatClass.ARCHER) aa+=35;
+                    if(b.combatClass==CombatClass.BARD) bb+=55;
+                    else if(b.combatClass==CombatClass.ARCHER) bb+=35;
+                }
                 return Integer.compare(bb,aa);
             }
         });
 
-        List<SimPlayer> chosen=new ArrayList<SimPlayer>();
-        // Prefer one Bard and one Archer in larger groups if the faction has them.
-        if(count>=3) {
-            addFirstClass(xs,chosen,CombatClass.BARD);
-            addFirstClass(xs,chosen,CombatClass.ARCHER);
-        }
-        for(SimPlayer p:xs) {
-            if(chosen.size()>=count) break;
-            if(!chosen.contains(p)) chosen.add(p);
-        }
-        while(chosen.size()>count) chosen.remove(chosen.size()-1);
-        return chosen;
-    }
+        int diamond=Math.max(0,Math.min(f.p4Sets,f.sharp4Swords));
+        int bard=Math.max(0,f.bardSets);
+        int archer=Math.max(0,f.archerSets);
+        int rogue=Math.max(0,f.rogueSets);
+        int miner=Math.max(0,f.iron/24);
+        int slots=Math.min(count,combatStockSlots(f));
 
-    private void addFirstClass(List<SimPlayer> xs,List<SimPlayer> out,CombatClass type) {
+        List<SimPlayer> chosen=new ArrayList<SimPlayer>();
         for(SimPlayer p:xs) {
-            if(p.combatClass==type) {
-                out.add(p);
-                return;
-            }
+            if(chosen.size()>=slots) break;
+            boolean available=false;
+            if(p.combatClass==CombatClass.DIAMOND && diamond>0) { diamond--; available=true; }
+            else if(p.combatClass==CombatClass.BARD && bard>0) { bard--; available=true; }
+            else if(p.combatClass==CombatClass.ARCHER && archer>0) { archer--; available=true; }
+            else if(p.combatClass==CombatClass.ROGUE && rogue>0) { rogue--; available=true; }
+            else if(p.combatClass==CombatClass.MINER && miner>0) { miner--; available=true; }
+            if(available) chosen.add(p);
         }
+        return chosen;
     }
 
     private int trapBaitChance(SimFaction f) {

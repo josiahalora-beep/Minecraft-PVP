@@ -69,6 +69,7 @@ metrics:
 
 creator-tag:
   enabled: true
+  minimum-donor-level: 3
   head-prefix: '&c&l[YT]&r &f'
   chat-prefix: '&c&l[YT]&r '
   creators:
@@ -244,7 +245,8 @@ terrain:
   cleanup-height: 40
 
 base-builder:
-  blocks-per-tick: 350
+  blocks-per-tick: 120
+  interval-ticks: 2
   gate-auto-close-ticks: 30
   repair-existing-on-start: true
 

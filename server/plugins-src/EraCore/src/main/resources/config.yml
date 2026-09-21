@@ -277,3 +277,11 @@ duels:
   center-z: 0
   timeout-seconds: 180
   random-challenges: true
+
+infrastructure:
+  blocks-per-tick: 500
+  duel-center-x: 0
+  duel-center-z: -600
+  duel-floor-y: 70
+  nether-y: 70
+  end-y: 68

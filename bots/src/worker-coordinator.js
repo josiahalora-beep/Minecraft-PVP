@@ -12,7 +12,7 @@ const combatFile = process.env.COMBAT_HOT_FILE || path.join(root, 'server', 'plu
 const PORT = Number(process.env.WORKER_COORDINATOR_PORT || 8770)
 const BIND = process.env.WORKER_COORDINATOR_BIND || '127.0.0.1'
 const TOKEN = String(process.env.WORKER_COORDINATOR_TOKEN || '')
-const NODE_TTL_MS = Math.max(10000, Number(process.env.WORKER_NODE_TTL_MS || 30000))
+const NODE_TTL_MS = Math.max(30000, Number(process.env.WORKER_NODE_TTL_MS || 120000))
 const BOOTSTRAP_BODIES = Math.max(1, Number(process.env.WORKER_BOOTSTRAP_BODIES || 12))
 const RAMP_PER_PLAN = Math.max(1, Number(process.env.WORKER_RAMP_PER_PLAN || 4))
 const START_AI = String(process.env.HCF_AI_BRIDGE_ENABLED || '1') !== '0'
@@ -20,6 +20,7 @@ const START_AI = String(process.env.HCF_AI_BRIDGE_ENABLED || '1') !== '0'
 const nodes = new Map()
 const leaseOwner = new Map()
 let lastGlobalTarget = 0
+let lastComputedResult = null
 
 function clamp(n, lo, hi) {
   return Math.max(lo, Math.min(hi, Number.isFinite(Number(n)) ? Number(n) : lo))
@@ -342,11 +343,13 @@ function computePlans() {
   const target = targetFor(settings, combat)
   const desired = chooseGlobal(data, settings, target, combat)
   const plans = assignPlans(desired)
-  return {
+  const result={
     plans, settings, target,
     candidates: candidatesFrom(data,settings,combat).length,
     combat: combatCandidatesFrom(combat).length
   }
+  lastComputedResult=result
+  return result
 }
 
 function authorized(req) {
@@ -439,7 +442,7 @@ const server=http.createServer(async (req,res) => {
   }
 
   if (req.method === 'GET' && req.url === '/v1/status') {
-    const result=computePlans()
+    const result=lastComputedResult || computePlans()
     sendJson(res,200,{
       globalTarget:result.target,
       totalCapacity:totalCapacity(),

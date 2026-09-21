@@ -256,6 +256,10 @@ combat-director:
   offscreen-brawl-chance-percent: 18
   brawl-radius: 520
   hotspot-funnel-percent: 76
+  sotw-scrim-min-seconds: 18
+  sotw-scrim-max-seconds: 34
+  sotw-scrim-duration-seconds: 75
+  sotw-scrim-chance-percent: 72
 
 worker-pool:
   max-bodies: 12

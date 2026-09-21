@@ -46,18 +46,10 @@ jobs:
           node --check bots/src/combat-profiles.js
           node --check bots/src/community-ai.js
           node --check bots/src/worker-coordinator.js
+          node --check bots/src/distributed-smoke-test.js
       - name: Smoke-test distributed coordinator
         working-directory: bots
-        run: |
-          HCF_AI_BRIDGE_ENABLED=0 WORKER_COORDINATOR_TOKEN=ci-token node src/worker-coordinator.js &
-          COORD_PID=$!
-          trap 'kill $COORD_PID 2>/dev/null || true' EXIT
-          sleep 1
-          curl --fail --silent http://127.0.0.1:8770/health
-          curl --fail --silent -H "Authorization: Bearer ci-token" http://127.0.0.1:8770/v1/status
-          kill $COORD_PID
-          wait $COORD_PID 2>/dev/null || true
-          trap - EXIT
+        run: node src/distributed-smoke-test.js
       - name: Build PolyMC import zip
         run: |
           cd polymc-instance

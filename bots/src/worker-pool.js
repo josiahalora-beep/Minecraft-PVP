@@ -34,6 +34,7 @@ let shuttingDown = false
 let lastCpu = process.cpuUsage()
 let lastCpuAt = process.hrtime.bigint()
 let nodeCpuPct = 0
+const cpuCount = Math.max(1, os.cpus()?.length || 1)
 
 function clamp(n, lo, hi) {
   return Math.max(lo, Math.min(hi, Number.isFinite(n) ? n : lo))
@@ -78,7 +79,7 @@ function sampleCpu() {
   const elapsedUs = Number(now - lastCpuAt) / 1000
   lastCpu = process.cpuUsage()
   lastCpuAt = now
-  if (elapsedUs > 0) nodeCpuPct = ((usage.user + usage.system) / elapsedUs) * 100
+  if (elapsedUs > 0) nodeCpuPct = (((usage.user + usage.system) / elapsedUs) * 100) / cpuCount
   return nodeCpuPct
 }
 
@@ -90,7 +91,7 @@ async function coordinatorHeartbeat(settings) {
   // already-connected identities between healthy nodes.
   const capacity=settings.maxBodies
   const controller=new AbortController()
-  const timer=setTimeout(()=>controller.abort(),4500)
+  const timer=setTimeout(()=>controller.abort(),15000)
   try {
     const response=await fetch(COORDINATOR_URL+'/v1/heartbeat',{
       method:'POST',
@@ -107,7 +108,9 @@ async function coordinatorHeartbeat(settings) {
         rssMB:rss,
         humanCount,
         serverBudget,
-        live:[...live.keys()]
+        live:[...live.entries()]
+          .filter(([,state]) => Boolean(state?.bot?.entity))
+          .map(([name]) => name)
       })
     })
     if(!response.ok) throw new Error('HTTP '+response.status)
@@ -1643,7 +1646,7 @@ async function connectIdentity(candidate, settings) {
         if (parsed.rank) state.rank = String(parsed.rank).toUpperCase()
         if (String(parsed.tagged || '0') === '1') state.combatTaggedUntil = Math.max(state.combatTaggedUntil || 0, Date.now() + 2500)
         if (parsed.humans != null) humanCount = Math.max(0, Number(parsed.humans) || 0)
-        if (parsed.budget != null) serverBudget = clamp(Number(parsed.budget) || 1, 1, 16)
+        if (parsed.budget != null) serverBudget = clamp(Number(parsed.budget) || 1, 1, 64)
       }
 
       const low = text.toLowerCase()
@@ -1719,9 +1722,16 @@ async function connectIdentity(candidate, settings) {
     startWorkLoop(state, settings)
   } catch (err) {
     console.log(name + ' connect failed: ' + err.message)
+    try { state.bot?.quit('connect failed') } catch {}
     state.bot = null
     state.reconnectAt = Date.now() + 7000
   }
+}
+
+function connectedCount() {
+  let n=0
+  for(const state of live.values()) if(state?.bot?.entity) n++
+  return n
 }
 
 function disconnectIdentity(name, reason = 'rotation') {
@@ -1841,7 +1851,7 @@ async function reconcileDistributed() {
 
   const rss=Math.round(process.memoryUsage().rss/1048576)
   console.log(
-    '[cluster '+NODE_ID+'] hot='+live.size+
+    '[cluster '+NODE_ID+'] hot='+connectedCount()+
     ' leases='+desired.length+
     ' globalTarget='+Number(plan.globalTarget||0)+
     ' totalCapacity='+Number(plan.totalCapacity||0)+

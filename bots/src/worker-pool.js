@@ -543,6 +543,27 @@ async function commandBrain(state) {
     return
   }
 
+  // Solos use the same real HCF destinations. Loot rats/chill roamers
+  // physically travel to spawn warzone, End or Nether rather than teleporting
+  // between arbitrary coordinates.
+  if ((action==='solo' || action==='solo_loot') && !tagged) {
+    const zone=String(state.job?.zone || 'spawn').toLowerCase()
+    const current=dimensionZone(bot)
+    const changed=state.lastPatrolZone!==zone
+    const wrongDimension=(zone==='nether' && current!=='nether') ||
+      (zone==='end' && current!=='end') ||
+      (zone==='spawn' && current!=='spawn')
+
+    if((changed || wrongDimension) && now-(state.lastTeleportAttempt || 0)>8000) {
+      const warp=zone==='nether'?'nether':(zone==='end'?'end':'pvp')
+      state.lastTeleportAttempt=now
+      state.lastPatrolZone=zone
+      state.zoneArrivalAt=now
+      await tryCommand(state,'/warp '+warp,900)
+      return
+    }
+  }
+
   // PvP-ready bodies move between real HCF hot spots rather than orbiting base.
   // pvp = outside the Overworld Safezone; nether/end are their world hubs.
   if (action === 'patrol' && !tagged) {
@@ -976,8 +997,9 @@ async function redeemCrate(state) {
 
   try {
     const keyName=type==='donor'?'blaze_rod':'tripwire_hook'
-    const key=bot.inventory.items().find(i=>i.name===keyName)
-    if(key) await bot.equip(key,'hand')
+    const held=bot.heldItem
+    const key=held?.name===keyName ? held : bot.inventory.items().find(i=>i.name===keyName)
+    if(key && held!==key) await bot.equip(key,'hand')
 
     const dist=bot.entity.position.distanceTo(block.position)
     if(dist>4.2) {
@@ -1030,8 +1052,9 @@ async function localMotion(state, action) {
   while (Date.now() < endAt && state.bot?.entity && !state.combat) {
     stopMovement(bot)
 
-    const stranger=action==='patrol' ? nearestRoamStranger(state,48) : null
-    const leavingHub=action==='patrol' && Date.now()-(state.zoneArrivalAt || 0)<10000
+    const stranger=(action==='patrol' || action==='solo_loot') ? nearestRoamStranger(state,48) : null
+    const leavingHub=(action==='patrol' || action==='solo' || action==='solo_loot') &&
+      Date.now()-(state.zoneArrivalAt || 0)<10000
 
     // Patrols actively seek visible non-faction players. Immediately after a
     // zone warp they also make a sustained sprint out of the Safezone.

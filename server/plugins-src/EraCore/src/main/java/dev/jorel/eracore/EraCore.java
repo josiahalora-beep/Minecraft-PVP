@@ -1297,6 +1297,11 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     private boolean cmdSimCombat(Player p, String[] a) {
         if (simWorld == null) return true;
 
+        if (a.length>0 && a[0].equalsIgnoreCase("loot")) {
+            if(a.length>1) simWorld.noteCombatLoot(p.getName(),a[1]);
+            return true;
+        }
+
         if (a.length == 0 || a[0].equalsIgnoreCase("sync")) {
             SimWorldDirector.CombatAssignment ca = simWorld.combatAssignmentFor(p.getName());
             if (ca == null) {
@@ -1339,7 +1344,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             return true;
         }
 
-        p.sendMessage("/simcombat <sync|release|status|director>");
+        p.sendMessage("/simcombat <sync|release|loot|status|director>");
         return true;
     }
 

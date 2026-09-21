@@ -1766,27 +1766,48 @@ final class SimWorldDirector {
             }
         }
 
-        SimPlayer respondent = chooseContextResponder(human.getName(), lower);
+        final SimPlayer respondent = chooseContextResponder(human.getName(), lower);
         if (respondent != null) {
-            ContextChatBrain.Snapshot snap = chatSnapshot(human.getName(), respondent, message);
+            final ContextChatBrain.Snapshot snap = chatSnapshot(human.getName(), respondent, message);
             String prior = lastPublicLineBySpeaker.get(key(respondent.name));
-            String reply = prior == null ? chatBrain.reply(snap) : chatBrain.followup(snap, prior);
-            if (reply != null && !reply.trim().isEmpty()) {
-                enqueue(respondent.name, reply, true);
-                rememberPublic(respondent.name, reply);
+            final String fallback = prior == null ? chatBrain.reply(snap) : chatBrain.followup(snap, prior);
+            final String speakerName=human.getName();
+            final String rawMessage=message;
 
-                // Occasionally another relevant player joins the same thread.
-                if (rng.nextInt(100) < plugin.getConfig().getInt("sim-chat.second-responder-chance-percent",22)) {
-                    SimPlayer second = chooseSecondResponder(respondent, lower);
-                    if (second != null) {
-                        ContextChatBrain.Snapshot secondSnap = chatSnapshot(human.getName(), second, message);
-                        String secondReply = chatBrain.reply(secondSnap);
-                        if (secondReply != null && !secondReply.equalsIgnoreCase(reply)) {
-                            enqueue(second.name, secondReply, true);
-                            rememberPublic(second.name, secondReply);
+            boolean dispatched=aiChat.request("public",speakerName,respondent.name,
+                semanticContext(respondent),rawMessage,new AiChatBridge.Handler() {
+                    public void complete(AiChatBridge.AiReply ai) {
+                        String reply=ai!=null?ai.text:fallback;
+                        if(reply==null || reply.trim().isEmpty()) return;
+
+                        if(isConfiguredOwner(speakerName) && ai!=null) {
+                            respondent.ownerAffinity=clampAffinity(respondent.ownerAffinity+ai.affinityDelta);
                         }
+
+                        enqueue(respondent.name,reply,true);
+                        rememberPublic(respondent.name,reply);
+
+                        // A second person can join the same conversation, but semantic
+                        // calls stay bounded: the follow-up uses the cheap local brain.
+                        if(rng.nextInt(100)<plugin.getConfig().getInt("sim-chat.second-responder-chance-percent",22)) {
+                            SimPlayer second=chooseSecondResponder(respondent,rawMessage.toLowerCase(Locale.ENGLISH));
+                            if(second!=null) {
+                                ContextChatBrain.Snapshot ss=chatSnapshot(speakerName,second,rawMessage);
+                                String secondReply=chatBrain.reply(ss);
+                                if(secondReply!=null && !secondReply.equalsIgnoreCase(reply)) {
+                                    enqueue(second.name,secondReply,true);
+                                    rememberPublic(second.name,secondReply);
+                                }
+                            }
+                        }
+                        save();
                     }
-                }
+                });
+            if(dispatched) return;
+
+            if (fallback != null && !fallback.trim().isEmpty()) {
+                enqueue(respondent.name, fallback, true);
+                rememberPublic(respondent.name, fallback);
                 return;
             }
         }
@@ -1797,6 +1818,88 @@ final class SimWorldDirector {
             if (fighter != null) enqueue(fighter.name, fighter.skill >= 80 ? "im down" : "give me a min", true);
         }
 
+    }
+
+    private boolean isConfiguredOwner(String name) {
+        String owner=plugin.getConfig().getString("owner.name","");
+        return name!=null && !owner.isEmpty() && owner.equalsIgnoreCase(name);
+    }
+
+    private int clampAffinity(int n) {
+        return Math.max(-100,Math.min(100,n));
+    }
+
+    private String semanticContext(SimPlayer p) {
+        StringBuilder b=new StringBuilder();
+        b.append("identity=").append(p.name)
+         .append("; faction=").append(p.faction==null||p.faction.isEmpty()?"solo":p.faction)
+         .append("; role=").append(p.role)
+         .append("; job=").append(p.preferredJob)
+         .append("; class=").append(p.combatClass.name())
+         .append("; donor=").append(donorName(p.donorLevel))
+         .append("; staff=").append(p.staffRole==null||p.staffRole.isEmpty()?"none":p.staffRole)
+         .append("; ownerAffinity=").append(p.ownerAffinity)
+         .append("; skill=").append(p.skill)
+         .append("; aggression=").append(p.aggression)
+         .append("; sociability=").append(p.sociability)
+         .append("; loyalty=").append(p.loyalty)
+         .append("; reputation=").append(p.reputation)
+         .append("; goal=").append(p.currentGoal);
+
+        if(p.faction!=null && !p.faction.isEmpty()) {
+            SimFaction f=factions.get(key(p.faction));
+            if(f!=null) {
+                b.append("; factionStage=").append(f.stage.name())
+                 .append("; recovery=").append(f.recoveryMode)
+                 .append("; zone=").append(warzoneForFaction(f))
+                 .append("; dtr=").append(plugin.factionDtr(f.name))
+                 .append("/").append(plugin.factionMaxDtr(f.name));
+            }
+        }
+
+        if(!recentKiller.isEmpty()) b.append("; recentKill=").append(recentKiller).append(">").append(recentVictim);
+        if(!recentPublicMessages.isEmpty()) {
+            b.append("; recentChat=");
+            int skip=Math.max(0,recentPublicMessages.size()-5),i=0;
+            Iterator<String> it=recentPublicMessages.iterator();
+            while(it.hasNext()) {
+                String line=it.next();
+                if(i++<skip) continue;
+                if(b.length()>1800) break;
+                b.append("[").append(line.replace(';',',')).append("]");
+            }
+        }
+        return b.toString();
+    }
+
+    boolean requestPrivateAi(final Player human,final String simName,final String text) {
+        final SimPlayer sim=players.get(key(simName));
+        if(sim==null || text==null || text.trim().isEmpty()) return false;
+
+        String lower=text.toLowerCase(Locale.ENGLISH);
+        if(isTradeIntent(lower)) return false;
+
+        final String fallback=casualReply(sim,lower);
+        final String humanName=human.getName();
+        lastReplyTarget.put(key(humanName),sim.name);
+
+        return aiChat.request("private",humanName,sim.name,semanticContext(sim),text,new AiChatBridge.Handler() {
+            public void complete(AiChatBridge.AiReply ai) {
+                if(!human.isOnline()) return;
+                String reply=ai!=null?ai.text:fallback;
+                if(reply==null||reply.trim().isEmpty()) return;
+                if(isConfiguredOwner(humanName) && ai!=null)
+                    sim.ownerAffinity=clampAffinity(sim.ownerAffinity+ai.affinityDelta);
+                plugin.sendSimulatedPrivate(human,sim.name,reply);
+                save();
+            }
+        });
+    }
+
+    private boolean isTradeIntent(String lower) {
+        return lower.contains("buy") || lower.contains("sell") || lower.contains("price") ||
+            lower.contains("how much") || lower.contains("$") || lower.contains("deal") ||
+            lower.contains("pay ") || lower.contains("offer");
     }
 
     private void rememberPublic(String speaker, String message) {

@@ -340,6 +340,14 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             clearDuelSnapshot();
         }
         if (isBotIdentity(p.getName())) {
+            if(activeDuel!=null && p.getName().equalsIgnoreCase(activeDuel.sim) &&
+               activeDuel.fightId!=null && !activeDuel.fightId.isEmpty()) {
+                String human=activeDuel.human, sim=activeDuel.sim;
+                if(simWorld!=null) simWorld.cancelDuel(human,sim,"simulated opponent disconnected");
+                Player hp=Bukkit.getPlayerExact(human);
+                if(hp!=null) restoreDuelHuman(hp);
+                clearDuelSnapshot();
+            }
             if (simWorld != null && simWorld.hasCombatReservation(p.getName())) {
                 simWorld.releaseCombatLoadout(p);
                 combatPreparedFight.remove(p.getName().toLowerCase(Locale.ENGLISH));
@@ -464,7 +472,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     private boolean isActiveDuelDamage(EntityDamageByEntityEvent e) {
-        if(activeDuel==null || !(e.getEntity() instanceof Player) || !(e.getDamager() instanceof Player)) return false;
+        if(activeDuel==null || activeDuel.fightId==null || activeDuel.fightId.isEmpty() ||
+           !(e.getEntity() instanceof Player) || !(e.getDamager() instanceof Player)) return false;
         String victim=((Player)e.getEntity()).getName();
         String attacker=((Player)e.getDamager()).getName();
         return (victim.equalsIgnoreCase(activeDuel.human) && attacker.equalsIgnoreCase(activeDuel.sim)) ||

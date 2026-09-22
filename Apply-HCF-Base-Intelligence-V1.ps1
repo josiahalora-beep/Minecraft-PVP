@@ -4,7 +4,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$validatedCommit = 'e40cad1bcc008a5b8afd796d5a157caf1d7e9fd3'
+$validatedCommit = '865a8b26b844fb5951b5e8cb375f8310528d4f65'
 $base = "https://raw.githubusercontent.com/josiahalora-beep/Minecraft-PVP/$validatedCommit"
 
 Write-Host 'IMPORTANT: stop the Minecraft server and every worker/coordinator process before continuing.' -ForegroundColor Yellow

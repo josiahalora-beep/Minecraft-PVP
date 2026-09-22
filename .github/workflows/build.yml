@@ -21,19 +21,24 @@ jobs:
       - name: Validate Mineflayer plugin imports
         working-directory: bots
         run: node --input-type=module -e "await import('./src/common.js'); console.log('Mineflayer plugins import OK')"
-      - name: Validate PowerShell updater
+      - name: Validate PowerShell updaters
         shell: pwsh
         run: |
-          $tokens = $null
-          $errors = $null
-          [void][System.Management.Automation.Language.Parser]::ParseFile(
-            (Resolve-Path './Apply-HCF-Community-Intelligence.ps1'),
-            [ref]$tokens,
-            [ref]$errors
-          )
-          if ($errors.Count -gt 0) {
-            $errors | Format-List | Out-String | Write-Error
-            exit 1
+          foreach ($script in @(
+            './Apply-HCF-Community-Intelligence.ps1',
+            './Apply-HCF-Base-Intelligence-V1.ps1'
+          )) {
+            $tokens = $null
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $script),
+              [ref]$tokens,
+              [ref]$errors
+            )
+            if ($errors.Count -gt 0) {
+              $errors | Format-List | Out-String | Write-Error
+              exit 1
+            }
           }
       - name: Validate bot JavaScript
         run: |

@@ -474,7 +474,18 @@ final class SimWorldDirector {
         this.file = new File(plugin.getDataFolder(), "simulation.yml");
         this.combatFile = new File(plugin.getDataFolder(), "combat-hot.yml");
         this.memoryFile = new File(plugin.getDataFolder(), "memory-events.log");
-        this.data = YamlConfiguration.loadConfiguration(file);
+
+        YamlConfiguration loaded=new YamlConfiguration();
+        if(file.isFile() && file.length()>0L) {
+            try {
+                loaded.load(file);
+            } catch(Exception ex) {
+                throw new IllegalStateException(
+                    "simulation.yml is invalid; refusing to seed a replacement over persistent faction/player state. "+
+                    "Restore the last-good/installer backup before starting EraCore.",ex);
+            }
+        }
+        this.data = loaded;
         loadOrSeed();
         loadMemoryArchive();
     }
@@ -7911,10 +7922,28 @@ final class SimWorldDirector {
         data.set("meta.sotw-started-at", sotwStartedAt);
         data.set("meta.faction-name-cursor", factionNameCursor);
 
+        File tmp=new File(plugin.getDataFolder(),"simulation.yml.tmp");
+        File lastGood=new File(plugin.getDataFolder(),"simulation.lastgood.yml");
         try {
-            data.save(file);
+            data.save(tmp);
+
+            // Preserve the previous known-readable file before replacing it.
+            if(file.isFile() && file.length()>0L) {
+                java.nio.file.Files.copy(file.toPath(),lastGood.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
+
+            try {
+                java.nio.file.Files.move(tmp.toPath(),file.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                    java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+            } catch(Exception atomicUnsupported) {
+                java.nio.file.Files.move(tmp.toPath(),file.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
         } catch (IOException e) {
-            plugin.getLogger().warning("Could not save simulation.yml: " + e.getMessage());
+            if(tmp.exists()) tmp.delete();
+            plugin.getLogger().warning("Could not atomically save simulation.yml: " + e.getMessage());
         }
     }
 

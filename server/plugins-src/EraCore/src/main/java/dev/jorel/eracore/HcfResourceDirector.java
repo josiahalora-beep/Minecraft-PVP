@@ -40,7 +40,7 @@ final class HcfResourceDirector implements Listener {
             if(n>1) stacks.put(e.getUniqueId(),n);
         }
         if(plugin.getConfig().getBoolean("resources.bootstrap-spawners",false)) {
-            new BukkitRunnable(){public void run(){bootstrapSpawners();}}.runTaskLater(plugin,160L);
+            new BukkitRunnable(){public void run(){bootstrapPublicSites();}}.runTaskLater(plugin,160L);
         }
     }
 
@@ -205,6 +205,141 @@ final class HcfResourceDirector implements Listener {
     private World firstWorld(World.Environment env) {
         for(World w:Bukkit.getWorlds()) if(w.getEnvironment()==env) return w;
         return null;
+    }
+
+    private void bootstrapPublicSites() {
+        buildOreMountain();
+        buildNetherResourceSites();
+        buildEndResourceSites();
+        bootstrapSpawners();
+    }
+
+    private void buildOreMountain() {
+        World w=Bukkit.getWorld(plugin.getConfig().getString("map-layout.ore-world","ore_mountain"));
+        if(w==null) return;
+        Location spawn=w.getSpawnLocation();
+        int cx=spawn.getBlockX(),cz=spawn.getBlockZ();
+        int base=Math.max(58,w.getHighestBlockYAt(cx,cz));
+        Block sentinel=w.getBlockAt(cx,base+18,cz);
+        if(sentinel.getType()==Material.EMERALD_BLOCK) return;
+
+        Random local=new Random(20150418L);
+        int radius=32;
+        for(int dx=-radius;dx<=radius;dx++) {
+            for(int dz=-radius;dz<=radius;dz++) {
+                double d=Math.sqrt(dx*dx+dz*dz);
+                if(d>radius) continue;
+                int h=Math.max(1,(int)Math.round(18.0*(1.0-d/radius)));
+                for(int dy=0;dy<=h;dy++) {
+                    Material m=Material.STONE;
+                    int roll=local.nextInt(1000);
+                    if(roll<10) m=Material.DIAMOND_ORE;
+                    else if(roll<18) m=Material.EMERALD_ORE;
+                    else if(roll<48) m=Material.GOLD_ORE;
+                    else if(roll<128) m=Material.IRON_ORE;
+                    else if(roll<190) m=Material.REDSTONE_ORE;
+                    else if(roll<300) m=Material.COAL_ORE;
+                    w.getBlockAt(cx+dx,base+dy,cz+dz).setType(m);
+                }
+            }
+        }
+        sentinel.setType(Material.EMERALD_BLOCK);
+        w.setSpawnLocation(cx,base+2,cz);
+        if(map!=null) map.bootstrapWarps();
+        plugin.getLogger().info("Bootstrapped protected Ore Mountain at "+cx+","+cz+".");
+    }
+
+    private void buildNetherResourceSites() {
+        World w=firstWorld(World.Environment.NETHER);
+        if(w==null) return;
+
+        HcfMapDirector.Region glow=map.region("glowstone");
+        if(glow!=null) {
+            int y=plugin.getConfig().getInt("resources.blaze.y",70)-1;
+            int cx=(int)glow.x,cz=(int)glow.z;
+            if(w.getBlockAt(cx,y+15,cz).getType()!=Material.GLOWSTONE) {
+                Random local=new Random(77113L);
+                for(int dx=-28;dx<=28;dx++) for(int dz=-28;dz<=28;dz++) {
+                    double d=Math.sqrt(dx*dx+dz*dz);
+                    if(d>28) continue;
+                    int h=Math.max(1,(int)Math.round(14.0*(1.0-d/28.0)));
+                    for(int dy=0;dy<=h;dy++) {
+                        Material m=(dy==h && local.nextInt(100)<42)?Material.GLOWSTONE:Material.NETHERRACK;
+                        w.getBlockAt(cx+dx,y+dy,cz+dz).setType(m);
+                    }
+                }
+                w.getBlockAt(cx,y+15,cz).setType(Material.GLOWSTONE);
+            }
+        }
+
+        HcfMapDirector.Region wart=map.region("wart");
+        if(wart!=null) {
+            int y=plugin.getConfig().getInt("resources.blaze.y",70);
+            int cx=(int)wart.x,cz=(int)wart.z;
+            for(int dx=-22;dx<=22;dx++) for(int dz=-16;dz<=16;dz++)
+                w.getBlockAt(cx+dx,y-1,cz+dz).setType(Material.NETHER_BRICK);
+            for(int row=-12;row<=12;row+=4) for(int dx=-18;dx<=18;dx++) {
+                Block soil=w.getBlockAt(cx+dx,y,cz+row);
+                soil.setType(Material.SOUL_SAND);
+                Block crop=w.getBlockAt(cx+dx,y+1,cz+row);
+                crop.setType(Material.NETHER_WARTS);
+                crop.setData((byte)3);
+            }
+        }
+
+        HcfMapDirector.Region blaze=map.region("blaze");
+        if(blaze!=null) {
+            int y=plugin.getConfig().getInt("resources.blaze.y",70);
+            int cx=(int)blaze.x,cz=(int)blaze.z;
+            for(int dx=-22;dx<=22;dx++) for(int dz=-22;dz<=22;dz++) {
+                w.getBlockAt(cx+dx,y-1,cz+dz).setType(Material.NETHER_BRICK);
+                if(Math.abs(dx)==22 || Math.abs(dz)==22)
+                    w.getBlockAt(cx+dx,y,cz+dz).setType(Material.NETHER_FENCE);
+            }
+        }
+
+        HcfMapDirector.Region nk=map.region("nether-koth");
+        if(nk!=null) buildCapturePad(w,(int)nk.x,
+            plugin.getConfig().getInt("resources.blaze.y",70),(int)nk.z,Material.NETHER_BRICK,Material.GOLD_BLOCK);
+    }
+
+    private void buildEndResourceSites() {
+        World w=firstWorld(World.Environment.THE_END);
+        if(w==null) return;
+
+        HcfMapDirector.Region creeper=map.region("creeper");
+        if(creeper!=null) {
+            int y=plugin.getConfig().getInt("resources.creeper.y",69);
+            int cx=(int)creeper.x,cz=(int)creeper.z;
+            for(int dx=-20;dx<=20;dx++) for(int dz=-20;dz<=20;dz++) {
+                w.getBlockAt(cx+dx,y-1,cz+dz).setType(Material.ENDER_STONE);
+                if(Math.abs(dx)==20 || Math.abs(dz)==20)
+                    w.getBlockAt(cx+dx,y,cz+dz).setType(Material.OBSIDIAN);
+            }
+        }
+
+        HcfMapDirector.Region ek=map.region("end-koth");
+        if(ek!=null) buildCapturePad(w,(int)ek.x,
+            plugin.getConfig().getInt("resources.creeper.y",69),(int)ek.z,Material.ENDER_STONE,Material.DIAMOND_BLOCK);
+
+        HcfMapDirector.Region exit=map.region("end-exit");
+        if(exit!=null) {
+            int y=plugin.getConfig().getInt("resources.creeper.y",69);
+            int cx=(int)exit.x,cz=(int)exit.z;
+            for(int dx=-8;dx<=8;dx++) for(int dz=-8;dz<=8;dz++)
+                w.getBlockAt(cx+dx,y-1,cz+dz).setType(Material.OBSIDIAN);
+            // A small physical End portal gives the safe kite destination a real
+            // exit. HcfPortalDirector routes it back to the configured Spawn.
+            for(int dx=-1;dx<=1;dx++) for(int dz=-1;dz<=1;dz++)
+                w.getBlockAt(cx+dx,y,cz+dz).setType(Material.ENDER_PORTAL);
+        }
+    }
+
+    private void buildCapturePad(World w,int cx,int y,int cz,Material floor,Material center) {
+        for(int dx=-18;dx<=18;dx++) for(int dz=-18;dz<=18;dz++)
+            w.getBlockAt(cx+dx,y-1,cz+dz).setType(floor);
+        for(int dx=-3;dx<=3;dx++) for(int dz=-3;dz<=3;dz++)
+            w.getBlockAt(cx+dx,y-1,cz+dz).setType(center);
     }
 
     private void bootstrapSpawners() {

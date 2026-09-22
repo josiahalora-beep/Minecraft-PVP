@@ -3286,28 +3286,57 @@ final class SimWorldDirector {
         } catch(Exception ignored) { return ""; }
     }
 
+    private void writeMemoryLine(BufferedWriter w,HistoryEvent e) throws IOException {
+        StringBuilder people=new StringBuilder();
+        for(String p:e.people) {
+            if(people.length()>0) people.append(',');
+            people.append(p.replace(',','_'));
+        }
+        w.write(Long.toString(e.at));w.write("\t");
+        w.write(Integer.toString(e.importance));w.write("\t");
+        w.write(memoryEncode(e.type));w.write("\t");
+        w.write(memoryEncode(e.faction));w.write("\t");
+        w.write(memoryEncode(people.toString()));w.write("\t");
+        w.write(memoryEncode(e.summary));
+        w.newLine();
+    }
+
+    private void compactMemoryArchive() {
+        if(!memoryFile.getParentFile().exists()) memoryFile.getParentFile().mkdirs();
+        File tmp=new File(memoryFile.getParentFile(),"memory-events.compact.tmp");
+        File bak=new File(memoryFile.getParentFile(),"memory-events.compact.bak");
+        try {
+            BufferedWriter w=new BufferedWriter(new FileWriter(tmp,false));
+            for(HistoryEvent h:communityHistory) writeMemoryLine(w,h);
+            w.close();
+
+            if(bak.exists()) bak.delete();
+            if(memoryFile.exists() && !memoryFile.renameTo(bak))
+                throw new IOException("could not stage old archive");
+            if(!tmp.renameTo(memoryFile)) {
+                if(bak.exists()) bak.renameTo(memoryFile);
+                throw new IOException("could not install compact archive");
+            }
+            if(bak.exists()) bak.delete();
+            plugin.getLogger().info("Compacted actor memory archive to "+communityHistory.size()+" salient/recent events.");
+        } catch(IOException ex) {
+            if(tmp.exists()) tmp.delete();
+            plugin.getLogger().warning("Could not compact memory archive: "+ex.getMessage());
+        }
+    }
+
     private void appendMemoryArchive(HistoryEvent e) {
         if(e==null) return;
         try {
             if(!memoryFile.getParentFile().exists()) memoryFile.getParentFile().mkdirs();
-            if(memoryFile.exists() && memoryFile.length()>64L*1024L*1024L) {
-                File old=new File(memoryFile.getParentFile(),"memory-events.1.log");
-                if(old.exists()) old.delete();
-                memoryFile.renameTo(old);
-            }
-            StringBuilder people=new StringBuilder();
-            for(String p:e.people) {
-                if(people.length()>0) people.append(',');
-                people.append(p.replace(',','_'));
+            // recordHistory inserts e into the bounded in-memory deque first, so
+            // compaction already contains this event and must not append it twice.
+            if(memoryFile.exists() && memoryFile.length()>archiveMaxBytes()) {
+                compactMemoryArchive();
+                return;
             }
             BufferedWriter w=new BufferedWriter(new FileWriter(memoryFile,true));
-            w.write(Long.toString(e.at));w.write("\t");
-            w.write(Integer.toString(e.importance));w.write("\t");
-            w.write(memoryEncode(e.type));w.write("\t");
-            w.write(memoryEncode(e.faction));w.write("\t");
-            w.write(memoryEncode(people.toString()));w.write("\t");
-            w.write(memoryEncode(e.summary));
-            w.newLine();
+            writeMemoryLine(w,e);
             w.close();
         } catch(IOException ex) {
             plugin.getLogger().warning("Could not append memory archive: "+ex.getMessage());
@@ -3337,7 +3366,7 @@ final class SimWorldDirector {
                 e.summary=memoryDecode(p[5]);
                 if(e.summary.isEmpty()) continue;
                 loaded.addLast(e);
-                while(loaded.size()>2500) loaded.removeFirst();
+                while(loaded.size()>historyMemoryLimit()) loaded.removeFirst();
             }
             r.close();
         } catch(IOException ex) {

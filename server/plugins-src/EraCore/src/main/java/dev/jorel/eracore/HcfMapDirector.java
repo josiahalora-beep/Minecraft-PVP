@@ -58,6 +58,7 @@ final class HcfMapDirector implements Listener {
 
     void start() {
         plugin.getServer().getPluginManager().registerEvents(this,plugin);
+        ensureOreMountainWorld();
         rebuildRegistry();
         bootstrapWarps();
         if(plugin.getConfig().getBoolean("map-layout.build-visible-borders",true)) {
@@ -277,6 +278,29 @@ final class HcfMapDirector implements Listener {
         }
         travel.request(p,target,"Ore Mountain");
         return true;
+    }
+
+    private void ensureOreMountainWorld() {
+        if(!plugin.getConfig().getBoolean("resources.ore-mountain.enabled",true)) return;
+        String name=plugin.getConfig().getString("map-layout.ore-world","ore_mountain");
+        World w=Bukkit.getWorld(name);
+        if(w==null) {
+            try {
+                WorldCreator creator=new WorldCreator(name);
+                creator.environment(World.Environment.NORMAL);
+                creator.generateStructures(false);
+                w=creator.createWorld();
+            } catch(Throwable t) {
+                plugin.getLogger().warning("Could not create Ore Mountain world: "+t.getMessage());
+            }
+        }
+        if(w!=null) {
+            try {
+                double size=Math.max(128,plugin.getConfig().getDouble("resources.ore-mountain.world-border",320));
+                w.getWorldBorder().setCenter(w.getSpawnLocation());
+                w.getWorldBorder().setSize(size);
+            } catch(Throwable ignored){}
+        }
     }
 
     void bootstrapWarps() {

@@ -398,9 +398,9 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         addBuy("magmacream", Material.MAGMA_CREAM, (short)0, 22.0);
         addBuy("glass", Material.GLASS, (short)0, 2.0);
         // Physical portals are intentionally expensive strategic infrastructure.
-        addBuy("flintsteel", Material.FLINT_AND_STEEL, (short)0, 175.0);
-        addBuy("endframe", Material.ENDER_PORTAL_FRAME, (short)0, 900.0);
-        addBuy("eyeofender", Material.EYE_OF_ENDER, (short)0, 175.0);
+        addBuy("flintsteel", Material.FLINT_AND_STEEL, (short)0, 1500.0);
+        addBuy("endframe", Material.ENDER_PORTAL_FRAME, (short)0, 1200.0);
+        addBuy("eyeofender", Material.EYE_OF_ENDER, (short)0, 250.0);
         addBuy("book", Material.BOOK, (short)0, 12.0);
         addBuy("lapis", Material.INK_SACK, (short)4, 5.0);
     }

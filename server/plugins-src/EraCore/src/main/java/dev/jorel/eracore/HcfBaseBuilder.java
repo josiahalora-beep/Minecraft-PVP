@@ -645,10 +645,10 @@ final class HcfBaseBuilder {
         // The top is a scouting/work shell, not a decorative castle. Entrances
         // are double fence-gate buffers; their slight offsets vary by faction.
         int frontX=p.cx+p.frontGateOffset;
-        bufferedGateZ(w,frontX,p.surfaceY,minZ,+1);
-        bufferedGateZ(w,p.cx-p.frontGateOffset,p.surfaceY,maxZ,-1);
-        if(p.entrances>=3) bufferedGateX(w,maxX,p.surfaceY,p.cz+Math.max(-2,Math.min(2,p.frontGateOffset)),-1);
-        if(p.entrances>=4) bufferedGateX(w,minX,p.surfaceY,p.cz-Math.max(-2,Math.min(2,p.frontGateOffset)),+1);
+        bufferedGateZ(w,frontX,p.surfaceY,minZ,+1,p.surfaceFrame);
+        bufferedGateZ(w,p.cx-p.frontGateOffset,p.surfaceY,maxZ,-1,p.surfaceFrame);
+        if(p.entrances>=3) bufferedGateX(w,maxX,p.surfaceY,p.cz+Math.max(-2,Math.min(2,p.frontGateOffset)),-1,p.surfaceFrame);
+        if(p.entrances>=4) bufferedGateX(w,minX,p.surfaceY,p.cz-Math.max(-2,Math.min(2,p.frontGateOffset)),+1,p.surfaceFrame);
 
         int[] d=p.anchor("drop");
         // Mark the future dropdown safely during the rushed surface phase.
@@ -671,6 +671,24 @@ final class HcfBaseBuilder {
                 queue.add(new Op(w,x,p.surfaceY,z,dropCell?Material.AIR:p.surfaceFloor));
 
                 boolean edge=surfaceBoundary(p,x,z);
+                if(edge) {
+                    for(int yy=p.surfaceY+1;yy<=top;yy++) {
+                        if(isBayJoinOpening(p,x,yy,z)) {
+                            queue.add(new Op(w,x,yy,z,Material.AIR));
+                            continue;
+                        }
+                        int gateData=surfaceGateData(p,x,yy,z);
+                        if(gateData>=0) {
+                            queue.add(new Op(w,x,yy,z,Material.FENCE_GATE,(byte)gateData));
+                            continue;
+                        }
+                        boolean beam=surfaceCornerLike(p,x,z) || yy==p.surfaceY+1 || yy==top ||
+                            ((x-(p.cx-p.surfaceHalfX))%6==0) ||
+                            ((z-(p.cz-p.surfaceHalfZ))%6==0);
+                        queue.add(new Op(w,x,yy,z,beam?p.surfaceFrame:Material.GLASS));
+                    }
+                }
+
                 boolean roofBeam=edge || ((x-p.cx)%6==0)||((z-p.cz)%6==0);
                 queue.add(new Op(w,x,top+1,z,roofBeam?p.surfaceFrame:Material.GLASS));
             }
@@ -700,6 +718,31 @@ final class HcfBaseBuilder {
             // vertical connection so envelope sealing cannot accidentally close it.
             buildVerticalTransit(w,p);
         }
+    }
+
+    private int surfaceGateData(HcfBasePlan p,int x,int yy,int z) {
+        if(yy<p.surfaceY+1 || yy>p.surfaceY+2) return -1;
+        int minX=p.cx-p.surfaceHalfX,maxX=p.cx+p.surfaceHalfX;
+        int minZ=p.cz-p.surfaceHalfZ,maxZ=p.cz+p.surfaceHalfZ;
+
+        int frontX=p.cx+p.frontGateOffset;
+        if(z==minZ && Math.abs(x-frontX)<=1) return 0;
+
+        int backX=p.cx-p.frontGateOffset;
+        if(z==maxZ && Math.abs(x-backX)<=1) return 0;
+
+        int sideOffset=Math.max(-2,Math.min(2,p.frontGateOffset));
+        if(p.entrances>=3 && x==maxX && Math.abs(z-(p.cz+sideOffset))<=1) return 1;
+        if(p.entrances>=4 && x==minX && Math.abs(z-(p.cz-sideOffset))<=1) return 1;
+        return -1;
+    }
+
+    private boolean isBayJoinOpening(HcfBasePlan p,int x,int yy,int z) {
+        if(p.surfaceShape!=2 || yy>p.surfaceY+3) return false;
+        int side=p.utilitySide;
+        int joinX=p.cx+side*p.surfaceHalfX;
+        int bz=p.cz+3+((p.seed/53)%5)-2;
+        return x==joinX && z==bz;
     }
 
     private boolean surfaceInside(HcfBasePlan p,int x,int z) {
@@ -743,22 +786,30 @@ final class HcfBaseBuilder {
                 queue.add(new Op(w,x,yy,bz,Material.AIR));
     }
 
-    private void bufferedGateZ(World w,int cx,int y,int wallZ,int inward) {
+    private void bufferedGateZ(World w,int cx,int y,int wallZ,int inward,Material frame) {
         int inner=wallZ+inward*3;
         int lo=Math.min(wallZ-1,inner-1),hi=Math.max(wallZ+1,inner+1);
         for(int z=lo;z<=hi;z++) for(int x=cx-1;x<=cx+1;x++)
-            for(int yy=y+1;yy<=y+3;yy++) queue.add(new Op(w,x,yy,z,Material.AIR));
-        for(int z:new int[]{wallZ,inner}) for(int x=cx-1;x<=cx+1;x++)
+            for(int yy=y+1;yy<=y+2;yy++) queue.add(new Op(w,x,yy,z,Material.AIR));
+
+        for(int z:new int[]{wallZ,inner}) for(int x=cx-1;x<=cx+1;x++) {
             for(int yy=y+1;yy<=y+2;yy++) queue.add(new Op(w,x,yy,z,Material.FENCE_GATE,(byte)0));
+            // The old buffer cleared y+3 but never replaced it, leaving a
+            // permanent horizontal hole above every entrance.
+            queue.add(new Op(w,x,y+3,z,frame));
+        }
     }
 
-    private void bufferedGateX(World w,int wallX,int y,int cz,int inward) {
+    private void bufferedGateX(World w,int wallX,int y,int cz,int inward,Material frame) {
         int inner=wallX+inward*3;
         int lo=Math.min(wallX-1,inner-1),hi=Math.max(wallX+1,inner+1);
         for(int x=lo;x<=hi;x++) for(int z=cz-1;z<=cz+1;z++)
-            for(int yy=y+1;yy<=y+3;yy++) queue.add(new Op(w,x,yy,z,Material.AIR));
-        for(int x:new int[]{wallX,inner}) for(int z=cz-1;z<=cz+1;z++)
+            for(int yy=y+1;yy<=y+2;yy++) queue.add(new Op(w,x,yy,z,Material.AIR));
+
+        for(int x:new int[]{wallX,inner}) for(int z=cz-1;z<=cz+1;z++) {
             for(int yy=y+1;yy<=y+2;yy++) queue.add(new Op(w,x,yy,z,Material.FENCE_GATE,(byte)1));
+            queue.add(new Op(w,x,y+3,z,frame));
+        }
     }
 
     private void buildUndergroundCore(World w,HcfBasePlan p) {

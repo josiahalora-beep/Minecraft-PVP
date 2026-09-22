@@ -843,11 +843,14 @@ function smartMovements(bot, canDig = false) {
   const moves = new Movements(bot)
   moves.canDig = Boolean(canDig)
   moves.allow1by1towers = false
-  moves.allowParkour = true
+  // HCF terrain frequently contains deliberate fall traps. Normal roaming must
+  // prefer boring walkable routes; the known faction dropdown is handled as an
+  // explicit semantic action rather than generic parkour/pathfinder behavior.
+  moves.allowParkour = false
   return moves
 }
 
-async function smartGoto(state, x, y, z, radius = 2, timeoutMs = 9000, canDig = false) {
+async function rawGoto(state, x, y, z, radius = 2, timeoutMs = 9000, canDig = false) {
   const bot=state.bot
   if(!bot?.entity || !bot.pathfinder || state.combat) return false
   if(![x,y,z].every(Number.isFinite)) return false
@@ -871,6 +874,174 @@ async function smartGoto(state, x, y, z, radius = 2, timeoutMs = 9000, canDig = 
     try { bot.pathfinder.stop() } catch {}
     return false
   }
+}
+
+function baseTransitNumbers(state) {
+  const j=state.job || {}
+  return {
+    homeX:Number(j.homeX), homeZ:Number(j.homeZ),
+    undergroundY:Number(j.undergroundY),
+    dropX:Number(j.dropX), dropY:Number(j.dropY), dropZ:Number(j.dropZ),
+    elevatorX:Number(j.elevatorX), elevatorY:Number(j.elevatorY), elevatorZ:Number(j.elevatorZ)
+  }
+}
+
+function nearOwnBaseForTransit(state,x,z) {
+  const t=baseTransitNumbers(state)
+  if(!Number.isFinite(t.homeX)||!Number.isFinite(t.homeZ)) return false
+  const dx=x-t.homeX,dz=z-t.homeZ
+  return dx*dx+dz*dz<=48*48
+}
+
+async function useBaseDropdown(state) {
+  const bot=state.bot
+  const t=baseTransitNumbers(state)
+  if(!bot?.entity || ![t.dropX,t.dropY,t.dropZ,t.undergroundY].every(Number.isFinite)) return false
+
+  // Approach from the north side so activating the deliberate 3x3 dropdown
+  // never gets confused with a random hole or enemy trap.
+  const approached=await rawGoto(state,t.dropX,t.dropY,t.dropZ-2,1,7000,false)
+  if(!approached) return false
+
+  try {
+    stopMovement(bot)
+    await bot.lookAt(new Vec3(t.dropX+0.5,t.dropY-0.4,t.dropZ+0.5),false)
+    state.intentionalDropUntil=Date.now()+5500
+    bot.setControlState('forward',true)
+
+    const deadline=Date.now()+5000
+    while(Date.now()<deadline && bot.entity) {
+      if(bot.entity.position.y<=t.undergroundY+3.5) {
+        stopMovement(bot)
+        state.intentionalDropUntil=0
+        return true
+      }
+      await sleep(90)
+    }
+  } catch {}
+  stopMovement(bot)
+  state.intentionalDropUntil=0
+  return false
+}
+
+async function useBaseElevator(state) {
+  const bot=state.bot
+  const t=baseTransitNumbers(state)
+  if(!bot?.entity || ![t.elevatorX,t.elevatorY,t.elevatorZ,t.undergroundY].every(Number.isFinite)) return false
+
+  const reached=await rawGoto(state,t.elevatorX,t.elevatorY,t.elevatorZ,2,7000,false)
+  if(!reached) return false
+
+  let sign=null
+  try {
+    const exact=bot.blockAt(new Vec3(Math.floor(t.elevatorX),Math.floor(t.elevatorY),Math.floor(t.elevatorZ)))
+    const n=String(exact?.name || '')
+    if(n.includes('sign')) sign=exact
+  } catch {}
+  if(!sign) {
+    const signs=nearbyBlocks(bot,['standing_sign','wall_sign','sign'],5,24)
+    if(signs.length) {
+      signs.sort((a,b) => a.position.distanceTo(new Vec3(t.elevatorX,t.elevatorY,t.elevatorZ)) -
+                          b.position.distanceTo(new Vec3(t.elevatorX,t.elevatorY,t.elevatorZ)))
+      sign=signs[0]
+    }
+  }
+  if(!sign) return false
+
+  const beforeY=bot.entity.position.y
+  try {
+    await bot.lookAt(sign.position.offset(0.5,0.5,0.5),false)
+    await bot.activateBlock(sign)
+    const deadline=Date.now()+3200
+    while(Date.now()<deadline && bot.entity) {
+      if(bot.entity.position.y>=beforeY+8) return true
+      await sleep(80)
+    }
+  } catch {}
+  return false
+}
+
+async function maybeUseBaseTransit(state,targetX,targetY,targetZ) {
+  const bot=state.bot
+  const t=baseTransitNumbers(state)
+  if(!bot?.entity || !Number.isFinite(t.undergroundY)) return false
+  if(!nearOwnBaseForTransit(state,targetX,targetZ) ||
+     !nearOwnBaseForTransit(state,bot.entity.position.x,bot.entity.position.z)) return false
+
+  const currentY=bot.entity.position.y
+  if(targetY<=t.undergroundY+6 && currentY>=t.undergroundY+10)
+    return await useBaseDropdown(state)
+
+  if(targetY>=t.undergroundY+10 && currentY<=t.undergroundY+6)
+    return await useBaseElevator(state)
+
+  return false
+}
+
+async function smartGoto(state, x, y, z, radius = 2, timeoutMs = 9000, canDig = false) {
+  const bot=state.bot
+  if(!bot?.entity || !bot.pathfinder || state.combat) return false
+  if(![x,y,z].every(Number.isFinite)) return false
+
+  const usedTransit=await maybeUseBaseTransit(state,x,y,z)
+  if(usedTransit && bot.entity) {
+    const dist=Math.hypot(bot.entity.position.x-x,bot.entity.position.z-z)
+    if(dist<=Math.max(2,radius) && Math.abs(bot.entity.position.y-y)<=4) return true
+  }
+  return await rawGoto(state,x,y,z,radius,timeoutMs,canDig)
+}
+
+function blockIsOpen(block) {
+  if(!block) return true
+  const n=String(block.name || '').toLowerCase()
+  if(n==='air' || n.includes('water') || n.includes('lava')) return true
+  return block.boundingBox==='empty'
+}
+
+function obviousFallTrapAhead(state,maxDepth=8) {
+  const bot=state.bot
+  if(!bot?.entity || Date.now()<(state.intentionalDropUntil || 0)) return null
+
+  const yaw=Number(bot.entity.yaw || 0)
+  const fx=-Math.sin(yaw),fz=-Math.cos(yaw)
+  const px=bot.entity.position.x+fx*1.35
+  const pz=bot.entity.position.z+fz*1.35
+  const x=Math.floor(px),z=Math.floor(pz)
+  const feetY=Math.floor(bot.entity.position.y)
+
+  let firstSolidDepth=null
+  let waterLanding=false
+  for(let d=1;d<=maxDepth;d++) {
+    let b=null
+    try { b=bot.blockAt(new Vec3(x,feetY-d,z)) } catch {}
+    if(!b) continue
+    const name=String(b.name || '').toLowerCase()
+    if(name.includes('water')) waterLanding=true
+    if(!blockIsOpen(b)) { firstSolidDepth=d; break }
+  }
+
+  if(firstSolidDepth==null || firstSolidDepth>=4) {
+    return {x,z,depth:firstSolidDepth ?? maxDepth+1,waterLanding}
+  }
+  return null
+}
+
+async function avoidObviousFallTrap(state) {
+  const bot=state.bot
+  const danger=obviousFallTrapAhead(state,10)
+  if(!danger || danger.waterLanding) return false
+
+  state.lastFallTrapAt=Date.now()
+  state.lastFallTrapPos={x:danger.x,z:danger.z,depth:danger.depth}
+  try {
+    stopMovement(bot)
+    const turn=(Math.random()<0.5?-1:1)*(1.15+Math.random()*0.45)
+    await bot.look(bot.entity.yaw+turn,0,false)
+    bot.setControlState('back',true)
+    await sleep(240)
+    stopMovement(bot)
+  } catch {}
+  return true
 }
 
 const HEAL_META = 16421
@@ -1799,6 +1970,11 @@ async function localMotion(state, action) {
       }
     }
 
+    if (moving && await avoidObviousFallTrap(state)) {
+      await sleep(Math.round(rand(180,340)))
+      continue
+    }
+
     if (moving) {
       bot.setControlState('forward', true)
       bot.setControlState('sprint', Boolean(stranger || leavingHub || Math.random() < sprintChance))
@@ -1904,6 +2080,10 @@ function startWorkLoop(state, settings) {
       }
 
       await gateDiscipline(state)
+      if(await avoidObviousFallTrap(state)) {
+        await sleep(Math.round(rand(180,320)))
+        continue
+      }
       const survivalAction = await maintainSurvival(state)
       if (survivalAction) {
         await sleep(Math.round(rand(180,420)))

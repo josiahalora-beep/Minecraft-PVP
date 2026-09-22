@@ -72,15 +72,16 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     private HcfTravelDirector travelDirector;
     private HcfPortalDirector portalDirector;
     private HcfMapDirector mapDirector;
+    private HcfClaimDirector claimDirector;
     private HcfEventDirector eventDirector;
     private HcfResourceDirector resourceDirector;
     private LegacySchematicComposer schematicComposer;
 
     enum Rank {
         MEMBER(0, "&7[Member]", 24),
-        BASIC(1, "&a[Basic]", 24),
-        SILVER(2, "&f[Silver]", 18),
-        GOLD(3, "&6[Gold]", 12),
+        BASIC(1, "&a[VIP]", 24),
+        SILVER(2, "&f[MVP]", 18),
+        GOLD(3, "&6[Pro]", 12),
         PLATINUM(4, "&b[Platinum]", 8),
         OWNER(99, "&4[Owner]", 0);
         final int level;
@@ -95,8 +96,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             // Migrate the earlier placeholder hierarchy without invalidating
             // existing ranks.yml files.
             if("VIP".equals(n)) n="BASIC";
-            else if("ELITE".equals(n)) n="SILVER";
-            else if("LEGEND".equals(n)) n="GOLD";
+            else if("MVP".equals(n) || "ELITE".equals(n)) n="SILVER";
+            else if("PRO".equals(n) || "LEGEND".equals(n)) n="GOLD";
             else if("TITAN".equals(n)) n="PLATINUM";
             try { return Rank.valueOf(n); }
             catch (Exception e) { return null; }
@@ -179,6 +180,9 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         portalDirector = new HcfPortalDirector(warpManager);
         hcfZones = new HcfZoneDisplayDirector(this, warpManager);
         mapDirector = new HcfMapDirector(this,warpManager,travelDirector,hcfZones);
+        claimDirector = new HcfClaimDirector(this,mapDirector);
+        for(Faction existingFaction:factions.values())
+            claimDirector.importLegacy(existingFaction.name,existingFaction.claims);
         eventDirector = new HcfEventDirector(this,mapDirector);
         resourceDirector = new HcfResourceDirector(this,mapDirector);
         schematicComposer = new LegacySchematicComposer(this);
@@ -252,6 +256,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (schematicComposer != null) schematicComposer.stop();
         if (eventDirector != null) eventDirector.stop();
         if (resourceDirector != null) resourceDirector.stop();
+        if (claimDirector != null) claimDirector.stop();
         if (mapDirector != null) mapDirector.stop();
         if (infrastructure != null) infrastructure.stop();
         if (autoBrewer != null) autoBrewer.stop();

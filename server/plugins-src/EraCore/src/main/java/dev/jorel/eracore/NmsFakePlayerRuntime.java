@@ -120,7 +120,7 @@ final class NmsFakePlayerRuntime {
         // damage and message paths. For the probe we give it a disconnected
         // NetworkManager sink instead of leaving the field null.
         @SuppressWarnings({"rawtypes","unchecked"})
-        Object serverbound=Enum.valueOf((Class<? extends Enum>)direction.asSubclass(Enum.class),"SERVERBOUND");
+        Object serverbound=Enum.valueOf((Class)direction.asSubclass(Enum.class),"SERVERBOUND");
         Object nm=newInstance(networkManager,serverbound);
         Object pc=newInstance(playerConnection,mcServer,nm,ep);
 
@@ -259,7 +259,7 @@ final class NmsFakePlayerRuntime {
     private Object enumValue(String simple,String name) throws Exception {
         Class<?> c=Class.forName("net.minecraft.server.v1_8_R3."+simple);
         @SuppressWarnings({"rawtypes","unchecked"})
-        Object e=Enum.valueOf((Class<? extends Enum>)c.asSubclass(Enum.class),name);
+        Object e=Enum.valueOf((Class)c.asSubclass(Enum.class),name);
         return e;
     }
 

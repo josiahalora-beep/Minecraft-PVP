@@ -68,6 +68,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     private HcfInfrastructureDirector infrastructure;
     private HcfGateDirector gateDirector;
     private HcfTerrainDirector terrainDirector;
+    private NmsFakePlayerRuntime fakePlayers;
+    private ActorDirectory actors;
 
     enum Rank {
         MEMBER(0, "&7[Member]", 24),
@@ -160,6 +162,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         warpManager.bootstrapDefaults();
         configureWorldBorders();
         simWorld = new SimWorldDirector(this);
+        fakePlayers = new NmsFakePlayerRuntime(this);
+        actors = new ActorDirectory(this,simWorld,fakePlayers);
         simChat = new SimChatDirector(this, simWorld);
         spawnPresence = new SpawnPresenceDirector(this, warpManager);
         hcfClasses = new HcfClassDirector(this);
@@ -223,6 +227,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     @Override public void onDisable() {
+        if (fakePlayers != null) fakePlayers.shutdown();
         if (infrastructure != null) infrastructure.stop();
         if (autoBrewer != null) autoBrewer.stop();
         if (spawnRewards != null) spawnRewards.stop();
@@ -323,7 +328,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     private void bindCommands() {
-        String[] cmds = {"rank","kit","kits","balance","pay","sell","buy","shop","vote","keys","crates","stats","history","duel","f","spawn","stuck","setspawn","warp","warps","setwarp","delwarp","spawnpreset","msg","r","simchat","sotw","simworker","simcombat","safezone","teamfight","bard","archer","miner","rogue","simprobe","simmap","simstate","duelprep"};
+        String[] cmds = {"rank","kit","kits","balance","pay","sell","buy","shop","vote","keys","crates","stats","history","duel","f","spawn","stuck","setspawn","warp","warps","setwarp","delwarp","spawnpreset","msg","r","simchat","sotw","simworker","simcombat","simactor","safezone","teamfight","bard","archer","miner","rogue","simprobe","simmap","simstate","duelprep"};
         for (String c : cmds) getCommand(c).setExecutor(this);
     }
 
@@ -495,23 +500,36 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     @EventHandler(priority=EventPriority.HIGHEST, ignoreCancelled=true)
     public void onTaggedTeleportCommand(PlayerCommandPreprocessEvent e) {
         Player p=e.getPlayer();
-        if(hcfZones==null || !hcfZones.isTagged(p) || isOwnerPlayer(p)) return;
-
-        String raw=e.getMessage()==null?"":e.getMessage().trim().toLowerCase(Locale.ENGLISH);
+        String raw=e.getMessage()==null?"":e.getMessage().trim();
         if(raw.startsWith("/")) raw=raw.substring(1);
         String[] parts=raw.split("\\s+");
         if(parts.length==0) return;
-        String cmd=parts[0];
+        String cmd=parts[0].toLowerCase(Locale.ENGLISH);
 
         boolean blocked=cmd.equals("spawn") || cmd.equals("home") || cmd.equals("warp") ||
             cmd.equals("tp") || cmd.equals("teleport") || cmd.equals("tpa") ||
             cmd.equals("tpaccept") || cmd.equals("back");
         if((cmd.equals("f") || cmd.equals("faction") || cmd.equals("fac")) &&
-            parts.length>1 && parts[1].equals("home")) blocked=true;
+            parts.length>1 && parts[1].equalsIgnoreCase("home")) blocked=true;
 
-        if(blocked) {
+        if(hcfZones!=null && hcfZones.isTagged(p) && !isOwnerPlayer(p) && blocked) {
             e.setCancelled(true);
             p.sendMessage(color("&cYou cannot teleport while combat tagged. &7"+hcfZones.tagSeconds(p)+"s remaining."));
+            return;
+        }
+
+        // Vanilla /tp already handles humans and connected Mineflayer clients.
+        // Only intercept the one-target form when the target exists in our actor
+        // directory but does not have a normal Bukkit online-player session.
+        if((cmd.equals("tp") || cmd.equals("teleport")) && parts.length==2 &&
+           isOwnerPlayer(p) && actors!=null && Bukkit.getPlayerExact(parts[1])==null) {
+            ActorDirectory.Snapshot snap=actors.resolve(parts[1]);
+            if(snap!=null) {
+                ActorDirectory.TeleportResult r=actors.teleport(
+                    p,parts[1],getConfig().getBoolean("actors.fake-player.materialize-on-tp",false));
+                e.setCancelled(true);
+                p.sendMessage(color((r.ok?"&a":"&c")+r.message));
+            }
         }
     }
 
@@ -607,6 +625,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     @EventHandler public void onDeath(PlayerDeathEvent e) {
         String n = e.getEntity().getName().toLowerCase(Locale.ENGLISH);
+        if(fakePlayers!=null && fakePlayers.hasBody(e.getEntity().getName()))
+            fakePlayers.noteDeathEvent(e.getEntity().getName());
 
         if(activeDuel!=null &&
            (e.getEntity().getName().equalsIgnoreCase(activeDuel.human) ||
@@ -989,6 +1009,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (c.equals("sotw")) return cmdSotw(p,args);
         if (c.equals("simworker")) return cmdSimWorker(p,args);
         if (c.equals("simcombat")) return cmdSimCombat(p,args);
+        if (c.equals("simactor")) return cmdSimActor(p,args);
         if (c.equals("safezone")) return hcfZones != null && hcfZones.command(p,args);
         if (c.equals("teamfight")) return cmdTeamFight(p,args);
         if (c.equals("bard")) return cmdClassInfo(p,"bard");
@@ -1003,6 +1024,227 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (c.equals("simstate")) return cmdSimState(p,args);
         if (c.equals("duelprep")) return cmdDuelPrep(p);
         return false;
+    }
+
+    String actorFactionName(String name) {
+        Faction f=factionOf(name);
+        return f==null?"":f.name;
+    }
+
+    double actorFactionDtr(String name) {
+        Faction f=factionOf(name);
+        return f==null?Double.NaN:f.dtr;
+    }
+
+    private boolean cmdSimActor(final Player p,String[] args) {
+        if(!ownerOnly(p)) return true;
+        if(actors==null || fakePlayers==null || simWorld==null) {
+            p.sendMessage(color("&cActor runtime is not initialized."));
+            return true;
+        }
+
+        if(args.length==0) {
+            p.sendMessage(color("&e/simactor status <player>"));
+            p.sendMessage(color("&e/simactor tp <player>"));
+            p.sendMessage(color("&e/simactor spawn <player> &7(experimental; requires enabled runtime)"));
+            p.sendMessage(color("&e/simactor damage <player> [amount]"));
+            p.sendMessage(color("&e/simactor kill <player>"));
+            p.sendMessage(color("&e/simactor despawn <player>"));
+            p.sendMessage(color("&e/simactor probe <player> &7(one-body death/DTR gate)"));
+            p.sendMessage(color("&7"+fakePlayers.supportSummary()));
+            return true;
+        }
+
+        String sub=args[0].toLowerCase(Locale.ENGLISH);
+        if(sub.equals("status")) {
+            if(args.length<2) {
+                p.sendMessage(color("&cUsage: /simactor status <player>"));
+                return true;
+            }
+            ActorDirectory.Snapshot a=actors.resolve(args[1]);
+            if(a==null) {
+                p.sendMessage(color("&cUnknown actor: "+args[1]));
+                return true;
+            }
+            p.sendMessage(color("&aActor &f"+a.summary()));
+            NmsFakePlayerRuntime.BodySnapshot b=fakePlayers.snapshot(a.name);
+            if(b!=null)
+                p.sendMessage(color("&7CombatBody health=&f"+String.format(Locale.US,"%.1f",b.health)+
+                    " &7deathEventSeen=&f"+b.deathEventSeen));
+            return true;
+        }
+
+        if(sub.equals("tp")) {
+            if(args.length<2) {
+                p.sendMessage(color("&cUsage: /simactor tp <player>"));
+                return true;
+            }
+            ActorDirectory.TeleportResult r=actors.teleport(
+                p,args[1],getConfig().getBoolean("actors.fake-player.materialize-on-tp",false));
+            p.sendMessage(color((r.ok?"&a":"&c")+r.message));
+            return true;
+        }
+
+        if(sub.equals("despawn")) {
+            if(args.length<2) {
+                p.sendMessage(color("&cUsage: /simactor despawn <player>"));
+                return true;
+            }
+            p.sendMessage(color(fakePlayers.despawn(args[1])
+                ?"&aCombatBody removed."
+                :"&cNo CombatBody exists for "+args[1]+"."));
+            return true;
+        }
+
+        if(sub.equals("spawn")) {
+            if(args.length<2) {
+                p.sendMessage(color("&cUsage: /simactor spawn <player>"));
+                return true;
+            }
+            ActorDirectory.Snapshot a=actors.resolve(args[1]);
+            if(a==null || !simWorld.hasIdentity(args[1])) {
+                p.sendMessage(color("&cThat is not a simulated HCF identity."));
+                return true;
+            }
+            if(!a.logicalOnline) {
+                p.sendMessage(color("&c"+a.name+" is logically offline; runtime materialization was refused."));
+                return true;
+            }
+            if(a.runtime==ActorDirectory.Runtime.MINEFLAYER || a.runtime==ActorDirectory.Runtime.HUMAN) {
+                p.sendMessage(color("&c"+a.name+" already has a connected Minecraft client."));
+                return true;
+            }
+            Location at=a.location;
+            if(at==null) {
+                p.sendMessage(color("&cNo simulated location is available for "+a.name+"."));
+                return true;
+            }
+            try {
+                fakePlayers.spawn(a.name,at,false);
+                p.sendMessage(color("&aSpawned experimental CombatBody for &f"+a.name+"&a."));
+            } catch(Exception ex) {
+                p.sendMessage(color("&cCombatBody spawn failed: "+ex.getMessage()));
+            }
+            return true;
+        }
+
+        if(sub.equals("damage")) {
+            if(args.length<2) {
+                p.sendMessage(color("&cUsage: /simactor damage <player> [amount]"));
+                return true;
+            }
+            double amount=2.0;
+            if(args.length>=3) {
+                try {amount=Math.max(0.1,Math.min(100.0,Double.parseDouble(args[2])));}
+                catch(Exception ignored){}
+            }
+            p.sendMessage(color(fakePlayers.damage(args[1],amount)
+                ?"&aApplied "+amount+" damage to "+args[1]+"."
+                :"&cNo live CombatBody exists for "+args[1]+"."));
+            return true;
+        }
+
+        if(sub.equals("kill")) {
+            if(args.length<2) {
+                p.sendMessage(color("&cUsage: /simactor kill <player>"));
+                return true;
+            }
+            p.sendMessage(color(fakePlayers.kill(args[1])
+                ?"&aIssued lethal damage to "+args[1]+". Watch the normal death/DTR pipeline."
+                :"&cNo live CombatBody exists for "+args[1]+"."));
+            return true;
+        }
+
+        if(sub.equals("probe")) {
+            if(args.length<2) {
+                p.sendMessage(color("&cUsage: /simactor probe <logical-online faction player>"));
+                return true;
+            }
+            if(!fakePlayers.supported()) {
+                p.sendMessage(color("&cFAIL: this server is not CraftBukkit/Spigot v1_8_R3."));
+                return true;
+            }
+            if(!fakePlayers.probeAllowed()) {
+                p.sendMessage(color("&cProbe is disabled by actors.fake-player.allow-probe."));
+                return true;
+            }
+            final ActorDirectory.Snapshot a=actors.resolve(args[1]);
+            if(a==null || !simWorld.hasIdentity(args[1])) {
+                p.sendMessage(color("&cUnknown simulated identity."));
+                return true;
+            }
+            if(!a.logicalOnline) {
+                p.sendMessage(color("&cChoose a logical-online simulated player. "+a.name+" is offline."));
+                return true;
+            }
+            if(a.runtime==ActorDirectory.Runtime.MINEFLAYER || a.runtime==ActorDirectory.Runtime.HUMAN) {
+                p.sendMessage(color("&cRefusing probe: "+a.name+" already has a connected client."));
+                return true;
+            }
+            final String faction=actorFactionName(a.name);
+            if(faction.isEmpty()) {
+                p.sendMessage(color("&cChoose a simulated player who is currently in a faction."));
+                return true;
+            }
+            final double beforeDtr=actorFactionDtr(a.name);
+            final double expectedLoss=getConfig().getDouble("dtr.loss-per-death",1.0);
+            Location at=duelCenterLocation();
+            if(at==null) at=a.location;
+            if(at==null) {
+                p.sendMessage(color("&cNo probe location is available."));
+                return true;
+            }
+
+            try {
+                final Player body=fakePlayers.spawn(a.name,at,true);
+                final double hp0=body.getHealth();
+                fakePlayers.damage(a.name,2.0);
+                final double hp1=body.getHealth();
+                p.sendMessage(color("&e[CombatBody gate] &7spawned=&atrue &7damage="+
+                    (hp1<hp0?"&aPASS":"&cCHECK")+
+                    " &7hp=&f"+String.format(Locale.US,"%.1f",hp0)+"->"+
+                    String.format(Locale.US,"%.1f",hp1)+
+                    " &7faction=&f"+faction+
+                    " &7DTR(before)=&f"+String.format(Locale.US,"%.2f",beforeDtr)));
+
+                final String actorName=a.name;
+                Bukkit.getScheduler().runTaskLater(this,new Runnable() {
+                    public void run() {
+                        if(!fakePlayers.kill(actorName) && p.isOnline())
+                            p.sendMessage(color("&c[CombatBody gate] lethal damage call failed."));
+                    }
+                },1L);
+
+                Bukkit.getScheduler().runTaskLater(this,new Runnable() {
+                    public void run() {
+                        double afterDtr=actorFactionDtr(actorName);
+                        boolean eventSeen=fakePlayers.deathEventSeen(actorName);
+                        boolean damageWorked=hp1<hp0;
+                        boolean dtrWorked=!Double.isNaN(afterDtr) &&
+                            afterDtr<=beforeDtr-expectedLoss+0.0001;
+                        boolean pass=damageWorked && eventSeen && dtrWorked;
+                        if(p.isOnline()) {
+                            p.sendMessage(color((pass?"&a":"&c")+"[CombatBody gate] "+
+                                (pass?"PASS":"FAIL")+
+                                " &7PlayerDeathEvent=&f"+eventSeen+
+                                " &7DTR=&f"+String.format(Locale.US,"%.2f",beforeDtr)+
+                                "->"+String.format(Locale.US,"%.2f",afterDtr)+
+                                " &7expectedLoss=&f"+String.format(Locale.US,"%.2f",expectedLoss)));
+                            if(pass)
+                                p.sendMessage(color("&aThe fake player used the existing EraCore death/DTR authority path. No bot-only DTR shortcut was used."));
+                            else
+                                p.sendMessage(color("&cDo not enable production CombatBodies yet. Keep fights on Mineflayer and inspect the server log."));
+                        }
+                    }
+                },6L);
+            } catch(Exception ex) {
+                p.sendMessage(color("&c[CombatBody gate] spawn failed: "+ex.getMessage()));
+            }
+            return true;
+        }
+
+        p.sendMessage(color("&cUnknown /simactor action. Use /simactor for help."));
+        return true;
     }
 
     private boolean ownerOnly(Player p) {

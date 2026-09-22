@@ -853,6 +853,14 @@ async function commandBrain(state) {
     return
   }
 
+  const baseBoundAction=['build','farm','brew','gear','safe','supply','gather'].includes(String(action))
+  if(baseBoundAction && faction!=='none' && !tagged && !nearAssignedHome(state,72) &&
+     now-(state.lastTeleportAttempt||0)>5000) {
+    state.lastTeleportAttempt=now
+    await tryCommand(state,'/f home',900)
+    return
+  }
+
   // DTR recovery means get safely home if teleporting is legal.
   if (action === 'safe' && !tagged && faction !== 'none' &&
       now - (state.lastTeleportAttempt || 0) > 20000) {
@@ -2188,6 +2196,24 @@ async function localMotion(state, action) {
       await equipBestWeapon(state)
       stopMovement(bot)
       await sleep(260)
+      continue
+    }
+
+    const isPatrolLeader=String(state.job?.leader || '').toLowerCase()===String(state.name||'').toLowerCase()
+    if(teamIntent && isPatrolLeader && nearbyAllies<requiredNearby &&
+       Date.now()-(state.zoneArrivalAt||Date.now())<14000) {
+      stopMovement(bot)
+      const gateX=Number(state.job?.gateX),gateY=Number(state.job?.gateY),gateZ=Number(state.job?.gateZ)
+      if(nearAssignedHome(state,70) && [gateX,gateY,gateZ].every(Number.isFinite)) {
+        const gd=Math.hypot(bot.entity.position.x-gateX,bot.entity.position.z-gateZ)
+        if(gd>4) await smartGoto(state,gateX,gateY,gateZ,3,2600,false)
+      }
+      const ally=nearestRoamAlly(state,30)
+      try {
+        if(ally) await bot.lookAt(ally.position.offset(0,1.25,0),false)
+        else await bot.look(bot.entity.yaw+rand(-0.22,0.22),0,false)
+      } catch {}
+      await sleep(Math.round(rand(220,520)))
       continue
     }
 

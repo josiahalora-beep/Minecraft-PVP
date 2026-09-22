@@ -198,7 +198,7 @@ final class LogicalTabListDirector {
         Object worldServer=craftWorld.getClass().getMethod("getHandle").invoke(craftWorld);
 
         Class<?> gpClass=Class.forName("com.mojang.authlib.GameProfile");
-        UUID uuid=UUID.nameUUIDFromBytes(("EraSim:"+lowerName).getBytes(StandardCharsets.UTF_8));
+        UUID uuid=ActorDirectory.stableOfflineUuid(realName);
         Object profile=gpClass.getConstructor(UUID.class,String.class).newInstance(uuid,realName);
 
         Class<?> wsClass=Class.forName("net.minecraft.server.v1_8_R3.WorldServer");

@@ -135,24 +135,32 @@ final class HcfBasePlan {
 
     int[] storageSlot(int index) {
         int i=Math.max(0,Math.min(13,index));
-        if(storageVariant==0) {
-            // Two long central banks: visually dense and easy to scan.
-            int row=i<7?0:1;
-            int col=i%7;
-            return new int[]{cx-10+col*3,undergroundY+1,cz-3+row*6};
-        }
-        if(storageVariant==1) {
-            // Two perimeter banks with a broad center aisle.
-            int row=i<7?0:1;
-            int col=i%7;
-            return new int[]{cx-coreHalfX+3+row*(coreHalfX*2-8),
-                undergroundY+1,cz-9+col*3};
-        }
-        // Split aisles: slightly less perfect, common for a base expanded in
-        // stages instead of planned as one showroom.
         int row=i<7?0:1;
         int col=i%7;
-        return new int[]{cx-9+row*12,undergroundY+1,cz-9+col*3};
+        int storageSide=-utilitySide; // brewer/portals own utilitySide permanently
+
+        int outer;
+        int inner;
+        if(storageVariant==0) {
+            // Central double-sided island shifted away from utility machinery.
+            outer=6;
+            inner=2;
+        } else if(storageVariant==1) {
+            // Perimeter-style banks, still leaving a dedicated utility strip.
+            outer=Math.max(7,coreHalfX-4);
+            inner=Math.max(3,outer-4);
+        } else {
+            // Split aisles: looks like a room expanded in stages.
+            outer=Math.min(9,coreHalfX-5);
+            inner=4;
+        }
+
+        int x=cx+storageSide*(row==0?outer:inner);
+        // Double chests extend +X; nudge negative-side banks one block inward
+        // so the pair remains fully inside the reserved storage half.
+        if(storageSide<0) x-=1;
+        int z=cz-9+col*3;
+        return new int[]{x,undergroundY+1,z};
     }
 
     int surfacePadRadius() {

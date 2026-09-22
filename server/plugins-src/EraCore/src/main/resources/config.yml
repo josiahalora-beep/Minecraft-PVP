@@ -326,5 +326,9 @@ spawn-build-protection:
   radius: 82
   corner-pad: 10
 
+travel:
+  # /spawn and /warp are HCF escape-sensitive commands, never instant.
+  warmup-seconds: 10
+
 stuck:
   cooldown-seconds: 60

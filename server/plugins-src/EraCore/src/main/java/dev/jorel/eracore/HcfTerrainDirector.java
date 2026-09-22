@@ -33,6 +33,8 @@ final class HcfTerrainDirector implements Listener {
         if(!e.isNewChunk()) return;
         if(!plugin.getConfig().getBoolean("terrain.normalize-new-chunks",true)) return;
         if(e.getWorld().getEnvironment()!=World.Environment.NORMAL) return;
+        // Ore Mountain is a separate resource world and keeps its own terrain.
+        if(Bukkit.getWorlds().isEmpty() || !e.getWorld().equals(Bukkit.getWorlds().get(0))) return;
 
         final Chunk chunk=e.getChunk();
         Bukkit.getScheduler().runTaskLater(plugin,new Runnable() {

@@ -97,6 +97,11 @@ final class NmsFakePlayerRuntime {
         if(at==null || at.getWorld()==null) throw new IllegalArgumentException("Missing spawn world/location.");
         if(hasBody(name)) return bodies.get(key(name)).bukkit;
 
+        int maxBodies=probe?1:Math.max(1,Math.min(64,
+            plugin.getConfig().getInt("actors.fake-player.max-bodies",8)));
+        if(bodies.size()>=maxBodies)
+            throw new IllegalStateException("CombatBody cap reached ("+maxBodies+").");
+
         Player connected=Bukkit.getPlayerExact(name);
         if(connected!=null) throw new IllegalStateException(name+" already has a connected Minecraft client.");
 

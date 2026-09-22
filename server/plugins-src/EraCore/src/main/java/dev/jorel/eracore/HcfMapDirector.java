@@ -170,11 +170,30 @@ final class HcfMapDirector implements Listener {
         return r==null?"":r.name+" is protected.";
     }
 
+    boolean canClaimRect(World world,int minX,int maxX,int minZ,int maxZ) {
+        return claimReasonRect(world,minX,maxX,minZ,maxZ).isEmpty();
+    }
+
+    String claimReasonRect(World world,int minX,int maxX,int minZ,int maxZ) {
+        if(world==null) return "Invalid claim world.";
+        if(!"overworld".equals(worldKey(world))) return "Faction claims are only allowed in the Overworld.";
+
+        int x1=Math.min(minX,maxX),x2=Math.max(minX,maxX);
+        int z1=Math.min(minZ,maxZ),z2=Math.max(minZ,maxZ);
+        for(Region r:regions) {
+            if(!"overworld".equals(r.worldKey) || !r.claimProtected) continue;
+            double cx=Math.max(x1,Math.min(r.x,x2));
+            double cz=Math.max(z1,Math.min(r.z,z2));
+            double dx=cx-r.x,dz=cz-r.z;
+            if(dx*dx+dz*dz <= (double)r.radius*(double)r.radius)
+                return r.name+" has a no-claim radius.";
+        }
+        return "";
+    }
+
     boolean canClaim(Location l) {
         if(l==null || l.getWorld()==null) return false;
-        if(!"overworld".equals(worldKey(l.getWorld()))) return false;
-        for(Region r:regions) if("overworld".equals(r.worldKey) && r.claimProtected && r.contains(l)) return false;
-        return true;
+        return canClaimRect(l.getWorld(),l.getBlockX(),l.getBlockX(),l.getBlockZ(),l.getBlockZ());
     }
 
     String claimReason(Location l) {

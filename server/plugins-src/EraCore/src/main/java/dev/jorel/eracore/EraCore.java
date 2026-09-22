@@ -68,6 +68,9 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     private HcfInfrastructureDirector infrastructure;
     private HcfGateDirector gateDirector;
     private HcfTerrainDirector terrainDirector;
+    private HcfElevatorDirector elevatorDirector;
+    private HcfTravelDirector travelDirector;
+    private HcfPortalDirector portalDirector;
 
     enum Rank {
         MEMBER(0, "&7[Member]", 24),
@@ -167,6 +170,9 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         autoBrewer = new HcfAutoBrewerDirector(this);
         gateDirector = new HcfGateDirector(this);
         terrainDirector = new HcfTerrainDirector(this);
+        elevatorDirector = new HcfElevatorDirector(this);
+        travelDirector = new HcfTravelDirector(this);
+        portalDirector = new HcfPortalDirector(warpManager);
         hcfZones = new HcfZoneDisplayDirector(this, warpManager);
         infrastructure = new HcfInfrastructureDirector(this,warpManager,hcfZones);
         logicalTab = new LogicalTabListDirector(this, simWorld);
@@ -176,6 +182,9 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         getServer().getPluginManager().registerEvents(spawnRewards, this);
         getServer().getPluginManager().registerEvents(gateDirector, this);
         getServer().getPluginManager().registerEvents(terrainDirector, this);
+        getServer().getPluginManager().registerEvents(elevatorDirector, this);
+        getServer().getPluginManager().registerEvents(travelDirector, this);
+        getServer().getPluginManager().registerEvents(portalDirector, this);
         hookTickTimes();
         startMetrics();
         startPowerRegen();
@@ -388,6 +397,10 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         addBuy("sugar", Material.SUGAR, (short)0, 6.0);
         addBuy("magmacream", Material.MAGMA_CREAM, (short)0, 22.0);
         addBuy("glass", Material.GLASS, (short)0, 2.0);
+        // Physical portals are intentionally expensive strategic infrastructure.
+        addBuy("flintsteel", Material.FLINT_AND_STEEL, (short)0, 175.0);
+        addBuy("endframe", Material.ENDER_PORTAL_FRAME, (short)0, 900.0);
+        addBuy("eyeofender", Material.EYE_OF_ENDER, (short)0, 175.0);
         addBuy("book", Material.BOOK, (short)0, 12.0);
         addBuy("lapis", Material.INK_SACK, (short)4, 5.0);
     }
@@ -1017,8 +1030,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             p.sendMessage(color("&cYou cannot /spawn while combat tagged. &7"+hcfZones.tagSeconds(p)+"s remaining."));
             return true;
         }
-        p.teleport(target);
-        p.sendMessage(color("&7Teleported to spawn."));
+        if(travelDirector!=null) travelDirector.request(p,target,"spawn");
+        else p.teleport(target);
         return true;
     }
 
@@ -1084,8 +1097,9 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             p.sendMessage(color("&cYou cannot use warps while combat tagged. &7"+hcfZones.tagSeconds(p)+"s remaining."));
             return true;
         }
-        p.teleport(l);
-        p.sendMessage(color("&7Warped to &f" + a[0].toLowerCase(Locale.ENGLISH) + "&7."));
+        String name=a[0].toLowerCase(Locale.ENGLISH);
+        if(travelDirector!=null) travelDirector.request(p,l,"warp "+name);
+        else p.teleport(l);
         return true;
     }
 
@@ -1737,6 +1751,18 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (hcfBaseBuilder != null) hcfBaseBuilder.queueBase(faction,preset,trapPreset,x,y,z);
     }
 
+    void queueSimSurfaceBuild(String faction,String preset,int x,int y,int z) {
+        if(hcfBaseBuilder!=null) hcfBaseBuilder.queueSurfaceStarter(faction,preset,x,y,z);
+    }
+
+    void queueSimStorageUpgrade(String faction,String preset,int tier,int x,int y,int z) {
+        if(hcfBaseBuilder!=null) hcfBaseBuilder.queueStorageUpgrade(faction,preset,tier,x,y,z);
+    }
+
+    void queueSimPortalBuild(String faction,String preset,String type,int x,int y,int z) {
+        if(hcfBaseBuilder!=null) hcfBaseBuilder.queuePortal(faction,preset,type,x,y,z);
+    }
+
     void queueSimTerrainRepair(String faction, String preset, String trapPreset, int x, int y, int z) {
         if (hcfBaseBuilder != null) hcfBaseBuilder.queueTerrainRepair(faction,preset,trapPreset,x,y,z);
     }
@@ -1752,13 +1778,27 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     void registerAutoBrewerSite(String faction,String preset,int x,int y,int z) {
         if(autoBrewer==null || hcfBaseBuilder==null) return;
-        int[] core=hcfBaseBuilder.anchor(preset,"brewer",x,y,z);
+        int[] core=hcfBaseBuilder.anchor(faction,preset,"brewer",x,y,z);
         autoBrewer.register(faction,core[0],core[1],core[2]);
+    }
+
+    HcfBasePlan.Profile simBaseProfile(String faction) {
+        return simWorld==null?new HcfBasePlan.Profile():simWorld.baseProfile(faction);
+    }
+
+    int[] simBaseAnchor(String faction,String preset,String kind,int x,int y,int z) {
+        if(hcfBaseBuilder==null) return new int[]{x,y+1,z};
+        return hcfBaseBuilder.anchor(faction,preset,kind,x,y,z);
     }
 
     int[] simBaseAnchor(String preset,String kind,int x,int y,int z) {
         if(hcfBaseBuilder==null) return new int[]{x,y+1,z};
         return hcfBaseBuilder.anchor(preset,kind,x,y,z);
+    }
+
+    int[] simStorageAnchor(String faction,String preset,String category,int x,int y,int z) {
+        if(hcfBaseBuilder==null) return new int[]{x,y+1,z};
+        return hcfBaseBuilder.storageAnchor(faction,preset,category,x,y,z);
     }
 
     boolean autoBrewerPhysicalActive(String faction) {

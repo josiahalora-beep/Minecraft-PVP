@@ -1910,7 +1910,12 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             return true;
         }
 
+        if(simWorld!=null) simWorld.resetForSotw();
         if(eventDirector!=null) eventDirector.resetForNewMap();
+        if(claimDirector!=null) {
+            for(Faction f:new ArrayList<Faction>(factions.values()))
+                claimDirector.clearFactionClaim(f.name);
+        }
         saveAll();
         Bukkit.broadcastMessage(color("&4[SOTW] &cFull season reset queued. &7Server shutting down safely in 5 seconds."));
         for(Player x:Bukkit.getOnlinePlayers())

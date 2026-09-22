@@ -326,13 +326,20 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             version=2;
         }
 
+        if(version<3) {
+            getConfig().set("base-builder.visible-blocks-per-tick",16);
+            getConfig().set("base-builder.repair-existing-on-start",true);
+            getConfig().set("travel.warmup-seconds",10);
+            version=3;
+        }
+
         getConfig().set("migration.living-world-version",version);
         saveConfig();
         getLogger().info("Applied living-world v"+version+": staged bases, combat presentation, quieter chat and logical tab population.");
     }
 
     private void bindCommands() {
-        String[] cmds = {"rank","kit","kits","balance","pay","sell","buy","shop","vote","keys","crates","stats","history","duel","f","spawn","stuck","setspawn","warp","warps","setwarp","delwarp","spawnpreset","msg","r","simchat","sotw","simworker","simcombat","safezone","teamfight","bard","archer","miner","rogue","simprobe","simmap","simstate","duelprep"};
+        String[] cmds = {"rank","kit","kits","balance","pay","sell","buy","shop","vote","keys","crates","stats","history","duel","f","spawn","stuck","setspawn","warp","warps","setwarp","delwarp","spawnpreset","msg","r","simchat","sotw","simworker","simcombat","safezone","teamfight","bard","archer","miner","rogue","simprobe","simmap","simstate","duelprep","baserate"};
         for (String c : cmds) getCommand(c).setExecutor(this);
     }
 
@@ -1015,7 +1022,35 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (c.equals("simmap")) return cmdSimMap(p,args);
         if (c.equals("simstate")) return cmdSimState(p,args);
         if (c.equals("duelprep")) return cmdDuelPrep(p);
+        if (c.equals("baserate")) return cmdBaseRate(p,args);
         return false;
+    }
+
+    private boolean cmdBaseRate(Player p,String[] a) {
+        if(!ownerOnly(p)) return true;
+        if(a.length<1 || a.length>2) {
+            p.sendMessage("/baserate <1-5> [faction]");
+            return true;
+        }
+        int score;
+        try { score=Integer.parseInt(a[0]); }
+        catch(Exception e) { score=0; }
+        if(score<1 || score>5) {
+            p.sendMessage(color("&cRating must be from 1 to 5."));
+            return true;
+        }
+
+        String faction=a.length==2?a[1]:(simWorld==null?"":simWorld.nearestBaseFaction(p.getLocation(),96.0));
+        if(faction==null || faction.isEmpty()) {
+            p.sendMessage(color("&cNo simulated faction base found nearby. Use /baserate <1-5> <faction>."));
+            return true;
+        }
+        if(simWorld==null || !simWorld.recordBaseRating(faction,score,p.getName())) {
+            p.sendMessage(color("&cUnknown simulated faction: &f"+faction));
+            return true;
+        }
+        p.sendMessage(color("&aRecorded base rating &f"+score+"/5 &afor &f"+faction+"&a."));
+        return true;
     }
 
     private boolean ownerOnly(Player p) {

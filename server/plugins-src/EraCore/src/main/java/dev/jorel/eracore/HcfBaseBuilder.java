@@ -79,7 +79,7 @@ final class HcfBaseBuilder {
         HcfBasePlan plan=planFor(faction,cx,y,cz);
         prepareTerrainPad(world,cx,y,cz,plan.surfacePadRadius(),plan.surfacePadRadius());
         buildSurfaceShell(world,plan,false);
-        sealCriticalEnvelope(world,plan,false);
+        sealSurfaceEnvelope(world,plan,false);
         ensureRunner();
     }
 
@@ -658,7 +658,7 @@ final class HcfBaseBuilder {
         if(openTransit) buildVerticalTransit(w,p);
     }
 
-    private void sealCriticalEnvelope(World w,HcfBasePlan p,boolean dropdownOpen) {
+    private void sealSurfaceEnvelope(World w,HcfBasePlan p,boolean dropdownOpen) {
         int top=p.surfaceY+p.surfaceHeight;
         int[] d=p.anchor("drop");
 
@@ -675,6 +675,10 @@ final class HcfBaseBuilder {
                 queue.add(new Op(w,x,top+1,z,roofBeam?p.surfaceFrame:Material.GLASS));
             }
         }
+    }
+
+    private void sealCriticalEnvelope(World w,HcfBasePlan p,boolean dropdownOpen) {
+        sealSurfaceEnvelope(w,p,dropdownOpen);
 
         // Re-assert the underground central box envelope. Internal modules are
         // left untouched; this only prevents cave/excavation seams at the shell.

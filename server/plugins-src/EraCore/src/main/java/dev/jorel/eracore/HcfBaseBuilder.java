@@ -287,10 +287,11 @@ final class HcfBaseBuilder {
         runner = new BukkitRunnable() {
             public void run() {
                 int configured = Math.max(20, plugin.getConfig().getInt("base-builder.blocks-per-tick", 120));
-                // When a human is online, let the construction remain visibly unfinished
-                // long enough for HOT builders to sell the illusion.  Offscreen construction
-                // catches up aggressively so the world still progresses while unattended.
-                int budget = plugin.hasHumanOnline() ? Math.min(configured, 40) : configured;
+                // When a human is online, let construction remain visibly unfinished
+                // long enough for HOT builders to sell the illusion. Offscreen work
+                // catches up aggressively so the world still evolves unattended.
+                int visible=Math.max(4,plugin.getConfig().getInt("base-builder.visible-blocks-per-tick",16));
+                int budget = plugin.hasHumanOnline() ? Math.min(configured,visible) : configured;
                 int n = 0;
                 while (n < budget && !queue.isEmpty()) {
                     Op op = queue.poll();

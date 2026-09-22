@@ -508,9 +508,9 @@ final class SimWorldDirector {
                 f.brewer,f.netherPortal,f.endPortal);
             rebuilt++;
 
-            List<String> desired=baseFootprintClaims(world.getName(),f);
+            int[] rect=baseFootprintRect(f);
             org.bukkit.Location home=new org.bukkit.Location(world,f.baseX+0.5,f.baseY+1,f.baseZ+0.5);
-            plugin.setSimFactionHomeAndClaims(f.name,home,desired);
+            plugin.setSimFactionHomeAndRectClaim(f.name,home,rect[0],rect[1],rect[2],rect[3]);
         }
         data.set("meta.terrain-repair-version",9);
         recordHistory("BASE_REBUILD",5,"Base Intelligence v9 force-rematerialized "+rebuilt+
@@ -536,9 +536,9 @@ final class SimWorldDirector {
                 f.baseX,f.baseY,f.baseZ,Math.max(1,f.storageTier),
                 f.brewer,f.netherPortal,f.endPortal);
 
-            List<String> desired=baseFootprintClaims(world.getName(),f);
+            int[] rect=baseFootprintRect(f);
             org.bukkit.Location home=new org.bukkit.Location(world,f.baseX+0.5,f.baseY+1,f.baseZ+0.5);
-            plugin.setSimFactionHomeAndClaims(f.name,home,desired);
+            plugin.setSimFactionHomeAndRectClaim(f.name,home,rect[0],rect[1],rect[2],rect[3]);
             rebuilt++;
         }
 
@@ -7021,10 +7021,11 @@ final class SimWorldDirector {
         f.baseY = Math.max(minY, Math.min(maxY, bestEval[0]));
 
         org.bukkit.Location home = new org.bukkit.Location(world, f.baseX + 0.5, f.baseY + 1, f.baseZ + 0.5);
-        List<String> claims = baseFootprintClaims(world.getName(),f);
-        f.claimRadiusChunks = Math.max(1,(int)Math.ceil(Math.sqrt(claims.size())/2.0));
+        int[] rect=baseFootprintRect(f);
+        int radiusBlocks=Math.max(Math.abs(f.baseX-rect[0]),Math.abs(f.baseZ-rect[2]));
+        f.claimRadiusChunks=Math.max(1,(int)Math.ceil(radiusBlocks/16.0));
 
-        if (!plugin.setSimFactionHomeAndClaims(f.name, home, claims)) {
+        if (!plugin.setSimFactionHomeAndRectClaim(f.name,home,rect[0],rect[1],rect[2],rect[3])) {
             f.baseX = 0;
             f.baseZ = 0;
             return false;
@@ -7042,6 +7043,12 @@ final class SimWorldDirector {
         int r=18+members;
         if("fall_trap".equalsIgnoreCase(f.trapPreset)) r=Math.max(r,22);
         return r;
+    }
+
+    private int[] baseFootprintRect(SimFaction f) {
+        int buffer=Math.max(4,plugin.getConfig().getInt("claims.sim-base-buffer-blocks",8));
+        int r=baseTerrainRadius(f)+buffer;
+        return new int[]{f.baseX-r,f.baseX+r,f.baseZ-r,f.baseZ+r};
     }
 
     private List<String> baseFootprintClaims(String world, SimFaction f) {

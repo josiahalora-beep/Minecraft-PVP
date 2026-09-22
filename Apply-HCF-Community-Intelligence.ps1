@@ -46,6 +46,13 @@ foreach ($relative in $backupItems) {
   Copy-Item $src $dest -Recurse -Force
 }
 
+$eraSourceDir = Join-Path $root 'server\plugins-src\EraCore\src\main\java\dev\jorel\eracore'
+if (Test-Path $eraSourceDir) {
+  Write-Host 'Removing mixed/stale EraCore Java sources after backup...' -ForegroundColor Cyan
+  Remove-Item $eraSourceDir -Recurse -Force
+}
+New-Item -ItemType Directory -Force -Path $eraSourceDir | Out-Null
+
 $files = @(
   'bots/package.json',
   'bots/src/combat-profiles.js',

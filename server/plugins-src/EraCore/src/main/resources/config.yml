@@ -436,3 +436,20 @@ world-composer:
     conquest: conquest.schematic
     nether-spawn: NetherSpawnWillzaTeam.schematic
     end: magical-hcf-end-xayden-bt.schematic
+
+# Experimental three-runtime actor layer. Production materialization stays off
+# until the one-body damage/death/DTR probe passes on the exact v1_8_R3 server.
+actors:
+  fake-player:
+    enabled: false
+    allow-probe: true
+    materialize-on-tp: false
+    max-bodies: 8
+    default-ping: 55
+
+# Deterministic bounded memory; no recurring LLM summarization.
+memory:
+  relationship-max: 32
+  history-max-events: 2500
+  archive-max-bytes: 8388608
+  duplicate-window-seconds: 900

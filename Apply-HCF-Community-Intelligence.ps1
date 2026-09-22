@@ -73,10 +73,10 @@ $files = @(
   'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/EraCore.java',
   'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfAutoBrewerDirector.java',
   'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfBaseBuilder.java',
-  'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfTravelDirector.java',
-  'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfPortalDirector.java',
-  'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfElevatorDirector.java',
   'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfBasePlan.java',
+  'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfElevatorDirector.java',
+  'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfPortalDirector.java',
+  'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfTravelDirector.java',
   'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfInfrastructureDirector.java',
   'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfGateDirector.java',
   'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfTerrainDirector.java',
@@ -105,13 +105,14 @@ foreach ($remote in $files) {
 }
 
 # Base Intelligence v1 changes physical base geometry even when the world is preserved.
-# Reset only the structural repair marker; keep simulation, economy, ranks, social state and faction progress.
+# Reset only the structural repair marker; keep simulation/economy/rank/social state.
 $simulation = Join-Path (Join-Path $root 'server\plugins\EraCore') 'simulation.yml'
 if (Test-Path $simulation) {
   $sourceLines = @(Get-Content $simulation)
   $outputLines = New-Object System.Collections.Generic.List[string]
   $versionFound = $false
   $metaSeen = $false
+
   foreach ($line in $sourceLines) {
     if ($line -match '^\s*terrain-repair-version:\s*\d+\s*
   # Keep simulation/ranks/economy/faction history. Replace only physical worlds
@@ -127,6 +128,41 @@ if (Test-Path $simulation) {
   foreach ($relative in @('infrastructure.yml','warps.yml','config.yml')) {
     $p = Join-Path $runtime $relative
     if (Test-Path $p) { Remove-Item $p -Force }
+  }
+
+  # Force SimWorldDirector's structural migration to rebuild every saved base,
+  # storage vault, brewer and claim footprint onto the regenerated terrain.
+  $simulation = Join-Path $runtime 'simulation.yml'
+  if (Test-Path $simulation) {
+    $sourceLines = @(Get-Content $simulation)
+    $outputLines = New-Object System.Collections.Generic.List[string]
+    $versionFound = $false
+    $metaSeen = $false
+
+    foreach ($line in $sourceLines) {
+      if ($line -match '^\s*terrain-repair-version:\s*\d+\s*$') {
+        $indent = ([regex]::Match($line,'^\s*')).Value
+        $outputLines.Add($indent + 'terrain-repair-version: 0')
+        $versionFound = $true
+        continue
+      }
+
+      $outputLines.Add($line)
+      if (!$metaSeen -and $line.Trim() -eq 'meta:') {
+        $metaSeen = $true
+        if (!$versionFound) {
+          $outputLines.Add('  terrain-repair-version: 0')
+          $versionFound = $true
+        }
+      }
+    }
+
+    if (!$versionFound) {
+      $outputLines.Add('meta:')
+      $outputLines.Add('  terrain-repair-version: 0')
+    }
+
+    Set-Content -Path $simulation -Value $outputLines -Encoding UTF8
   }
 
   Write-Host "Legacy physical worlds removed. Backup: $backup" -ForegroundColor Green
@@ -167,7 +203,7 @@ Write-Host ''
 if ($ResetWorld) {
   Write-Host 'Physical worlds will regenerate; simulation/rank/economy/faction state was preserved.' -ForegroundColor Green
 } else {
-  Write-Host 'Live worlds were preserved. Existing bases will receive the v6 structural migration.' -ForegroundColor Green
+  Write-Host 'Live worlds were preserved. Existing bases will receive the v8 Base Intelligence structural migration.' -ForegroundColor Green
   Write-Host 'Use -ResetWorld for the cleanest terrain/floating-block correction.' -ForegroundColor DarkYellow
 }
 Write-Host 'Restart the server first, then restart the worker pool.' -ForegroundColor Yellow
@@ -200,6 +236,7 @@ Write-Host '  Oracle workers use bots/start-worker-linux.sh with the same coordi
       $versionFound = $true
       continue
     }
+
     $outputLines.Add($line)
     if (!$metaSeen -and $line.Trim() -eq 'meta:') {
       $metaSeen = $true
@@ -209,10 +246,12 @@ Write-Host '  Oracle workers use bots/start-worker-linux.sh with the same coordi
       }
     }
   }
+
   if (!$versionFound) {
     $outputLines.Add('meta:')
     $outputLines.Add('  terrain-repair-version: 0')
   }
+
   Set-Content -Path $simulation -Value $outputLines -Encoding UTF8
 }
 

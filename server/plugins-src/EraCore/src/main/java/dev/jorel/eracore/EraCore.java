@@ -372,10 +372,10 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             getConfig().set("worker-pool.anchor-bodies",20);
             getConfig().set("worker-pool.prestige-bodies",10);
 
-            getConfig().set("sim-chat.min-delay-seconds",2);
-            getConfig().set("sim-chat.max-delay-seconds",5);
-            getConfig().set("sim-chat.quiet-min-delay-seconds",7);
-            getConfig().set("sim-chat.quiet-max-delay-seconds",15);
+            getConfig().set("sim-chat.min-delay-seconds",3);
+            getConfig().set("sim-chat.max-delay-seconds",7);
+            getConfig().set("sim-chat.quiet-min-delay-seconds",10);
+            getConfig().set("sim-chat.quiet-max-delay-seconds",24);
             getConfig().set("sim-chat.identity-cooldown-seconds",18);
             getConfig().set("sim-chat.line-cooldown-seconds",55);
             getConfig().set("sim-chat.fan-reaction-cooldown-seconds",180);
@@ -396,8 +396,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             getConfig().set("map-layout.build-visible-borders",true);
             getConfig().set("map-layout.show-claim-border",true);
 
-            getConfig().set("safezones.nether.radius",75);
-            getConfig().set("safezones.end.radius",95);
+            getConfig().set("safezones.nether-radius",75);
+            getConfig().set("safezones.end-radius",95);
             getConfig().set("events.koth-capture-seconds",180);
             getConfig().set("events.koth-capture-radius",8.0);
             getConfig().set("events.conquest-score-to-win",300);
@@ -417,6 +417,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             getConfig().set("resources.creeper.z",235);
             getConfig().set("resources.creeper.radius",60);
             getConfig().set("resources.creeper.stack-cap",25);
+            getConfig().set("resources.bootstrap-spawners",true);
             getConfig().set("resources.end-exit.x",330);
             getConfig().set("resources.end-exit.z",0);
             getConfig().set("resources.end-exit.safe-radius",34);
@@ -424,6 +425,13 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             getConfig().set("world-composer.enabled",true);
             getConfig().set("world-composer.blocks-per-tick",7000);
             getConfig().set("world-composer.spawn-anchor-y",66);
+            getConfig().set("claims.min-width",12);
+            getConfig().set("claims.max-width",110);
+            getConfig().set("claims.sim-base-buffer-blocks",8);
+            getConfig().set("terrain.cleanup-height",46);
+            getConfig().set("terrain.road-flat-half-width",20.0);
+            getConfig().set("terrain.road-shoulder-half-width",72.0);
+            getConfig().set("terrain.custom-decoration",true);
             version=5;
         }
 

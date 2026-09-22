@@ -41,6 +41,9 @@ final class HcfBasePlan {
     final int coreHalfX;
     final int coreHalfZ;
     final int storageVariant;
+    final int surfaceShape; // 0 box, 1 chamfered, 2 box + small later-looking bay
+    final int frontGateOffset;
+    final int utilitySide;
     final int finishTier;
 
     final Material surfaceFrame;
@@ -76,6 +79,11 @@ final class HcfBasePlan {
         this.coreHalfX=12+members+((seed/19)%3);
         this.coreHalfZ=10+members+((seed/23)%3);
         this.storageVariant=(seed/31)%3;
+        int rawShape=(seed/37)%3;
+        // Less experienced/rushed builders disproportionately choose the easy box.
+        this.surfaceShape=this.profile.builderQuality<42 && rawShape==1?0:rawShape;
+        this.frontGateOffset=((seed/41)%5)-2;
+        this.utilitySide=((seed/47)&1)==0?-1:1;
 
         int finish=this.profile.builderQuality>=76?2:(this.profile.builderQuality>=48?1:0);
         if(this.profile.wealthTier>=2 && finish<2) finish++;
@@ -105,22 +113,22 @@ final class HcfBasePlan {
 
     int[] anchor(String kind) {
         String k=kind==null?"":kind.toLowerCase(Locale.ENGLISH);
-        if("gate".equals(k)) return new int[]{cx,surfaceY+1,cz-surfaceHalfZ};
+        if("gate".equals(k)) return new int[]{cx+frontGateOffset,surfaceY+1,cz-surfaceHalfZ};
         if("core".equals(k) || "home".equals(k)) return new int[]{cx,undergroundY+1,cz};
         if("drop".equals(k)) return new int[]{cx-3,surfaceY+1,cz-1};
         if("drop-bottom".equals(k)) return new int[]{cx-3,undergroundY+1,cz-1};
         if("elevator".equals(k)) return new int[]{cx+3,undergroundY+1,cz+1};
         if("storage".equals(k)) return new int[]{cx-coreHalfX+5,undergroundY+1,cz+1};
         if("refill".equals(k)) return new int[]{cx-1,undergroundY+1,cz-coreHalfZ+4};
-        if("brewer".equals(k)) return new int[]{cx+coreHalfX-6,undergroundY+1,cz+1};
+        if("brewer".equals(k)) return new int[]{cx+utilitySide*(coreHalfX-6),undergroundY+1,cz+1};
         if("farm".equals(k) || "money-farm".equals(k))
             return new int[]{cx,undergroundY-6,cz+5};
         if("wart-farm".equals(k))
             return new int[]{cx,undergroundY-6,cz-8};
         if("portal-nether".equals(k))
-            return new int[]{cx+coreHalfX-3,undergroundY+1,cz-coreHalfZ+5};
+            return new int[]{cx+utilitySide*(coreHalfX-3),undergroundY+1,cz-coreHalfZ+5};
         if("portal-end".equals(k))
-            return new int[]{cx+coreHalfX-3,undergroundY+1,cz-coreHalfZ+12};
+            return new int[]{cx+utilitySide*(coreHalfX-3),undergroundY+1,cz-coreHalfZ+12};
         return new int[]{cx,undergroundY+1,cz};
     }
 

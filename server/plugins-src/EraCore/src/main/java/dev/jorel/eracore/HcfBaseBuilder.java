@@ -51,11 +51,17 @@ final class HcfBaseBuilder {
         if (world == null) return;
 
         HcfBasePlan plan=planFor(faction,cx,y,cz);
-        prepareTerrainPad(world,cx,y,cz,plan.surfacePadRadius(),plan.surfacePadRadius());
+        String surfaceKey="surface:"+faction.toLowerCase();
+        boolean surfaceAlreadyQueued=completed.contains(surfaceKey);
 
-        // SOTW queue order is intentional: complete the roofed/fence-gated top
-        // shell first, then excavate the expensive underground infrastructure.
-        buildSurfaceShell(world,plan,true);
+        // If the rushed SOTW shell was already queued, never flatten/erase it
+        // again. Its operations are already ahead of these in the same FIFO;
+        // append the dropdown/core work and continue downward.
+        if(!surfaceAlreadyQueued) {
+            prepareTerrainPad(world,cx,y,cz,plan.surfacePadRadius(),plan.surfacePadRadius());
+            buildSurfaceShell(world,plan,true);
+            completed.add(surfaceKey);
+        }
         buildUndergroundCore(world,plan);
 
         if ("fall_trap".equalsIgnoreCase(trapPreset)) buildFallTrap(world,cx,y,cz);

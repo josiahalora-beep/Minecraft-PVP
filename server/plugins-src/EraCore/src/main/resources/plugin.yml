@@ -83,10 +83,9 @@ commands:
     usage: /rogue
   duelprep:
     usage: /duelprep
-permissions:
-  eracore.owner:
-    default: op
-
   baserate:
     description: Rate the nearest generated faction base for design feedback
     usage: /baserate <1-5> [faction]
+permissions:
+  eracore.owner:
+    default: op

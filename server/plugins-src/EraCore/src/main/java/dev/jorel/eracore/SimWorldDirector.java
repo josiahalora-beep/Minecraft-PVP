@@ -5131,14 +5131,20 @@ final class SimWorldDirector {
         }
 
         boolean large=f.members.size()>=4 || f.powerFaction;
-        if(large && f.brewer && !f.netherPortal && f.treasury>=3500.0 && f.obsidian>=14) {
-            f.treasury-=2200.0;
+        double flintCost=Math.max(1500.0,plugin.buyUnitPrice("flintsteel"));
+        if(large && f.brewer && !f.netherPortal && f.treasury>=Math.max(3500.0,flintCost) && f.obsidian>=14) {
+            // Obsidian is consumed from faction stock; the expensive shop-only
+            // activation tool represents the convenience premium of fast Nether access.
+            f.treasury-=flintCost;
             f.obsidian-=14;
             f.netherPortal=true;
             plugin.queueSimPortalBuild(f.name,f.basePreset,"nether",f.baseX,f.baseY,f.baseZ);
         }
-        if(large && f.netherPortal && !f.endPortal && f.treasury>=12000.0) {
-            f.treasury-=12000.0;
+
+        double endCost=12.0*Math.max(1200.0,plugin.buyUnitPrice("endframe"))+
+            12.0*Math.max(250.0,plugin.buyUnitPrice("eyeofender"));
+        if(large && f.netherPortal && !f.endPortal && f.treasury>=endCost) {
+            f.treasury-=endCost;
             f.endPortal=true;
             plugin.queueSimPortalBuild(f.name,f.basePreset,"end",f.baseX,f.baseY,f.baseZ);
         }

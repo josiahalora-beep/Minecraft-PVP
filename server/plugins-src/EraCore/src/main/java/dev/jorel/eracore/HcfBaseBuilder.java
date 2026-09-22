@@ -44,6 +44,92 @@ final class HcfBaseBuilder {
         this.plugin = plugin;
     }
 
+    void forceRebuild(String faction,String preset,String trapPreset,int cx,int y,int cz,
+                      int storageTier,boolean brewer,boolean netherPortal,boolean endPortal) {
+        if(faction==null || faction.trim().isEmpty()) return;
+        String k=faction.toLowerCase(java.util.Locale.ENGLISH);
+
+        // Explicit operator/migration rebuilds must not be suppressed by the
+        // normal once-per-runtime dedupe set.
+        completed.remove("base:"+k);
+        completed.remove("surface:"+k);
+        completed.remove("farm:"+k);
+        completed.remove("brewer:"+k);
+        completed.remove("storage:"+k+":1");
+        completed.remove("storage:"+k+":2");
+        completed.remove("storage:"+k+":3");
+        completed.remove("portal:"+k+":nether");
+        completed.remove("portal:"+k+":end");
+        completed.remove("foundation:"+k);
+        completed.remove("terrain:"+k);
+
+        World world=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
+        if(world==null) return;
+
+        HcfBasePlan plan=planFor(faction,cx,y,cz);
+        clearBrokenBaseVolumes(world,plan);
+
+        // Rebuild one complete connected baseline in a known order.
+        prepareTerrainPad(world,cx,y,cz,plan.surfacePadRadius(),plan.surfacePadRadius());
+        buildSurfaceShell(world,plan,true);
+        buildUndergroundCore(world,plan);
+        sealCriticalEnvelope(world,plan,true);
+
+        int tier=Math.max(1,Math.min(3,storageTier));
+        if(tier>1) buildStorageTier(world,plan,tier);
+        if(brewer) {
+            buildUndergroundBrewer(world,plan);
+            plugin.registerAutoBrewerSite(faction,preset,cx,y,cz);
+        }
+        if(netherPortal) buildFactionPortal(world,plan,"nether");
+        if(endPortal) buildFactionPortal(world,plan,"end");
+
+        if ("fall_trap".equalsIgnoreCase(trapPreset)) buildFallTrap(world,cx,y,cz);
+        else if ("fence_gate_bow".equalsIgnoreCase(trapPreset)) buildFenceGateBowTrap(world,cx,y,cz);
+        else if ("drop_chute".equalsIgnoreCase(trapPreset)) buildDropChute(world,cx,y,cz);
+
+        completed.add("base:"+k);
+        completed.add("surface:"+k);
+        completed.add("farm:"+k);
+        completed.add("storage:"+k+":"+tier);
+        if(brewer) completed.add("brewer:"+k);
+        if(netherPortal) completed.add("portal:"+k+":nether");
+        if(endPortal) completed.add("portal:"+k+":end");
+
+        ensureRunner();
+    }
+
+    private void clearBrokenBaseVolumes(World w,HcfBasePlan p) {
+        // Surface: remove every previous generated shell/wing/roof in this
+        // faction work pad. Grade itself is rebuilt by prepareTerrainPad().
+        int pad=p.surfacePadRadius();
+        int top=Math.min(w.getMaxHeight()-1,p.surfaceY+p.surfaceHeight+10);
+        for(int x=p.cx-pad;x<=p.cx+pad;x++) for(int z=p.cz-pad;z<=p.cz+pad;z++) {
+            for(int yy=p.surfaceY+1;yy<=top;yy++)
+                queue.add(new Op(w,x,yy,z,Material.AIR));
+        }
+
+        // Underground: replace the entire generated work volume with stone
+        // before carving the corrected connected core/farm/transit layout.
+        // This removes old sealed islands and accidental cave/excavation seams.
+        int hx=p.coreHalfX+4;
+        int hz=p.coreHalfZ+4;
+        int low=Math.max(3,p.undergroundY-9);
+        int high=Math.min(w.getMaxHeight()-2,p.undergroundY+8);
+        for(int x=p.cx-hx;x<=p.cx+hx;x++) for(int z=p.cz-hz;z<=p.cz+hz;z++) {
+            for(int yy=low;yy<=high;yy++)
+                queue.add(new Op(w,x,yy,z,Material.STONE));
+        }
+
+        // Re-open only the lined 5x5 transit column through the untouched
+        // natural stone between the surface and underground work volume.
+        int[] d=p.anchor("drop");
+        for(int x=d[0]-2;x<=d[0]+2;x++) for(int z=d[2]-2;z<=d[2]+2;z++) {
+            for(int yy=high+1;yy<=p.surfaceY;yy++)
+                queue.add(new Op(w,x,yy,z,Material.STONE));
+        }
+    }
+
     void queueBase(String faction, String preset, String trapPreset, int cx, int y, int cz) {
         String key = "base:" + faction.toLowerCase();
         if (!completed.add(key)) return;

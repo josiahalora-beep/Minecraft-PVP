@@ -949,6 +949,8 @@ final class HcfBaseBuilder {
 
         // Sugar cane is the Daegon money engine.  Put it in the largest lanes.
         for(int z=farm[2]-hz+2;z<=farm[2]-1;z+=3) {
+            // Reserve the faction-center z line as a dry circulation/stair aisle.
+            if(Math.abs(z-p.cz)<=1) continue;
             for(int x=farm[0]-hx+2;x<=farm[0]+hx-2;x++) {
                 boolean water=((x-(farm[0]-hx+2))%4)==1;
                 queue.add(new Op(w,x,floor,z,water?Material.STATIONARY_WATER:Material.SAND));

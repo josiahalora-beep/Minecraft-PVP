@@ -42,15 +42,36 @@ foreach ($relative in $backupItems) {
   Copy-Item $src $dest -Recurse -Force
 }
 
+$eraSourceDir = Join-Path $root 'server\plugins-src\EraCore\src\main\java\dev\jorel\eracore'
+if (Test-Path $eraSourceDir) {
+  Write-Host 'Removing mixed/stale EraCore Java sources after backup...' -ForegroundColor Cyan
+  Remove-Item $eraSourceDir -Recurse -Force
+}
+New-Item -ItemType Directory -Force -Path $eraSourceDir | Out-Null
+
 $files = @(
   'bots/src/worker-pool.js',
+  'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/AiChatBridge.java',
+  'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/ContextChatBrain.java',
   'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/EraCore.java',
+  'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfAutoBrewerDirector.java',
   'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfBaseBuilder.java',
   'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfBasePlan.java',
+  'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfClassDirector.java',
   'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfElevatorDirector.java',
+  'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfGateDirector.java',
+  'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfInfrastructureDirector.java',
   'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfPortalDirector.java',
+  'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfTerrainDirector.java',
   'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfTravelDirector.java',
+  'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfZoneDisplayDirector.java',
+  'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/LogicalTabListDirector.java',
+  'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/SimChatDirector.java',
+  'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/SimEconomyModel.java',
   'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/SimWorldDirector.java',
+  'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/SpawnPresenceDirector.java',
+  'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/SpawnRewardsDirector.java',
+  'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/WarpManager.java',
   'server/plugins-src/EraCore/src/main/resources/config.yml',
   'server/plugins-src/EraCore/src/main/resources/plugin.yml'
 )

@@ -1083,6 +1083,31 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         return new int[]{(int)Math.round(r.x),y,(int)Math.round(r.z)};
     }
 
+    int[] hcfPatrolPoint(String faction,String zone) {
+        String z=zone==null?"spawn":zone.toLowerCase(Locale.ENGLISH);
+        int h=Math.abs((faction==null?"":faction.toLowerCase(Locale.ENGLISH)).hashCode());
+
+        if("nether".equals(z) && mapDirector!=null) {
+            HcfMapDirector.Region r=mapDirector.region((h&1)==0?"glowstone":"nether-koth");
+            if(r!=null) return new int[]{(int)r.x,getConfig().getInt("resources.blaze.y",70),(int)r.z};
+        }
+        if("end".equals(z) && mapDirector!=null) {
+            HcfMapDirector.Region r=mapDirector.region((h&1)==0?"end-koth":"creeper");
+            if(r!=null) return new int[]{(int)r.x,getConfig().getInt("resources.creeper.y",69),(int)r.z};
+        }
+
+        // Ordinary Overworld PvP searches happen on the four Kraken roads
+        // between Spawn and the KOTH quadrants. KOTH coordinates are reserved
+        // for actual event objectives.
+        int d=300+(h%3)*55;
+        switch(h%4) {
+            case 0: return new int[]{0,getConfig().getInt("map.surface-y",63)+1,-d};
+            case 1: return new int[]{d,getConfig().getInt("map.surface-y",63)+1,0};
+            case 2: return new int[]{0,getConfig().getInt("map.surface-y",63)+1,d};
+            default:return new int[]{-d,getConfig().getInt("map.surface-y",63)+1,0};
+        }
+    }
+
     static String colorText(String s) {
         return color(s);
     }

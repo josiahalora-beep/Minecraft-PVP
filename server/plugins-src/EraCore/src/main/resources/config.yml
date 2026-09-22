@@ -328,3 +328,20 @@ spawn-build-protection:
 
 stuck:
   cooldown-seconds: 60
+
+# Experimental three-runtime actor layer. Keep production materialization off
+# until /simactor probe <logical-online faction player> reports PASS locally.
+actors:
+  fake-player:
+    enabled: false
+    allow-probe: true
+    materialize-on-tp: false
+    default-ping: 55
+
+# Deterministic bounded memory. Maintenance is local code only; no recurring
+# LLM summarization is required to age/dedupe/compact actor context.
+memory:
+  relationship-max: 32
+  history-max-events: 2500
+  archive-max-bytes: 8388608
+  duplicate-window-seconds: 900

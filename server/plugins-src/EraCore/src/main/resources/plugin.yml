@@ -86,3 +86,7 @@ commands:
 permissions:
   eracore.owner:
     default: op
+
+  baserate:
+    description: Rate the nearest generated faction base for design feedback
+    usage: /baserate <1-5> [faction]

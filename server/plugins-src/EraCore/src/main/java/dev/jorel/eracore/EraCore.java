@@ -547,6 +547,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     @EventHandler(priority=EventPriority.HIGHEST) public void onQuit(PlayerQuitEvent e) {
         Player p = e.getPlayer();
+        if(claimDirector!=null) claimDirector.onQuit(p);
         if(activeDuel!=null && p.getName().equalsIgnoreCase(activeDuel.human)) {
             if(simWorld!=null) simWorld.cancelDuel(activeDuel.human,activeDuel.sim,"opponent disconnected");
             restoreDuelHuman(p);
@@ -578,6 +579,12 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         Rank rank = simRankFor(name);
         String marker = joining ? "&8[&a+&8] " : "&8[&c-&8] ";
         Bukkit.broadcastMessage(color(marker + identityPrefix(name,rank) + rankNameColor(rank) + name + factionSuffix(name)));
+    }
+
+    @EventHandler(priority=EventPriority.MONITOR, ignoreCancelled=true)
+    public void onFactionTerritoryMove(PlayerMoveEvent e) {
+        if(claimDirector!=null && e.getTo()!=null)
+            claimDirector.onMove(e.getPlayer(),e.getFrom(),e.getTo());
     }
 
     @EventHandler(priority=EventPriority.HIGHEST) public void onChat(AsyncPlayerChatEvent e) {
@@ -652,17 +659,24 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     @EventHandler(priority=EventPriority.HIGHEST, ignoreCancelled=true) public void onClaimInteract(PlayerInteractEvent e) {
+        Player p=e.getPlayer();
+        Faction own=factionOf(p.getName());
+
+        if(claimDirector!=null && claimDirector.isClaimWand(e.getItem())) {
+            boolean allowed=own!=null && own.leader!=null && own.leader.equalsIgnoreCase(p.getName());
+            claimDirector.handleWand(e,own==null?"":own.name,allowed);
+            return;
+        }
+
         if (e.getClickedBlock() == null) return;
         Action action = e.getAction();
         if (action != Action.RIGHT_CLICK_BLOCK && action != Action.LEFT_CLICK_BLOCK) return;
-
-        Player p = e.getPlayer();
         if (getRank(p.getName()) == Rank.OWNER) return;
 
-        String owner = claimOwners.get(claimKey(e.getClickedBlock().getLocation()));
-        if (owner == null) return;
+        String owner=claimDirector==null?"":claimDirector.ownerAt(e.getClickedBlock().getLocation());
+        if(owner==null || owner.isEmpty()) owner=claimOwners.get(claimKey(e.getClickedBlock().getLocation()));
+        if (owner == null || owner.isEmpty()) return;
 
-        Faction own = factionOf(p.getName());
         if (own != null && own.name.equalsIgnoreCase(owner)) return;
 
         Faction target = factions.get(owner.toLowerCase(Locale.ENGLISH));
@@ -701,8 +715,9 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
                 it.remove();
                 continue;
             }
-            String owner = claimOwners.get(claimKey(b.getLocation()));
-            if (owner == null) continue;
+            String owner=claimDirector==null?"":claimDirector.ownerAt(b.getLocation());
+            if(owner==null || owner.isEmpty()) owner=claimOwners.get(claimKey(b.getLocation()));
+            if (owner == null || owner.isEmpty()) continue;
             Faction target = factions.get(owner.toLowerCase(Locale.ENGLISH));
             if (target != null) {
                 // HCF raids are opened by DTR, never by TNT/cannoning.
@@ -3096,6 +3111,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     private void removeFaction(Faction f) {
         factions.remove(f.name.toLowerCase(Locale.ENGLISH));
         for(String c:new ArrayList<String>(f.claims)) claimOwners.remove(c);
+        if(claimDirector!=null) claimDirector.clearFactionClaim(f.name);
     }
 
     private Faction factionOf(String player) {
@@ -3256,25 +3272,52 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         Faction f = factions.get(factionName.toLowerCase(Locale.ENGLISH));
         if (f == null) return false;
 
-        if (claims != null) {
-            // Validate the entire new footprint before mutating any existing
-            // claims. Claim replacement is all-or-nothing.
-            for (String ck : claims) {
-                String owner = claimOwners.get(ck);
-                if (owner != null && !owner.equalsIgnoreCase(f.name)) return false;
+        if(claims!=null && !claims.isEmpty() && claimDirector!=null) {
+            String worldName=null;
+            int minCx=Integer.MAX_VALUE,maxCx=Integer.MIN_VALUE,minCz=Integer.MAX_VALUE,maxCz=Integer.MIN_VALUE;
+            for(String raw:claims) {
+                String[] parts=raw==null?new String[0]:raw.split(":");
+                if(parts.length<3) continue;
+                try {
+                    if(worldName==null) worldName=parts[0];
+                    if(!worldName.equalsIgnoreCase(parts[0])) continue;
+                    int cx=Integer.parseInt(parts[1]),cz=Integer.parseInt(parts[2]);
+                    minCx=Math.min(minCx,cx);maxCx=Math.max(maxCx,cx);
+                    minCz=Math.min(minCz,cz);maxCz=Math.max(maxCz,cz);
+                } catch(Exception ignored){}
             }
-
-            Set<String> oldClaims = new LinkedHashSet<String>(f.claims);
-            for (String old : oldClaims) claimOwners.remove(old);
-
-            f.claims.clear();
-            for (String ck : claims) {
-                f.claims.add(ck);
-                claimOwners.put(ck, f.name);
+            World w=worldName==null?null:Bukkit.getWorld(worldName);
+            if(w!=null && minCx!=Integer.MAX_VALUE) {
+                if(!claimDirector.setFactionClaim(f.name,w,minCx*16,maxCx*16+15,minCz*16,maxCz*16+15))
+                    return false;
             }
         }
 
+        // Clear legacy chunk ownership after migration. Exact rectangles are now
+        // authoritative and avoid jagged claim edges.
+        for(String old:new ArrayList<String>(f.claims)) {
+            String owner=claimOwners.get(old);
+            if(owner!=null && owner.equalsIgnoreCase(f.name)) claimOwners.remove(old);
+        }
+        f.claims.clear();
+
         f.home = home == null ? null : home.clone();
+        saveFactions();
+        return true;
+    }
+
+    synchronized boolean setSimFactionHomeAndRectClaim(String factionName,Location home,
+                                                        int minX,int maxX,int minZ,int maxZ) {
+        Faction f=factions.get(factionName.toLowerCase(Locale.ENGLISH));
+        if(f==null || home==null || home.getWorld()==null || claimDirector==null) return false;
+        if(!claimDirector.setFactionClaim(f.name,home.getWorld(),minX,maxX,minZ,maxZ)) return false;
+
+        for(String old:new ArrayList<String>(f.claims)) {
+            String owner=claimOwners.get(old);
+            if(owner!=null && owner.equalsIgnoreCase(f.name)) claimOwners.remove(old);
+        }
+        f.claims.clear();
+        f.home=home.clone();
         saveFactions();
         return true;
     }
@@ -3378,8 +3421,9 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             p.sendMessage(color("&cSafezone is protected."));
             return false;
         }
-        String owner=claimOwners.get(claimKey(l));
-        if(owner==null) return true;
+        String owner=claimDirector==null?"":claimDirector.ownerAt(l);
+        if(owner==null || owner.isEmpty()) owner=claimOwners.get(claimKey(l));
+        if(owner==null || owner.isEmpty()) return true;
         Faction own=factionOf(p.getName());
         if(own!=null&&own.name.equalsIgnoreCase(owner)) return true;
         Faction target=factions.get(owner.toLowerCase(Locale.ENGLISH));
@@ -3477,7 +3521,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
         // Never terraform claimed faction land.
         String ck=world.getName()+":"+(x>>4)+":"+(z>>4);
-        if(claimOwners.containsKey(ck)) return;
+        if(claimOwners.containsKey(ck) ||
+           (claimDirector!=null && !claimDirector.ownerAt(new Location(world,x,y,z)).isEmpty())) return;
 
         // Don't move terrain through a currently visible body.
         for(Player p:Bukkit.getOnlinePlayers()) {

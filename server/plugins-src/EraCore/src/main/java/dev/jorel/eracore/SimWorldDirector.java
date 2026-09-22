@@ -3394,8 +3394,22 @@ final class SimWorldDirector {
                 if(!e.people.contains(person)) e.people.add(person);
             }
         }
+
+        // Low-value repeated ambient events should reinforce context, not grow
+        // storage. High-importance kills/raids/promotions are never suppressed.
+        if(e.importance<=4) {
+            String fp=(e.type+"|"+e.faction+"|"+e.summary).toLowerCase(Locale.ENGLISH);
+            Long last=recentHistoryFingerprints.get(fp);
+            if(last!=null && e.at-last<historyDuplicateWindowMillis()) return;
+            recentHistoryFingerprints.put(fp,e.at);
+            while(recentHistoryFingerprints.size()>1200) {
+                Iterator<String> it=recentHistoryFingerprints.keySet().iterator();
+                if(it.hasNext()){it.next();it.remove();} else break;
+            }
+        }
+
         communityHistory.addLast(e);
-        while(communityHistory.size()>2500) communityHistory.removeFirst();
+        while(communityHistory.size()>historyMemoryLimit()) communityHistory.removeFirst();
         appendMemoryArchive(e);
     }
 
@@ -3409,7 +3423,7 @@ final class SimWorldDirector {
             if(!relevant && person!=null && !person.isEmpty()) {
                 for(String p:e.people) if(person.equalsIgnoreCase(p)) { relevant=true; break; }
             }
-            if(relevant || e.importance>=8) out.add(e);
+            if(relevant || (e.importance>=9 && (e.faction==null || e.faction.isEmpty()))) out.add(e);
         }
         return out;
     }
@@ -6108,7 +6122,7 @@ final class SimWorldDirector {
                 e.people.addAll(h.getStringList("people"));
                 if(!e.summary.isEmpty()) communityHistory.addLast(e);
             }
-            while(communityHistory.size()>2500) communityHistory.removeFirst();
+            while(communityHistory.size()>historyMemoryLimit()) communityHistory.removeFirst();
         }
 
         ConfigurationSection social = data.getConfigurationSection("social");
@@ -6128,7 +6142,7 @@ final class SimWorldDirector {
                 for(String memory:s.getStringList("memories")) {
                     if(memory!=null && !memory.trim().isEmpty()) e.memories.addLast(memory);
                 }
-                while(e.memories.size()>64) e.memories.removeFirst();
+                while(e.memories.size()>relationshipMemoryLimit()) e.memories.removeFirst();
                 socialEdges.put(socialKey(e.from,e.to),e);
             }
         }

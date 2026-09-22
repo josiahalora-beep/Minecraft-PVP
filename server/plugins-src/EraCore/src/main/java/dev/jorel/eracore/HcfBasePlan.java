@@ -124,6 +124,29 @@ final class HcfBasePlan {
         return new int[]{cx,undergroundY+1,cz};
     }
 
+
+    int[] storageSlot(int index) {
+        int i=Math.max(0,Math.min(13,index));
+        if(storageVariant==0) {
+            // Two long central banks: visually dense and easy to scan.
+            int row=i<7?0:1;
+            int col=i%7;
+            return new int[]{cx-10+col*3,undergroundY+1,cz-3+row*6};
+        }
+        if(storageVariant==1) {
+            // Two perimeter banks with a broad center aisle.
+            int row=i<7?0:1;
+            int col=i%7;
+            return new int[]{cx-coreHalfX+3+row*(coreHalfX*2-8),
+                undergroundY+1,cz-9+col*3};
+        }
+        // Split aisles: slightly less perfect, common for a base expanded in
+        // stages instead of planned as one showroom.
+        int row=i<7?0:1;
+        int col=i%7;
+        return new int[]{cx-9+row*12,undergroundY+1,cz-9+col*3};
+    }
+
     int surfacePadRadius() {
         return Math.max(surfaceHalfX,surfaceHalfZ)+8;
     }

@@ -4,7 +4,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$validatedCommit = 'b5abb553bbbf161c02d7a5cf1b0e7afba413ddc7'
+$validatedCommit = '865a8b26b844fb5951b5e8cb375f8310528d4f65'
 $base = "https://raw.githubusercontent.com/josiahalora-beep/Minecraft-PVP/$validatedCommit"
 
 Write-Host 'IMPORTANT: stop the Minecraft server and all worker/coordinator processes before running this updater.' -ForegroundColor Yellow

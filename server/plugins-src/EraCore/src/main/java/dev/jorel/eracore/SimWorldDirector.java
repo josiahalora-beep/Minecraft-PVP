@@ -233,6 +233,7 @@ final class SimWorldDirector {
         String interaction = "none";
         String interactionAction = "none";
         String targetBlock = "";
+        String event = "none";
         String pvpIntent = "AVOID";
         int desiredPartySize = 1;
         int homeX;
@@ -271,6 +272,7 @@ final class SimWorldDirector {
                 " interaction=" + interaction +
                 " interactionAction=" + interactionAction +
                 " targetBlock=" + targetBlock +
+                " event=" + event +
                 " pvpIntent=" + pvpIntent +
                 " partySize=" + desiredPartySize +
                 " homeX=" + homeX + " homeY=" + homeY + " homeZ=" + homeZ +
@@ -1983,12 +1985,21 @@ final class SimWorldDirector {
                 break;
 
             case PVP_READY:
-                if ("farmer".equals(p.preferredJob)) {
+                if(shouldContestActiveEvent(p,f)) {
+                    int[] eventPoint=plugin.activeHcfEventPoint();
+                    t.action="patrol";
+                    t.zone="spawn";
+                    t.event=plugin.activeHcfEventId();
+                    if(eventPoint!=null) {
+                        t.x=eventPoint[0];t.y=eventPoint[1];t.z=eventPoint[2];
+                    }
+                    t.priority=94+p.teamwork/5+p.reputation/8;
+                } else if ("farmer".equals(p.preferredJob)) {
                     t.action = "farm";
                     t.x = bx - 8;
                     t.y = by;
                     t.z = bz + 8;
-                    t.priority = 66;
+                    t.priority = 72;
                 } else if ("brewer".equals(p.preferredJob)) {
                     t.action = "brew";
                     int[] brewer=plugin.simBaseAnchor(f.name,f.basePreset,"brewer",f.baseX,f.baseY,f.baseZ);
@@ -1998,23 +2009,48 @@ final class SimWorldDirector {
                     t.interaction="brewer";
                     t.interactionAction="operate";
                     t.targetBlock="brewing_stand";
-                    t.priority = 70;
-                } else {
-                    t.action = "patrol";
-                    t.zone = warzoneForFaction(f);
+                    t.priority = f.healPots<Math.max(24,f.members.size()*12)?82:68;
+                } else if ("miner".equals(p.preferredJob) && !shouldRoamNow(p,f)) {
+                    t.action = "mine";
+                    t.zone = "base";
                     t.x = bx;
                     t.y = by;
                     t.z = bz;
-                    t.priority = 52 + p.aggression/4;
+                    t.priority = 68;
+                } else if ("builder".equals(p.preferredJob) && !shouldRoamNow(p,f)) {
+                    t.action = "build";
+                    t.x = bx;
+                    t.y = by;
+                    t.z = bz;
+                    t.priority = 65;
+                } else if (shouldRoamNow(p,f)) {
+                    t.action = "patrol";
+                    t.zone = warzoneForFaction(f);
+                    int[] patrol=plugin.hcfPatrolPoint(f.name,t.zone);
+                    if(patrol!=null){t.x=patrol[0];t.y=patrol[1];t.z=patrol[2];}
+                    t.priority = 58 + p.aggression/4 + ("leader".equals(p.role)?12:0);
+                } else {
+                    // Mature HCF did not mean every member lived in warzone.
+                    // The remaining bodies visibly refill, sort, inspect and
+                    // socialize around the base until the faction is ready to go.
+                    t.action = (p.economicIq>=68?"gear":"social");
+                    t.x = bx;
+                    t.y = by;
+                    t.z = bz;
+                    t.priority = 54 + p.loyalty/6;
                 }
                 break;
         }
 
         if (p.logicalOnline && p.currentGoal != null && !p.currentGoal.isEmpty()) {
             String g=p.currentGoal;
+            if("patrol".equals(g) && f.stage==Stage.PVP_READY &&
+               !shouldRoamNow(p,f) && !shouldContestActiveEvent(p,f)) {
+                g=readyBaseAction(p,f);
+            }
             if ("mine".equals(g) || "gather".equals(g) || "supply".equals(g) || "build".equals(g) ||
                 "farm".equals(g) || "brew".equals(g) || "gear".equals(g) || "patrol".equals(g) ||
-                "scout".equals(g) || "safe".equals(g) || "recruit".equals(g)) {
+                "scout".equals(g) || "safe".equals(g) || "recruit".equals(g) || "social".equals(g)) {
                 t.action=g;
                 if("patrol".equals(g)) t.zone=warzoneForFaction(f);
                 t.priority=Math.max(t.priority,goalPriority(p,g));
@@ -2039,8 +2075,62 @@ final class SimWorldDirector {
         } else if("farm".equals(t.action)) {
             int[] farm=plugin.simBaseAnchor(f.name,f.basePreset,"farm",f.baseX,f.baseY,f.baseZ);
             t.x=farm[0]; t.y=farm[1]; t.z=farm[2];
+        } else if("patrol".equals(t.action)) {
+            if(shouldContestActiveEvent(p,f)) {
+                int[] eventPoint=plugin.activeHcfEventPoint();
+                t.zone="spawn";
+                t.event=plugin.activeHcfEventId();
+                if(eventPoint!=null){t.x=eventPoint[0];t.y=eventPoint[1];t.z=eventPoint[2];}
+            } else {
+                int[] patrol=plugin.hcfPatrolPoint(f.name,t.zone);
+                if(patrol!=null){t.x=patrol[0];t.y=patrol[1];t.z=patrol[2];}
+            }
         }
         return t;
+    }
+
+    private boolean shouldContestActiveEvent(SimPlayer p,SimFaction f) {
+        if(p==null || f==null || f.recoveryMode || f.stage!=Stage.PVP_READY) return false;
+        String type=plugin.activeHcfEventType();
+        if(type==null || type.isEmpty() || plugin.activeHcfEventPoint()==null) return false;
+        if(combatStockSlots(f)<=0 || f.healPots<8 || f.pearls<2) return false;
+
+        int score=p.aggression+p.teamwork+p.pvpIq+p.gameSense;
+        if("leader".equals(p.role)) score+=55;
+        if(p.combatClass==CombatClass.BARD || p.combatClass==CombatClass.ARCHER) score+=18;
+        if("farmer".equals(p.preferredJob)) score-=55;
+        if("brewer".equals(p.preferredJob) && f.healPots<f.members.size()*12) score-=65;
+
+        long epoch=System.currentTimeMillis()/180000L;
+        int gate=Math.abs((key(p.name)+"|"+plugin.activeHcfEventId()+"|"+epoch).hashCode())%100;
+        int chance=Math.max(15,Math.min(88,(score-145)/3));
+        return gate<chance;
+    }
+
+    private boolean shouldRoamNow(SimPlayer p,SimFaction f) {
+        if(p==null || f==null || f.recoveryMode || combatStockSlots(f)<=0) return false;
+
+        int desire=p.aggression+p.riskTolerance+p.pvpIq+p.gameSense/2+p.reputation/2;
+        if("leader".equals(p.role)) desire+=30;
+        if("PVP".equals(f.archetype) || f.powerFaction) desire+=22;
+        if("farmer".equals(p.preferredJob)) desire-=80;
+        if("brewer".equals(p.preferredJob)) desire-=55;
+        if("miner".equals(p.preferredJob)) desire-=30;
+        if("builder".equals(p.preferredJob)) desire-=25;
+
+        long epoch=System.currentTimeMillis()/150000L;
+        int roll=Math.abs((key(p.name)+"|roam|"+epoch).hashCode())%100;
+        int chance=Math.max(12,Math.min(72,(desire-115)/3));
+        return roll<chance;
+    }
+
+    private String readyBaseAction(SimPlayer p,SimFaction f) {
+        if(p==null) return "social";
+        if("farmer".equals(p.preferredJob)) return "farm";
+        if("brewer".equals(p.preferredJob)) return "brew";
+        if("miner".equals(p.preferredJob)) return "mine";
+        if("builder".equals(p.preferredJob)) return "build";
+        return p.economicIq>=65?"gear":"social";
     }
 
     private int cratePriority(SimPlayer p,boolean factioned) {

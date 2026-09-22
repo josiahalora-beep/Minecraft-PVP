@@ -5023,24 +5023,39 @@ final class SimWorldDirector {
             }
 
             if ("mine".equals(p.currentGoal) || "gather".equals(p.currentGoal) || "supply".equals(p.currentGoal)) {
-                int minerBonus = "miner".equals(p.preferredJob) ? 8 : 0;
-                int stoneMade=20 + minerBonus + rng.nextInt(18);
-                int ironMade=2 + ("miner".equals(p.preferredJob) ? 2 : 0) + rng.nextInt(4);
-                f.stone += stoneMade;
-                f.iron += ironMade;
-                if(f.storage) {
-                    mirrorDepositToStorage(f,Material.COBBLESTONE,stoneMade);
-                    mirrorDepositToStorage(f,Material.IRON_INGOT,ironMade);
-                }
-                f.xp += 2 + rng.nextInt(4);
-                if (rng.nextInt(100) < (12 + p.economicIq / 6)) {
-                    f.diamonds += 1;
-                    if(f.storage) mirrorDepositToStorage(f,Material.DIAMOND,1);
-                }
-                if (rng.nextInt(100) < (18 + p.economicIq / 7)) {
-                    int obby=1+rng.nextInt(2);
-                    f.obsidian += obby;
-                    if(f.storage) mirrorDepositToStorage(f,Material.OBSIDIAN,obby);
+                int urgency=(!f.surfaceQueued && sotwMillisLeft()<=180000L)?2:1;
+                if("gather".equals(p.currentGoal) || "supply".equals(p.currentGoal)) {
+                    // General SOTW gathering must actually produce logs; the old
+                    // abstraction only produced stone/iron and could deadlock a
+                    // resource-honest surface build waiting for wood forever.
+                    int woodMade=urgency*(10+("builder".equals(p.preferredJob)?5:0)+rng.nextInt(12));
+                    int stoneMade=urgency*(8+rng.nextInt(12));
+                    f.wood+=woodMade;
+                    f.stone+=stoneMade;
+                    if(f.storage) {
+                        mirrorDepositToStorage(f,Material.LOG,woodMade);
+                        mirrorDepositToStorage(f,Material.COBBLESTONE,stoneMade);
+                    }
+                } else {
+                    int minerBonus = "miner".equals(p.preferredJob) ? 8 : 0;
+                    int stoneMade=urgency*(20 + minerBonus + rng.nextInt(18));
+                    int ironMade=urgency*(2 + ("miner".equals(p.preferredJob) ? 2 : 0) + rng.nextInt(4));
+                    f.stone += stoneMade;
+                    f.iron += ironMade;
+                    if(f.storage) {
+                        mirrorDepositToStorage(f,Material.COBBLESTONE,stoneMade);
+                        mirrorDepositToStorage(f,Material.IRON_INGOT,ironMade);
+                    }
+                    f.xp += 2 + rng.nextInt(4);
+                    if (rng.nextInt(100) < (12 + p.economicIq / 6)) {
+                        f.diamonds += 1;
+                        if(f.storage) mirrorDepositToStorage(f,Material.DIAMOND,1);
+                    }
+                    if (rng.nextInt(100) < (18 + p.economicIq / 7)) {
+                        int obby=1+rng.nextInt(2);
+                        f.obsidian += obby;
+                        if(f.storage) mirrorDepositToStorage(f,Material.OBSIDIAN,obby);
+                    }
                 }
             } else if ("farm".equals(p.currentGoal)) {
                 // Farming is handled by SimEconomyModel so cash/items are conserved.
@@ -6140,6 +6155,11 @@ final class SimWorldDirector {
     boolean sotwProtectionActive() {
         long mins = plugin.getConfig().getLong("sotw.protection-minutes", 60L);
         return System.currentTimeMillis() - sotwStartedAt < mins * 60L * 1000L;
+    }
+
+    private long sotwMillisLeft() {
+        long total=plugin.getConfig().getLong("sotw.protection-minutes",60L)*60L*1000L;
+        return Math.max(0L,total-(System.currentTimeMillis()-sotwStartedAt));
     }
 
     boolean sotwRecruitingActive() {

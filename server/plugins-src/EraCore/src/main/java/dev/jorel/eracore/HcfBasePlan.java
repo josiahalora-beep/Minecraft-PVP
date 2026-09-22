@@ -159,7 +159,7 @@ final class HcfBasePlan {
         // Double chests extend +X; nudge negative-side banks one block inward
         // so the pair remains fully inside the reserved storage half.
         if(storageSide<0) x-=1;
-        int[] zOffsets={-10,-7,-4,3,6,9,12};
+        int[] zOffsets={-10,-7,-4,2,5,8,10};
         int z=cz+zOffsets[col]; // permanent center gap for dropdown/elevator traffic
         return new int[]{x,undergroundY+1,z};
     }

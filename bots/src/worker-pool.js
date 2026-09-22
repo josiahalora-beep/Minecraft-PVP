@@ -876,6 +876,11 @@ async function rawGoto(state, x, y, z, radius = 2, timeoutMs = 9000, canDig = fa
   }
 }
 
+function worldVec(bot,x,y,z) {
+  const base=bot.entity.position.floored()
+  return base.offset(Math.floor(x)-base.x,Math.floor(y)-base.y,Math.floor(z)-base.z)
+}
+
 function baseTransitNumbers(state) {
   const j=state.job || {}
   return {
@@ -905,7 +910,7 @@ async function useBaseDropdown(state) {
 
   try {
     stopMovement(bot)
-    await bot.lookAt(new Vec3(t.dropX+0.5,t.dropY-0.4,t.dropZ+0.5),false)
+    await bot.lookAt(worldVec(bot,t.dropX,t.dropY,t.dropZ).offset(0.5,-0.4,0.5),false)
     state.intentionalDropUntil=Date.now()+5500
     bot.setControlState('forward',true)
 
@@ -934,15 +939,15 @@ async function useBaseElevator(state) {
 
   let sign=null
   try {
-    const exact=bot.blockAt(new Vec3(Math.floor(t.elevatorX),Math.floor(t.elevatorY),Math.floor(t.elevatorZ)))
+    const exact=bot.blockAt(worldVec(bot,t.elevatorX,t.elevatorY,t.elevatorZ))
     const n=String(exact?.name || '')
     if(n.includes('sign')) sign=exact
   } catch {}
   if(!sign) {
     const signs=nearbyBlocks(bot,['standing_sign','wall_sign','sign'],5,24)
     if(signs.length) {
-      signs.sort((a,b) => a.position.distanceTo(new Vec3(t.elevatorX,t.elevatorY,t.elevatorZ)) -
-                          b.position.distanceTo(new Vec3(t.elevatorX,t.elevatorY,t.elevatorZ)))
+      signs.sort((a,b) => a.position.distanceTo(worldVec(bot,t.elevatorX,t.elevatorY,t.elevatorZ)) -
+                          b.position.distanceTo(worldVec(bot,t.elevatorX,t.elevatorY,t.elevatorZ)))
       sign=signs[0]
     }
   }
@@ -1013,7 +1018,7 @@ function obviousFallTrapAhead(state,maxDepth=8) {
   let waterLanding=false
   for(let d=1;d<=maxDepth;d++) {
     let b=null
-    try { b=bot.blockAt(new Vec3(x,feetY-d,z)) } catch {}
+    try { b=bot.blockAt(worldVec(bot,x,feetY-d,z)) } catch {}
     if(!b) continue
     const name=String(b.name || '').toLowerCase()
     if(name.includes('water')) waterLanding=true

@@ -1,0 +1,66 @@
+name: build-phase0
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '8'
+      - name: Build EraCore
+        working-directory: server/plugins-src/EraCore
+        run: mvn -B package
+      - name: Install bot dependencies
+        working-directory: bots
+        run: npm install --no-audit --no-fund
+      - name: Validate Mineflayer plugin imports
+        working-directory: bots
+        run: node --input-type=module -e "await import('./src/common.js'); console.log('Mineflayer plugins import OK')"
+      - name: Validate PowerShell updater
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path './Apply-HCF-Community-Intelligence.ps1'),
+            [ref]$tokens,
+            [ref]$errors
+          )
+          if ($errors.Count -gt 0) {
+            $errors | Format-List | Out-String | Write-Error
+            exit 1
+          }
+      - name: Validate bot JavaScript
+        run: |
+          node --check bots/src/common.js
+          node --check bots/src/duel-bot.js
+          node --check bots/src/idle-benchmark.js
+          node --check bots/src/state-handoff.js
+          node --check bots/src/team-combat.js
+          node --check bots/src/worker-pool.js
+          node --check bots/src/combat-profiles.js
+          node --check bots/src/community-ai.js
+          node --check bots/src/worker-coordinator.js
+          node --check bots/src/distributed-smoke-test.js
+      - name: Smoke-test distributed coordinator
+        working-directory: bots
+        run: node src/distributed-smoke-test.js
+      - name: Build PolyMC import zip
+        run: |
+          cd polymc-instance
+          zip -r ../Daegon-Reborn-PolyMC-1.8.8.zip .
+      - name: Build server skeleton zip
+        run: |
+          zip -r Daegon-Reborn-Server-Skeleton.zip server setup-windows.ps1 bots docs README.md .gitignore -x 'bots/node_modules/*' 'bots/logs/*' 'server/buildtools/*' 'server/world*/*' 'server/plugins/*'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phase0-builds
+          path: |
+            server/plugins-src/EraCore/target/EraCore.jar
+            Daegon-Reborn-PolyMC-1.8.8.zip
+            Daegon-Reborn-Server-Skeleton.zip

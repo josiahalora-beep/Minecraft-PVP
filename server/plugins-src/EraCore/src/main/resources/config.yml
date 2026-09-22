@@ -1,0 +1,348 @@
+owner:
+  claim-first-human: true
+  uuid: ''
+  name: ''
+  ignored-prefixes:
+    - Bench
+    - DuelBot
+    - StateBot
+    - Sim
+    - Fake
+map:
+  auto-bootstrap: false
+  complete: true
+  surface-y: 63
+  world-border: 3000
+  warzone-smoothing-radius: 520
+  warzone-smoothing-version: 0
+  nether-border: 1000
+  manage-world-border: true
+  safezone-radius: 110
+  warzone-radius: 300
+economy:
+  starting-balance: 500.0
+  cycle-director-ticks: 10
+kits:
+  starter-cooldown-hours: 6
+
+rewards:
+  enabled: true
+  vote-cooldown-hours: 12
+  basic-key-hours: 24
+  silver-key-hours: 18
+  gold-key-hours: 12
+  platinum-key-hours: 8
+  vote-party-target: 20
+  # Exact historical Kohi vote/donor crate odds are not reliably documented.
+  # These tables are intentionally explicit and early-map balanced.
+  vote-odds:
+    money-250: 24.0
+    pearls-8: 18.0
+    iron-16: 15.0
+    obsidian-12: 12.0
+    diamonds-4: 10.0
+    heals-6: 8.0
+    wart-16: 5.0
+    glowstone-8: 4.0
+    sharp1-diamond: 2.5
+    donor-key: 1.2
+    rank-upgrade: 0.3
+  donor-odds:
+    money-750: 20.0
+    pearls-16: 18.0
+    diamonds-8: 15.0
+    obsidian-16: 12.0
+    heals-12: 12.0
+    speed-fire: 8.0
+    p2-iron-set: 6.0
+    sharp2-diamond: 4.0
+    vote-keys-2: 3.0
+    p2-diamond-chest: 1.0
+    bonus-donor-key: 0.5
+    rank-upgrade: 0.5
+
+pvp:
+  pearl-cooldown-seconds: 16
+metrics:
+  enabled: true
+  interval-seconds: 5
+
+creator-tag:
+  enabled: true
+  minimum-donor-level: 3
+  head-prefix: '&c[Yt] &f'
+  chat-prefix: '&c[Yt] '
+  creators:
+    - Stimpy
+    - Stimp
+    - Stimpypvp
+    - Marcel
+    - PainfulPvP
+    - lolitsalex
+    - loolitsalex
+    - Skimpy
+
+ai-chat:
+  enabled: true
+  endpoint: 'http://127.0.0.1:8765/reply'
+  timeout-ms: 6500
+
+sim-chat:
+  enabled: true
+  contextual-chat: true
+  max-conversation-memory: 12
+  second-responder-chance-percent: 15
+  min-delay-seconds: 6
+  max-delay-seconds: 14
+  quiet-min-delay-seconds: 20
+  quiet-max-delay-seconds: 40
+  identity-cooldown-seconds: 35
+  line-cooldown-seconds: 120
+  fan-reaction-cooldown-seconds: 30
+  max-fan-reactions: 2
+  roster:
+    - xRico
+    - SethPvP
+    - iTzMason
+    - FrostyHD
+    - NateMC
+    - PurpleDino
+    - xNova
+    - CamPvP
+    - iHackLite
+    - Jettison
+    - MasonHD
+    - ClutchKid
+    - xRekt
+    - RyanPvP
+    - HoaxMC
+    - Kinq
+    - Axion
+    - PandaPvP
+    - VerzideFan
+    - Toxxic
+    - BreezyMC
+    - RektByPing
+    - Cxdy
+    - LlamaPvP
+    - Beamed
+    - ZiblackingFan
+    - RedstoneKid
+    - CreeperHD
+    - iTzJordan
+    - NightPvP
+    - Stimpy
+    - Stimpypvp
+    - Marcel
+    - PainfulPvP
+    - lolitsalex
+    - Skimpy
+  fans:
+    - xRico
+    - SethPvP
+    - PurpleDino
+    - CamPvP
+    - MasonHD
+    - ClutchKid
+    - RyanPvP
+    - PandaPvP
+    - BreezyMC
+    - NightPvP
+  lines:
+    - 'anyone selling p4'
+    - 'who has pearls'
+    - 'buying obsidian'
+    - 'selling gapples msg me'
+    - 'any factions recruiting'
+    - 'who wants to pvp'
+    - 'gg'
+    - 'lol'
+    - 'need 1 more'
+    - 'anyone got blaze spawners'
+    - 'paying 8k for silk'
+    - 'who raided us'
+    - 'tp for 1v1'
+    - 'need pots'
+    - 'anyone mining'
+    - 'who wants ally'
+    - 'nice base lol'
+    - 'who just died at spawn'
+    - 'selling 2 dubs of cane'
+    - 'buying tnt'
+    - 'need fire res'
+    - 'who has a grinder'
+    - 'inv me'
+    - 'bruh'
+    - 'that combo'
+    - 'meet at spawn'
+    - 'selling pearls cheap'
+    - 'need one for our faction'
+    - 'who is rich rn'
+
+logical-tab:
+  visible-identities: 100
+  refresh-seconds: 10
+
+sim-world:
+  population: 150
+  tick-seconds: 8
+  factions-per-tick: 100
+  underdog-leaders: 2
+  base-y: 64
+  min-base-y: 50
+  max-base-y: 110
+  max-base-site-relief: 4
+  max-base-site-liquid-samples: 1
+  logical-online-min: 88
+  logical-online-peak: 132
+  logical-online-late-night: 52
+  session-min-minutes: 25
+  session-max-minutes: 140
+
+spawn-presence:
+  enabled: false
+  real-players-only: true
+  count: 4
+  update-ticks: 20
+  names:
+    - xRico
+    - PurpleDino
+    - BreezyMC
+    - MasonHD
+    - NightPvP
+    - Vexing
+
+hcf-classes:
+  enabled: true
+  bard-radius: 30.0
+  bard-click-seconds: 5
+  archer-bonus-per-block: 0.08
+  archer-max-bonus-damage: 4.0
+  miner-invisibility-y: 20
+  rogue-backstab-cooldown-seconds: 20
+  rogue-backstab-bonus-damage: 7.0
+
+dtr:
+  max-per-member: 1.1
+  max-cap: 5.5
+  loss-per-death: 1.0
+  raidable-at: 0.0
+  freeze-seconds-after-death: 120
+  regen-interval-seconds: 60
+  regen-per-interval: 0.35
+
+claims:
+  base: 4
+  per-member: 2
+  max-cap: 12
+
+sotw:
+  # Short bootstrap protection only. PvP should become part of the server loop
+  # early rather than factions spending an hour in an isolated economy phase.
+  protection-minutes: 12
+
+terrain:
+  normalize-new-chunks: true
+  flat-radius: 520
+  low-relief-amplitude: 2
+  relief-scale: 0.012
+  cleanup-height: 40
+
+base-builder:
+  blocks-per-tick: 120
+  interval-ticks: 2
+  gate-auto-close-ticks: 30
+  repair-existing-on-start: true
+
+combat-director:
+  hot-body-budget: 12
+  visible-fight-min-seconds: 10
+  visible-fight-max-seconds: 22
+  visible-fight-duration-seconds: 110
+  visible-fight-chance-percent: 94
+  three-way-brawl-chance-percent: 12
+  max-hot-per-faction: 5
+  observation-radius: 220
+  offscreen-resolution-seconds: 5
+  offscreen-brawl-chance-percent: 18
+  brawl-radius: 520
+  hotspot-funnel-percent: 76
+  sotw-scrim-min-seconds: 18
+  sotw-scrim-max-seconds: 34
+  sotw-scrim-duration-seconds: 75
+  sotw-scrim-chance-percent: 72
+
+worker-pool:
+  # Global HOT-body ceiling across every registered machine. The coordinator
+  # subdivides this budget into per-node leases.
+  max-bodies: 40
+  offline-bodies: 24
+  node-default-bodies: 12
+  max-per-faction: 5
+  reassess-seconds: 8
+  sync-seconds: 10
+  minimum-lease-seconds: 120
+  missing-candidate-grace-cycles: 4
+  rotation-score-margin: 18
+  fight-ambient-bodies: 2
+  creator-bodies:
+    - Stimpypvp
+    - Marcel
+    - PainfulPvP
+    - lolitsalex
+    - Skimpy
+
+safezones:
+  combat-tag-seconds: 60
+  overworld-radius: 110
+  nether-radius: 42
+  end-radius: 42
+  auto-build-borders: true
+  archer-tag-seconds: 10
+  archer-tag-damage-multiplier: 1.20
+
+duels:
+  center-x: 200
+  center-z: 0
+  timeout-seconds: 180
+  random-challenges: true
+
+infrastructure:
+  blocks-per-tick: 500
+  duel-center-x: 0
+  duel-center-z: -600
+  duel-floor-y: 70
+  nether-y: 70
+  end-y: 68
+
+spawn:
+  # External Kraken 150x150 build is authoritative. EraCore supplies mechanics,
+  # warps and protection but must not overwrite the schematic with its old hub.
+  external-schematic: true
+  preset: kraken
+  road-exit-distance: 122
+
+spawn-build-protection:
+  radius: 82
+  corner-pad: 10
+
+stuck:
+  cooldown-seconds: 60
+
+# Experimental three-runtime actor layer. Keep production materialization off
+# until /simactor probe <logical-online faction player> reports PASS locally.
+actors:
+  fake-player:
+    enabled: false
+    allow-probe: true
+    materialize-on-tp: false
+    max-bodies: 8
+    default-ping: 55
+
+# Deterministic bounded memory. Maintenance is local code only; no recurring
+# LLM summarization is required to age/dedupe/compact actor context.
+memory:
+  relationship-max: 32
+  history-max-events: 2500
+  archive-max-bytes: 8388608
+  duplicate-window-seconds: 900

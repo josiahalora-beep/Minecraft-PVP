@@ -1,0 +1,1170 @@
+import { combatProfileFor } from './combat-profiles.js'
+import { sleep } from './common.js'
+
+const HEAL_META = 16421
+const SPEED_META = 8226
+const FIRE_META = 8259
+
+function rand(min, max) {
+  return min + Math.random() * (max - min)
+}
+
+function stableHash(text) {
+  let h=2166136261
+  for(const ch of String(text || '')) {
+    h ^= ch.charCodeAt(0)
+    h = Math.imul(h,16777619)
+  }
+  return h >>> 0
+}
+
+function tierFromSkill(skill) {
+  if (skill >= 92) return 'elite'
+  if (skill >= 80) return 'strong'
+  if (skill >= 65) return 'skilled'
+  if (skill >= 50) return 'average'
+  if (skill >= 35) return 'casual'
+  return 'novice'
+}
+
+function styleFromAggression(a) {
+  if (a >= 70) return 'aggressive'
+  if (a <= 40) return 'passive'
+  return 'balanced'
+}
+
+function stop(bot) {
+  for (const k of ['forward','back','left','right','jump','sprint','sneak']) {
+    try { bot.setControlState(k, false) } catch {}
+  }
+}
+
+function itemByName(bot, names) {
+  for (const name of names || []) {
+    const item=bot.inventory.items().find(i => i.name===name)
+    if (item) return item
+  }
+  return null
+}
+
+function hotbarPotions(bot) {
+  return bot.inventory.items().filter(i =>
+    i.name === 'potion' &&
+    Number(i.metadata) === HEAL_META &&
+    i.slot >= 36 && i.slot <= 44
+  )
+}
+
+function reservePotions(bot) {
+  return bot.inventory.items().filter(i =>
+    i.name === 'potion' &&
+    Number(i.metadata) === HEAL_META &&
+    i.slot >= 9 && i.slot <= 35
+  )
+}
+
+function healingPotionCount(bot) {
+  return bot.inventory.items()
+    .filter(i => i.name === 'potion' && Number(i.metadata) === HEAL_META)
+    .reduce((n,i)=>n+Number(i.count || 1),0)
+}
+
+function emptyInventorySlots(bot) {
+  let n=0
+  for(let slot=9;slot<=44;slot++) if(!bot.inventory.slots?.[slot]) n++
+  return n
+}
+
+function itemNameFromDrop(bot, entity) {
+  const values=Array.isArray(entity?.metadata) ? entity.metadata : Object.values(entity?.metadata || {})
+  for(const v of values) {
+    if (!v || typeof v !== 'object') continue
+    if (typeof v.name === 'string' && v.name) return v.name
+    const id=Number(v.itemId ?? v.blockId ?? v.id)
+    if (!Number.isInteger(id)) continue
+    const reg=bot.registry?.items?.[id] || bot.registry?.itemsByName?.[String(id)]
+    if (reg?.name) return reg.name
+  }
+  return ''
+}
+
+function lootScore(name,a=null) {
+  const n=String(name || '')
+  const setNeed=Math.max(0,Number(a?.lootSetNeed || 0))
+  const pearlNeed=Math.max(0,Number(a?.lootPearlNeed || 0))
+  const healNeed=Math.max(0,Number(a?.lootHealNeed || 0))
+  const speedNeed=Math.max(0,Number(a?.lootSpeedNeed || 0))
+  if (n.startsWith('diamond_') && (n.endsWith('_helmet') || n.endsWith('_chestplate') || n.endsWith('_leggings') || n.endsWith('_boots')))
+    return 115+(setNeed>0?55:0)
+  if (n === 'diamond_sword') return 112+(setNeed>0?45:0)
+  if (n === 'ender_pearl') return 90+(pearlNeed>0?65:0)
+  if (n === 'potion') return 45+((healNeed>0||speedNeed>0)?55:0)
+  if (n === 'diamond') return 95
+  if (n.startsWith('iron_') && n.endsWith('_sword')) return 76
+  if ((n.startsWith('golden_') || n.startsWith('gold_') || n.startsWith('leather_') || n.startsWith('chainmail_')) &&
+      (n.endsWith('_helmet') || n.endsWith('_chestplate') || n.endsWith('_leggings') || n.endsWith('_boots'))) return 74
+  if (n === 'bow') return 70
+  if (n === 'cooked_beef' || n === 'steak') return 28
+  return 0
+}
+
+function bestNearbyLoot(bot, a=null, radius=11) {
+  if (!bot.entity) return null
+  let best=null
+  for(const e of Object.values(bot.entities || {})) {
+    if (!e || e === bot.entity) continue
+    const kind=String(e.name || e.displayName || e.objectType || '').toLowerCase()
+    if (!kind.includes('item')) continue
+    const dist=bot.entity.position.distanceTo(e.position)
+    if (dist>radius) continue
+    const name=itemNameFromDrop(bot,e)
+    const score=lootScore(name,a)
+    if(score<=0) continue
+    const total=score-dist*2
+    if(!best || total>best.total) best={entity:e,name,dist,score,total}
+  }
+  return best
+}
+
+function nearestNamedEntity(bot, names) {
+  if (!bot.entity || !Array.isArray(names)) return null
+  let best = null
+  let bestD = Infinity
+  for (const name of names) {
+    const e = bot.players?.[name]?.entity
+    if (!e) continue
+    const d = bot.entity.position.distanceTo(e.position)
+    if (d < bestD) {
+      best = { name, entity: e, dist: d }
+      bestD = d
+    }
+  }
+  return best
+}
+
+function nearestAlly(bot, names) {
+  return nearestNamedEntity(bot, names)
+}
+
+function countNearby(bot, names, radius) {
+  let n = 0
+  for (const name of names || []) {
+    const e = bot.players?.[name]?.entity
+    if (!e || !bot.entity) continue
+    if (bot.entity.position.distanceTo(e.position) <= radius) n++
+  }
+  return n
+}
+
+function fenceGateIsOpen(block) {
+  if(!block) return false
+  try {
+    if(typeof block.getProperties === 'function') {
+      const props=block.getProperties()
+      if(props && typeof props.open === 'boolean') return props.open
+      if(props && String(props.open).toLowerCase()==='true') return true
+    }
+  } catch {}
+  const meta=Number(block.metadata)
+  return Number.isFinite(meta) && (meta & 4) === 4
+}
+
+async function useNearbyFenceGate(bot, radius = 3, desiredOpen = null) {
+  if (!bot.entity) return false
+  const ids = ['fence_gate', 'oak_fence_gate', 'spruce_fence_gate', 'birch_fence_gate', 'jungle_fence_gate', 'acacia_fence_gate', 'dark_oak_fence_gate']
+    .map(n => bot.registry?.blocksByName?.[n]?.id)
+    .filter(Number.isInteger)
+  if (!ids.length) return false
+
+  try {
+    const found = bot.findBlock({ matching: ids, maxDistance: radius })
+    if (!found) return false
+    const block = found.position ? found : bot.blockAt(found)
+    if (!block) return false
+    if(desiredOpen!==null && fenceGateIsOpen(block)===desiredOpen) return true
+    await bot.lookAt(block.position.offset(0.5,0.5,0.5), true)
+    await bot.activateBlock(block)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function pointDistance(pos, x, z) {
+  const dx = pos.x - x
+  const dz = pos.z - z
+  return Math.sqrt(dx * dx + dz * dz)
+}
+
+function blockName(bot, x, y, z) {
+  if (!bot.entity) return ''
+  try {
+    const p=bot.entity.position.offset(
+      Math.floor(x)-Math.floor(bot.entity.position.x),
+      Math.floor(y)-Math.floor(bot.entity.position.y),
+      Math.floor(z)-Math.floor(bot.entity.position.z)
+    ).floored()
+    return String(bot.blockAt(p)?.name || '')
+  } catch { return '' }
+}
+
+function isLiquidName(name) {
+  return name === 'water' || name === 'flowing_water' || name === 'lava' || name === 'flowing_lava'
+}
+
+function inLiquid(bot) {
+  if (!bot.entity) return false
+  if (bot.entity.isInWater || bot.entity.isInLava) return true
+  const p = bot.entity.position
+  return isLiquidName(blockName(bot,p.x,p.y,p.z)) || isLiquidName(blockName(bot,p.x,p.y+0.8,p.z))
+}
+
+function isWater(bot) {
+  if (!bot.entity) return false
+  if (bot.entity.isInWater) return true
+  const p=bot.entity.position
+  const a=blockName(bot,p.x,p.y,p.z), b=blockName(bot,p.x,p.y+0.8,p.z)
+  return a.includes('water') || b.includes('water')
+}
+
+function passableName(name) {
+  return !name || name === 'air' || name.includes('grass') || name.includes('flower') ||
+    name === 'snow' || name === 'vine' || name.includes('torch')
+}
+
+function dryEscapePoint(bot, preferredEntity = null, radius = 8) {
+  if (!bot.entity) return null
+  const me=bot.entity.position
+  let best=null
+  for (let i=0;i<16;i++) {
+    const angle=(Math.PI*2*i)/16
+    const r=radius*(0.55 + (i%3)*0.2)
+    const x=me.x+Math.cos(angle)*r
+    const z=me.z+Math.sin(angle)*r
+
+    // Banks are frequently one block above the swimmer. Check a small vertical
+    // column and choose the first two-block-tall dry standing space.
+    for (const dy of [-1,0,1,2]) {
+      const fy=me.y+dy
+      const feet=blockName(bot,x,fy,z)
+      const head=blockName(bot,x,fy+1,z)
+      const below=blockName(bot,x,fy-1,z)
+      if (isLiquidName(feet) || isLiquidName(head) || isLiquidName(below)) continue
+      if (!passableName(feet) || !passableName(head) || passableName(below)) continue
+      let score=r-Math.abs(dy)*0.6
+      if (preferredEntity) {
+        const dx=x-preferredEntity.position.x, dz=z-preferredEntity.position.z
+        score += Math.sqrt(dx*dx+dz*dz)*0.7
+      }
+      if (!best || score>best.score) best={x,y:fy+0.2,z,score}
+      break
+    }
+  }
+  return best
+}
+
+function aheadBlocked(bot, x, z) {
+  if (!bot.entity) return false
+  const me=bot.entity.position
+  const dx=x-me.x, dz=z-me.z
+  const mag=Math.max(0.001,Math.sqrt(dx*dx+dz*dz))
+  const fx=me.x+dx/mag*0.85
+  const fz=me.z+dz/mag*0.85
+  const feet=blockName(bot,fx,me.y,fz)
+  const head=blockName(bot,fx,me.y+1,fz)
+  return !passableName(feet) && passableName(head)
+}
+
+function predictedTarget(entity, lead = 0.30) {
+  const v=entity?.velocity
+  if (!entity?.position || !v) return entity?.position
+  return entity.position.offset(v.x*lead,v.y*lead,v.z*lead)
+}
+
+function moveToward(bot, x, z, sprint = true) {
+  if (!bot.entity) return
+  const me = bot.entity.position
+  const yaw = Math.atan2(-(x - me.x), -(z - me.z))
+  bot.look(yaw, 0, false).catch(() => {})
+  bot.setControlState('back', false)
+  bot.setControlState('left', false)
+  bot.setControlState('right', false)
+  bot.setControlState('forward', true)
+  bot.setControlState('sprint', sprint)
+  if (inLiquid(bot) || aheadBlocked(bot,x,z)) bot.setControlState('jump', true)
+  else bot.setControlState('jump', false)
+}
+
+function moveAway(bot, entity) {
+  if (!bot.entity || !entity) return
+  const me = bot.entity.position
+  const dx = me.x - entity.position.x
+  const dz = me.z - entity.position.z
+  const mag = Math.max(0.001, Math.sqrt(dx * dx + dz * dz))
+  moveToward(bot, me.x + dx / mag * 8, me.z + dz / mag * 8, true)
+}
+
+export function createTeamCombatController(bot, assignmentProvider, eventReporter = null) {
+  let profile = null
+  let profileKey = ''
+  let busy = false
+  let lastDamageAt = 0
+  let previousHealth = 20
+  let lastPot = 0
+  let lastPearl = 0
+  let nextAttackAt = 0
+  let nextAimAt = 0
+  let nextStrafeAt = 0
+  let strafeLeft = true
+  let wTapUntil = 0
+  let lastBardClick = 0
+  let lastBowShot = 0
+  let lastRogueTry = 0
+  let lastFightId = ''
+  let fightStartedAt = 0
+  let lastCombatLoadoutAt = 0
+  let liquidSince = 0
+  let stuckSince = 0
+  let lastMoveSampleAt = 0
+  let lastMoveSample = null
+  let lastEscapeAt = 0
+  let lastLootEquipAt = 0
+  let currentAssignment = null
+  let nextMistakeCheckAt = 0
+  let mistakeType = ''
+  let mistakeUntil = 0
+  let lastTrapGateToggleAt = 0
+
+  function ensureProfile(a) {
+    const mechanics=Number(a?.mechanics ?? a?.skill ?? 50)
+    const pvpIq=Number(a?.pvpIq ?? a?.skill ?? 50)
+    const gameSense=Number(a?.gameSense ?? a?.skill ?? 50)
+    const composure=Number(a?.composure ?? 50)
+    const mistake=Number(a?.mistake ?? 18)
+    const key=[mechanics,pvpIq,gameSense,composure,mistake,Number(a?.aggression || 50)].join(':')
+    currentAssignment=a
+    if (profile && profileKey === key) return
+    profileKey = key
+    profile = combatProfileFor(
+      bot.username,
+      tierFromSkill(mechanics),
+      styleFromAggression(Number(a?.aggression || 50))
+    )
+    profile.mechanics=mechanics
+    profile.pvpIq=pvpIq
+    profile.gameSense=gameSense
+    profile.composure=composure
+    profile.mistake=Math.max(1,Math.min(40,mistake))
+    // A mechanically gifted player still executes quickly even if his reads are
+    // mediocre; pressure primarily hurts low-composure execution.
+    profile.pressureAimMult=1+Math.max(0,65-composure)/110
+    profile.pressureReactionMult=1+Math.max(0,60-composure)/120
+  }
+
+  function decisionRoll(a, base=0.5) {
+    const iq=Math.max(0,Math.min(100,Number(a?.pvpIq ?? 50)))
+    return Math.random() < Math.max(0.05,Math.min(0.95,base+(iq-50)/180))
+  }
+
+  function combatArmorPrefixes(a) {
+    const cls=String(a?.class || 'DIAMOND').toUpperCase()
+    if(cls==='BARD') return ['golden_','gold_']
+    if(cls==='ARCHER') return ['leather_']
+    if(cls==='ROGUE') return ['chainmail_']
+    if(cls==='MINER') return ['iron_']
+    return ['diamond_']
+  }
+
+  function combatArmorComplete(a) {
+    const prefixes=combatArmorPrefixes(a)
+    const specs=[[5,'_helmet'],[6,'_chestplate'],[7,'_leggings'],[8,'_boots']]
+    return specs.every(([slot,suffix]) => {
+      const name=String(bot.inventory.slots?.[slot]?.name || '')
+      return name.endsWith(suffix) && prefixes.some(p=>name.startsWith(p))
+    })
+  }
+
+  async function equipCombatLoadout(a) {
+    const now=Date.now()
+    if(now-lastCombatLoadoutAt<900) return combatArmorComplete(a)
+    lastCombatLoadoutAt=now
+
+    const prefixes=combatArmorPrefixes(a)
+    const specs=[
+      ['_helmet','head',5],
+      ['_chestplate','torso',6],
+      ['_leggings','legs',7],
+      ['_boots','feet',8]
+    ]
+    for(const [suffix,dest,slot] of specs) {
+      const current=bot.inventory.slots?.[slot]
+      let best=null,bestScore=-1
+      for(const item of bot.inventory.items()) {
+        const name=String(item?.name || '')
+        if(!name.endsWith(suffix) || !prefixes.some(p=>name.startsWith(p))) continue
+        const score=armorMaterialScore(name)
+        if(score>bestScore){best=item;bestScore=score}
+      }
+      const currentName=String(current?.name || '')
+      const currentValid=currentName.endsWith(suffix) && prefixes.some(p=>currentName.startsWith(p))
+      if(best && (!currentValid || armorMaterialScore(best.name)>armorMaterialScore(currentName))) {
+        try { await bot.equip(best,dest); await sleep(35) } catch {}
+      }
+    }
+    await equipNamed(['diamond_sword','iron_sword','stone_sword','golden_sword','gold_sword'])
+    return combatArmorComplete(a)
+  }
+
+  function visibleTeamCentroid(a) {
+    if(!bot.entity) return null
+    let x=bot.entity.position.x,y=bot.entity.position.y,z=bot.entity.position.z,n=1
+    for(const name of a?.allies || []) {
+      const e=bot.players?.[name]?.entity
+      if(!e) continue
+      x+=e.position.x;y+=e.position.y;z+=e.position.z;n++
+    }
+    return {x:x/n,y:y/n,z:z/n,count:n}
+  }
+
+  function stableLane(a) {
+    const team=[bot.username,...(a?.allies || [])].map(String).sort((x,y)=>x.localeCompare(y))
+    const idx=Math.max(0,team.findIndex(n=>n.toLowerCase()===String(bot.username).toLowerCase()))
+    const center=(team.length-1)/2
+    return idx-center
+  }
+
+  function approachPoint(a,target) {
+    if(!bot.entity || !target?.entity) return null
+    const lead=predictedTarget(target.entity,0.30) || target.entity.position
+    const dx=lead.x-bot.entity.position.x,dz=lead.z-bot.entity.position.z
+    const mag=Math.max(0.001,Math.sqrt(dx*dx+dz*dz))
+    const lane=Math.max(-2,Math.min(2,stableLane(a)))*1.25
+    return {
+      x:lead.x+(-dz/mag)*lane,
+      z:lead.z+(dx/mag)*lane
+    }
+  }
+
+  async function teamCohesionTick(a,target) {
+    const teamSize=1+(a?.allies?.length || 0)
+    if(teamSize<3 || !bot.entity) return false
+    const now=Date.now()
+    const enemyClose=Boolean(target && target.dist<=4.8)
+
+    // The first seconds of a fight are a real rally/staging phase. Each body has
+    // its own server-assigned slot, so teams form a front rather than instantly
+    // collapsing into one pile.
+    if(now-fightStartedAt<2400 && !enemyClose) {
+      const sx=Number(a?.x),sz=Number(a?.z)
+      if(Number.isFinite(sx) && Number.isFinite(sz)) {
+        const d=pointDistance(bot.entity.position,sx,sz)
+        if(d>2.4) moveToward(bot,sx,sz,d>5)
+        else {
+          stop(bot)
+          if(target?.entity) {
+            try { await bot.lookAt(target.entity.position.offset(0,1.2,0),false) } catch {}
+          }
+        }
+        return true
+      }
+    }
+
+    const centroid=visibleTeamCentroid(a)
+    if(!centroid || centroid.count<2) return false
+    const dx=bot.entity.position.x-centroid.x,dz=bot.entity.position.z-centroid.z
+    const spread=Math.sqrt(dx*dx+dz*dz)
+    const alliesNear=countNearby(bot,a.allies,11)
+
+    // Regroup if isolated unless already trading at melee range.
+    if(!enemyClose && (spread>9 || alliesNear===0)) {
+      moveToward(bot,centroid.x,centroid.z,true)
+      return true
+    }
+    return false
+  }
+
+  function supportPoint(a,target,range=7) {
+    const c=visibleTeamCentroid(a)
+    if(!c || !bot.entity) return null
+    let dx=0,dz=1
+    if(target?.entity) {
+      dx=c.x-target.entity.position.x
+      dz=c.z-target.entity.position.z
+      const mag=Math.max(0.001,Math.sqrt(dx*dx+dz*dz))
+      dx/=mag;dz/=mag
+    }
+    const side=(stableHash(bot.username)%2===0)?-1:1
+    return {
+      x:c.x+dx*range+(-dz)*side*2.2,
+      z:c.z+dz*range+(dx)*side*2.2
+    }
+  }
+
+  async function humanMistakeTick(a,target) {
+    if(!bot.entity || !profile) return false
+    const now=Date.now()
+
+    if(mistakeUntil>now) {
+      if(mistakeType==='hesitate') {
+        stop(bot)
+        return true
+      }
+      if(mistakeType==='overcommit' && target) {
+        moveToward(bot,target.entity.position.x,target.entity.position.z,true)
+        if(target.dist<3.2) await aimAndAttack(target.entity,target.dist)
+        return true
+      }
+      if(mistakeType==='bad_strafe' && target) {
+        stop(bot)
+        bot.setControlState('forward',target.dist>2.0)
+        bot.setControlState('right',true)
+        bot.setControlState('sprint',true)
+        return true
+      }
+      if(mistakeType==='late_pot' && bot.health<=profile.potHealth) {
+        // Human hesitation: they know they should heal, but react late.
+        moveAway(bot,target?.entity)
+        return true
+      }
+    } else if(mistakeType) {
+      mistakeType=''
+      mistakeUntil=0
+    }
+
+    if(now<nextMistakeCheckAt) return false
+    nextMistakeCheckAt=now+Math.round(rand(3500,6500))
+
+    let chance=Math.max(0.01,Math.min(0.35,profile.mistake/100))
+    if(bot.health<=10) chance*=1+Math.max(0,60-profile.composure)/90
+    if(Math.random()>=chance) return false
+
+    const roll=Math.random()
+    if(bot.health<=profile.potHealth && roll<0.34) mistakeType='late_pot'
+    else if(target && roll<0.63) mistakeType='overcommit'
+    else if(target && roll<0.84) mistakeType='bad_strafe'
+    else mistakeType='hesitate'
+
+    const composure=Math.max(0,Math.min(100,profile.composure))
+    const durationBase=650+Math.max(0,65-composure)*8
+    mistakeUntil=now+Math.round(rand(durationBase*0.65,durationBase*1.25))
+    return await humanMistakeTick(a,target)
+  }
+
+  async function equipNamed(names) {
+    const item = itemByName(bot, names)
+    if (!item) return false
+    try {
+      await bot.equip(item, 'hand')
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  async function refill() {
+    const src = reservePotions(bot)
+    if (!src.length) return false
+    const empty = []
+    for (let slot = 37; slot <= 41; slot++) if (!bot.inventory.slots[slot]) empty.push(slot)
+    if (!empty.length) return false
+    const n = Math.min(profile.refillBatch, src.length, empty.length)
+    for (let i = 0; i < n; i++) {
+      if (Date.now() - lastDamageAt < profile.refillSafeMs) break
+      try {
+        await bot.moveSlotItem(src[i].slot, empty[i])
+        await sleep(Math.round(rand(40, 90)))
+      } catch {}
+    }
+    return true
+  }
+
+  async function potAtFeet() {
+    if (Date.now() - lastPot < 650) return false
+    // At critical health, refusing to pot simply because damage is continuous
+    // is fatal. Safe-gap timing remains for normal healing, but emergencies pot now.
+    const critical = bot.health <= Math.min(8.0, profile.potHealth - 2.0)
+    if (!critical && Date.now() - lastDamageAt < profile.potSafeMs) return false
+
+    let pots = hotbarPotions(bot)
+    if (!pots.length) {
+      await refill()
+      pots = hotbarPotions(bot)
+    }
+    if (!pots.length) return false
+
+    const p = pots[0]
+    if (p.slot < 36 || p.slot > 44) return false
+
+    try {
+      bot.setQuickBarSlot(p.slot - 36)
+      bot.setControlState('back', false)
+      bot.setControlState('forward', true)
+      bot.setControlState('sprint', true)
+      await bot.look(bot.entity.yaw, -Math.PI / 2, true)
+      await sleep(Math.round(rand(15, 35)))
+      bot.activateItem()
+      await sleep(Math.round(rand(80, 115)))
+      bot.deactivateItem()
+      lastPot = Date.now()
+      await equipNamed(['diamond_sword','iron_sword','stone_sword'])
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  async function pearlToPoint(x,y,z, reason = 'tactical') {
+    if (!bot.entity || Date.now() - lastPearl < Number(profile?.pearlCooldownMs || 16000)) return false
+    const pearl = itemByName(bot, ['ender_pearl'])
+    if (!pearl) return false
+    try {
+      await bot.equip(pearl, 'hand')
+      await bot.lookAt(bot.entity.position.offset(
+        x-bot.entity.position.x,
+        y-bot.entity.position.y,
+        z-bot.entity.position.z
+      ), true)
+      bot.activateItem()
+      await sleep(reason === 'escape' ? 55 : 80)
+      bot.deactivateItem()
+      lastPearl = Date.now()
+      await equipNamed(['diamond_sword','iron_sword'])
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  async function pearlToward(entity, away = false) {
+    if (!entity || !bot.entity) return false
+    const me = bot.entity.position
+    if (away) {
+      const dry=dryEscapePoint(bot,entity,10)
+      if (dry) return pearlToPoint(dry.x,dry.y,dry.z,'escape')
+      const dx = me.x - entity.position.x
+      const dz = me.z - entity.position.z
+      const mag = Math.max(0.001, Math.sqrt(dx*dx + dz*dz))
+      return pearlToPoint(me.x + dx/mag*11, me.y+1.4, me.z + dz/mag*11,'escape')
+    }
+    const predicted=predictedTarget(entity,0.45) || entity.position
+    return pearlToPoint(predicted.x,predicted.y+0.8,predicted.z,'tactical')
+  }
+
+  async function terrainEscapeTick(a,target) {
+    if (!bot.entity) return false
+    const now=Date.now()
+    const liquid=inLiquid(bot)
+
+    if (liquid) {
+      if (!liquidSince) liquidSince=now
+      stop(bot)
+      bot.setControlState('jump',true)
+      bot.setControlState('forward',true)
+      bot.setControlState('sprint',true)
+
+      const dry=dryEscapePoint(bot,target?.entity || null,9)
+      if (dry) moveToward(bot,dry.x,dry.z,true)
+
+      // Do not let support classes drown in a water fight. Swim first, then
+      // spend a pearl if movement has not solved it quickly.
+      const sense=Math.max(0,Math.min(100,Number(a?.gameSense ?? 50)))
+      const waterReadMs=Math.round(1550-sense*8)
+      if (now-liquidSince>Math.max(650,waterReadMs) && now-lastEscapeAt>1200) {
+        lastEscapeAt=now
+        if (dry && await pearlToPoint(dry.x,dry.y,dry.z,'escape')) return true
+        if (target && await pearlToward(target.entity,true)) return true
+      }
+      return true
+    }
+    liquidSince=0
+
+    if (now-lastMoveSampleAt>450) {
+      const p=bot.entity.position
+      if (lastMoveSample) {
+        const dx=p.x-lastMoveSample.x,dz=p.z-lastMoveSample.z
+        const moved=Math.sqrt(dx*dx+dz*dz)
+        const trying=Boolean(target && target.dist>3.2)
+        if (trying && moved<0.10) {
+          if (!stuckSince) stuckSince=now
+        } else stuckSince=0
+      }
+      lastMoveSample={x:p.x,z:p.z}
+      lastMoveSampleAt=now
+    }
+
+    const sense=Math.max(0,Math.min(100,Number(a?.gameSense ?? 50)))
+    const stuckReadMs=Math.max(520,1250-sense*7)
+    if (stuckSince && now-stuckSince>stuckReadMs) {
+      bot.setControlState('jump',true)
+      if (Math.random()<0.5) bot.setControlState('left',true)
+      else bot.setControlState('right',true)
+      if (now-stuckSince>2200 && target && now-lastEscapeAt>1400) {
+        lastEscapeAt=now
+        if (await pearlToward(target.entity,bot.health<=profile.potHealth)) {
+          stuckSince=0
+          return true
+        }
+      }
+    }
+    return false
+  }
+
+  function armorMaterialScore(name) {
+    const n=String(name || '')
+    if(n.startsWith('diamond_')) return 500
+    if(n.startsWith('iron_')) return 400
+    if(n.startsWith('chainmail_')) return 320
+    if(n.startsWith('golden_') || n.startsWith('gold_')) return 240
+    if(n.startsWith('leather_')) return 160
+    return 0
+  }
+
+  async function equipLootUpgrades(a) {
+    const now=Date.now()
+    if(now-lastLootEquipAt<1200) return false
+    lastLootEquipAt=now
+    const specs=[
+      ['_helmet','head',5],
+      ['_chestplate','torso',6],
+      ['_leggings','legs',7],
+      ['_boots','feet',8]
+    ]
+    for(const [suffix,dest,slot] of specs) {
+      let best=null
+      const prefixes=combatArmorPrefixes(a)
+      for(const item of bot.inventory.items()) {
+        const name=String(item.name || '')
+        if(!name.endsWith(suffix) || !prefixes.some(p=>name.startsWith(p))) continue
+        if(!best || armorMaterialScore(item.name)>armorMaterialScore(best.name)) best=item
+      }
+      const current=bot.inventory.slots?.[slot]
+      const currentName=String(current?.name || '')
+      const currentValid=currentName.endsWith(suffix) && prefixes.some(p=>currentName.startsWith(p))
+      if(best && (!currentValid || armorMaterialScore(best.name)>armorMaterialScore(currentName))) {
+        try { await bot.equip(best,dest); await sleep(45) } catch {}
+      }
+    }
+    await equipNamed(['diamond_sword','iron_sword','stone_sword','golden_sword','gold_sword'])
+  }
+
+  async function makeLootSpace() {
+    if (emptyInventorySlots(bot)>0) return true
+
+    // Dump secondary buffs first. If the inventory is still full and there are
+    // plenty of heals left, sacrifice one heal for an enemy set/sword/pearls.
+    const secondary=bot.inventory.items().find(i =>
+      i.name==='potion' && Number(i.metadata)!==HEAL_META
+    )
+    if (secondary) {
+      try { await bot.tossStack(secondary); await sleep(70); return true } catch {}
+    }
+
+    const heals=bot.inventory.items().filter(i => i.name==='potion' && Number(i.metadata)===HEAL_META)
+    if (healingPotionCount(bot)>4 && heals.length) {
+      try { await bot.tossStack(heals[heals.length-1]); await sleep(70); return true } catch {}
+    }
+    return false
+  }
+
+  async function lootTick(a,target) {
+    const loot=bestNearbyLoot(bot,a,16)
+    if(!loot) return false
+
+    const enemiesNear=countNearby(bot,a.enemies,9)
+    const alliesNear=countNearby(bot,a.allies,9)
+    const sense=Math.max(0,Math.min(100,Number(a?.gameSense ?? 50)))
+    const pressured=enemiesNear>alliesNear+1
+    const factionNeed=Number(a?.lootHealNeed||0)+Number(a?.lootPearlNeed||0)+
+      Number(a?.lootSpeedNeed||0)+Number(a?.lootSetNeed||0)
+    // Smart players preserve their life; low-game-sense players occasionally
+    // greed a dropped set even when it is a bad timing window.
+    if(pressured && loot.dist>2.5) {
+      const greedChance=Math.max(0.03,(62-sense)/120)
+      if(Math.random()>=greedChance) return false
+    }
+    if((loot.score>=72 || factionNeed>0) && emptyInventorySlots(bot)===0 && sense>=35) await makeLootSpace()
+    if(emptyInventorySlots(bot)===0) return false
+
+    if(loot.dist>1.15) {
+      moveToward(bot,loot.entity.position.x,loot.entity.position.z,true)
+      return true
+    }
+    return false
+  }
+
+  async function lowPotDisengage(a,target) {
+    if(!target || !bot.entity) return false
+    const heals=healingPotionCount(bot)
+    const enemiesNear=countNearby(bot,a.enemies,12)
+    const alliesNear=countNearby(bot,a.allies,12)
+    const iq=Math.max(0,Math.min(100,Number(a?.pvpIq ?? 50)))
+    const smartThreshold=iq>=75?4:(iq>=50?2:1)
+    const criticalStock=heals===0 || (heals<=smartThreshold && enemiesNear>=Math.max(1,alliesNear))
+    if(!criticalStock) return false
+
+    // Low-IQ/aggressive players sometimes recognize the danger too late.
+    if(iq<55 && heals>0 && Math.random()<Math.max(0.08,(55-iq)/100)) return false
+
+    moveAway(bot,target.entity)
+    bot.setControlState('jump',aheadBlocked(bot,
+      bot.entity.position.x-(target.entity.position.x-bot.entity.position.x),
+      bot.entity.position.z-(target.entity.position.z-bot.entity.position.z)))
+
+    if ((heals===0 || bot.health<=10) && target.dist<9) {
+      await pearlToward(target.entity,true)
+    } else if (!String(a.fightId || '').startsWith('TESTTEAM_') &&
+               Number.isFinite(Number(a.homeX)) && Number.isFinite(Number(a.homeZ))) {
+      // Once a little separation exists, path toward home instead of immediately
+      // re-entering the fight. Test fights stay local so the benchmark remains useful.
+      if(target.dist>7) moveToward(bot,Number(a.homeX),Number(a.homeZ),true)
+    }
+    return true
+  }
+
+  async function diamondTick(a, target) {
+    if (!target) {
+      stop(bot)
+      return
+    }
+
+    const alliesNear = countNearby(bot, a.allies, 9)
+    const enemiesNear = countNearby(bot, a.enemies, 9)
+    const dist = target.dist
+
+    if (await lowPotDisengage(a,target)) return
+
+    if (a.action === 'KITE_HOME' || a.action === 'BAIT' || a.action === 'BAIT_FALL' ||
+        a.action === 'BAIT_GATE' || a.action === 'BAIT_DROP') {
+      const isBait = a.action.startsWith('BAIT')
+      const shouldKeepEnemyInterested = isBait && bot.health > profile.potHealth + 2 && dist >= 3.0 && dist < 7.5
+
+      if (isBait) {
+        const tx = Number(a.trapX ?? a.homeX)
+        const tz = Number(a.trapZ ?? a.homeZ)
+        const trapDist = pointDistance(bot.entity.position, tx, tz)
+
+        // Stay hittable enough to sell the chase, then accelerate into the
+        // faction's actual trap entrance. Weak trap factions should not turn
+        // around and take a fair 1v2/1v3 in the open.
+        if (shouldKeepEnemyInterested && trapDist > 5.0 && Math.random() < 0.20) {
+          stop(bot)
+          await aimAndAttack(target.entity, dist)
+          return
+        }
+
+        moveToward(bot, tx, tz, true)
+        if (a.action === 'BAIT_GATE' && Date.now()-lastTrapGateToggleAt>700) {
+          // Open deliberately while entering the choke. Once the bait body is
+          // tight to the gate and the pursuer commits, click it shut again.
+          // HcfGateDirector synchronizes the whole 3x3 wall and provides an
+          // independent auto-close if this bot gets hit/disconnected mid-play.
+          if(trapDist>2.1 && trapDist<=5.4) {
+            if(await useNearbyFenceGate(bot,5,true)) lastTrapGateToggleAt=Date.now()
+          } else if(trapDist<=2.1 && dist<=4.4) {
+            if(await useNearbyFenceGate(bot,5,false)) lastTrapGateToggleAt=Date.now()
+          }
+        }
+        if (bot.health <= profile.potHealth && dist >= profile.potGap) await potAtFeet()
+        if (dist < 2.6 && bot.health > profile.potHealth) await aimAndAttack(target.entity, dist)
+        return
+      }
+
+      if (bot.health <= profile.potHealth || enemiesNear > alliesNear + 1) {
+        moveToward(bot, Number(a.homeX), Number(a.homeZ), true)
+        if (bot.health <= profile.potHealth && dist >= profile.potGap) await potAtFeet()
+        if (dist < 2.8) await aimAndAttack(target.entity, dist)
+        return
+      }
+    }
+
+    if (a.action !== 'CLUTCH' && Number(a?.pvpIq ?? 50)>=48 &&
+        (a.allies?.length || 0) >= 2 && alliesNear < Math.min(2, a.allies.length) && dist > 5.5) {
+      const ally = nearestAlly(bot, a.allies)
+      if (ally) {
+        moveToward(bot, ally.entity.position.x, ally.entity.position.z, true)
+        return
+      }
+    }
+
+    if (bot.health <= profile.potHealth) {
+      const safe = Date.now() - lastDamageAt >= profile.potSafeMs
+      if (safe && dist >= profile.potGap) {
+        if (hotbarPotions(bot).length <= profile.refillTrigger) await refill()
+        if (await potAtFeet()) return
+      } else if (dist < profile.potGap) {
+        moveAway(bot, target.entity)
+        if (bot.health <= 6 && profile.tier !== 'novice') await pearlToward(target.entity, true)
+        return
+      }
+    }
+
+    if (a.action === 'CLUTCH' && dist > 4.5 && dist < 10 && bot.health > profile.potHealth + 2) {
+      if (profile.canAggressivePearl && Math.random() < profile.aggressivePearlChance * 0.18) {
+        if (await pearlToward(target.entity, false)) return
+      }
+    }
+
+    // Lead a moving target instead of repeatedly steering toward where it used
+    // to be. This materially improves chase pressure and makes fights less static.
+    if (dist > 3.1) {
+      const lanePoint=approachPoint(a,target)
+      if(lanePoint) moveToward(bot,lanePoint.x,lanePoint.z,true)
+    }
+    applyMeleeMovement(target.entity, dist)
+    await aimAndAttack(target.entity, dist)
+  }
+
+  function applyMeleeMovement(target, dist) {
+    const now = Date.now()
+    if (profile.canStrafe && now >= nextStrafeAt) {
+      strafeLeft = !strafeLeft
+      nextStrafeAt = now + Math.round(rand(profile.strafeSwitchMin, profile.strafeSwitchMax))
+    }
+    bot.setControlState('left', profile.canStrafe ? strafeLeft : false)
+    bot.setControlState('right', profile.canStrafe ? !strafeLeft : false)
+    bot.setControlState('back', dist < 1.7)
+    const tapping = now < wTapUntil
+    bot.setControlState('forward', !tapping && dist > 2.35)
+    bot.setControlState('sprint', !tapping)
+  }
+
+  async function aimAndAttack(target, dist) {
+    const now = Date.now()
+    if (now >= nextAimAt) {
+      nextAimAt = now + Math.round(rand(profile.aimIntervalMin, profile.aimIntervalMax))
+      try {
+        const pressured=bot.health<=10 || (Date.now()-lastDamageAt<450)
+        const e = profile.aimError * (pressured ? profile.pressureAimMult : 1)
+        await bot.lookAt(target.position.offset(rand(-e,e), 1.25 + rand(-e,e), rand(-e,e)), false)
+      } catch {}
+    }
+
+    if (now < nextAttackAt || dist > rand(profile.attackRangeMin, profile.attackRangeMax)) return
+    const cps = rand(profile.cpsMin, profile.cpsMax)
+    nextAttackAt = now + Math.round(1000 / cps)
+    if (Math.random() > profile.hitCommitChance) return
+    try {
+      await equipNamed(['diamond_sword','iron_sword','stone_sword'])
+      bot.attack(target, true)
+      if (profile.canWTap && Math.random() < profile.wTapChance) {
+        wTapUntil = now + Math.round(rand(profile.wTapMin, profile.wTapMax))
+      }
+    } catch {}
+  }
+
+  async function bardTick(a, target) {
+    const ally = nearestAlly(bot, a.allies)
+    const enemiesNear = countNearby(bot, a.enemies, 14)
+
+    if (target && await lowPotDisengage(a,target)) return
+
+    // Bard is a support/survival role, not a melee role.
+    if (target && target.dist < 8.5) {
+      moveAway(bot, target.entity)
+      // Support should keep orbiting rather than backpedal into the same obstacle.
+      const dir=(Math.floor(Date.now()/900)%2===0)?'left':'right'
+      bot.setControlState(dir,true)
+      if (bot.health <= profile.potHealth) await potAtFeet()
+    } else if (ally) {
+      const support=supportPoint(a,target,7)
+      const d = bot.entity.position.distanceTo(ally.entity.position)
+      if (support) {
+        const dx=bot.entity.position.x-support.x,dz=bot.entity.position.z-support.z
+        const sd=Math.sqrt(dx*dx+dz*dz)
+        if(sd>3.0) moveToward(bot,support.x,support.z,sd>7)
+        else {
+          stop(bot)
+          if(target?.entity) {
+            try { await bot.lookAt(target.entity.position.offset(0,1.2,0),false) } catch {}
+          }
+        }
+      } else if (d > 13) moveToward(bot, ally.entity.position.x, ally.entity.position.z, true)
+      else if (d < 5 && target) moveAway(bot, target.entity)
+    } else if (target) {
+      moveAway(bot,target.entity)
+    } else {
+      stop(bot)
+    }
+
+    // Rotate stronger click buffs while enemies are nearby.
+    if (Date.now() - lastBardClick > 4300 && enemiesNear > 0) {
+      lastBardClick = Date.now()
+      const roll = Math.random()
+      if (roll < 0.46) {
+        if (await equipNamed(['blaze_powder'])) {
+          try { bot.activateItem(); await sleep(80); bot.deactivateItem() } catch {}
+        }
+      } else if (roll < 0.78) {
+        if (await equipNamed(['sugar'])) {
+          try { bot.activateItem(); await sleep(80); bot.deactivateItem() } catch {}
+        }
+      } else {
+        if (await equipNamed(['ghast_tear'])) {
+          try { bot.activateItem(); await sleep(80); bot.deactivateItem() } catch {}
+        }
+      }
+    } else {
+      // Passive held aura: strength when safe, regen when pressured.
+      if (target && (target.dist < 9 || bot.health < 13)) await equipNamed(['ghast_tear'])
+      else await equipNamed(['blaze_rod'])
+    }
+
+    // Bard never deliberately swings. If fully collapsed on, survival takes priority.
+    if (target && target.dist < 3.5 && bot.health <= 7) await pearlToward(target.entity, true)
+  }
+
+  async function archerTick(a, target) {
+    if (!target) {
+      stop(bot)
+      return
+    }
+
+    const dist = target.dist
+    if (await lowPotDisengage(a,target)) return
+    if (bot.health <= profile.potHealth && dist >= profile.potGap) {
+      if (await potAtFeet()) return
+    }
+
+    if (dist < 7.5) {
+      moveAway(bot, target.entity)
+      bot.setControlState((Math.floor(Date.now()/700)%2===0)?'left':'right',true)
+      if (dist < 3) await aimAndAttack(target.entity, dist)
+      if (dist < 4.5 && bot.health <= 9) await pearlToward(target.entity,true)
+      return
+    }
+
+    // Keep a 10-14 block moving firing ring. Standing perfectly still made
+    // Archers easy to collapse on and look inactive.
+    const lead=predictedTarget(target.entity,0.35) || target.entity.position
+    if (dist > 17) moveToward(bot, lead.x, lead.z, true)
+    else if (dist < 9.5) moveAway(bot, target.entity)
+    else if (dist > 14) moveToward(bot, lead.x, lead.z, true)
+    else {
+      const side=(stableHash(bot.username)%2===0)?1:-1
+      const dx=lead.x-bot.entity.position.x,dz=lead.z-bot.entity.position.z
+      const mag=Math.max(0.001,Math.sqrt(dx*dx+dz*dz))
+      moveToward(bot,
+        bot.entity.position.x + (-dz/mag)*side*4,
+        bot.entity.position.z + (dx/mag)*side*4,
+        false)
+    }
+
+    if (Date.now() - lastBowShot < 1100) return
+    lastBowShot = Date.now()
+
+    const bow = itemByName(bot, ['bow'])
+    if (!bow) return
+    try {
+      await bot.equip(bow, 'hand')
+      await bot.lookAt(target.entity.position.offset(0,1.2,0), true)
+      bot.activateItem()
+      await sleep(Math.round(rand(520, 820)))
+      bot.deactivateItem()
+    } catch {}
+  }
+
+  async function rogueTick(a, target) {
+    if (!target) {
+      stop(bot)
+      return
+    }
+
+    if (bot.health <= profile.potHealth && target.dist >= profile.potGap) {
+      if (await potAtFeet()) return
+    }
+
+    const t = target.entity
+    const me = bot.entity.position
+    const yaw = Number(t.yaw || 0)
+    const backX = t.position.x + Math.sin(yaw) * 2.2
+    const backZ = t.position.z + Math.cos(yaw) * 2.2
+
+    if (target.dist > 2.8) {
+      moveToward(bot, backX, backZ, true)
+      return
+    }
+
+    if (Date.now() - lastRogueTry > 2200) {
+      lastRogueTry = Date.now()
+      if (await equipNamed(['golden_sword','gold_sword'])) {
+        try { await bot.lookAt(t.position.offset(0,1.2,0), true); bot.attack(t,true); return } catch {}
+      }
+    }
+
+    await aimAndAttack(t, target.dist)
+  }
+
+  async function tick() {
+    if (busy || !bot.entity) return
+    const a = assignmentProvider()
+    if (!a || !a.fightId) return
+
+    busy = true
+    try {
+      ensureProfile(a)
+      if (a.fightId !== lastFightId) {
+        lastFightId = a.fightId
+        fightStartedAt = Date.now()
+        lastCombatLoadoutAt = 0
+        stop(bot)
+        previousHealth = bot.health
+        mistakeType=''
+        mistakeUntil=0
+        nextMistakeCheckAt=Date.now()+Math.round(rand(2500,5500))
+      }
+
+      const armed=await equipCombatLoadout(a)
+      if(!armed) {
+        // Never visually charge into a teamfight in a partial class set.
+        stop(bot)
+        return
+      }
+
+      let target = null
+      const iq=Math.max(0,Math.min(100,Number(a?.pvpIq ?? 50)))
+      const teamFight=(a?.allies?.length || 0)>=2
+      if (a.focus && (teamFight || iq>=82 || Math.random()<Math.max(0.20,iq/105))) {
+        const focusEntity = bot.players?.[a.focus]?.entity
+        if (focusEntity && bot.entity) {
+          const d = bot.entity.position.distanceTo(focusEntity.position)
+          if (d <= 26) target = { name: a.focus, entity: focusEntity, dist: d }
+        }
+      }
+      if (!target) target = nearestNamedEntity(bot, a.enemies || [])
+      const cls = String(a.class || 'DIAMOND').toUpperCase()
+
+      if (await terrainEscapeTick(a,target)) return
+      if (await teamCohesionTick(a,target)) return
+      if (await humanMistakeTick(a,target)) return
+
+      // Loot is a tactical objective: after a kill or when pressure briefly
+      // drops, sweep valuable sets/swords/pearls instead of walking past them.
+      if ((!target || target.dist>7) && await lootTick(a,target)) return
+      if (!target || target.dist>10) await equipLootUpgrades(a)
+
+      if (cls === 'BARD') await bardTick(a, target)
+      else if (cls === 'ARCHER') await archerTick(a, target)
+      else if (cls === 'ROGUE') await rogueTick(a, target)
+      else await diamondTick(a, target)
+    } finally {
+      busy = false
+    }
+  }
+
+  bot.on('health', () => {
+    if (bot.health < previousHealth - 0.01) lastDamageAt = Date.now()
+    previousHealth = bot.health
+  })
+
+  bot.on('playerCollect', (collector,collected) => {
+    try {
+      if(!bot.entity || !collector || collector.id!==bot.entity.id) return
+      const a=assignmentProvider()
+      if(!a?.fightId || typeof eventReporter!=='function') return
+      const item=itemNameFromDrop(bot,collected) || 'loot'
+      eventReporter({type:'loot',item,fightId:a.fightId})
+    } catch {}
+  })
+
+  return { tick, stop: () => stop(bot) }
+}

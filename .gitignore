@@ -1,0 +1,16 @@
+server/spigot-1.8.8.jar
+server/buildtools/
+server/plugins/EraCore.jar
+server/plugins/EraCore/*.yml
+server/plugins/EraCore/*.csv
+server/world*/
+server/logs/
+server/cache/
+server/usercache.json
+server/ops.json
+server/whitelist.json
+bots/node_modules/
+bots/logs/
+*.log
+*.zip
+.DS_Store

@@ -611,30 +611,41 @@ final class HcfBaseBuilder {
         int top=p.surfaceY+p.surfaceHeight;
 
         for(int x=minX;x<=maxX;x++) for(int z=minZ;z<=maxZ;z++) {
+            if(!surfaceInside(p,x,z)) continue;
             queue.add(new Op(w,x,p.surfaceY,z,p.surfaceFloor));
+
+            boolean edge=surfaceBoundary(p,x,z);
             for(int yy=p.surfaceY+1;yy<=top;yy++) {
-                boolean edge=x==minX||x==maxX||z==minZ||z==maxZ;
                 if(!edge) {
                     queue.add(new Op(w,x,yy,z,Material.AIR));
                     continue;
                 }
-                boolean corner=(x==minX||x==maxX)&&(z==minZ||z==maxZ);
-                boolean beam=corner || yy==p.surfaceY+1 || yy==top ||
+                boolean cornerish=surfaceCornerLike(p,x,z);
+                boolean beam=cornerish || yy==p.surfaceY+1 || yy==top ||
                     ((x-minX)%6==0) || ((z-minZ)%6==0);
                 queue.add(new Op(w,x,yy,z,beam?p.surfaceFrame:Material.GLASS));
             }
 
-            boolean roofEdge=x==minX||x==maxX||z==minZ||z==maxZ;
-            boolean roofBeam=((x-p.cx)%6==0)||((z-p.cz)%6==0);
-            queue.add(new Op(w,x,top+1,z,(roofEdge||roofBeam)?p.surfaceFrame:Material.GLASS));
+            boolean roofBeam=edge || ((x-p.cx)%6==0)||((z-p.cz)%6==0);
+            queue.add(new Op(w,x,top+1,z,roofBeam?p.surfaceFrame:Material.GLASS));
         }
 
-        // The top is a scouting/work shell, not a decorative castle.  Entrances
-        // are double fence-gate buffers so chased players have more than one way in.
-        bufferedGateZ(w,p.cx,p.surfaceY,minZ,+1);
-        bufferedGateZ(w,p.cx,p.surfaceY,maxZ,-1);
-        if(p.entrances>=3) bufferedGateX(w,maxX,p.surfaceY,p.cz,-1);
-        if(p.entrances>=4) bufferedGateX(w,minX,p.surfaceY,p.cz,+1);
+        // One restrained asymmetric bay is enough to make some bases look like
+        // players extended them during SOTW without turning them into spawn builds.
+        if(p.surfaceShape==2) {
+            int side=p.utilitySide;
+            int bx=p.cx+side*(p.surfaceHalfX+3);
+            int bz=p.cz+3+((p.seed/53)%5)-2;
+            buildSurfaceBay(w,p,bx,bz,side,top);
+        }
+
+        // The top is a scouting/work shell, not a decorative castle. Entrances
+        // are double fence-gate buffers; their slight offsets vary by faction.
+        int frontX=p.cx+p.frontGateOffset;
+        bufferedGateZ(w,frontX,p.surfaceY,minZ,+1);
+        bufferedGateZ(w,p.cx-p.frontGateOffset,p.surfaceY,maxZ,-1);
+        if(p.entrances>=3) bufferedGateX(w,maxX,p.surfaceY,p.cz+Math.max(-2,Math.min(2,p.frontGateOffset)),-1);
+        if(p.entrances>=4) bufferedGateX(w,minX,p.surfaceY,p.cz-Math.max(-2,Math.min(2,p.frontGateOffset)),+1);
 
         int[] d=p.anchor("drop");
         // Mark the future dropdown safely during the rushed surface phase.
@@ -642,6 +653,47 @@ final class HcfBaseBuilder {
             queue.add(new Op(w,x,p.surfaceY,z,(Math.abs(x-d[0])==2||Math.abs(z-d[2])==2)?p.surfaceFrame:Material.GLASS));
 
         if(openTransit) buildVerticalTransit(w,p);
+    }
+
+    private boolean surfaceInside(HcfBasePlan p,int x,int z) {
+        int ax=Math.abs(x-p.cx),az=Math.abs(z-p.cz);
+        if(ax>p.surfaceHalfX || az>p.surfaceHalfZ) return false;
+        if(p.surfaceShape==1) {
+            // Three-block chamfers approximate the rounded/angled player bases
+            // seen in period footage while remaining cheap and easy to navigate.
+            return ax+az<=p.surfaceHalfX+p.surfaceHalfZ-3;
+        }
+        return true;
+    }
+
+    private boolean surfaceBoundary(HcfBasePlan p,int x,int z) {
+        if(!surfaceInside(p,x,z)) return false;
+        return !surfaceInside(p,x+1,z)||!surfaceInside(p,x-1,z)||
+               !surfaceInside(p,x,z+1)||!surfaceInside(p,x,z-1);
+    }
+
+    private boolean surfaceCornerLike(HcfBasePlan p,int x,int z) {
+        int missing=0;
+        if(!surfaceInside(p,x+1,z)) missing++;
+        if(!surfaceInside(p,x-1,z)) missing++;
+        if(!surfaceInside(p,x,z+1)) missing++;
+        if(!surfaceInside(p,x,z-1)) missing++;
+        return missing>=2;
+    }
+
+    private void buildSurfaceBay(World w,HcfBasePlan p,int bx,int bz,int side,int top) {
+        for(int x=bx-3;x<=bx+3;x++) for(int z=bz-4;z<=bz+4;z++) {
+            queue.add(new Op(w,x,p.surfaceY,z,p.surfaceFloor));
+            for(int yy=p.surfaceY+1;yy<=top;yy++) {
+                boolean edge=x==bx-3||x==bx+3||z==bz-4||z==bz+4;
+                queue.add(new Op(w,x,yy,z,edge?(((yy-p.surfaceY)%3==0)?p.surfaceFrame:Material.GLASS):Material.AIR));
+            }
+            queue.add(new Op(w,x,top+1,z,p.surfaceFrame));
+        }
+        int joinX=p.cx+side*p.surfaceHalfX;
+        for(int x=Math.min(joinX,bx);x<=Math.max(joinX,bx);x++)
+            for(int yy=p.surfaceY+1;yy<=p.surfaceY+3;yy++)
+                queue.add(new Op(w,x,yy,bz,Material.AIR));
     }
 
     private void bufferedGateZ(World w,int cx,int y,int wallZ,int inward) {

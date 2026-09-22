@@ -333,13 +333,19 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             version=3;
         }
 
+        if(version<4) {
+            getConfig().set("base-builder.rebuild-blocks-per-tick",600);
+            getConfig().set("base-builder.repair-existing-on-start",true);
+            version=4;
+        }
+
         getConfig().set("migration.living-world-version",version);
         saveConfig();
         getLogger().info("Applied living-world v"+version+": staged bases, combat presentation, quieter chat and logical tab population.");
     }
 
     private void bindCommands() {
-        String[] cmds = {"rank","kit","kits","balance","pay","sell","buy","shop","vote","keys","crates","stats","history","duel","f","spawn","stuck","setspawn","warp","warps","setwarp","delwarp","spawnpreset","msg","r","simchat","sotw","simworker","simcombat","safezone","teamfight","bard","archer","miner","rogue","simprobe","simmap","simstate","duelprep","baserate"};
+        String[] cmds = {"rank","kit","kits","balance","pay","sell","buy","shop","vote","keys","crates","stats","history","duel","f","spawn","stuck","setspawn","warp","warps","setwarp","delwarp","spawnpreset","msg","r","simchat","sotw","simworker","simcombat","safezone","teamfight","bard","archer","miner","rogue","simprobe","simmap","simstate","duelprep","baserate","baserebuild"};
         for (String c : cmds) getCommand(c).setExecutor(this);
     }
 
@@ -1023,7 +1029,50 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (c.equals("simstate")) return cmdSimState(p,args);
         if (c.equals("duelprep")) return cmdDuelPrep(p);
         if (c.equals("baserate")) return cmdBaseRate(p,args);
+        if (c.equals("baserebuild")) return cmdBaseRebuild(p,args);
         return false;
+    }
+
+    private boolean cmdBaseRebuild(Player p,String[] a) {
+        if(!ownerOnly(p)) return true;
+        if(simWorld==null || hcfBaseBuilder==null) {
+            p.sendMessage(color("&cBase rebuild system is not ready."));
+            return true;
+        }
+
+        if(a.length==1 && "status".equalsIgnoreCase(a[0])) {
+            p.sendMessage(color("&eBase rebuild: &f"+
+                (hcfBaseBuilder.maintenanceRebuildActive()?"RUNNING":"IDLE")+
+                " &7queuedOps=&f"+hcfBaseBuilder.queuedOperations()));
+            return true;
+        }
+
+        String selector;
+        if(a.length==0 || (a.length==1 && "nearest".equalsIgnoreCase(a[0]))) {
+            selector=simWorld.nearestBaseFaction(p.getLocation(),128.0);
+            if(selector==null || selector.isEmpty()) {
+                p.sendMessage(color("&cNo simulated faction base found within 128 blocks."));
+                return true;
+            }
+        } else if(a.length==1) {
+            selector=a[0];
+        } else {
+            p.sendMessage("/baserebuild <all|nearest|faction|status>");
+            return true;
+        }
+
+        int count=simWorld.forceRebuildBases(selector);
+        if(count<=0) {
+            p.sendMessage(color("&cNo matching faction bases were found for &f"+selector+"&c."));
+            return true;
+        }
+
+        p.sendMessage(color("&aQueued forced rebuild for &f"+count+
+            (count==1?" faction base.":" faction bases.")+
+            " &7Use &f/baserebuild status &7to watch completion."));
+        getLogger().info("Owner "+p.getName()+" queued forced base rebuild selector="+selector+
+            " count="+count+" ops="+hcfBaseBuilder.queuedOperations());
+        return true;
     }
 
     private boolean cmdBaseRate(Player p,String[] a) {
@@ -1784,6 +1833,14 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     void queueSimBaseBuild(String faction, String preset, String trapPreset, int x, int y, int z) {
         if (hcfBaseBuilder != null) hcfBaseBuilder.queueBase(faction,preset,trapPreset,x,y,z);
+    }
+
+    void forceSimBaseRebuild(String faction,String preset,String trapPreset,
+                             int x,int y,int z,int storageTier,
+                             boolean brewer,boolean netherPortal,boolean endPortal) {
+        if(hcfBaseBuilder!=null)
+            hcfBaseBuilder.forceRebuild(faction,preset,trapPreset,x,y,z,
+                storageTier,brewer,netherPortal,endPortal);
     }
 
     void queueSimSurfaceBuild(String faction,String preset,int x,int y,int z) {

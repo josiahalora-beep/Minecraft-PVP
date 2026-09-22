@@ -120,7 +120,7 @@ final class HcfBasePlan {
         if("elevator".equals(k)) return new int[]{cx+3,undergroundY+1,cz+1};
         if("storage".equals(k)) return new int[]{cx-coreHalfX+5,undergroundY+1,cz+1};
         if("refill".equals(k)) return new int[]{cx-1,undergroundY+1,cz-coreHalfZ+4};
-        if("brewer".equals(k)) return new int[]{cx+utilitySide*(coreHalfX-6),undergroundY+1,cz+1};
+        if("brewer".equals(k)) return new int[]{cx+utilitySide*(coreHalfX-6),undergroundY,cz+1};
         if("farm".equals(k) || "money-farm".equals(k))
             return new int[]{cx,undergroundY-6,cz+5};
         if("wart-farm".equals(k))

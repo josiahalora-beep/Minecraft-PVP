@@ -502,7 +502,11 @@ final class SimWorldDirector {
 
             // Version 8 replaces surface-prefab infrastructure with the SOTW surface/underground grammar.
             plugin.queueSimBaseBuild(f.name,f.basePreset,f.trapPreset,f.baseX,f.baseY,f.baseZ);
+            if(f.storageTier>=2)
+                plugin.queueSimStorageUpgrade(f.name,f.basePreset,f.storageTier,f.baseX,f.baseY,f.baseZ);
             if(f.brewer) plugin.queueSimBrewerBuild(f.name,f.basePreset,f.baseX,f.baseY,f.baseZ);
+            if(f.netherPortal) plugin.queueSimPortalBuild(f.name,f.basePreset,"nether",f.baseX,f.baseY,f.baseZ);
+            if(f.endPortal) plugin.queueSimPortalBuild(f.name,f.basePreset,"end",f.baseX,f.baseY,f.baseZ);
 
             // Expand legacy claims to the complete base/farm/trap footprint.
             List<String> desired=baseFootprintClaims(world.getName(),f);

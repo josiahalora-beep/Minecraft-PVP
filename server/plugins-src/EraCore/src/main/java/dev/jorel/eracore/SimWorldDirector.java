@@ -584,7 +584,9 @@ final class SimWorldDirector {
         SimFaction f=factions.get(key(faction));
         if(f==null) return out;
 
-        out.members=Math.max(1,f.members.size());
+        // Geometry is frozen to the faction's intended roster size so later recruiting
+        // cannot move semantic anchors away from already-materialized rooms.
+        out.members=Math.max(1,f.targetSize);
         out.archetype=f.archetype==null?"BALANCED":f.archetype;
         out.wealthTier=f.treasury>=8000?3:(f.treasury>=3000?2:(f.treasury>=1000?1:0));
 

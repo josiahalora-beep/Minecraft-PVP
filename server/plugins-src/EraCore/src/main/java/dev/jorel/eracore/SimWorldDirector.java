@@ -492,29 +492,63 @@ final class SimWorldDirector {
     }
 
     void repairExistingBaseTerrainAndClaims() {
-        if (data.getInt("meta.terrain-repair-version",0) >= 8) return;
+        if (data.getInt("meta.terrain-repair-version",0) >= 9) return;
 
         org.bukkit.World world=Bukkit.getWorlds().get(0);
         if(world==null) return;
 
+        int rebuilt=0;
         for(SimFaction f : factions.values()) {
             if(f.baseX==0 && f.baseZ==0) continue;
 
-            // Version 8 replaces surface-prefab infrastructure with the SOTW surface/underground grammar.
-            plugin.queueSimBaseBuild(f.name,f.basePreset,f.trapPreset,f.baseX,f.baseY,f.baseZ);
-            if(f.storageTier>=2)
-                plugin.queueSimStorageUpgrade(f.name,f.basePreset,f.storageTier,f.baseX,f.baseY,f.baseZ);
-            if(f.brewer) plugin.queueSimBrewerBuild(f.name,f.basePreset,f.baseX,f.baseY,f.baseZ);
-            if(f.netherPortal) plugin.queueSimPortalBuild(f.name,f.basePreset,"nether",f.baseX,f.baseY,f.baseZ);
-            if(f.endPortal) plugin.queueSimPortalBuild(f.name,f.basePreset,"end",f.baseX,f.baseY,f.baseZ);
+            // Version 9 is a true rematerialization. Version 8 only overlaid
+            // geometry and could be skipped/suppressed, leaving broken bases in place.
+            plugin.forceSimBaseRebuild(f.name,f.basePreset,f.trapPreset,
+                f.baseX,f.baseY,f.baseZ,Math.max(1,f.storageTier),
+                f.brewer,f.netherPortal,f.endPortal);
+            rebuilt++;
 
-            // Expand legacy claims to the complete base/farm/trap footprint.
             List<String> desired=baseFootprintClaims(world.getName(),f);
             org.bukkit.Location home=new org.bukkit.Location(world,f.baseX+0.5,f.baseY+1,f.baseZ+0.5);
             plugin.setSimFactionHomeAndClaims(f.name,home,desired);
         }
-        data.set("meta.terrain-repair-version",8);
+        data.set("meta.terrain-repair-version",9);
+        recordHistory("BASE_REBUILD",5,"Base Intelligence v9 force-rematerialized "+rebuilt+
+            " faction bases","", "");
+        plugin.getLogger().info("Base Intelligence v9: force-rematerializing "+rebuilt+
+            " saved faction bases with sealed connected geometry.");
         save();
+    }
+
+    int forceRebuildBases(String selector) {
+        org.bukkit.World world=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
+        if(world==null) return 0;
+
+        String wanted=selector==null?"":selector.trim();
+        boolean all="all".equalsIgnoreCase(wanted) || wanted.isEmpty();
+        int rebuilt=0;
+
+        for(SimFaction f:factions.values()) {
+            if(f.baseX==0 && f.baseZ==0) continue;
+            if(!all && !f.name.equalsIgnoreCase(wanted)) continue;
+
+            plugin.forceSimBaseRebuild(f.name,f.basePreset,f.trapPreset,
+                f.baseX,f.baseY,f.baseZ,Math.max(1,f.storageTier),
+                f.brewer,f.netherPortal,f.endPortal);
+
+            List<String> desired=baseFootprintClaims(world.getName(),f);
+            org.bukkit.Location home=new org.bukkit.Location(world,f.baseX+0.5,f.baseY+1,f.baseZ+0.5);
+            plugin.setSimFactionHomeAndClaims(f.name,home,desired);
+            rebuilt++;
+        }
+
+        if(rebuilt>0) {
+            data.set("meta.terrain-repair-version",9);
+            recordHistory("BASE_REBUILD",5,"Owner force-rebuilt "+rebuilt+
+                (all?" faction bases":" faction base: "+wanted),"", "");
+            save();
+        }
+        return rebuilt;
     }
 
 

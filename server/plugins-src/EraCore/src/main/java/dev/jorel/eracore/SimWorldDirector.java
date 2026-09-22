@@ -565,9 +565,9 @@ final class SimWorldDirector {
         data.set(b+".storage-tier",f.storageTier);
         data.set(b+".nether-portal",f.netherPortal);
         data.set(b+".end-portal",f.endPortal);
-        save();
         recordHistory("BASE_RATING",4,(rater==null?"Owner":rater)+" rated "+f.name+
             " base "+rating+"/5",f.name,rater==null?"":rater);
+        save();
         return true;
     }
 
@@ -1997,11 +1997,14 @@ final class SimWorldDirector {
             t.interactionAction="operate";
             t.targetBlock="brewing_stand";
         } else if("gear".equals(t.action)) {
-            int[] storage=plugin.simBaseAnchor(f.name,f.basePreset,"storage",f.baseX,f.baseY,f.baseZ);
+            int[] storage=plugin.simStorageAnchor(f.name,f.basePreset,"kits",f.baseX,f.baseY,f.baseZ);
             t.x=storage[0]; t.y=storage[1]; t.z=storage[2];
             t.interaction="storage";
             t.interactionAction="open";
             t.targetBlock="chest";
+        } else if("farm".equals(t.action)) {
+            int[] farm=plugin.simBaseAnchor(f.name,f.basePreset,"farm",f.baseX,f.baseY,f.baseZ);
+            t.x=farm[0]; t.y=farm[1]; t.z=farm[2];
         }
         return t;
     }

@@ -39,6 +39,7 @@ final class HcfBaseBuilder {
     private final ArrayDeque<Op> queue = new ArrayDeque<Op>();
     private final Set<String> completed = new HashSet<String>();
     private BukkitRunnable runner;
+    private boolean maintenanceRebuild;
 
     HcfBaseBuilder(EraCore plugin) {
         this.plugin = plugin;
@@ -67,10 +68,12 @@ final class HcfBaseBuilder {
         if(world==null) return;
 
         HcfBasePlan plan=planFor(faction,cx,y,cz);
+        maintenanceRebuild=true;
         clearBrokenBaseVolumes(world,plan);
 
-        // Rebuild one complete connected baseline in a known order.
-        prepareTerrainPad(world,cx,y,cz,plan.surfacePadRadius(),plan.surfacePadRadius());
+        // Existing faction sites are already terrain-normalized. Repair support
+        // underneath grade without re-running the huge full terrain-prep pass.
+        fillFoundationOnly(world,cx,y,cz,plan.surfacePadRadius(),plan.surfacePadRadius());
         buildSurfaceShell(world,plan,true);
         buildUndergroundCore(world,plan);
         sealCriticalEnvelope(world,plan,true);
@@ -365,10 +368,19 @@ final class HcfBaseBuilder {
                m==Material.LAVA || m==Material.STATIONARY_LAVA;
     }
 
+    int queuedOperations() {
+        return queue.size();
+    }
+
+    boolean maintenanceRebuildActive() {
+        return maintenanceRebuild;
+    }
+
     void stop() {
         if (runner != null) runner.cancel();
         runner = null;
         queue.clear();
+        maintenanceRebuild=false;
     }
 
     private void ensureRunner() {
@@ -376,11 +388,12 @@ final class HcfBaseBuilder {
         runner = new BukkitRunnable() {
             public void run() {
                 int configured = Math.max(20, plugin.getConfig().getInt("base-builder.blocks-per-tick", 120));
-                // When a human is online, let construction remain visibly unfinished
-                // long enough for HOT builders to sell the illusion. Offscreen work
-                // catches up aggressively so the world still evolves unattended.
                 int visible=Math.max(4,plugin.getConfig().getInt("base-builder.visible-blocks-per-tick",16));
-                int budget = plugin.hasHumanOnline() ? Math.min(configured,visible) : configured;
+                int rebuild=Math.max(configured,plugin.getConfig().getInt("base-builder.rebuild-blocks-per-tick",600));
+                // Forced repair/rematerialization is maintenance, not roleplay.
+                // It must finish promptly even if the owner joins to inspect it.
+                int budget = maintenanceRebuild ? rebuild :
+                    (plugin.hasHumanOnline() ? Math.min(configured,visible) : configured);
                 int n = 0;
                 while (n < budget && !queue.isEmpty()) {
                     Op op = queue.poll();
@@ -416,6 +429,10 @@ final class HcfBaseBuilder {
                     n++;
                 }
                 if (queue.isEmpty()) {
+                    if(maintenanceRebuild) {
+                        maintenanceRebuild=false;
+                        plugin.getLogger().info("Base Intelligence: forced base rematerialization queue completed.");
+                    }
                     cancel();
                     runner = null;
                 }

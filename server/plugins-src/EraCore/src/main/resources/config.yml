@@ -250,6 +250,7 @@ terrain:
 
 base-builder:
   blocks-per-tick: 120
+  visible-blocks-per-tick: 16
   interval-ticks: 2
   gate-auto-close-ticks: 30
   repair-existing-on-start: true

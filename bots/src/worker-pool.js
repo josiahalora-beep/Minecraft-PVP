@@ -5,6 +5,7 @@ import YAML from 'yaml'
 import { createBot, sleep, waitForSpawn, Movements, goals } from './common.js'
 import { createTeamCombatController } from './team-combat.js'
 import { startCommunityAiBridge } from './community-ai.js'
+import { anchorPriority, mapGoalFor, prestigeScore, HCF_MAP, nearestLandmark, regionForPoint } from './hcf-map-intelligence.js'
 
 const root = path.resolve('..')
 const simulationFile = process.env.SIMULATION_FILE || path.join(root, 'server', 'plugins', 'EraCore', 'simulation.yml')
@@ -73,6 +74,8 @@ function runtimeSettings() {
     missingGraceCycles: clamp(Number(w['missing-candidate-grace-cycles'] || 4), 1, 20),
     rotationScoreMargin: clamp(Number(w['rotation-score-margin'] || 18), 0, 100),
     fightAmbientBodies: clamp(Number(w['fight-ambient-bodies'] ?? 1), 0, 3),
+    anchorBodies: clamp(Number(w['anchor-bodies'] || 20), 5, 32),
+    prestigeBodies: clamp(Number(w['prestige-bodies'] || 10), 0, 20),
     creatorBodies
   }
 }
@@ -279,19 +282,42 @@ function combatCandidatesFrom(combat) {
 function candidatesFrom(data, settings, combat = null) {
   const players = data?.players || {}
   const factions = data?.factions || {}
-  const pinnedNames = new Set(settings.creatorBodies.map(x => x.toLowerCase()))
   const out = []
   const combatCandidates = combatCandidatesFrom(combat)
   const combatNames = new Set(combatCandidates.map(x => x.name.toLowerCase()))
   out.push(...combatCandidates)
 
-  for (const creator of settings.creatorBodies) {
-    const c = candidateForName(data, creator, true)
-    if (c && !combatNames.has(c.name.toLowerCase())) out.push(c)
+  const anchorPool=[]
+  for(const p of Object.values(players)) {
+    if(!p?.name || p['logical-online']===false || combatNames.has(String(p.name).toLowerCase())) continue
+    const fn=String(p.faction || '')
+    const faction=fn
+      ? (factions[fn.toLowerCase()] || Object.values(factions).find(f=>String(f?.name||'').toLowerCase()===fn.toLowerCase()) || {})
+      : {}
+    anchorPool.push({p,faction,a:anchorPriority(p,faction,settings.creatorBodies)})
+  }
+  const mandatory=anchorPool.filter(x=>x.a.creator||x.a.leader||x.a.builder)
+    .sort((a,b)=>b.a.score-a.a.score).slice(0,settings.anchorBodies)
+  const used=new Set(mandatory.map(x=>String(x.p.name).toLowerCase()))
+  const prestige=anchorPool.filter(x=>!used.has(String(x.p.name).toLowerCase()))
+    .sort((a,b)=>prestigeScore(b.p)-prestigeScore(a.p)).slice(0,settings.prestigeBodies)
+  const anchors=[...mandatory,...prestige]
+  const pinnedNames=new Set(anchors.map(x=>String(x.p.name).toLowerCase()))
+
+  for(const x of anchors) {
+    const p=x.p, faction=x.faction || {}
+    out.push({
+      name:String(p.name),
+      faction:String(faction?.name || p.faction || 'none'),
+      stage:String(faction?.stage || 'RECRUITING'),
+      score:100000+x.a.score,
+      recovery:Boolean(faction?.['recovery-mode']),
+      pinned:true,
+      anchorReason:x.a.creator?'creator':(x.a.leader?'leader':(x.a.builder?'builder':'prestige')),
+      mapGoal:mapGoalFor({player:p,faction})
+    })
   }
 
-  // Unaffiliated players remain part of the visible community. A bounded
-  // subset can become HOT as solos instead of disappearing once factions form.
   for (const p of Object.values(players)) {
     if (!p || p['logical-online'] === false || p.faction) continue
     const name=String(p.name || '')
@@ -304,7 +330,8 @@ function candidatesFrom(data, settings, combat = null) {
       stage:'SOLO',
       score,
       recovery:false,
-      pinned:false
+      pinned:false,
+      mapGoal:mapGoalFor({player:p,faction:{}})
     })
   }
 
@@ -326,7 +353,8 @@ function candidatesFrom(data, settings, combat = null) {
         stage,
         score,
         recovery: Boolean(faction?.['recovery-mode']),
-        pinned: false
+        pinned: false,
+        mapGoal:mapGoalFor({player:p,faction})
       })
     }
   }
@@ -561,6 +589,24 @@ async function finishCrateRun(state, force = false) {
   return true
 }
 
+function mapGoalPoint(state) {
+  const g=state?.job?.mapGoal?.destination
+  if(!g || !Number.isFinite(Number(g.x)) || !Number.isFinite(Number(g.z))) return null
+  return {x:Number(g.x), y:Number(g.y || 64), z:Number(g.z)}
+}
+
+function currentMapContext(state) {
+  const bot=state?.bot
+  if(!bot?.entity) return null
+  const p=bot.entity.position
+  const world=bot.game?.dimension || 'world'
+  return {
+    region:regionForPoint(world,p.x,p.z),
+    nearest:nearestLandmark(world,p.x,p.z),
+    goal:state?.job?.mapGoal || null
+  }
+}
+
 async function commandBrain(state) {
   const bot = state.bot
   if (!bot?.entity || state.combat) return
@@ -717,6 +763,24 @@ async function commandBrain(state) {
     if(state.cratePhase==='return') {
       state.crateReturnNeeded=true
       await finishCrateRun(state)
+      return
+    }
+  }
+
+  // Map-aware HCF travel.  Leases carry a deterministic mapGoal so leaders,
+  // builders, miners, creators and prestige players understand the same map as
+  // the server.  Commands are rate-limited and never used as combat escapes.
+  const mapGoal=state.job?.mapGoal
+  if(mapGoal && !tagged && now-(state.lastMapGoalCommandAt || 0)>60000) {
+    const kind=String(mapGoal.kind || '')
+    const command=String(mapGoal.command || '')
+    const shouldCommand=
+      (kind==='ore-mountain') ||
+      (kind==='home'||kind==='home-build'||kind==='home-economy') ||
+      (kind==='community' && action==='recruit')
+    if(command && shouldCommand) {
+      state.lastMapGoalCommandAt=now
+      await tryCommand(state,command,900)
       return
     }
   }

@@ -524,6 +524,50 @@ final class SimWorldDirector {
         return players.containsKey(key(name));
     }
 
+    String nearestBaseFaction(Location at,double maxDistance) {
+        if(at==null || at.getWorld()==null) return "";
+        SimFaction best=null;
+        double bestD=maxDistance*maxDistance;
+        for(SimFaction f:factions.values()) {
+            if(f.baseX==0 && f.baseZ==0) continue;
+            Location l=new Location(at.getWorld(),f.baseX+0.5,f.baseY+1.0,f.baseZ+0.5);
+            double d=at.distanceSquared(l);
+            if(d<=bestD) {best=f;bestD=d;}
+        }
+        return best==null?"":best.name;
+    }
+
+    boolean recordBaseRating(String faction,int score,String rater) {
+        SimFaction f=factions.get(key(faction));
+        if(f==null) return false;
+        int rating=Math.max(1,Math.min(5,score));
+        HcfBasePlan.Profile p=baseProfile(f.name);
+        long now=System.currentTimeMillis();
+        String b="base-feedback."+now+"-"+Math.abs((f.name+"|"+rater).hashCode());
+        data.set(b+".at",now);
+        data.set(b+".faction",f.name);
+        data.set(b+".rater",rater==null?"":rater);
+        data.set(b+".score",rating);
+        data.set(b+".members",p.members);
+        data.set(b+".builder-quality",p.builderQuality);
+        data.set(b+".organization",p.organization);
+        data.set(b+".pvp-iq",p.pvpIq);
+        data.set(b+".economic-iq",p.economicIq);
+        data.set(b+".risk",p.riskTolerance);
+        data.set(b+".game-sense",p.gameSense);
+        data.set(b+".decisiveness",p.decisiveness);
+        data.set(b+".wealth-tier",p.wealthTier);
+        data.set(b+".archetype",p.archetype);
+        data.set(b+".storage-tier",f.storageTier);
+        data.set(b+".nether-portal",f.netherPortal);
+        data.set(b+".end-portal",f.endPortal);
+        save();
+        recordHistory("BASE_RATING",4,(rater==null?"Owner":rater)+" rated "+f.name+
+            " base "+rating+"/5",f.name,rater==null?"":rater);
+        return true;
+    }
+
+
     String factionOf(String name) {
         SimPlayer p = players.get(key(name));
         return p == null ? "" : p.faction;

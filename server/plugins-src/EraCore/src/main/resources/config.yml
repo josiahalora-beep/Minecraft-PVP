@@ -9,8 +9,8 @@ owner:
     - Sim
     - Fake
 map:
-  auto-bootstrap: false
-  complete: true
+  auto-bootstrap: true
+  complete: false
   surface-y: 63
   world-border: 3000
   warzone-smoothing-radius: 520
@@ -53,7 +53,7 @@ rewards:
     diamonds-8: 15.0
     obsidian-16: 12.0
     heals-12: 12.0
-    speed-fire: 8.0
+    speed-4: 8.0
     p2-iron-set: 6.0
     sharp2-diamond: 4.0
     vote-keys-2: 3.0
@@ -69,7 +69,7 @@ metrics:
 
 creator-tag:
   enabled: true
-  minimum-donor-level: 3
+  minimum-donor-level: 0
   head-prefix: '&c[Yt] &f'
   chat-prefix: '&c[Yt] '
   creators:
@@ -92,14 +92,14 @@ sim-chat:
   contextual-chat: true
   max-conversation-memory: 12
   second-responder-chance-percent: 15
-  min-delay-seconds: 6
-  max-delay-seconds: 14
-  quiet-min-delay-seconds: 20
-  quiet-max-delay-seconds: 40
-  identity-cooldown-seconds: 35
-  line-cooldown-seconds: 120
-  fan-reaction-cooldown-seconds: 30
-  max-fan-reactions: 2
+  min-delay-seconds: 3
+  max-delay-seconds: 7
+  quiet-min-delay-seconds: 10
+  quiet-max-delay-seconds: 24
+  identity-cooldown-seconds: 18
+  line-cooldown-seconds: 55
+  fan-reaction-cooldown-seconds: 180
+  max-fan-reactions: 1
   roster:
     - xRico
     - SethPvP
@@ -149,16 +149,16 @@ sim-chat:
     - BreezyMC
     - NightPvP
   lines:
-    - 'anyone selling p4'
+    - 'anyone selling p2'
     - 'who has pearls'
     - 'buying obsidian'
-    - 'selling gapples msg me'
+    - 'selling pots msg me'
     - 'any factions recruiting'
     - 'who wants to pvp'
     - 'gg'
     - 'lol'
     - 'need 1 more'
-    - 'anyone got blaze spawners'
+    - 'anyone at blaze'
     - 'paying 8k for silk'
     - 'who raided us'
     - 'tp for 1v1'
@@ -230,9 +230,13 @@ dtr:
   regen-per-interval: 0.35
 
 claims:
+  # Legacy chunk limits are retained only for old-save migration.
   base: 4
   per-member: 2
   max-cap: 12
+  min-width: 12
+  max-width: 110
+  sim-base-buffer-blocks: 8
 
 sotw:
   # Short bootstrap protection only. PvP should become part of the server loop
@@ -241,10 +245,10 @@ sotw:
 
 terrain:
   normalize-new-chunks: true
-  flat-radius: 520
-  low-relief-amplitude: 2
-  relief-scale: 0.012
-  cleanup-height: 40
+  cleanup-height: 46
+  road-flat-half-width: 20.0
+  road-shoulder-half-width: 72.0
+  custom-decoration: true
 
 base-builder:
   blocks-per-tick: 120
@@ -285,6 +289,10 @@ worker-pool:
   missing-candidate-grace-cycles: 4
   rotation-score-margin: 18
   fight-ambient-bodies: 2
+  # Reserved physical identities: faction leaders/builders/creators first,
+  # followed by the most prestigious/respected players.
+  anchor-bodies: 20
+  prestige-bodies: 10
   creator-bodies:
     - Stimpypvp
     - Marcel
@@ -295,8 +303,8 @@ worker-pool:
 safezones:
   combat-tag-seconds: 60
   overworld-radius: 110
-  nether-radius: 42
-  end-radius: 42
+  nether-radius: 75
+  end-radius: 95
   auto-build-borders: true
   archer-tag-seconds: 10
   archer-tag-damage-multiplier: 1.20
@@ -323,7 +331,7 @@ spawn:
   road-exit-distance: 122
 
 spawn-build-protection:
-  radius: 82
+  radius: 190
   corner-pad: 10
 
 travel:
@@ -333,7 +341,104 @@ travel:
 stuck:
   cooldown-seconds: 60
 
-# Experimental three-runtime actor layer.
+# Canonical 3k HCF production layout. Safezones and build/claim protection are
+# separate: KOTHs/resources stay PvP-active while remaining unbuildable.
+map-layout:
+  koth-offset: 650
+  koth-radius: 165
+  portal-offset: 1000
+  portal-radius: 125
+  conquest-x: 0
+  conquest-z: 1125
+  conquest-radius: 175
+  spawn-build-radius: 190
+  spawn-claim-radius: 500
+  nether-build-radius: 120
+  end-build-radius: 145
+  ore-world: ore_mountain
+  build-visible-borders: true
+  show-claim-border: true
+
+events:
+  koth-capture-seconds: 180
+  koth-capture-radius: 8.0
+  koth-announce-every-seconds: 30
+  conquest-point-capture-seconds: 15
+  conquest-point-radius: 7.0
+  conquest-score-to-win: 300
+
+resources:
+  bootstrap-spawners: true
+  mob-stack-merge-radius: 10.0
+  glowstone:
+    x: 0
+    z: -320
+    radius: 105
+    regen-min-seconds: 45
+    regen-max-seconds: 90
+  blaze:
+    x: 300
+    y: 70
+    z: 190
+    radius: 90
+    stack-cap: 20
+  wart:
+    x: -285
+    z: 205
+    radius: 90
+    regen-min-seconds: 45
+    regen-max-seconds: 90
+  nether-koth:
+    x: -300
+    z: -220
+    radius: 125
+  end-koth:
+    x: -300
+    z: -120
+    radius: 125
+  creeper:
+    x: 160
+    y: 69
+    z: 235
+    radius: 60
+    stack-cap: 25
+  end-exit:
+    x: 330
+    z: 0
+    safe-radius: 34
+  ore-mountain:
+    coal-regen-min-seconds: 18
+    coal-regen-max-seconds: 35
+    iron-regen-min-seconds: 28
+    iron-regen-max-seconds: 50
+    redstone-regen-min-seconds: 35
+    redstone-regen-max-seconds: 60
+    gold-regen-min-seconds: 45
+    gold-regen-max-seconds: 75
+    diamond-regen-min-seconds: 70
+    diamond-regen-max-seconds: 120
+    emerald-regen-min-seconds: 90
+    emerald-regen-max-seconds: 150
+
+world-composer:
+  enabled: true
+  blocks-per-tick: 7000
+  spawn-anchor-y: 66
+  conquest-anchor-y: 63
+  nether-anchor-y: 70
+  end-anchor-y: 68
+  assets:
+    spawn: krakenhcf.schematic
+    koth-classic: KOTH2-production-1.8.schematic
+    koth-endstyle: EndStyleKOTH-production-1.8.schematic
+    koth-egypt: EgyptKOTH-production-1.8.schematic
+    koth-frost: KOTH-Forty-1.8-converted.schematic
+    conquest: conquest.schematic
+    nether-spawn: NetherSpawnWillzaTeam.schematic
+    end: magical-hcf-end-xayden-bt.schematic
+
+# Experimental three-runtime actor layer. Production materialization stays off
+# until the one-body damage/death/DTR probe passes on the exact v1_8_R3 server.
 actors:
   fake-player:
     enabled: false
@@ -342,6 +447,7 @@ actors:
     max-bodies: 8
     default-ping: 55
 
+# Deterministic bounded memory; no recurring LLM summarization.
 memory:
   relationship-max: 32
   history-max-events: 2500

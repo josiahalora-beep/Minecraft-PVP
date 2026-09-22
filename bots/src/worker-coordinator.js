@@ -3,6 +3,7 @@ import http from 'node:http'
 import path from 'node:path'
 import YAML from 'yaml'
 import { startCommunityAiBridge } from './community-ai.js'
+import { anchorPriority, mapGoalFor, prestigeScore } from './hcf-map-intelligence.js'
 
 const root = path.resolve('..')
 const simulationFile = process.env.SIMULATION_FILE || path.join(root, 'server', 'plugins', 'EraCore', 'simulation.yml')
@@ -38,6 +39,8 @@ function settingsFrom(config) {
     offlineBodies: clamp(Number(w['offline-bodies'] || 24), 1, 64),
     maxPerFaction: clamp(Number(w['max-per-faction'] || 5), 1, 8),
     creatorBodies: creators,
+    anchorBodies: clamp(Number(w['anchor-bodies'] || 20), 5, 32),
+    prestigeBodies: clamp(Number(w['prestige-bodies'] || 10), 0, 20),
     fightAmbientBodies: clamp(Number(w['fight-ambient-bodies'] ?? 2), 0, 6)
   }
 }
@@ -139,15 +142,53 @@ function combatCandidatesFrom(combat) {
 function candidatesFrom(data, settings, combat) {
   const players = data?.players || {}
   const factions = data?.factions || {}
-  const pinnedNames = new Set(settings.creatorBodies.map(x => x.toLowerCase()))
-  const out = []
   const combatCandidates = combatCandidatesFrom(combat)
   const combatNames = new Set(combatCandidates.map(x => x.name.toLowerCase()))
-  out.push(...combatCandidates)
+  const out = [...combatCandidates]
 
-  for (const creator of settings.creatorBodies) {
-    const c = candidateForName(data, creator, true)
-    if (c && !combatNames.has(c.name.toLowerCase())) out.push(c)
+  // Reserve scarce physical bodies for identities whose continued presence
+  // makes the server feel coherent: creators, faction leaders/builders and the
+  // most prestigious respected players. Combat still outranks every anchor.
+  const creatorSet = new Set(settings.creatorBodies.map(x => x.toLowerCase()))
+  const anchorPool = []
+  for (const p of Object.values(players)) {
+    if (!p?.name || p['logical-online'] === false || combatNames.has(String(p.name).toLowerCase())) continue
+    const factionName=String(p.faction || '')
+    const faction=factionName
+      ? (factions[factionName.toLowerCase()] || Object.values(factions).find(f => String(f?.name || '').toLowerCase()===factionName.toLowerCase()) || {})
+      : {}
+    const a=anchorPriority(p,faction,settings.creatorBodies)
+    anchorPool.push({p,faction,a})
+  }
+
+  const mandatory = anchorPool
+    .filter(x => x.a.creator || x.a.leader || x.a.builder)
+    .sort((a,b)=>b.a.score-a.a.score)
+    .slice(0,settings.anchorBodies)
+
+  const already=new Set(mandatory.map(x=>String(x.p.name).toLowerCase()))
+  const prestige = anchorPool
+    .filter(x=>!already.has(String(x.p.name).toLowerCase()))
+    .sort((a,b)=>prestigeScore(b.p)-prestigeScore(a.p))
+    .slice(0,settings.prestigeBodies)
+
+  const anchors=[...mandatory,...prestige]
+  const pinnedNames=new Set(anchors.map(x=>String(x.p.name).toLowerCase()))
+
+  for (const x of anchors) {
+    const p=x.p
+    const faction=x.faction || {}
+    const stage=String(faction?.stage || 'RECRUITING')
+    out.push({
+      name:String(p.name),
+      faction:String(faction?.name || p.faction || 'none'),
+      stage,
+      score:100000 + x.a.score,
+      recovery:Boolean(faction?.['recovery-mode']),
+      pinned:true,
+      anchorReason:x.a.creator?'creator':(x.a.leader?'leader':(x.a.builder?'builder':'prestige')),
+      mapGoal:mapGoalFor({player:p,faction})
+    })
   }
 
   for (const p of Object.values(players)) {
@@ -161,7 +202,8 @@ function candidatesFrom(data, settings, combat) {
       score: 32 + Number(p.sociability || 50) * 0.12 +
         Number(p.aggression || 50) * 0.12 + Number(p.reputation || 0) * 0.08,
       recovery: false,
-      pinned: false
+      pinned: false,
+      mapGoal:mapGoalFor({player:p,faction:{}})
     })
   }
 
@@ -182,7 +224,8 @@ function candidatesFrom(data, settings, combat) {
         stage,
         score,
         recovery: Boolean(faction?.['recovery-mode']),
-        pinned: false
+        pinned: false,
+        mapGoal:mapGoalFor({player:p,faction})
       })
     }
   }

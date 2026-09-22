@@ -73,12 +73,17 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     private HcfElevatorDirector elevatorDirector;
     private HcfTravelDirector travelDirector;
     private HcfPortalDirector portalDirector;
+    private HcfMapDirector mapDirector;
+    private HcfClaimDirector claimDirector;
+    private HcfEventDirector eventDirector;
+    private HcfResourceDirector resourceDirector;
+    private LegacySchematicComposer schematicComposer;
 
     enum Rank {
         MEMBER(0, "&7[Member]", 24),
-        BASIC(1, "&a[Basic]", 24),
-        SILVER(2, "&f[Silver]", 18),
-        GOLD(3, "&6[Gold]", 12),
+        BASIC(1, "&a[VIP]", 24),
+        SILVER(2, "&f[MVP]", 18),
+        GOLD(3, "&6[Pro]", 12),
         PLATINUM(4, "&b[Platinum]", 8),
         OWNER(99, "&4[Owner]", 0);
         final int level;
@@ -93,8 +98,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             // Migrate the earlier placeholder hierarchy without invalidating
             // existing ranks.yml files.
             if("VIP".equals(n)) n="BASIC";
-            else if("ELITE".equals(n)) n="SILVER";
-            else if("LEGEND".equals(n)) n="GOLD";
+            else if("MVP".equals(n) || "ELITE".equals(n)) n="SILVER";
+            else if("PRO".equals(n) || "LEGEND".equals(n)) n="GOLD";
             else if("TITAN".equals(n)) n="PLATINUM";
             try { return Rank.valueOf(n); }
             catch (Exception e) { return null; }
@@ -178,6 +183,13 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         travelDirector = new HcfTravelDirector(this);
         portalDirector = new HcfPortalDirector(warpManager);
         hcfZones = new HcfZoneDisplayDirector(this, warpManager);
+        mapDirector = new HcfMapDirector(this,warpManager,travelDirector,hcfZones);
+        claimDirector = new HcfClaimDirector(this,mapDirector);
+        for(Faction existingFaction:factions.values())
+            claimDirector.importLegacy(existingFaction.name,existingFaction.claims);
+        eventDirector = new HcfEventDirector(this,mapDirector);
+        resourceDirector = new HcfResourceDirector(this,mapDirector);
+        schematicComposer = new LegacySchematicComposer(this);
         infrastructure = new HcfInfrastructureDirector(this,warpManager,hcfZones);
         logicalTab = new LogicalTabListDirector(this, simWorld);
         spawnRewards = new SpawnRewardsDirector(this, warpManager);
@@ -203,6 +215,9 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         simChat.start();
         hcfClasses.start();
         hcfZones.start();
+        mapDirector.start();
+        eventDirector.start();
+        resourceDirector.start();
         infrastructure.start();
         spawnPresence.start();
         spawnRewards.start();
@@ -220,8 +235,14 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (getConfig().getBoolean("map.auto-bootstrap", true) && !getConfig().getBoolean("map.complete", false)) {
             new BukkitRunnable() {
                 public void run() {
-                    World world = Bukkit.getWorlds().get(0);
-                    bootstrapMap(world, false);
+                    if(getConfig().getBoolean("world-composer.enabled",true) && schematicComposer!=null) {
+                        List<String> missing=schematicComposer.missingProductionAssets();
+                        if(missing.isEmpty()) schematicComposer.queueProductionMap(mapDirector);
+                        else getLogger().warning("Production map assets missing; run Install-HCF-World-Assets.ps1. Missing: "+join(missing,", "));
+                    } else {
+                        World world = Bukkit.getWorlds().get(0);
+                        bootstrapMap(world, false);
+                    }
                 }
             }.runTaskLater(this, 80L);
         }
@@ -237,6 +258,11 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     @Override public void onDisable() {
         if (fakePlayers != null) fakePlayers.shutdown();
+        if (schematicComposer != null) schematicComposer.stop();
+        if (eventDirector != null) eventDirector.stop();
+        if (resourceDirector != null) resourceDirector.stop();
+        if (claimDirector != null) claimDirector.stop();
+        if (mapDirector != null) mapDirector.stop();
         if (infrastructure != null) infrastructure.stop();
         if (autoBrewer != null) autoBrewer.stop();
         if (spawnRewards != null) spawnRewards.stop();
@@ -344,13 +370,83 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             version=4;
         }
 
+        if(version<5) {
+            // Map/community v1.  Creator visibility is cosmetic/social rather than
+            // a forced donor combat advantage.
+            getConfig().set("creator-tag.minimum-donor-level",0);
+            getConfig().set("worker-pool.anchor-bodies",20);
+            getConfig().set("worker-pool.prestige-bodies",10);
+
+            getConfig().set("sim-chat.min-delay-seconds",3);
+            getConfig().set("sim-chat.max-delay-seconds",7);
+            getConfig().set("sim-chat.quiet-min-delay-seconds",10);
+            getConfig().set("sim-chat.quiet-max-delay-seconds",24);
+            getConfig().set("sim-chat.identity-cooldown-seconds",18);
+            getConfig().set("sim-chat.line-cooldown-seconds",55);
+            getConfig().set("sim-chat.fan-reaction-cooldown-seconds",180);
+            getConfig().set("sim-chat.max-fan-reactions",1);
+
+            getConfig().set("map-layout.koth-offset",650);
+            getConfig().set("map-layout.koth-radius",165);
+            getConfig().set("map-layout.portal-offset",1000);
+            getConfig().set("map-layout.portal-radius",125);
+            getConfig().set("map-layout.conquest-x",0);
+            getConfig().set("map-layout.conquest-z",1125);
+            getConfig().set("map-layout.conquest-radius",175);
+            getConfig().set("map-layout.spawn-build-radius",190);
+            getConfig().set("map-layout.spawn-claim-radius",500);
+            getConfig().set("map-layout.nether-build-radius",120);
+            getConfig().set("map-layout.end-build-radius",145);
+            getConfig().set("map-layout.ore-world","ore_mountain");
+            getConfig().set("map-layout.build-visible-borders",true);
+            getConfig().set("map-layout.show-claim-border",true);
+
+            getConfig().set("safezones.nether-radius",75);
+            getConfig().set("safezones.end-radius",95);
+            getConfig().set("events.koth-capture-seconds",180);
+            getConfig().set("events.koth-capture-radius",8.0);
+            getConfig().set("events.conquest-score-to-win",300);
+            getConfig().set("events.conquest-point-capture-seconds",15);
+
+            getConfig().set("resources.glowstone.x",0);
+            getConfig().set("resources.glowstone.z",-320);
+            getConfig().set("resources.glowstone.radius",105);
+            getConfig().set("resources.blaze.x",300);
+            getConfig().set("resources.blaze.z",190);
+            getConfig().set("resources.blaze.radius",90);
+            getConfig().set("resources.blaze.stack-cap",20);
+            getConfig().set("resources.wart.x",-285);
+            getConfig().set("resources.wart.z",205);
+            getConfig().set("resources.wart.radius",90);
+            getConfig().set("resources.creeper.x",160);
+            getConfig().set("resources.creeper.z",235);
+            getConfig().set("resources.creeper.radius",60);
+            getConfig().set("resources.creeper.stack-cap",25);
+            getConfig().set("resources.bootstrap-spawners",true);
+            getConfig().set("resources.end-exit.x",330);
+            getConfig().set("resources.end-exit.z",0);
+            getConfig().set("resources.end-exit.safe-radius",34);
+
+            getConfig().set("world-composer.enabled",true);
+            getConfig().set("world-composer.blocks-per-tick",7000);
+            getConfig().set("world-composer.spawn-anchor-y",66);
+            getConfig().set("claims.min-width",12);
+            getConfig().set("claims.max-width",110);
+            getConfig().set("claims.sim-base-buffer-blocks",8);
+            getConfig().set("terrain.cleanup-height",46);
+            getConfig().set("terrain.road-flat-half-width",20.0);
+            getConfig().set("terrain.road-shoulder-half-width",72.0);
+            getConfig().set("terrain.custom-decoration",true);
+            version=5;
+        }
+
         getConfig().set("migration.living-world-version",version);
         saveConfig();
         getLogger().info("Applied living-world v"+version+": staged bases, combat presentation, quieter chat and logical tab population.");
     }
 
     private void bindCommands() {
-        String[] cmds = {"rank","kit","kits","balance","pay","sell","buy","shop","vote","keys","crates","stats","history","duel","f","spawn","stuck","setspawn","warp","warps","setwarp","delwarp","spawnpreset","msg","r","simchat","sotw","simworker","simcombat","simactor","safezone","teamfight","bard","archer","miner","rogue","simprobe","simmap","simstate","duelprep","baserate","baserebuild"};
+        String[] cmds = {"rank","kit","kits","balance","pay","sell","buy","shop","vote","keys","crates","stats","history","duel","f","spawn","stuck","setspawn","warp","warps","setwarp","delwarp","spawnpreset","msg","r","simchat","sotw","simworker","simcombat","simactor","safezone","teamfight","bard","archer","miner","rogue","simprobe","simmap","simstate","duelprep","baserate","baserebuild","mapinfo","events","koth","conquest","oremountain","mapcompose"};
         for (String c : cmds) getCommand(c).setExecutor(this);
     }
 
@@ -464,6 +560,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     @EventHandler(priority=EventPriority.HIGHEST) public void onQuit(PlayerQuitEvent e) {
         Player p = e.getPlayer();
+        if(claimDirector!=null) claimDirector.onQuit(p);
         if(activeDuel!=null && p.getName().equalsIgnoreCase(activeDuel.human)) {
             if(simWorld!=null) simWorld.cancelDuel(activeDuel.human,activeDuel.sim,"opponent disconnected");
             restoreDuelHuman(p);
@@ -495,6 +592,12 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         Rank rank = simRankFor(name);
         String marker = joining ? "&8[&a+&8] " : "&8[&c-&8] ";
         Bukkit.broadcastMessage(color(marker + identityPrefix(name,rank) + rankNameColor(rank) + name + factionSuffix(name)));
+    }
+
+    @EventHandler(priority=EventPriority.MONITOR, ignoreCancelled=true)
+    public void onFactionTerritoryMove(PlayerMoveEvent e) {
+        if(claimDirector!=null && e.getTo()!=null)
+            claimDirector.onMove(e.getPlayer(),e.getFrom(),e.getTo());
     }
 
     @EventHandler(priority=EventPriority.HIGHEST) public void onChat(AsyncPlayerChatEvent e) {
@@ -579,17 +682,24 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     @EventHandler(priority=EventPriority.HIGHEST, ignoreCancelled=true) public void onClaimInteract(PlayerInteractEvent e) {
+        Player p=e.getPlayer();
+        Faction own=factionOf(p.getName());
+
+        if(claimDirector!=null && claimDirector.isClaimWand(e.getItem())) {
+            boolean allowed=own!=null && own.leader!=null && own.leader.equalsIgnoreCase(p.getName());
+            claimDirector.handleWand(e,own==null?"":own.name,allowed);
+            return;
+        }
+
         if (e.getClickedBlock() == null) return;
         Action action = e.getAction();
         if (action != Action.RIGHT_CLICK_BLOCK && action != Action.LEFT_CLICK_BLOCK) return;
-
-        Player p = e.getPlayer();
         if (getRank(p.getName()) == Rank.OWNER) return;
 
-        String owner = claimOwners.get(claimKey(e.getClickedBlock().getLocation()));
-        if (owner == null) return;
+        String owner=claimDirector==null?"":claimDirector.ownerAt(e.getClickedBlock().getLocation());
+        if(owner==null || owner.isEmpty()) owner=claimOwners.get(claimKey(e.getClickedBlock().getLocation()));
+        if (owner == null || owner.isEmpty()) return;
 
-        Faction own = factionOf(p.getName());
         if (own != null && own.name.equalsIgnoreCase(owner)) return;
 
         Faction target = factions.get(owner.toLowerCase(Locale.ENGLISH));
@@ -628,8 +738,9 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
                 it.remove();
                 continue;
             }
-            String owner = claimOwners.get(claimKey(b.getLocation()));
-            if (owner == null) continue;
+            String owner=claimDirector==null?"":claimDirector.ownerAt(b.getLocation());
+            if(owner==null || owner.isEmpty()) owner=claimOwners.get(claimKey(b.getLocation()));
+            if (owner == null || owner.isEmpty()) continue;
             Faction target = factions.get(owner.toLowerCase(Locale.ENGLISH));
             if (target != null) {
                 // HCF raids are opened by DTR, never by TNT/cannoning.
@@ -639,6 +750,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     @EventHandler(priority=EventPriority.HIGHEST, ignoreCancelled=true) public void onBreak(BlockBreakEvent e) {
+        if(resourceDirector!=null && resourceDirector.handleProtectedBreak(e)) return;
         if (!canBuild(e.getPlayer(), e.getBlock().getLocation())) e.setCancelled(true);
     }
 
@@ -893,6 +1005,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     boolean isHcfSafezone(Location location) {
+        if(mapDirector!=null && mapDirector.isAdditionalSafe(location)) return true;
         return hcfZones != null ? hcfZones.isSafe(location) : isSafezone(location);
     }
 
@@ -977,6 +1090,49 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         return simWorld == null ? 0 : simWorld.allIdentityNames().size();
     }
 
+    String activeHcfEventType() {
+        return eventDirector==null?"":eventDirector.activeType();
+    }
+
+    String activeHcfEventId() {
+        return eventDirector==null?"":eventDirector.activeId();
+    }
+
+    int[] activeHcfEventPoint() {
+        if(eventDirector==null || mapDirector==null) return null;
+        String id=eventDirector.activeId();
+        if(id==null || id.isEmpty()) return null;
+        HcfMapDirector.Region r=mapDirector.region(id);
+        if(r==null) return null;
+        int y=getConfig().getInt("map.surface-y",63)+1;
+        return new int[]{(int)Math.round(r.x),y,(int)Math.round(r.z)};
+    }
+
+    int[] hcfPatrolPoint(String faction,String zone) {
+        String z=zone==null?"spawn":zone.toLowerCase(Locale.ENGLISH);
+        int h=Math.abs((faction==null?"":faction.toLowerCase(Locale.ENGLISH)).hashCode());
+
+        if("nether".equals(z) && mapDirector!=null) {
+            HcfMapDirector.Region r=mapDirector.region((h&1)==0?"glowstone":"nether-koth");
+            if(r!=null) return new int[]{(int)r.x,getConfig().getInt("resources.blaze.y",70),(int)r.z};
+        }
+        if("end".equals(z) && mapDirector!=null) {
+            HcfMapDirector.Region r=mapDirector.region((h&1)==0?"end-koth":"creeper");
+            if(r!=null) return new int[]{(int)r.x,getConfig().getInt("resources.creeper.y",69),(int)r.z};
+        }
+
+        // Ordinary Overworld PvP searches happen on the four Kraken roads
+        // between Spawn and the KOTH quadrants. KOTH coordinates are reserved
+        // for actual event objectives.
+        int d=300+(h%3)*55;
+        switch(h%4) {
+            case 0: return new int[]{0,getConfig().getInt("map.surface-y",63)+1,-d};
+            case 1: return new int[]{d,getConfig().getInt("map.surface-y",63)+1,0};
+            case 2: return new int[]{0,getConfig().getInt("map.surface-y",63)+1,d};
+            default:return new int[]{-d,getConfig().getInt("map.surface-y",63)+1,0};
+        }
+    }
+
     static String colorText(String s) {
         return color(s);
     }
@@ -1048,6 +1204,12 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (c.equals("duelprep")) return cmdDuelPrep(p);
         if (c.equals("baserate")) return cmdBaseRate(p,args);
         if (c.equals("baserebuild")) return cmdBaseRebuild(p,args);
+        if (c.equals("mapinfo")) return mapDirector != null && mapDirector.commandMapInfo(p,args);
+        if (c.equals("events")) return eventDirector != null && eventDirector.commandEvents(p,args);
+        if (c.equals("koth")) return eventDirector != null && eventDirector.commandKoth(p,args);
+        if (c.equals("conquest")) return eventDirector != null && eventDirector.commandConquest(p,args);
+        if (c.equals("oremountain")) return mapDirector != null && mapDirector.commandOreMountain(p);
+        if (c.equals("mapcompose")) return cmdMapCompose(p,args);
         return false;
     }
 
@@ -1908,13 +2070,9 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         int y = Math.max(3, task.y);
         Location target = new Location(world,task.x + 0.5,y,task.z + 0.5);
 
-        // Never bypass HCF combat tag with internal worker projection.
-        boolean tagged=hcfZones!=null && hcfZones.isTagged(p);
-        if (!tagged && !"crate".equals(task.action) &&
-            (!p.getWorld().equals(world) || p.getLocation().distanceSquared(target) > 48.0 * 48.0)) {
-            p.teleport(target);
-        }
-
+        // Do not teleport ordinary workers to semantic targets. A HOT body is a
+        // visible player and must use /f home, /spawn, /warp or walk there.
+        // Combat projection has its own explicit fight-spawn path.
         Material tool = Material.WOOD_PICKAXE;
         if ("mine".equals(task.action) || "gather".equals(task.action) || "supply".equals(task.action)) tool = Material.IRON_PICKAXE;
         else if ("build".equals(task.action) || "solo_build".equals(task.action)) tool = Material.STONE_PICKAXE;
@@ -1942,13 +2100,23 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     private boolean cmdSotw(Player p, String[] a) {
         if (a.length == 0 || a[0].equalsIgnoreCase("status")) {
             p.sendMessage(color("&7" + simWorld.sotwStatus()));
+            if(eventDirector!=null) p.sendMessage(color("&7Events: &f"+eventDirector.publicSummary()));
             return true;
         }
         if (a[0].equalsIgnoreCase("reset")) {
             if (!ownerOnly(p)) return true;
-            simWorld.resetForSotw();
-            Bukkit.broadcastMessage(color("&6SOTW started. &7Everyone is factionless and recruiting is open."));
-            return true;
+            if(a.length>1 && a[1].equalsIgnoreCase("soft")) {
+                simWorld.resetForSotw();
+                if(eventDirector!=null) eventDirector.resetForNewMap();
+                Bukkit.broadcastMessage(color("&6SOTW simulation reset. &7Physical worlds were preserved."));
+                return true;
+            }
+            if(a.length<2 || !a[1].equalsIgnoreCase("confirm")) {
+                p.sendMessage(color("&cFULL MAP RESET: &7archives/deletes generated dimensions, resets faction/event state, then rematerializes installed map assets."));
+                p.sendMessage(color("&7Run &f/sotw reset confirm &7to write the reset marker and shut down safely."));
+                return true;
+            }
+            return queueFullSotwReset(p);
         }
         if (a[0].equalsIgnoreCase("end")) {
             if (!ownerOnly(p)) return true;
@@ -1956,8 +2124,117 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             Bukkit.broadcastMessage(color("&cSOTW protection has ended."));
             return true;
         }
-        p.sendMessage("/sotw <status|reset|end>");
+        p.sendMessage("/sotw <status|reset [confirm|soft]|end>");
         return true;
+    }
+
+    private boolean queueFullSotwReset(final Player p) {
+        if(schematicComposer!=null) {
+            List<String> missing=schematicComposer.missingProductionAssets();
+            if(!missing.isEmpty()) {
+                p.sendMessage(color("&cCannot schedule full reset: map assets are missing."));
+                p.sendMessage(color("&7Missing: &f"+join(missing,", ")));
+                return true;
+            }
+        }
+        File marker=new File(getDataFolder(),"season-reset.pending");
+        try {
+            PrintWriter out=new PrintWriter(new OutputStreamWriter(new FileOutputStream(marker),"UTF-8"));
+            out.println("requested-by="+p.getName());
+            out.println("requested-at="+System.currentTimeMillis());
+            out.println("layout-version=1");
+            out.close();
+        } catch(IOException e) {
+            p.sendMessage(color("&cCould not write reset marker: "+e.getMessage()));
+            return true;
+        }
+
+        if(simWorld!=null) simWorld.resetForSotw();
+        if(eventDirector!=null) eventDirector.resetForNewMap();
+
+        // A full SOTW is a fresh map economy/faction race. Donor ranks, player
+        // identity history and the long-term AI memory archive persist.
+        for(Faction f:new ArrayList<Faction>(factions.values())) removeFaction(f);
+        factions.clear();
+        claimOwners.clear();
+        economyData.set("balances",null);
+        for(String key:new ArrayList<String>(kitsData.getKeys(false))) kitsData.set(key,null);
+        saveAll();
+        Bukkit.broadcastMessage(color("&4[SOTW] &cFull season reset queued. &7Server shutting down safely in 5 seconds."));
+        for(Player x:Bukkit.getOnlinePlayers())
+            x.sendMessage(color("&7Restart with &fserver\\start-server.bat&7; the preflight reset will archive old worlds and create the new map."));
+        Bukkit.getScheduler().runTaskLater(this,new Runnable() {
+            public void run(){ Bukkit.shutdown(); }
+        },100L);
+        return true;
+    }
+
+    private boolean cmdMapCompose(Player p,String[] a) {
+        if(!ownerOnly(p)) return true;
+        if(schematicComposer==null) {
+            p.sendMessage(color("&cWorld compositor unavailable."));
+            return true;
+        }
+        String sub=a.length==0?"status":a[0].toLowerCase(Locale.ENGLISH);
+        if("status".equals(sub)) {
+            List<String> missing=schematicComposer.missingProductionAssets();
+            p.sendMessage(color("&6Composer &8» &7busy=&f"+schematicComposer.busy()+" &7queuedJobs=&f"+schematicComposer.queuedJobs()));
+            p.sendMessage(color(missing.isEmpty()?"&aAll production assets installed.":"&cMissing: &f"+join(missing,", ")));
+            return true;
+        }
+        if("start".equals(sub)) {
+            if(schematicComposer.busy()) {
+                p.sendMessage(color("&cA composition pass is already running."));
+                return true;
+            }
+            boolean ok=schematicComposer.queueProductionMap(mapDirector);
+            p.sendMessage(color(ok?"&aProduction map composition queued.":"&cCould not queue production map. Check console/assets."));
+            return true;
+        }
+        p.sendMessage("/mapcompose <status|start>");
+        return true;
+    }
+
+    void rewardKothCapture(String faction,Player representative,String kothId) {
+        if(representative==null) return;
+        int roll=Math.abs((faction+"|"+kothId+"|"+System.currentTimeMillis()/60000L).hashCode())%100;
+        ItemStack prize;
+        String label;
+        if(roll<15) {
+            prize=new ItemStack(Material.DIAMOND_SWORD);
+            prize.addUnsafeEnchantment(Enchantment.DAMAGE_ALL,2);
+            prize.addUnsafeEnchantment(Enchantment.DURABILITY,2);
+            org.bukkit.inventory.meta.ItemMeta m=prize.getItemMeta();
+            m.setDisplayName(color("&6KOTH Sword &7["+kothId+"]"));
+            prize.setItemMeta(m);
+            label="Sharpness II / Unbreaking II KOTH Sword";
+        } else if(roll<50) {
+            prize=new ItemStack(Material.DIAMOND_SWORD);
+            prize.addUnsafeEnchantment(Enchantment.DAMAGE_ALL,2);
+            label="Sharpness II Diamond Sword";
+        } else {
+            Material[] armor={Material.DIAMOND_HELMET,Material.DIAMOND_CHESTPLATE,Material.DIAMOND_LEGGINGS,Material.DIAMOND_BOOTS};
+            prize=new ItemStack(armor[roll%armor.length]);
+            prize.addUnsafeEnchantment(Enchantment.PROTECTION_ENVIRONMENTAL,2);
+            label="Protection II "+prize.getType().name().replace('_',' ');
+        }
+        add(representative,prize);
+        add(representative,new ItemStack(Material.ENDER_PEARL,8));
+        creditEconomy(representative.getName(),500.0);
+        representative.sendMessage(color("&6KOTH reward &8» &f"+label+" &7+ 8 pearls + $500."));
+    }
+
+    void rewardConquestCapture(String faction) {
+        Faction f=factions.get(faction.toLowerCase(Locale.ENGLISH));
+        if(f==null) return;
+        for(String name:f.members) {
+            Player p=Bukkit.getPlayerExact(name);
+            if(p==null) continue;
+            add(p,new ItemStack(Material.ENDER_PEARL,8));
+            for(int i=0;i<4;i++) add(p,new ItemStack(Material.POTION,1,(short)16421));
+            creditEconomy(name,300.0);
+            p.sendMessage(color("&cConquest reward &8» &f8 pearls, 4 heals and $300."));
+        }
     }
 
     private boolean cmdClassInfo(Player p, String which) {
@@ -3006,25 +3283,27 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         }
 
         if(sub.equals("claim")) {
-            String ck=claimKey(p.getLocation());
-            String existing=claimOwners.get(ck);
-            if(existing!=null&&!existing.equalsIgnoreCase(f.name)) {
-                p.sendMessage(color("&cAlready claimed by "+existing));
-                return true;
-            }
             if(!leader) {
-                p.sendMessage(color("&cLeader only for now."));
+                p.sendMessage(color("&cLeader only."));
                 return true;
             }
-            int maxClaims=Math.min(getConfig().getInt("claims.max-cap",12), getConfig().getInt("claims.base",4)+f.members.size()*getConfig().getInt("claims.per-member",2));
-            if(f.claims.size()+1>maxClaims) {
-                p.sendMessage(color("&cYour faction claim limit is "+maxClaims+" chunks."));
+            if(claimDirector==null) {
+                p.sendMessage(color("&cClaim system is not ready."));
                 return true;
             }
-            f.claims.add(ck);
-            claimOwners.put(ck,f.name);
-            saveFactions();
-            p.sendMessage(color("&aClaimed this chunk."));
+            if(a.length>1 && a[1].equalsIgnoreCase("confirm")) {
+                if(claimDirector.confirmSelection(p,f.name)) {
+                    // Remove old chunk ownership after the exact rectangle is authoritative.
+                    for(String ck:new ArrayList<String>(f.claims)) {
+                        String owner=claimOwners.get(ck);
+                        if(owner!=null && owner.equalsIgnoreCase(f.name)) claimOwners.remove(ck);
+                    }
+                    f.claims.clear();
+                    saveFactions();
+                }
+                return true;
+            }
+            claimDirector.giveWand(p);
             return true;
         }
 
@@ -3033,20 +3312,32 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
                 p.sendMessage(color("&cLeader only."));
                 return true;
             }
-            String ck=claimKey(p.getLocation());
-            if(!f.claims.remove(ck)) {
-                p.sendMessage(color("&cYour faction does not own this chunk."));
-                return true;
+            boolean removed=claimDirector!=null && claimDirector.clearFactionClaim(f.name);
+            for(String ck:new ArrayList<String>(f.claims)) {
+                String owner=claimOwners.get(ck);
+                if(owner!=null && owner.equalsIgnoreCase(f.name)) claimOwners.remove(ck);
             }
-            claimOwners.remove(ck);
+            if(!f.claims.isEmpty()) removed=true;
+            f.claims.clear();
             saveFactions();
-            p.sendMessage(color("&eUnclaimed chunk."));
+            p.sendMessage(color(removed?"&eYour faction claim was removed.":"&cYour faction has no claim."));
+            return true;
+        }
+
+        if(sub.equals("map")) {
+            if(claimDirector!=null) claimDirector.showMap(p);
+            else p.sendMessage(color("&cClaim map unavailable."));
             return true;
         }
 
         if(sub.equals("sethome")) {
             if(!leader) {
                 p.sendMessage(color("&cLeader only."));
+                return true;
+            }
+            if(claimDirector!=null && claimDirector.claim(f.name)!=null &&
+               !claimDirector.factionOwns(f.name,p.getLocation())) {
+                p.sendMessage(color("&cFaction home must be set inside your claim."));
                 return true;
             }
             f.home=p.getLocation();
@@ -3087,7 +3378,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         viewer.sendMessage(color("&6"+q.name+" &7(" + q.members.size()+"/"+SimWorldDirector.MAX_FACTION_MEMBERS + ")"));
         viewer.sendMessage(color("&7Leader: &f"+q.leader+
             " &7DTR: "+dtrColor(q)+fmtDtr(q.dtr)+"&7/&f"+fmtDtr(maxDtr(q))+
-            " &7Claims: &f"+q.claims.size()));
+            " &7Claim: &f"+(claimDirector==null?(q.claims.isEmpty()?"none":q.claims.size()+" legacy chunks"):claimDirector.describe(q.name))));
         if(simWorld!=null && simWorld.contains(q.leader)) {
             viewer.sendMessage(color("&7Leadership: &f"+simWorld.publicLeaderStyleFor(q.leader)+
                 " &8• &7"+simWorld.publicLeaderReputationFor(q.leader)));
@@ -3109,12 +3400,13 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     private void sendFactionHelp(Player p) {
-        p.sendMessage(color("&6/f create, invite, join, leave, kick, disband, claim, unclaim, sethome, home, show, who, list, c"));
+        p.sendMessage(color("&6/f create, invite, join, leave, kick, disband, claim, unclaim, map, sethome, home, show, who, list, c"));
     }
 
     private void removeFaction(Faction f) {
         factions.remove(f.name.toLowerCase(Locale.ENGLISH));
         for(String c:new ArrayList<String>(f.claims)) claimOwners.remove(c);
+        if(claimDirector!=null) claimDirector.clearFactionClaim(f.name);
     }
 
     private Faction factionOf(String player) {
@@ -3275,25 +3567,52 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         Faction f = factions.get(factionName.toLowerCase(Locale.ENGLISH));
         if (f == null) return false;
 
-        if (claims != null) {
-            // Validate the entire new footprint before mutating any existing
-            // claims. Claim replacement is all-or-nothing.
-            for (String ck : claims) {
-                String owner = claimOwners.get(ck);
-                if (owner != null && !owner.equalsIgnoreCase(f.name)) return false;
+        if(claims!=null && !claims.isEmpty() && claimDirector!=null) {
+            String worldName=null;
+            int minCx=Integer.MAX_VALUE,maxCx=Integer.MIN_VALUE,minCz=Integer.MAX_VALUE,maxCz=Integer.MIN_VALUE;
+            for(String raw:claims) {
+                String[] parts=raw==null?new String[0]:raw.split(":");
+                if(parts.length<3) continue;
+                try {
+                    if(worldName==null) worldName=parts[0];
+                    if(!worldName.equalsIgnoreCase(parts[0])) continue;
+                    int cx=Integer.parseInt(parts[1]),cz=Integer.parseInt(parts[2]);
+                    minCx=Math.min(minCx,cx);maxCx=Math.max(maxCx,cx);
+                    minCz=Math.min(minCz,cz);maxCz=Math.max(maxCz,cz);
+                } catch(Exception ignored){}
             }
-
-            Set<String> oldClaims = new LinkedHashSet<String>(f.claims);
-            for (String old : oldClaims) claimOwners.remove(old);
-
-            f.claims.clear();
-            for (String ck : claims) {
-                f.claims.add(ck);
-                claimOwners.put(ck, f.name);
+            World w=worldName==null?null:Bukkit.getWorld(worldName);
+            if(w!=null && minCx!=Integer.MAX_VALUE) {
+                if(!claimDirector.setFactionClaim(f.name,w,minCx*16,maxCx*16+15,minCz*16,maxCz*16+15))
+                    return false;
             }
         }
 
+        // Clear legacy chunk ownership after migration. Exact rectangles are now
+        // authoritative and avoid jagged claim edges.
+        for(String old:new ArrayList<String>(f.claims)) {
+            String owner=claimOwners.get(old);
+            if(owner!=null && owner.equalsIgnoreCase(f.name)) claimOwners.remove(old);
+        }
+        f.claims.clear();
+
         f.home = home == null ? null : home.clone();
+        saveFactions();
+        return true;
+    }
+
+    synchronized boolean setSimFactionHomeAndRectClaim(String factionName,Location home,
+                                                        int minX,int maxX,int minZ,int maxZ) {
+        Faction f=factions.get(factionName.toLowerCase(Locale.ENGLISH));
+        if(f==null || home==null || home.getWorld()==null || claimDirector==null) return false;
+        if(!claimDirector.setFactionClaim(f.name,home.getWorld(),minX,maxX,minZ,maxZ)) return false;
+
+        for(String old:new ArrayList<String>(f.claims)) {
+            String owner=claimOwners.get(old);
+            if(owner!=null && owner.equalsIgnoreCase(f.name)) claimOwners.remove(old);
+        }
+        f.claims.clear();
+        f.home=home.clone();
         saveFactions();
         return true;
     }
@@ -3385,6 +3704,10 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     private boolean canBuild(Player p,Location l) {
         if(getRank(p.getName())==Rank.OWNER || p.hasPermission("eracore.owner")) return true;
+        if(mapDirector!=null && mapDirector.protectsBuild(l)) {
+            p.sendMessage(color("&c"+mapDirector.buildReason(l)));
+            return false;
+        }
         if(isSpawnBuildProtected(l)) {
             p.sendMessage(color("&cSpawn build protection extends across the full Safezone footprint."));
             return false;
@@ -3393,8 +3716,9 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             p.sendMessage(color("&cSafezone is protected."));
             return false;
         }
-        String owner=claimOwners.get(claimKey(l));
-        if(owner==null) return true;
+        String owner=claimDirector==null?"":claimDirector.ownerAt(l);
+        if(owner==null || owner.isEmpty()) owner=claimOwners.get(claimKey(l));
+        if(owner==null || owner.isEmpty()) return true;
         Faction own=factionOf(p.getName());
         if(own!=null&&own.name.equalsIgnoreCase(owner)) return true;
         Faction target=factions.get(owner.toLowerCase(Locale.ENGLISH));
@@ -3492,7 +3816,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
         // Never terraform claimed faction land.
         String ck=world.getName()+":"+(x>>4)+":"+(z>>4);
-        if(claimOwners.containsKey(ck)) return;
+        if(claimOwners.containsKey(ck) ||
+           (claimDirector!=null && !claimDirector.ownerAt(new Location(world,x,y,z)).isEmpty())) return;
 
         // Don't move terrain through a currently visible body.
         for(Player p:Bukkit.getOnlinePlayers()) {

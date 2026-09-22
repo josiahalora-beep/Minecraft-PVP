@@ -4,7 +4,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$validatedCommit = '7d5156a6bd9bb926f031351c69cf1a4bee9dedf3'
+$validatedCommit = '7ced6609a4d1abe726a5e7b7357490f7693e8a46'
 $base = "https://raw.githubusercontent.com/josiahalora-beep/Minecraft-PVP/$validatedCommit"
 
 Write-Host 'IMPORTANT: stop the Minecraft server and all worker/coordinator processes before running this updater.' -ForegroundColor Yellow
@@ -78,14 +78,19 @@ $files = @(
   'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfAutoBrewerDirector.java',
   'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfBaseBuilder.java',
   'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfBasePlan.java',
+  'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfClaimDirector.java',
   'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfClassDirector.java',
+  'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfEventDirector.java',
   'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfElevatorDirector.java',
   'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfGateDirector.java',
   'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfInfrastructureDirector.java',
+  'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfMapDirector.java',
   'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfPortalDirector.java',
+  'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfResourceDirector.java',
   'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfTerrainDirector.java',
   'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfTravelDirector.java',
   'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfZoneDisplayDirector.java',
+  'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/LegacySchematicComposer.java',
   'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/LogicalTabListDirector.java',
   'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/SimChatDirector.java',
   'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/SimEconomyModel.java',

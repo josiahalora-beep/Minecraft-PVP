@@ -406,6 +406,7 @@ final class SimWorldDirector {
     private final Map<String,Conversation> conversations = new HashMap<String,Conversation>();
     private final Map<String,SocialEdge> socialEdges = new LinkedHashMap<String,SocialEdge>();
     private final Deque<HistoryEvent> communityHistory = new ArrayDeque<HistoryEvent>();
+    private final Map<String,Long> recentHistoryFingerprints = new LinkedHashMap<String,Long>();
     private final Set<String> combatLootMemoryOnce = new LinkedHashSet<String>();
     private final Map<String,String> lastReplyTarget = new HashMap<String,String>();
     private final Deque<ChatEvent> pendingChat = new ArrayDeque<ChatEvent>();

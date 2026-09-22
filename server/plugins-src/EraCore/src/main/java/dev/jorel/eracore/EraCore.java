@@ -1065,6 +1065,24 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         return simWorld == null ? 0 : simWorld.allIdentityNames().size();
     }
 
+    String activeHcfEventType() {
+        return eventDirector==null?"":eventDirector.activeType();
+    }
+
+    String activeHcfEventId() {
+        return eventDirector==null?"":eventDirector.activeId();
+    }
+
+    int[] activeHcfEventPoint() {
+        if(eventDirector==null || mapDirector==null) return null;
+        String id=eventDirector.activeId();
+        if(id==null || id.isEmpty()) return null;
+        HcfMapDirector.Region r=mapDirector.region(id);
+        if(r==null) return null;
+        int y=getConfig().getInt("map.surface-y",63)+1;
+        return new int[]{(int)Math.round(r.x),y,(int)Math.round(r.z)};
+    }
+
     static String colorText(String s) {
         return color(s);
     }
@@ -1780,13 +1798,9 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         int y = Math.max(3, task.y);
         Location target = new Location(world,task.x + 0.5,y,task.z + 0.5);
 
-        // Never bypass HCF combat tag with internal worker projection.
-        boolean tagged=hcfZones!=null && hcfZones.isTagged(p);
-        if (!tagged && !"crate".equals(task.action) &&
-            (!p.getWorld().equals(world) || p.getLocation().distanceSquared(target) > 48.0 * 48.0)) {
-            p.teleport(target);
-        }
-
+        // Do not teleport ordinary workers to semantic targets. A HOT body is a
+        // visible player and must use /f home, /spawn, /warp or walk there.
+        // Combat projection has its own explicit fight-spawn path.
         Material tool = Material.WOOD_PICKAXE;
         if ("mine".equals(task.action) || "gather".equals(task.action) || "supply".equals(task.action)) tool = Material.IRON_PICKAXE;
         else if ("build".equals(task.action) || "solo_build".equals(task.action)) tool = Material.STONE_PICKAXE;
@@ -1908,11 +1922,11 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if(roll<15) {
             prize=new ItemStack(Material.DIAMOND_SWORD);
             prize.addUnsafeEnchantment(Enchantment.DAMAGE_ALL,2);
-            prize.addUnsafeEnchantment(Enchantment.FIRE_ASPECT,1);
+            prize.addUnsafeEnchantment(Enchantment.DURABILITY,2);
             org.bukkit.inventory.meta.ItemMeta m=prize.getItemMeta();
             m.setDisplayName(color("&6KOTH Sword &7["+kothId+"]"));
             prize.setItemMeta(m);
-            label="Sharpness II / Fire Aspect I KOTH Sword";
+            label="Sharpness II / Unbreaking II KOTH Sword";
         } else if(roll<50) {
             prize=new ItemStack(Material.DIAMOND_SWORD);
             prize.addUnsafeEnchantment(Enchantment.DAMAGE_ALL,2);

@@ -79,9 +79,9 @@ final class HcfBasePlan {
         this.coreHalfX=12+members+((seed/19)%3);
         this.coreHalfZ=10+members+((seed/23)%3);
         this.storageVariant=(seed/31)%3;
-        int rawShape=(seed/37)%3;
-        // Less experienced/rushed builders disproportionately choose the easy box.
-        this.surfaceShape=this.profile.builderQuality<42 && rawShape==1?0:rawShape;
+        // Shape is seed-stable for the lifetime of the claim. Builder skill affects
+        // finishing quality, not coordinates, so recruiting later cannot morph walls.
+        this.surfaceShape=(seed/37)%3;
         this.frontGateOffset=((seed/41)%5)-2;
         this.utilitySide=((seed/47)&1)==0?-1:1;
 

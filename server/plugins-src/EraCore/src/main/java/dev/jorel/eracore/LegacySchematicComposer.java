@@ -250,7 +250,7 @@ final class LegacySchematicComposer {
         if(runner!=null) return;
         runner=Bukkit.getScheduler().runTaskTimer(plugin,new Runnable() {
             public void run() {
-                int budget=Math.max(500,plugin.getConfig().getInt("world-composer.blocks-per-tick",7000));
+                int budget=Math.max(50,Math.min(1000,plugin.getConfig().getInt("world-composer.blocks-per-tick",350)));
                 while(budget>0 && !jobs.isEmpty()) {
                     Job j=jobs.peekFirst();
                     long before=j.processed;

@@ -332,3 +332,18 @@ travel:
 
 stuck:
   cooldown-seconds: 60
+
+# Experimental three-runtime actor layer.
+actors:
+  fake-player:
+    enabled: false
+    allow-probe: true
+    materialize-on-tp: false
+    max-bodies: 8
+    default-ping: 55
+
+memory:
+  relationship-max: 32
+  history-max-events: 2500
+  archive-max-bytes: 8388608
+  duplicate-window-seconds: 900

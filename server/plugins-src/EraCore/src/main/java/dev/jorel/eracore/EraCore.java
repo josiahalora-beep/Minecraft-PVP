@@ -70,6 +70,9 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     private HcfTerrainDirector terrainDirector;
     private NmsFakePlayerRuntime fakePlayers;
     private ActorDirectory actors;
+    private HcfElevatorDirector elevatorDirector;
+    private HcfTravelDirector travelDirector;
+    private HcfPortalDirector portalDirector;
 
     enum Rank {
         MEMBER(0, "&7[Member]", 24),
@@ -171,6 +174,9 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         autoBrewer = new HcfAutoBrewerDirector(this);
         gateDirector = new HcfGateDirector(this);
         terrainDirector = new HcfTerrainDirector(this);
+        elevatorDirector = new HcfElevatorDirector(this);
+        travelDirector = new HcfTravelDirector(this);
+        portalDirector = new HcfPortalDirector(warpManager);
         hcfZones = new HcfZoneDisplayDirector(this, warpManager);
         infrastructure = new HcfInfrastructureDirector(this,warpManager,hcfZones);
         logicalTab = new LogicalTabListDirector(this, simWorld);
@@ -180,6 +186,9 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         getServer().getPluginManager().registerEvents(spawnRewards, this);
         getServer().getPluginManager().registerEvents(gateDirector, this);
         getServer().getPluginManager().registerEvents(terrainDirector, this);
+        getServer().getPluginManager().registerEvents(elevatorDirector, this);
+        getServer().getPluginManager().registerEvents(travelDirector, this);
+        getServer().getPluginManager().registerEvents(portalDirector, this);
         hookTickTimes();
         startMetrics();
         startPowerRegen();
@@ -322,13 +331,26 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             version=2;
         }
 
+        if(version<3) {
+            getConfig().set("base-builder.visible-blocks-per-tick",16);
+            getConfig().set("base-builder.repair-existing-on-start",true);
+            getConfig().set("travel.warmup-seconds",10);
+            version=3;
+        }
+
+        if(version<4) {
+            getConfig().set("base-builder.rebuild-blocks-per-tick",600);
+            getConfig().set("base-builder.repair-existing-on-start",true);
+            version=4;
+        }
+
         getConfig().set("migration.living-world-version",version);
         saveConfig();
         getLogger().info("Applied living-world v"+version+": staged bases, combat presentation, quieter chat and logical tab population.");
     }
 
     private void bindCommands() {
-        String[] cmds = {"rank","kit","kits","balance","pay","sell","buy","shop","vote","keys","crates","stats","history","duel","f","spawn","stuck","setspawn","warp","warps","setwarp","delwarp","spawnpreset","msg","r","simchat","sotw","simworker","simcombat","simactor","safezone","teamfight","bard","archer","miner","rogue","simprobe","simmap","simstate","duelprep"};
+        String[] cmds = {"rank","kit","kits","balance","pay","sell","buy","shop","vote","keys","crates","stats","history","duel","f","spawn","stuck","setspawn","warp","warps","setwarp","delwarp","spawnpreset","msg","r","simchat","sotw","simworker","simcombat","simactor","safezone","teamfight","bard","archer","miner","rogue","simprobe","simmap","simstate","duelprep","baserate","baserebuild"};
         for (String c : cmds) getCommand(c).setExecutor(this);
     }
 
@@ -393,6 +415,10 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         addBuy("sugar", Material.SUGAR, (short)0, 6.0);
         addBuy("magmacream", Material.MAGMA_CREAM, (short)0, 22.0);
         addBuy("glass", Material.GLASS, (short)0, 2.0);
+        // Physical portals are intentionally expensive strategic infrastructure.
+        addBuy("flintsteel", Material.FLINT_AND_STEEL, (short)0, 1500.0);
+        addBuy("endframe", Material.ENDER_PORTAL_FRAME, (short)0, 1200.0);
+        addBuy("eyeofender", Material.EYE_OF_ENDER, (short)0, 250.0);
         addBuy("book", Material.BOOK, (short)0, 12.0);
         addBuy("lapis", Material.INK_SACK, (short)4, 5.0);
     }
@@ -518,9 +544,6 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             return;
         }
 
-        // Vanilla /tp already handles humans and connected Mineflayer clients.
-        // Only intercept the one-target form when the target exists in our actor
-        // directory but does not have a normal Bukkit online-player session.
         if((cmd.equals("tp") || cmd.equals("teleport")) && parts.length==2 &&
            isOwnerPlayer(p) && actors!=null && Bukkit.getPlayerExact(parts[1])==null) {
             ActorDirectory.Snapshot snap=actors.resolve(parts[1]);
@@ -1023,7 +1046,78 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (c.equals("simmap")) return cmdSimMap(p,args);
         if (c.equals("simstate")) return cmdSimState(p,args);
         if (c.equals("duelprep")) return cmdDuelPrep(p);
+        if (c.equals("baserate")) return cmdBaseRate(p,args);
+        if (c.equals("baserebuild")) return cmdBaseRebuild(p,args);
         return false;
+    }
+
+    private boolean cmdBaseRebuild(Player p,String[] a) {
+        if(!ownerOnly(p)) return true;
+        if(simWorld==null || hcfBaseBuilder==null) {
+            p.sendMessage(color("&cBase rebuild system is not ready."));
+            return true;
+        }
+
+        if(a.length==1 && "status".equalsIgnoreCase(a[0])) {
+            p.sendMessage(color("&eBase rebuild: &f"+
+                (hcfBaseBuilder.maintenanceRebuildActive()?"RUNNING":"IDLE")+
+                " &7queuedOps=&f"+hcfBaseBuilder.queuedOperations()));
+            return true;
+        }
+
+        String selector;
+        if(a.length==0 || (a.length==1 && "nearest".equalsIgnoreCase(a[0]))) {
+            selector=simWorld.nearestBaseFaction(p.getLocation(),128.0);
+            if(selector==null || selector.isEmpty()) {
+                p.sendMessage(color("&cNo simulated faction base found within 128 blocks."));
+                return true;
+            }
+        } else if(a.length==1) {
+            selector=a[0];
+        } else {
+            p.sendMessage("/baserebuild <all|nearest|faction|status>");
+            return true;
+        }
+
+        int count=simWorld.forceRebuildBases(selector);
+        if(count<=0) {
+            p.sendMessage(color("&cNo matching faction bases were found for &f"+selector+"&c."));
+            return true;
+        }
+
+        p.sendMessage(color("&aQueued forced rebuild for &f"+count+
+            (count==1?" faction base.":" faction bases.")+
+            " &7Use &f/baserebuild status &7to watch completion."));
+        getLogger().info("Owner "+p.getName()+" queued forced base rebuild selector="+selector+
+            " count="+count+" ops="+hcfBaseBuilder.queuedOperations());
+        return true;
+    }
+
+    private boolean cmdBaseRate(Player p,String[] a) {
+        if(!ownerOnly(p)) return true;
+        if(a.length<1 || a.length>2) {
+            p.sendMessage("/baserate <1-5> [faction]");
+            return true;
+        }
+        int score;
+        try { score=Integer.parseInt(a[0]); }
+        catch(Exception e) { score=0; }
+        if(score<1 || score>5) {
+            p.sendMessage(color("&cRating must be from 1 to 5."));
+            return true;
+        }
+
+        String faction=a.length==2?a[1]:(simWorld==null?"":simWorld.nearestBaseFaction(p.getLocation(),96.0));
+        if(faction==null || faction.isEmpty()) {
+            p.sendMessage(color("&cNo simulated faction base found nearby. Use /baserate <1-5> <faction>."));
+            return true;
+        }
+        if(simWorld==null || !simWorld.recordBaseRating(faction,score,p.getName())) {
+            p.sendMessage(color("&cUnknown simulated faction: &f"+faction));
+            return true;
+        }
+        p.sendMessage(color("&aRecorded base rating &f"+score+"/5 &afor &f"+faction+"&a."));
+        return true;
     }
 
     String actorFactionName(String name) {
@@ -1259,8 +1353,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             p.sendMessage(color("&cYou cannot /spawn while combat tagged. &7"+hcfZones.tagSeconds(p)+"s remaining."));
             return true;
         }
-        p.teleport(target);
-        p.sendMessage(color("&7Teleported to spawn."));
+        if(travelDirector!=null) travelDirector.request(p,target,"spawn");
+        else p.teleport(target);
         return true;
     }
 
@@ -1326,8 +1420,9 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             p.sendMessage(color("&cYou cannot use warps while combat tagged. &7"+hcfZones.tagSeconds(p)+"s remaining."));
             return true;
         }
-        p.teleport(l);
-        p.sendMessage(color("&7Warped to &f" + a[0].toLowerCase(Locale.ENGLISH) + "&7."));
+        String name=a[0].toLowerCase(Locale.ENGLISH);
+        if(travelDirector!=null) travelDirector.request(p,l,"warp "+name);
+        else p.teleport(l);
         return true;
     }
 
@@ -1979,6 +2074,26 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (hcfBaseBuilder != null) hcfBaseBuilder.queueBase(faction,preset,trapPreset,x,y,z);
     }
 
+    void forceSimBaseRebuild(String faction,String preset,String trapPreset,
+                             int x,int y,int z,int storageTier,
+                             boolean brewer,boolean netherPortal,boolean endPortal) {
+        if(hcfBaseBuilder!=null)
+            hcfBaseBuilder.forceRebuild(faction,preset,trapPreset,x,y,z,
+                storageTier,brewer,netherPortal,endPortal);
+    }
+
+    void queueSimSurfaceBuild(String faction,String preset,int x,int y,int z) {
+        if(hcfBaseBuilder!=null) hcfBaseBuilder.queueSurfaceStarter(faction,preset,x,y,z);
+    }
+
+    void queueSimStorageUpgrade(String faction,String preset,int tier,int x,int y,int z) {
+        if(hcfBaseBuilder!=null) hcfBaseBuilder.queueStorageUpgrade(faction,preset,tier,x,y,z);
+    }
+
+    void queueSimPortalBuild(String faction,String preset,String type,int x,int y,int z) {
+        if(hcfBaseBuilder!=null) hcfBaseBuilder.queuePortal(faction,preset,type,x,y,z);
+    }
+
     void queueSimTerrainRepair(String faction, String preset, String trapPreset, int x, int y, int z) {
         if (hcfBaseBuilder != null) hcfBaseBuilder.queueTerrainRepair(faction,preset,trapPreset,x,y,z);
     }
@@ -1994,13 +2109,27 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     void registerAutoBrewerSite(String faction,String preset,int x,int y,int z) {
         if(autoBrewer==null || hcfBaseBuilder==null) return;
-        int[] core=hcfBaseBuilder.anchor(preset,"brewer",x,y,z);
+        int[] core=hcfBaseBuilder.anchor(faction,preset,"brewer",x,y,z);
         autoBrewer.register(faction,core[0],core[1],core[2]);
+    }
+
+    HcfBasePlan.Profile simBaseProfile(String faction) {
+        return simWorld==null?new HcfBasePlan.Profile():simWorld.baseProfile(faction);
+    }
+
+    int[] simBaseAnchor(String faction,String preset,String kind,int x,int y,int z) {
+        if(hcfBaseBuilder==null) return new int[]{x,y+1,z};
+        return hcfBaseBuilder.anchor(faction,preset,kind,x,y,z);
     }
 
     int[] simBaseAnchor(String preset,String kind,int x,int y,int z) {
         if(hcfBaseBuilder==null) return new int[]{x,y+1,z};
         return hcfBaseBuilder.anchor(preset,kind,x,y,z);
+    }
+
+    int[] simStorageAnchor(String faction,String preset,String category,int x,int y,int z) {
+        if(hcfBaseBuilder==null) return new int[]{x,y+1,z};
+        return hcfBaseBuilder.storageAnchor(faction,preset,category,x,y,z);
     }
 
     boolean autoBrewerPhysicalActive(String faction) {

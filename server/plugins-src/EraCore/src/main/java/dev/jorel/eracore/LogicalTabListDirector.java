@@ -198,9 +198,6 @@ final class LogicalTabListDirector {
         Object worldServer=craftWorld.getClass().getMethod("getHandle").invoke(craftWorld);
 
         Class<?> gpClass=Class.forName("com.mojang.authlib.GameProfile");
-        // Match the UUID that an offline-mode 1.8 client with this exact
-        // username receives. Logical tab, Mineflayer and CombatBody can now
-        // represent one persistent actor instead of three unrelated profiles.
         UUID uuid=ActorDirectory.stableOfflineUuid(realName);
         Object profile=gpClass.getConstructor(UUID.class,String.class).newInstance(uuid,realName);
 

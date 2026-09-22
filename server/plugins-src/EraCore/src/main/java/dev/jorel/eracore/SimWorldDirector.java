@@ -140,6 +140,10 @@ final class SimWorldDirector {
         int buildProgress;
         int buildTarget;
         boolean baseQueued;
+        boolean surfaceQueued;
+        int storageTier;
+        boolean netherPortal;
+        boolean endPortal;
         int p4Sets;
         int sharp4Swords;
         int bardSets;
@@ -157,6 +161,7 @@ final class SimWorldDirector {
         int iron;
         int diamonds;
         int obsidian;
+        int glass;
         int cane;
         double treasury;
         long actionCounter;
@@ -236,6 +241,13 @@ final class SimWorldDirector {
         int gateX;
         int gateY;
         int gateZ;
+        int dropX;
+        int dropY;
+        int dropZ;
+        int elevatorX;
+        int elevatorY;
+        int elevatorZ;
+        int undergroundY;
         int x;
         int y;
         int z;
@@ -263,6 +275,9 @@ final class SimWorldDirector {
                 " partySize=" + desiredPartySize +
                 " homeX=" + homeX + " homeY=" + homeY + " homeZ=" + homeZ +
                 " gateX=" + gateX + " gateY=" + gateY + " gateZ=" + gateZ +
+                " dropX=" + dropX + " dropY=" + dropY + " dropZ=" + dropZ +
+                " elevatorX=" + elevatorX + " elevatorY=" + elevatorY + " elevatorZ=" + elevatorZ +
+                " undergroundY=" + undergroundY +
                 " x=" + x + " y=" + y + " z=" + z +
                 " priority=" + priority +
                 " aggression=" + aggression +
@@ -478,27 +493,63 @@ final class SimWorldDirector {
     }
 
     void repairExistingBaseTerrainAndClaims() {
-        if (data.getInt("meta.terrain-repair-version",0) >= 7) return;
+        if (data.getInt("meta.terrain-repair-version",0) >= 9) return;
 
         org.bukkit.World world=Bukkit.getWorlds().get(0);
         if(world==null) return;
 
+        int rebuilt=0;
         for(SimFaction f : factions.values()) {
             if(f.baseX==0 && f.baseZ==0) continue;
 
-            // Version 7 replaces the clone-like prefab shells with deterministic
-            // faction blueprints and repairs any holes left by occupied build ops.
-            // Terrain preparation clears the old structure before the new plan grows.
-            plugin.queueSimBaseBuild(f.name,f.basePreset,f.trapPreset,f.baseX,f.baseY,f.baseZ);
-            if(f.brewer) plugin.queueSimBrewerBuild(f.name,f.basePreset,f.baseX,f.baseY,f.baseZ);
+            // Version 9 is a true rematerialization. Version 8 only overlaid
+            // geometry and could be skipped/suppressed, leaving broken bases in place.
+            plugin.forceSimBaseRebuild(f.name,f.basePreset,f.trapPreset,
+                f.baseX,f.baseY,f.baseZ,Math.max(1,f.storageTier),
+                f.brewer,f.netherPortal,f.endPortal);
+            rebuilt++;
 
-            // Expand legacy claims to the complete base/farm/trap footprint.
             List<String> desired=baseFootprintClaims(world.getName(),f);
             org.bukkit.Location home=new org.bukkit.Location(world,f.baseX+0.5,f.baseY+1,f.baseZ+0.5);
             plugin.setSimFactionHomeAndClaims(f.name,home,desired);
         }
-        data.set("meta.terrain-repair-version",7);
+        data.set("meta.terrain-repair-version",9);
+        recordHistory("BASE_REBUILD",5,"Base Intelligence v9 force-rematerialized "+rebuilt+
+            " faction bases","", "");
+        plugin.getLogger().info("Base Intelligence v9: force-rematerializing "+rebuilt+
+            " saved faction bases with sealed connected geometry.");
         save();
+    }
+
+    int forceRebuildBases(String selector) {
+        org.bukkit.World world=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
+        if(world==null) return 0;
+
+        String wanted=selector==null?"":selector.trim();
+        boolean all="all".equalsIgnoreCase(wanted) || wanted.isEmpty();
+        int rebuilt=0;
+
+        for(SimFaction f:factions.values()) {
+            if(f.baseX==0 && f.baseZ==0) continue;
+            if(!all && !f.name.equalsIgnoreCase(wanted)) continue;
+
+            plugin.forceSimBaseRebuild(f.name,f.basePreset,f.trapPreset,
+                f.baseX,f.baseY,f.baseZ,Math.max(1,f.storageTier),
+                f.brewer,f.netherPortal,f.endPortal);
+
+            List<String> desired=baseFootprintClaims(world.getName(),f);
+            org.bukkit.Location home=new org.bukkit.Location(world,f.baseX+0.5,f.baseY+1,f.baseZ+0.5);
+            plugin.setSimFactionHomeAndClaims(f.name,home,desired);
+            rebuilt++;
+        }
+
+        if(rebuilt>0) {
+            data.set("meta.terrain-repair-version",9);
+            recordHistory("BASE_REBUILD",5,"Owner force-rebuilt "+rebuilt+
+                (all?" faction bases":" faction base: "+wanted),"", "");
+            save();
+        }
+        return rebuilt;
     }
 
 
@@ -512,6 +563,50 @@ final class SimWorldDirector {
         return players.containsKey(key(name));
     }
 
+    String nearestBaseFaction(Location at,double maxDistance) {
+        if(at==null || at.getWorld()==null) return "";
+        SimFaction best=null;
+        double bestD=maxDistance*maxDistance;
+        for(SimFaction f:factions.values()) {
+            if(f.baseX==0 && f.baseZ==0) continue;
+            Location l=new Location(at.getWorld(),f.baseX+0.5,f.baseY+1.0,f.baseZ+0.5);
+            double d=at.distanceSquared(l);
+            if(d<=bestD) {best=f;bestD=d;}
+        }
+        return best==null?"":best.name;
+    }
+
+    boolean recordBaseRating(String faction,int score,String rater) {
+        SimFaction f=factions.get(key(faction));
+        if(f==null) return false;
+        int rating=Math.max(1,Math.min(5,score));
+        HcfBasePlan.Profile p=baseProfile(f.name);
+        long now=System.currentTimeMillis();
+        String b="base-feedback."+now+"-"+Math.abs((f.name+"|"+rater).hashCode());
+        data.set(b+".at",now);
+        data.set(b+".faction",f.name);
+        data.set(b+".rater",rater==null?"":rater);
+        data.set(b+".score",rating);
+        data.set(b+".members",p.members);
+        data.set(b+".builder-quality",p.builderQuality);
+        data.set(b+".organization",p.organization);
+        data.set(b+".pvp-iq",p.pvpIq);
+        data.set(b+".economic-iq",p.economicIq);
+        data.set(b+".risk",p.riskTolerance);
+        data.set(b+".game-sense",p.gameSense);
+        data.set(b+".decisiveness",p.decisiveness);
+        data.set(b+".wealth-tier",p.wealthTier);
+        data.set(b+".archetype",p.archetype);
+        data.set(b+".storage-tier",f.storageTier);
+        data.set(b+".nether-portal",f.netherPortal);
+        data.set(b+".end-portal",f.endPortal);
+        recordHistory("BASE_RATING",4,(rater==null?"Owner":rater)+" rated "+f.name+
+            " base "+rating+"/5",f.name,rater==null?"":rater);
+        save();
+        return true;
+    }
+
+
     String factionOf(String name) {
         SimPlayer p = players.get(key(name));
         return p == null ? "" : p.faction;
@@ -521,6 +616,46 @@ final class SimWorldDirector {
         SimFaction f = factions.get(key(faction));
         if (f == null) return Collections.emptyList();
         return new ArrayList<String>(f.members);
+    }
+
+    HcfBasePlan.Profile baseProfile(String faction) {
+        HcfBasePlan.Profile out=new HcfBasePlan.Profile();
+        SimFaction f=factions.get(key(faction));
+        if(f==null) return out;
+
+        // Geometry is frozen to the faction's intended roster size so later recruiting
+        // cannot move semantic anchors away from already-materialized rooms.
+        out.members=Math.max(1,f.targetSize);
+        out.archetype=f.archetype==null?"BALANCED":f.archetype;
+        out.wealthTier=f.treasury>=8000?3:(f.treasury>=3000?2:(f.treasury>=1000?1:0));
+
+        SimPlayer leader=players.get(key(f.leader));
+        SimPlayer builder=null;
+        for(String n:f.members) {
+            SimPlayer p=players.get(key(n));
+            if(p!=null && "builder".equals(p.preferredJob)) {
+                if(builder==null || p.patience+p.economicIq+p.gameSense >
+                    builder.patience+builder.economicIq+builder.gameSense) builder=p;
+            }
+        }
+        if(builder==null) builder=leader;
+
+        if(leader!=null) {
+            out.pvpIq=leader.pvpIq;
+            out.economicIq=leader.economicIq;
+            out.riskTolerance=leader.riskTolerance;
+            out.gameSense=leader.gameSense;
+            out.decisiveness=leader.decisiveness;
+            out.organization=Math.max(0,Math.min(100,
+                (leader.economicIq+leader.patience+leader.gameSense)/3));
+        }
+        if(builder!=null) {
+            out.builderQuality=Math.max(0,Math.min(100,
+                (builder.patience+builder.economicIq+builder.gameSense+builder.mechanics)/4));
+            out.organization=Math.max(0,Math.min(100,
+                (out.organization+builder.patience+builder.economicIq)/3));
+        }
+        return out;
     }
 
 
@@ -1741,10 +1876,16 @@ final class SimWorldDirector {
         t.homeX=bx;
         t.homeY=by;
         t.homeZ=bz;
-        int[] frontGate=plugin.simBaseAnchor(f.basePreset,"gate",f.baseX,f.baseY,f.baseZ);
+        int[] frontGate=plugin.simBaseAnchor(f.name,f.basePreset,"gate",f.baseX,f.baseY,f.baseZ);
         t.gateX=frontGate[0];
         t.gateY=frontGate[1];
         t.gateZ=frontGate[2];
+        int[] drop=plugin.simBaseAnchor(f.name,f.basePreset,"drop",f.baseX,f.baseY,f.baseZ);
+        int[] elevator=plugin.simBaseAnchor(f.name,f.basePreset,"elevator",f.baseX,f.baseY,f.baseZ);
+        int[] core=plugin.simBaseAnchor(f.name,f.basePreset,"core",f.baseX,f.baseY,f.baseZ);
+        t.dropX=drop[0]; t.dropY=drop[1]; t.dropZ=drop[2];
+        t.elevatorX=elevator[0]; t.elevatorY=elevator[1]; t.elevatorZ=elevator[2];
+        t.undergroundY=core[1];
 
         boolean assignedFight=visibleFight!=null && visibleFight.assignments.containsKey(key(p.name));
         boolean factionFight=factionInVisibleFight(f.name);
@@ -1822,11 +1963,17 @@ final class SimWorldDirector {
                 break;
 
             case GATHER_STARTER:
-                t.action = "miner".equals(p.preferredJob) ? "mine" : "gather";
-                t.x = bx + 7;
-                t.y = by;
-                t.z = bz + 7;
-                t.priority = "miner".equals(p.preferredJob) ? 92 : 55;
+                if(f.surfaceQueued && !f.baseQueued && "builder".equals(p.preferredJob)) {
+                    t.action="build";
+                    t.x=bx; t.y=by; t.z=bz;
+                    t.priority=108;
+                } else {
+                    t.action = "miner".equals(p.preferredJob) ? "mine" : "gather";
+                    t.x = bx + 7;
+                    t.y = by;
+                    t.z = bz + 7;
+                    t.priority = "miner".equals(p.preferredJob) ? 92 : 55;
+                }
                 break;
 
             case BUILD_STARTER:
@@ -1857,7 +2004,7 @@ final class SimWorldDirector {
             case BREWER:
                 if ("brewer".equals(p.preferredJob)) {
                     t.action = "brew";
-                    int[] brewer=plugin.simBaseAnchor(f.basePreset,"brewer",f.baseX,f.baseY,f.baseZ);
+                    int[] brewer=plugin.simBaseAnchor(f.name,f.basePreset,"brewer",f.baseX,f.baseY,f.baseZ);
                     t.x = brewer[0];
                     t.y = brewer[1]+1;
                     t.z = brewer[2];
@@ -1891,7 +2038,7 @@ final class SimWorldDirector {
                     t.priority = 66;
                 } else if ("brewer".equals(p.preferredJob)) {
                     t.action = "brew";
-                    int[] brewer=plugin.simBaseAnchor(f.basePreset,"brewer",f.baseX,f.baseY,f.baseZ);
+                    int[] brewer=plugin.simBaseAnchor(f.name,f.basePreset,"brewer",f.baseX,f.baseY,f.baseZ);
                     t.x = brewer[0];
                     t.y = brewer[1]+1;
                     t.z = brewer[2];
@@ -1925,17 +2072,20 @@ final class SimWorldDirector {
         // semantic target and the movement coordinates therefore cannot drift
         // apart when COLD-state planning changes a worker's current goal.
         if("brew".equals(t.action)) {
-            int[] brewer=plugin.simBaseAnchor(f.basePreset,"brewer",f.baseX,f.baseY,f.baseZ);
+            int[] brewer=plugin.simBaseAnchor(f.name,f.basePreset,"brewer",f.baseX,f.baseY,f.baseZ);
             t.x=brewer[0]; t.y=brewer[1]+1; t.z=brewer[2];
             t.interaction="brewer";
             t.interactionAction="operate";
             t.targetBlock="brewing_stand";
         } else if("gear".equals(t.action)) {
-            int[] storage=plugin.simBaseAnchor(f.basePreset,"storage",f.baseX,f.baseY,f.baseZ);
+            int[] storage=plugin.simStorageAnchor(f.name,f.basePreset,"kits",f.baseX,f.baseY,f.baseZ);
             t.x=storage[0]; t.y=storage[1]; t.z=storage[2];
             t.interaction="storage";
             t.interactionAction="open";
             t.targetBlock="chest";
+        } else if("farm".equals(t.action)) {
+            int[] farm=plugin.simBaseAnchor(f.name,f.basePreset,"farm",f.baseX,f.baseY,f.baseZ);
+            t.x=farm[0]; t.y=farm[1]; t.z=farm[2];
         }
         return t;
     }
@@ -3229,9 +3379,6 @@ final class SimWorldDirector {
             if(!relevant && person!=null && !person.isEmpty()) {
                 for(String p:e.people) if(person.equalsIgnoreCase(p)) { relevant=true; break; }
             }
-            // Do not pollute one player's context with every other faction's
-            // high-importance event. Only truly global unfactioned events can
-            // enter unrelated context.
             if(relevant || (e.importance>=9 && (e.faction==null || e.faction.isEmpty()))) out.add(e);
         }
         return out;
@@ -4098,8 +4245,9 @@ final class SimWorldDirector {
             case SCOUT_CLAIM:
                 return "leader".equals(p.role)?"scout":("miner".equals(p.preferredJob)?"mine":"gather");
             case GATHER_STARTER:
+                if(f.surfaceQueued && !f.baseQueued && "builder".equals(p.preferredJob)) return "build";
                 if("miner".equals(p.preferredJob)) return "mine";
-                if("builder".equals(p.preferredJob)) return rng.nextInt(100)<70?"gather":"scout";
+                if("builder".equals(p.preferredJob)) return rng.nextInt(100)<82?"gather":"scout";
                 return "gather";
             case BUILD_STARTER:
                 return (p.patience>=35 || "builder".equals(p.preferredJob))?"build":"gather";
@@ -4965,6 +5113,20 @@ final class SimWorldDirector {
                 break;
 
             case GATHER_STARTER:
+                // SOTW priority #1 after claiming: get a roofed, fence-gated
+                // upper shell online before protection expires.  The expensive
+                // underground core can continue while the faction is rushed.
+                if(!f.surfaceQueued) {
+                    if(surfaceMaterialsReady(f)) {
+                        consumeSurfaceMaterials(f);
+                        plugin.queueSimSurfaceBuild(f.name,f.basePreset,f.baseX,f.baseY,f.baseZ);
+                        f.surfaceQueued=true;
+                    } else {
+                        buyMissingInfrastructure(f);
+                        break;
+                    }
+                }
+
                 if (baseMaterialsReady(f)) {
                     consumeBaseMaterials(f);
                     f.buildTarget = baseBuildTarget(f.basePreset);
@@ -4977,6 +5139,8 @@ final class SimWorldDirector {
                             f.specialTrapBuilt = true;
                         }
                     }
+                } else if(f.actionCounter%2==0) {
+                    buyMissingInfrastructure(f);
                 }
                 break;
 
@@ -4984,12 +5148,15 @@ final class SimWorldDirector {
                 f.buildProgress = Math.min(f.buildTarget, f.buildProgress + factionBuildWork(f));
                 if (f.buildProgress >= f.buildTarget) {
                     f.storage = true;
+                    f.storageTier=Math.max(1,f.storageTier);
+                    f.farmBuilt=true; // the SOTW core includes cane + wart/melon farms
                     seedVisibleStorage(f);
                     f.stage = Stage.ECONOMY;
                 }
                 break;
 
             case ECONOMY:
+                maybeUpgradeInfrastructure(f);
                 if (!f.farmBuilt) {
                     SimPlayer farmer = firstJobMember(f,"farmer");
                     if (farmer != null && farmer.farmReady) {
@@ -5032,6 +5199,7 @@ final class SimWorldDirector {
                 break;
 
             case PVP_READY:
+                maybeUpgradeInfrastructure(f);
                 brewCombatStock(f);
                 // They continue farming/mining/economy rather than becoming PvP-only bots.
                 if (f.p4Sets < Math.max(1, f.members.size() - 1)) craftBooksAndGear(f);
@@ -5054,24 +5222,39 @@ final class SimWorldDirector {
             }
 
             if ("mine".equals(p.currentGoal) || "gather".equals(p.currentGoal) || "supply".equals(p.currentGoal)) {
-                int minerBonus = "miner".equals(p.preferredJob) ? 8 : 0;
-                int stoneMade=20 + minerBonus + rng.nextInt(18);
-                int ironMade=2 + ("miner".equals(p.preferredJob) ? 2 : 0) + rng.nextInt(4);
-                f.stone += stoneMade;
-                f.iron += ironMade;
-                if(f.storage) {
-                    mirrorDepositToStorage(f,Material.COBBLESTONE,stoneMade);
-                    mirrorDepositToStorage(f,Material.IRON_INGOT,ironMade);
-                }
-                f.xp += 2 + rng.nextInt(4);
-                if (rng.nextInt(100) < (12 + p.economicIq / 6)) {
-                    f.diamonds += 1;
-                    if(f.storage) mirrorDepositToStorage(f,Material.DIAMOND,1);
-                }
-                if (rng.nextInt(100) < (18 + p.economicIq / 7)) {
-                    int obby=1+rng.nextInt(2);
-                    f.obsidian += obby;
-                    if(f.storage) mirrorDepositToStorage(f,Material.OBSIDIAN,obby);
+                int urgency=(!f.surfaceQueued && sotwMillisLeft()<=180000L)?2:1;
+                if("gather".equals(p.currentGoal) || "supply".equals(p.currentGoal)) {
+                    // General SOTW gathering must actually produce logs; the old
+                    // abstraction only produced stone/iron and could deadlock a
+                    // resource-honest surface build waiting for wood forever.
+                    int woodMade=urgency*(10+("builder".equals(p.preferredJob)?5:0)+rng.nextInt(12));
+                    int stoneMade=urgency*(8+rng.nextInt(12));
+                    f.wood+=woodMade;
+                    f.stone+=stoneMade;
+                    if(f.storage) {
+                        mirrorDepositToStorage(f,Material.LOG,woodMade);
+                        mirrorDepositToStorage(f,Material.COBBLESTONE,stoneMade);
+                    }
+                } else {
+                    int minerBonus = "miner".equals(p.preferredJob) ? 8 : 0;
+                    int stoneMade=urgency*(20 + minerBonus + rng.nextInt(18));
+                    int ironMade=urgency*(2 + ("miner".equals(p.preferredJob) ? 2 : 0) + rng.nextInt(4));
+                    f.stone += stoneMade;
+                    f.iron += ironMade;
+                    if(f.storage) {
+                        mirrorDepositToStorage(f,Material.COBBLESTONE,stoneMade);
+                        mirrorDepositToStorage(f,Material.IRON_INGOT,ironMade);
+                    }
+                    f.xp += 2 + rng.nextInt(4);
+                    if (rng.nextInt(100) < (12 + p.economicIq / 6)) {
+                        f.diamonds += 1;
+                        if(f.storage) mirrorDepositToStorage(f,Material.DIAMOND,1);
+                    }
+                    if (rng.nextInt(100) < (18 + p.economicIq / 7)) {
+                        int obby=1+rng.nextInt(2);
+                        f.obsidian += obby;
+                        if(f.storage) mirrorDepositToStorage(f,Material.OBSIDIAN,obby);
+                    }
                 }
             } else if ("farm".equals(p.currentGoal)) {
                 // Farming is handled by SimEconomyModel so cash/items are conserved.
@@ -5110,22 +5293,59 @@ final class SimWorldDirector {
     }
 
     private void buyMissingInfrastructure(SimFaction f) {
-        if (f.treasury < 300) return;
-        if (f.obsidian < 8) {
-            double unit = plugin.buyUnitPrice("obsidian");
-            int n = Math.min(8 - f.obsidian, (int)(f.treasury / unit));
-            if (n > 0) {
-                f.obsidian += n;
-                f.treasury -= n * unit;
+        if (f.treasury < 40) return;
+
+        if(!f.surfaceQueued) {
+            int need=surfaceMaterialCost(f)[4]-f.glass;
+            if(need>0) {
+                double unit=plugin.buyUnitPrice("glass");
+                int n=Math.min(need,(int)(f.treasury/unit));
+                if(n>0) { f.glass+=n; f.treasury-=n*unit; }
             }
         }
-        if (f.iron < 35) {
+
+        if (f.obsidian < 14 && f.treasury >= plugin.buyUnitPrice("obsidian")) {
+            double unit = plugin.buyUnitPrice("obsidian");
+            int n = Math.min(14 - f.obsidian, (int)(f.treasury / unit));
+            if (n > 0) { f.obsidian += n; f.treasury -= n * unit; }
+        }
+        if (f.iron < 40 && f.treasury >= plugin.buyUnitPrice("iron")) {
             double unit = plugin.buyUnitPrice("iron");
-            int n = Math.min(35 - f.iron, (int)(f.treasury / unit));
-            if (n > 0) {
-                f.iron += n;
-                f.treasury -= n * unit;
-            }
+            int n = Math.min(40 - f.iron, (int)(f.treasury / unit));
+            if (n > 0) { f.iron += n; f.treasury -= n * unit; }
+        }
+    }
+
+    private void maybeUpgradeInfrastructure(SimFaction f) {
+        if(!f.storage || f.baseX==0 && f.baseZ==0) return;
+
+        if(f.storageTier<2 && f.treasury>=1500.0 && f.wood>=48 && f.stone>=96) {
+            f.treasury-=650.0; f.wood-=48; f.stone-=96;
+            f.storageTier=2;
+            plugin.queueSimStorageUpgrade(f.name,f.basePreset,2,f.baseX,f.baseY,f.baseZ);
+        } else if(f.storageTier<3 && f.treasury>=4500.0 && f.wood>=72 && f.stone>=144) {
+            f.treasury-=1400.0; f.wood-=72; f.stone-=144;
+            f.storageTier=3;
+            plugin.queueSimStorageUpgrade(f.name,f.basePreset,3,f.baseX,f.baseY,f.baseZ);
+        }
+
+        boolean large=f.members.size()>=4 || f.powerFaction;
+        double flintCost=Math.max(1500.0,plugin.buyUnitPrice("flintsteel"));
+        if(large && f.brewer && !f.netherPortal && f.treasury>=Math.max(3500.0,flintCost) && f.obsidian>=14) {
+            // Obsidian is consumed from faction stock; the expensive shop-only
+            // activation tool represents the convenience premium of fast Nether access.
+            f.treasury-=flintCost;
+            f.obsidian-=14;
+            f.netherPortal=true;
+            plugin.queueSimPortalBuild(f.name,f.basePreset,"nether",f.baseX,f.baseY,f.baseZ);
+        }
+
+        double endCost=12.0*Math.max(1200.0,plugin.buyUnitPrice("endframe"))+
+            12.0*Math.max(250.0,plugin.buyUnitPrice("eyeofender"));
+        if(large && f.netherPortal && !f.endPortal && f.treasury>=endCost) {
+            f.treasury-=endCost;
+            f.endPortal=true;
+            plugin.queueSimPortalBuild(f.name,f.basePreset,"end",f.baseX,f.baseY,f.baseZ);
         }
     }
 
@@ -5901,6 +6121,10 @@ final class SimWorldDirector {
                 f.buildProgress = s.getInt("build-progress", 0);
                 f.buildTarget = s.getInt("build-target", 0);
                 f.baseQueued = s.getBoolean("base-queued", false);
+                f.surfaceQueued = s.getBoolean("surface-queued", f.baseQueued);
+                f.storageTier = s.getInt("storage-tier", s.getBoolean("storage")?1:0);
+                f.netherPortal = s.getBoolean("nether-portal", false);
+                f.endPortal = s.getBoolean("end-portal", false);
                 f.recoveryMode = s.getBoolean("recovery-mode", false);
                 f.archetype = s.getString("archetype", "");
                 f.campTarget = s.getString("camp-target", "");
@@ -5929,6 +6153,7 @@ final class SimWorldDirector {
                 f.iron = s.getInt("iron");
                 f.diamonds = s.getInt("diamonds");
                 f.obsidian = s.getInt("obsidian");
+                f.glass = s.getInt("glass");
                 f.cane = s.getInt("cane");
                 f.treasury = s.getDouble("treasury");
                 f.actionCounter = s.getLong("actions");
@@ -6135,6 +6360,11 @@ final class SimWorldDirector {
     boolean sotwProtectionActive() {
         long mins = plugin.getConfig().getLong("sotw.protection-minutes", 60L);
         return System.currentTimeMillis() - sotwStartedAt < mins * 60L * 1000L;
+    }
+
+    private long sotwMillisLeft() {
+        long total=plugin.getConfig().getLong("sotw.protection-minutes",60L)*60L*1000L;
+        return Math.max(0L,total-(System.currentTimeMillis()-sotwStartedAt));
     }
 
     boolean sotwRecruitingActive() {
@@ -6653,32 +6883,44 @@ final class SimWorldDirector {
         return Math.max(1, Math.min(20, work));
     }
 
-    private int[] baseMaterialCost(String preset) {
-        if ("hcf_compact_2015".equalsIgnoreCase(preset)) return new int[]{90,220,22,0};
-        if ("hcf_split_level".equalsIgnoreCase(preset)) return new int[]{78,300,26,0};
-        if ("hcf_archer_tower".equalsIgnoreCase(preset)) return new int[]{118,250,22,0};
-        if ("hcf_double_layer".equalsIgnoreCase(preset)) return new int[]{72,390,30,6};
-        if ("hcf_courtyard".equalsIgnoreCase(preset)) return new int[]{58,320,22,0};
-        if ("hcf_brewer_base".equalsIgnoreCase(preset)) return new int[]{72,300,34,0};
-        if ("hcf_trap_base".equalsIgnoreCase(preset)) return new int[]{64,270,24,8};
-        return new int[]{70,280,24,0};
+    private int[] baseMaterialCost(SimFaction f) {
+        int members=Math.max(2,Math.max(f.targetSize,f.members.size()));
+        // wood, stone, iron, obsidian, glass.  The underground core is mostly
+        // mined stone/stone brick; glass is charged in the separate surface bill.
+        return new int[]{48+members*14,240+members*58,12+members*2,0,0};
     }
 
     private boolean baseMaterialsReady(SimFaction f) {
-        int[] cost = baseMaterialCost(f.basePreset);
-        return f.wood >= cost[0] && f.stone >= cost[1] && f.iron >= cost[2] && f.obsidian >= cost[3];
+        int[] cost=baseMaterialCost(f);
+        return f.wood>=cost[0] && f.stone>=cost[1] && f.iron>=cost[2] &&
+            f.obsidian>=cost[3] && f.glass>=cost[4];
     }
 
     private void consumeBaseMaterials(SimFaction f) {
-        int[] cost = baseMaterialCost(f.basePreset);
-        f.wood -= cost[0];
-        f.stone -= cost[1];
-        f.iron -= cost[2];
-        f.obsidian -= cost[3];
+        int[] cost=baseMaterialCost(f);
+        f.wood-=cost[0]; f.stone-=cost[1]; f.iron-=cost[2];
+        f.obsidian-=cost[3]; f.glass-=cost[4];
         mirrorConsumeFromStorage(f,Material.LOG,cost[0]);
         mirrorConsumeFromStorage(f,Material.COBBLESTONE,cost[1]);
         mirrorConsumeFromStorage(f,Material.IRON_INGOT,cost[2]);
         mirrorConsumeFromStorage(f,Material.OBSIDIAN,cost[3]);
+        mirrorConsumeFromStorage(f,Material.GLASS,cost[4]);
+    }
+
+    private int[] surfaceMaterialCost(SimFaction f) {
+        int members=Math.max(2,Math.max(f.targetSize,f.members.size()));
+        return new int[]{22+members*6,90+members*24,8+members,0,105+members*18};
+    }
+
+    private boolean surfaceMaterialsReady(SimFaction f) {
+        int[] c=surfaceMaterialCost(f);
+        return f.wood>=c[0] && f.stone>=c[1] && f.iron>=c[2] &&
+            f.obsidian>=c[3] && f.glass>=c[4];
+    }
+
+    private void consumeSurfaceMaterials(SimFaction f) {
+        int[] c=surfaceMaterialCost(f);
+        f.wood-=c[0]; f.stone-=c[1]; f.iron-=c[2]; f.obsidian-=c[3]; f.glass-=c[4];
     }
 
     private org.bukkit.inventory.Inventory factionStorageInventory(SimFaction f,String category) {
@@ -6687,65 +6929,37 @@ final class SimWorldDirector {
         if(w==null) return null;
 
         String cat=category==null?"overflow":category.toLowerCase(Locale.ENGLISH);
-        int half=12;
-        if("hcf_courtyard".equalsIgnoreCase(f.basePreset)) half=14;
-        else if("hcf_compact_2015".equalsIgnoreCase(f.basePreset)) half=9;
-        else if("hcf_split_level".equalsIgnoreCase(f.basePreset)) half=11;
-        else if("hcf_archer_tower".equalsIgnoreCase(f.basePreset)) half=10;
-        else if("hcf_double_layer".equalsIgnoreCase(f.basePreset)) half=13;
-        int nearZ=half+3, farZ=half+6;
-
-        // First half of each physical double chest. Pairs are spaced by one
-        // block so every category gets a stable 54-slot visual bank.
-        int dx=8,dz=nearZ;
-        if("pots".equals(cat)){dx=-10;dz=nearZ;}
-        else if("pearls".equals(cat)){dx=-7;dz=nearZ;}
-        else if("valuables".equals(cat)){dx=-4;dz=nearZ;}
-        else if("blocks".equals(cat)){dx=-1;dz=nearZ;}
-        else if("brewing".equals(cat)){dx=2;dz=nearZ;}
-        else if("farm".equals(cat)){dx=5;dz=nearZ;}
-        else if("helmets".equals(cat)){dx=-10;dz=farZ;}
-        else if("chestplates".equals(cat)){dx=-7;dz=farZ;}
-        else if("leggings".equals(cat)){dx=-4;dz=farZ;}
-        else if("boots".equals(cat)){dx=-1;dz=farZ;}
-        else if("swords".equals(cat)){dx=2;dz=farZ;}
-        else if("bows".equals(cat)){dx=5;dz=farZ;}
-        else if("kits".equals(cat)){dx=8;dz=farZ;}
-
+        int[] a=plugin.simStorageAnchor(f.name,f.basePreset,cat,f.baseX,f.baseY,f.baseZ);
         String cacheKey=key(f.name)+":"+cat;
+
         org.bukkit.Location cached=storageChestCache.get(cacheKey);
         if(cached!=null && cached.getWorld()!=null) {
             org.bukkit.block.Block cb=cached.getBlock();
             if((cb.getType()==Material.CHEST || cb.getType()==Material.TRAPPED_CHEST) &&
-               cb.getState() instanceof org.bukkit.block.Chest) {
+               cb.getState() instanceof org.bukkit.block.Chest)
                 return ((org.bukkit.block.Chest)cb.getState()).getInventory();
-            }
             storageChestCache.remove(cacheKey);
         }
 
-        org.bukkit.block.Block exact=w.getBlockAt(f.baseX+dx,f.baseY+1,f.baseZ+dz);
+        org.bukkit.block.Block exact=w.getBlockAt(a[0],a[1],a[2]);
         if((exact.getType()==Material.CHEST || exact.getType()==Material.TRAPPED_CHEST) &&
            exact.getState() instanceof org.bukkit.block.Chest) {
             storageChestCache.put(cacheKey,exact.getLocation());
             return ((org.bukkit.block.Chest)exact.getState()).getInventory();
         }
 
-        // Compatibility fallback for a base whose retrofit has not materialized yet.
+        // Migration/build-in-progress fallback searches around the semantic slot,
+        // including deep underground rather than only around surface Y.
         org.bukkit.block.Chest best=null;
         double bestD=Double.MAX_VALUE;
-        for(int x=f.baseX-30;x<=f.baseX+30;x++) {
-            for(int z=f.baseZ-30;z<=f.baseZ+30;z++) {
-                for(int y=Math.max(2,f.baseY-6);y<=Math.min(w.getMaxHeight()-1,f.baseY+6);y++) {
-                    org.bukkit.block.Block b=w.getBlockAt(x,y,z);
-                    if(b.getType()!=Material.CHEST && b.getType()!=Material.TRAPPED_CHEST) continue;
-                    if(!(b.getState() instanceof org.bukkit.block.Chest)) continue;
-                    double d=(x-(f.baseX+dx))*(x-(f.baseX+dx))+
-                             (z-(f.baseZ+dz))*(z-(f.baseZ+dz))+
-                             (y-(f.baseY+1))*(y-(f.baseY+1));
-                    if(d<bestD) { best=(org.bukkit.block.Chest)b.getState(); bestD=d; }
-                }
+        for(int x=a[0]-12;x<=a[0]+12;x++) for(int z=a[2]-12;z<=a[2]+12;z++)
+            for(int y=Math.max(2,a[1]-5);y<=Math.min(w.getMaxHeight()-1,a[1]+5);y++) {
+                org.bukkit.block.Block b=w.getBlockAt(x,y,z);
+                if(b.getType()!=Material.CHEST && b.getType()!=Material.TRAPPED_CHEST) continue;
+                if(!(b.getState() instanceof org.bukkit.block.Chest)) continue;
+                double d=(x-a[0])*(x-a[0])+(z-a[2])*(z-a[2])+(y-a[1])*(y-a[1]);
+                if(d<bestD) {best=(org.bukkit.block.Chest)b.getState();bestD=d;}
             }
-        }
         if(best==null) return null;
         storageChestCache.put(cacheKey,best.getLocation());
         return best.getInventory();
@@ -6851,9 +7065,9 @@ final class SimWorldDirector {
     }
 
     private void liquidateSurplus(SimFaction f) {
-        int stoneReserve=f.brewer?128:Math.max(220,baseMaterialCost(f.basePreset)[1]);
-        int woodReserve=Math.max(96,baseMaterialCost(f.basePreset)[0]/2);
-        int ironReserve=f.brewer?48:Math.max(40,baseMaterialCost(f.basePreset)[2]+35);
+        int stoneReserve=f.brewer?128:Math.max(220,baseMaterialCost(f)[1]);
+        int woodReserve=Math.max(96,baseMaterialCost(f)[0]/2);
+        int ironReserve=f.brewer?48:Math.max(40,baseMaterialCost(f)[2]+35);
         int obbyReserve="TRAPPER".equals(f.archetype)?24:12;
 
         int sold=sellFactionSurplus(f,Material.COBBLESTONE,f.stone,stoneReserve,96);
@@ -6935,11 +7149,10 @@ final class SimWorldDirector {
     }
 
     private int baseTerrainRadius(SimFaction f) {
-        int r=22;
-        if ("hcf_courtyard".equalsIgnoreCase(f.basePreset)) r=18;
-        else if ("hcf_double_layer".equalsIgnoreCase(f.basePreset)) r=17;
-        else if ("hcf_split_level".equalsIgnoreCase(f.basePreset)) r=15;
-        if ("fall_trap".equalsIgnoreCase(f.trapPreset)) r=Math.max(r,20);
+        HcfBasePlan.Profile p=baseProfile(f.name);
+        int members=Math.max(1,p.members);
+        int r=18+members;
+        if("fall_trap".equalsIgnoreCase(f.trapPreset)) r=Math.max(r,22);
         return r;
     }
 
@@ -6949,13 +7162,6 @@ final class SimWorldDirector {
         int maxX=f.baseX+r;
         int minZ=f.baseZ-r;
         int maxZ=f.baseZ+r;
-
-        // Reserve the standard farm pad too so faction infrastructure never
-        // hangs outside the protected base claim.
-        minX=Math.min(minX,f.baseX-26);
-        maxX=Math.max(maxX,f.baseX+30);
-        minZ=Math.min(minZ,f.baseZ-20);
-        maxZ=Math.max(maxZ,f.baseZ+22);
 
         int minCx=minX >> 4;
         int maxCx=maxX >> 4;
@@ -7535,6 +7741,10 @@ final class SimWorldDirector {
             data.set(b + ".build-progress", f.buildProgress);
             data.set(b + ".build-target", f.buildTarget);
             data.set(b + ".base-queued", f.baseQueued);
+            data.set(b + ".surface-queued", f.surfaceQueued);
+            data.set(b + ".storage-tier", f.storageTier);
+            data.set(b + ".nether-portal", f.netherPortal);
+            data.set(b + ".end-portal", f.endPortal);
             data.set(b + ".recovery-mode", f.recoveryMode);
             data.set(b + ".archetype", f.archetype);
             data.set(b + ".camp-target", f.campTarget);
@@ -7562,6 +7772,7 @@ final class SimWorldDirector {
             data.set(b + ".iron", f.iron);
             data.set(b + ".diamonds", f.diamonds);
             data.set(b + ".obsidian", f.obsidian);
+            data.set(b + ".glass", f.glass);
             data.set(b + ".cane", f.cane);
             data.set(b + ".treasury", f.treasury);
             data.set(b + ".actions", f.actionCounter);

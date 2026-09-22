@@ -39,27 +39,157 @@ final class HcfBaseBuilder {
     private final ArrayDeque<Op> queue = new ArrayDeque<Op>();
     private final Set<String> completed = new HashSet<String>();
     private BukkitRunnable runner;
+    private boolean maintenanceRebuild;
 
     HcfBaseBuilder(EraCore plugin) {
         this.plugin = plugin;
     }
 
-    void queueBase(String faction, String preset, String trapPreset, int cx, int y, int cz) {
-        String key = "base:" + faction.toLowerCase();
-        if (!completed.add(key)) return;
+    void forceRebuild(String faction,String preset,String trapPreset,int cx,int y,int cz,
+                      int storageTier,boolean brewer,boolean netherPortal,boolean endPortal) {
+        if(faction==null || faction.trim().isEmpty()) return;
+        String k=faction.toLowerCase(java.util.Locale.ENGLISH);
 
-        World world = Bukkit.getWorlds().get(0);
-        if (world == null) return;
+        // Explicit operator/migration rebuilds must not be suppressed by the
+        // normal once-per-runtime dedupe set.
+        completed.remove("base:"+k);
+        completed.remove("surface:"+k);
+        completed.remove("farm:"+k);
+        completed.remove("brewer:"+k);
+        completed.remove("storage:"+k+":1");
+        completed.remove("storage:"+k+":2");
+        completed.remove("storage:"+k+":3");
+        completed.remove("portal:"+k+":nether");
+        completed.remove("portal:"+k+":end");
+        completed.remove("foundation:"+k);
+        completed.remove("terrain:"+k);
 
-        int radius = basePadRadius(preset, trapPreset);
-        prepareTerrainPad(world,cx,y,cz,radius,radius);
+        World world=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
+        if(world==null) return;
 
-        buildFactionBlueprint(world,faction,preset,cx,y,cz);
-        buildOrganizedVault(world,faction,preset,cx,y,cz);
+        HcfBasePlan plan=planFor(faction,cx,y,cz);
+        maintenanceRebuild=true;
+        clearBrokenBaseVolumes(world,plan);
+
+        // Existing faction sites are already terrain-normalized. Repair support
+        // underneath grade without re-running the huge full terrain-prep pass.
+        fillFoundationOnly(world,cx,y,cz,plan.surfacePadRadius(),plan.surfacePadRadius());
+        buildSurfaceShell(world,plan,true);
+        buildUndergroundCore(world,plan);
+        sealCriticalEnvelope(world,plan,true);
+
+        int tier=Math.max(1,Math.min(3,storageTier));
+        if(tier>1) buildStorageTier(world,plan,tier);
+        if(brewer) {
+            buildUndergroundBrewer(world,plan);
+            plugin.registerAutoBrewerSite(faction,preset,cx,y,cz);
+        }
+        if(netherPortal) buildFactionPortal(world,plan,"nether");
+        if(endPortal) buildFactionPortal(world,plan,"end");
 
         if ("fall_trap".equalsIgnoreCase(trapPreset)) buildFallTrap(world,cx,y,cz);
         else if ("fence_gate_bow".equalsIgnoreCase(trapPreset)) buildFenceGateBowTrap(world,cx,y,cz);
         else if ("drop_chute".equalsIgnoreCase(trapPreset)) buildDropChute(world,cx,y,cz);
+
+        completed.add("base:"+k);
+        completed.add("surface:"+k);
+        completed.add("farm:"+k);
+        completed.add("storage:"+k+":"+tier);
+        if(brewer) completed.add("brewer:"+k);
+        if(netherPortal) completed.add("portal:"+k+":nether");
+        if(endPortal) completed.add("portal:"+k+":end");
+
+        ensureRunner();
+    }
+
+    private void clearBrokenBaseVolumes(World w,HcfBasePlan p) {
+        // Surface: remove every previous generated shell/wing/roof in this
+        // faction work pad. Grade itself is rebuilt by prepareTerrainPad().
+        int pad=p.surfacePadRadius();
+        int top=Math.min(w.getMaxHeight()-1,p.surfaceY+p.surfaceHeight+10);
+        for(int x=p.cx-pad;x<=p.cx+pad;x++) for(int z=p.cz-pad;z<=p.cz+pad;z++) {
+            for(int yy=p.surfaceY+1;yy<=top;yy++)
+                queue.add(new Op(w,x,yy,z,Material.AIR));
+        }
+
+        // Underground: replace the entire generated work volume with stone
+        // before carving the corrected connected core/farm/transit layout.
+        // This removes old sealed islands and accidental cave/excavation seams.
+        int hx=p.coreHalfX+4;
+        int hz=p.coreHalfZ+4;
+        int low=Math.max(3,p.undergroundY-9);
+        int high=Math.min(w.getMaxHeight()-2,p.undergroundY+8);
+        for(int x=p.cx-hx;x<=p.cx+hx;x++) for(int z=p.cz-hz;z<=p.cz+hz;z++) {
+            for(int yy=low;yy<=high;yy++)
+                queue.add(new Op(w,x,yy,z,Material.STONE));
+        }
+
+        // Re-open only the lined 5x5 transit column through the untouched
+        // natural stone between the surface and underground work volume.
+        int[] d=p.anchor("drop");
+        for(int x=d[0]-2;x<=d[0]+2;x++) for(int z=d[2]-2;z<=d[2]+2;z++) {
+            for(int yy=high+1;yy<=p.surfaceY;yy++)
+                queue.add(new Op(w,x,yy,z,Material.STONE));
+        }
+    }
+
+    void queueBase(String faction, String preset, String trapPreset, int cx, int y, int cz) {
+        String key = "base:" + faction.toLowerCase();
+        if (!completed.add(key)) return;
+        World world = Bukkit.getWorlds().get(0);
+        if (world == null) return;
+
+        HcfBasePlan plan=planFor(faction,cx,y,cz);
+        String surfaceKey="surface:"+faction.toLowerCase();
+        boolean surfaceAlreadyQueued=completed.contains(surfaceKey);
+
+        // If the rushed SOTW shell was already queued, never flatten/erase it
+        // again. Its operations are already ahead of these in the same FIFO;
+        // append the dropdown/core work and continue downward.
+        if(!surfaceAlreadyQueued) {
+            prepareTerrainPad(world,cx,y,cz,plan.surfacePadRadius(),plan.surfacePadRadius());
+            buildSurfaceShell(world,plan,true);
+            completed.add(surfaceKey);
+        }
+        buildUndergroundCore(world,plan);
+        sealCriticalEnvelope(world,plan,true);
+
+        if ("fall_trap".equalsIgnoreCase(trapPreset)) buildFallTrap(world,cx,y,cz);
+        else if ("fence_gate_bow".equalsIgnoreCase(trapPreset)) buildFenceGateBowTrap(world,cx,y,cz);
+        else if ("drop_chute".equalsIgnoreCase(trapPreset)) buildDropChute(world,cx,y,cz);
+        ensureRunner();
+    }
+
+    void queueSurfaceStarter(String faction,String preset,int cx,int y,int cz) {
+        String key="surface:"+faction.toLowerCase();
+        if(!completed.add(key)) return;
+        World world=Bukkit.getWorlds().get(0);
+        if(world==null) return;
+        HcfBasePlan plan=planFor(faction,cx,y,cz);
+        prepareTerrainPad(world,cx,y,cz,plan.surfacePadRadius(),plan.surfacePadRadius());
+        buildSurfaceShell(world,plan,false);
+        sealSurfaceEnvelope(world,plan,false);
+        ensureRunner();
+    }
+
+    void queueStorageUpgrade(String faction,String preset,int tier,int cx,int y,int cz) {
+        int t=Math.max(1,Math.min(3,tier));
+        String key="storage:"+faction.toLowerCase()+":"+t;
+        if(!completed.add(key)) return;
+        World world=Bukkit.getWorlds().get(0);
+        if(world==null) return;
+        buildStorageTier(world,planFor(faction,cx,y,cz),t);
+        ensureRunner();
+    }
+
+    void queuePortal(String faction,String preset,String type,int cx,int y,int cz) {
+        String t=type==null?"":type.toLowerCase();
+        if(!"nether".equals(t) && !"end".equals(t)) return;
+        String key="portal:"+faction.toLowerCase()+":"+t;
+        if(!completed.add(key)) return;
+        World world=Bukkit.getWorlds().get(0);
+        if(world==null) return;
+        buildFactionPortal(world,planFor(faction,cx,y,cz),t);
         ensureRunner();
     }
 
@@ -85,13 +215,8 @@ final class HcfBaseBuilder {
         World world = Bukkit.getWorlds().get(0);
         if (world == null) return;
 
-        String type = crop == null ? "cane" : crop.toLowerCase();
-        int fx=cx-18, fz=cz+14;
-        prepareTerrainPad(world,fx,y,fz,7,7);
-        if ("cactus".equals(type)) buildCactusFarm(world,fx,y,fz);
-        else if ("pumpkin".equals(type)) buildPumpkinFarm(world,fx,y,fz);
-        else if ("melon".equals(type)) buildMelonFarm(world,fx,y,fz);
-        else buildCaneFarm(world,fx,y,fz);
+        HcfBasePlan plan=planFor(faction,cx,y,cz);
+        buildFarmLevel(world,plan,crop==null?"cane":crop.toLowerCase());
         ensureRunner();
     }
 
@@ -101,8 +226,8 @@ final class HcfBaseBuilder {
         World world = Bukkit.getWorlds().get(0);
         if (world == null) return;
 
-        buildBrewerRoom(world,preset,cx,y,cz);
-        int[] core=anchor(preset,"brewer",cx,y,cz);
+        HcfBasePlan plan=planFor(faction,cx,y,cz);
+        buildUndergroundBrewer(world,plan);
         plugin.registerAutoBrewerSite(faction,preset,cx,y,cz);
         ensureRunner();
     }
@@ -138,21 +263,15 @@ final class HcfBaseBuilder {
     void queueFoundationRepair(String faction, String preset, String trapPreset, int cx, int y, int cz) {
         String key = "foundation:" + faction.toLowerCase();
         if (!completed.add(key)) return;
-
         World world = Bukkit.getWorlds().get(0);
         if (world == null) return;
 
-        int radius = basePadRadius(preset,trapPreset);
-        fillFoundationOnly(world,cx,y,cz,radius,radius);
-
-        // Repairs must never rebuild live walls around online players. Only fill
-        // missing support below grade, retrofit a guaranteed walkable home pocket,
-        // and install/clear the canonical fence-gate entrance.
-        clearHomePocket(world,cx,y,cz);
-        doorway(world,cx,y,frontZForPreset(preset,cz));
-        addDistinctExterior(world,faction,preset,cx,y,cz);
-        buildOrganizedVault(world,faction,preset,cx,y,cz);
-        rescueEmbeddedPlayers(world,cx,y,cz,radius);
+        HcfBasePlan plan=planFor(faction,cx,y,cz);
+        fillFoundationOnly(world,cx,y,cz,plan.surfacePadRadius(),plan.surfacePadRadius());
+        buildSurfaceShell(world,plan,false);
+        buildUndergroundCore(world,plan);
+        sealCriticalEnvelope(world,plan,true);
+        rescueEmbeddedPlayers(world,cx,y,cz,plan.surfacePadRadius());
         ensureRunner();
     }
 
@@ -249,17 +368,32 @@ final class HcfBaseBuilder {
                m==Material.LAVA || m==Material.STATIONARY_LAVA;
     }
 
+    int queuedOperations() {
+        return queue.size();
+    }
+
+    boolean maintenanceRebuildActive() {
+        return maintenanceRebuild;
+    }
+
     void stop() {
         if (runner != null) runner.cancel();
         runner = null;
         queue.clear();
+        maintenanceRebuild=false;
     }
 
     private void ensureRunner() {
         if (runner != null) return;
         runner = new BukkitRunnable() {
             public void run() {
-                int budget = Math.max(20, plugin.getConfig().getInt("base-builder.blocks-per-tick", 120));
+                int configured = Math.max(20, plugin.getConfig().getInt("base-builder.blocks-per-tick", 120));
+                int visible=Math.max(4,plugin.getConfig().getInt("base-builder.visible-blocks-per-tick",16));
+                int rebuild=Math.max(configured,plugin.getConfig().getInt("base-builder.rebuild-blocks-per-tick",600));
+                // Forced repair/rematerialization is maintenance, not roleplay.
+                // It must finish promptly even if the owner joins to inspect it.
+                int budget = maintenanceRebuild ? rebuild :
+                    (plugin.hasHumanOnline() ? Math.min(configured,visible) : configured);
                 int n = 0;
                 while (n < budget && !queue.isEmpty()) {
                     Op op = queue.poll();
@@ -285,12 +419,20 @@ final class HcfBaseBuilder {
                     if (op.data != 0) b.setData(op.data);
                     if (op.label != null && b.getState() instanceof Sign) {
                         Sign sign=(Sign)b.getState();
-                        sign.setLine(0, op.label.length()>15 ? op.label.substring(0,15) : op.label);
+                        String[] lines=op.label.split("\\|",-1);
+                        for(int li=0;li<Math.min(4,lines.length);li++) {
+                            String line=lines[li]==null?"":lines[li];
+                            sign.setLine(li,line.length()>15?line.substring(0,15):line);
+                        }
                         sign.update(true);
                     }
                     n++;
                 }
                 if (queue.isEmpty()) {
+                    if(maintenanceRebuild) {
+                        maintenanceRebuild=false;
+                        plugin.getLogger().info("Base Intelligence: forced base rematerialization queue completed.");
+                    }
                     cancel();
                     runner = null;
                 }
@@ -309,15 +451,19 @@ final class HcfBaseBuilder {
         return 12;
     }
 
+    int[] anchor(String faction,String preset,String kind,int cx,int y,int cz) {
+        return planFor(faction,cx,y,cz).anchor(kind);
+    }
+
     int[] anchor(String preset,String kind,int cx,int y,int cz) {
-        int half=presetHalf(preset);
-        if("gate".equalsIgnoreCase(kind))
-            return new int[]{cx,y+1,cz-half};
-        if("storage".equalsIgnoreCase(kind))
-            return new int[]{cx,y+1,cz+half+4};
-        if("brewer".equalsIgnoreCase(kind))
-            return new int[]{cx+half+7,y,cz+2};
-        return new int[]{cx,y+1,cz};
+        // Compatibility for older call sites; new simulation code always supplies
+        // the faction so personality/size influence remains stable.
+        return HcfBasePlan.of("",cx,y,cz,new HcfBasePlan.Profile()).anchor(kind);
+    }
+
+    int[] storageAnchor(String faction,String preset,String category,int cx,int y,int cz) {
+        HcfBasePlan plan=planFor(faction,cx,y,cz);
+        return plan.storageSlot(storageCategoryIndex(category));
     }
 
     private void buildOrganizedVault(World w,String faction,String preset,int cx,int y,int cz) {
@@ -557,6 +703,480 @@ final class HcfBaseBuilder {
         queue.add(new Op(w,cx+s.side*(hx-2),y+1,cz+hz-3,Material.ENCHANTMENT_TABLE));
         queue.add(new Op(w,cx+s.side*(hx-3),y+1,cz+hz-3,Material.ANVIL));
         queue.add(new Op(w,cx,y+Math.max(4,s.height-1),cz,Material.GLOWSTONE));
+    }
+
+
+    private HcfBasePlan planFor(String faction,int cx,int y,int cz) {
+        HcfBasePlan.Profile profile=plugin.simBaseProfile(faction);
+        return HcfBasePlan.of(faction,cx,y,cz,profile);
+    }
+
+    private void buildSurfaceShell(World w,HcfBasePlan p,boolean openTransit) {
+        int minX=p.cx-p.surfaceHalfX,maxX=p.cx+p.surfaceHalfX;
+        int minZ=p.cz-p.surfaceHalfZ,maxZ=p.cz+p.surfaceHalfZ;
+        int top=p.surfaceY+p.surfaceHeight;
+
+        for(int x=minX;x<=maxX;x++) for(int z=minZ;z<=maxZ;z++) {
+            if(!surfaceInside(p,x,z)) continue;
+            queue.add(new Op(w,x,p.surfaceY,z,p.surfaceFloor));
+
+            boolean edge=surfaceBoundary(p,x,z);
+            for(int yy=p.surfaceY+1;yy<=top;yy++) {
+                if(!edge) {
+                    queue.add(new Op(w,x,yy,z,Material.AIR));
+                    continue;
+                }
+                boolean cornerish=surfaceCornerLike(p,x,z);
+                boolean beam=cornerish || yy==p.surfaceY+1 || yy==top ||
+                    ((x-minX)%6==0) || ((z-minZ)%6==0);
+                queue.add(new Op(w,x,yy,z,beam?p.surfaceFrame:Material.GLASS));
+            }
+
+            boolean roofBeam=edge || ((x-p.cx)%6==0)||((z-p.cz)%6==0);
+            queue.add(new Op(w,x,top+1,z,roofBeam?p.surfaceFrame:Material.GLASS));
+        }
+
+        // One restrained asymmetric bay is enough to make some bases look like
+        // players extended them during SOTW without turning them into spawn builds.
+        if(p.surfaceShape==2) {
+            int side=p.utilitySide;
+            int bx=p.cx+side*(p.surfaceHalfX+3);
+            int bz=p.cz+3+((p.seed/53)%5)-2;
+            buildSurfaceBay(w,p,bx,bz,side,top);
+        }
+
+        // The top is a scouting/work shell, not a decorative castle. Entrances
+        // are double fence-gate buffers; their slight offsets vary by faction.
+        int frontX=p.cx+p.frontGateOffset;
+        bufferedGateZ(w,frontX,p.surfaceY,minZ,+1,p.surfaceFrame);
+        bufferedGateZ(w,p.cx-p.frontGateOffset,p.surfaceY,maxZ,-1,p.surfaceFrame);
+        if(p.entrances>=3) bufferedGateX(w,maxX,p.surfaceY,p.cz+Math.max(-2,Math.min(2,p.frontGateOffset)),-1,p.surfaceFrame);
+        if(p.entrances>=4) bufferedGateX(w,minX,p.surfaceY,p.cz-Math.max(-2,Math.min(2,p.frontGateOffset)),+1,p.surfaceFrame);
+
+        int[] d=p.anchor("drop");
+        // Mark the future dropdown safely during the rushed surface phase.
+        for(int x=d[0]-2;x<=d[0]+2;x++) for(int z=d[2]-2;z<=d[2]+2;z++)
+            queue.add(new Op(w,x,p.surfaceY,z,(Math.abs(x-d[0])==2||Math.abs(z-d[2])==2)?p.surfaceFrame:Material.GLASS));
+
+        if(openTransit) buildVerticalTransit(w,p);
+    }
+
+    private void sealSurfaceEnvelope(World w,HcfBasePlan p,boolean dropdownOpen) {
+        int top=p.surfaceY+p.surfaceHeight;
+        int[] d=p.anchor("drop");
+
+        // Re-assert every structural surface-floor and roof cell after all
+        // decorative/modules operations. Only the intentional dropdown may be open.
+        for(int x=p.cx-p.surfaceHalfX;x<=p.cx+p.surfaceHalfX;x++) {
+            for(int z=p.cz-p.surfaceHalfZ;z<=p.cz+p.surfaceHalfZ;z++) {
+                if(!surfaceInside(p,x,z)) continue;
+                boolean dropCell=dropdownOpen && Math.abs(x-d[0])<=1 && Math.abs(z-d[2])<=1;
+                queue.add(new Op(w,x,p.surfaceY,z,dropCell?Material.AIR:p.surfaceFloor));
+
+                boolean edge=surfaceBoundary(p,x,z);
+                if(edge) {
+                    for(int yy=p.surfaceY+1;yy<=top;yy++) {
+                        if(isBayJoinOpening(p,x,yy,z)) {
+                            queue.add(new Op(w,x,yy,z,Material.AIR));
+                            continue;
+                        }
+                        int gateData=surfaceGateData(p,x,yy,z);
+                        if(gateData>=0) {
+                            queue.add(new Op(w,x,yy,z,Material.FENCE_GATE,(byte)gateData));
+                            continue;
+                        }
+                        boolean beam=surfaceCornerLike(p,x,z) || yy==p.surfaceY+1 || yy==top ||
+                            ((x-(p.cx-p.surfaceHalfX))%6==0) ||
+                            ((z-(p.cz-p.surfaceHalfZ))%6==0);
+                        queue.add(new Op(w,x,yy,z,beam?p.surfaceFrame:Material.GLASS));
+                    }
+                }
+
+                boolean roofBeam=edge || ((x-p.cx)%6==0)||((z-p.cz)%6==0);
+                queue.add(new Op(w,x,top+1,z,roofBeam?p.surfaceFrame:Material.GLASS));
+            }
+        }
+    }
+
+    private void sealCriticalEnvelope(World w,HcfBasePlan p,boolean dropdownOpen) {
+        sealSurfaceEnvelope(w,p,dropdownOpen);
+
+        // Re-assert the underground central box envelope. Internal modules are
+        // left untouched; this only prevents cave/excavation seams at the shell.
+        int minX=p.cx-p.coreHalfX,maxX=p.cx+p.coreHalfX;
+        int minZ=p.cz-p.coreHalfZ,maxZ=p.cz+p.coreHalfZ;
+        int ceiling=p.undergroundY+6;
+        for(int x=minX;x<=maxX;x++) for(int z=minZ;z<=maxZ;z++) {
+            boolean boundary=x==minX||x==maxX||z==minZ||z==maxZ;
+            if(boundary) {
+                Material wall=p.finishTier==0?Material.STONE:Material.SMOOTH_BRICK;
+                for(int yy=p.undergroundY+1;yy<ceiling;yy++)
+                    queue.add(new Op(w,x,yy,z,wall));
+            }
+            queue.add(new Op(w,x,ceiling,z,p.finishTier==0?Material.STONE:Material.SMOOTH_BRICK));
+        }
+
+        if(dropdownOpen) {
+            // The integrity pass runs last; re-open/re-line only the one legal
+            // vertical connection so envelope sealing cannot accidentally close it.
+            buildVerticalTransit(w,p);
+        }
+    }
+
+    private int surfaceGateData(HcfBasePlan p,int x,int yy,int z) {
+        if(yy<p.surfaceY+1 || yy>p.surfaceY+2) return -1;
+        int minX=p.cx-p.surfaceHalfX,maxX=p.cx+p.surfaceHalfX;
+        int minZ=p.cz-p.surfaceHalfZ,maxZ=p.cz+p.surfaceHalfZ;
+
+        int frontX=p.cx+p.frontGateOffset;
+        if(z==minZ && Math.abs(x-frontX)<=1) return 0;
+
+        int backX=p.cx-p.frontGateOffset;
+        if(z==maxZ && Math.abs(x-backX)<=1) return 0;
+
+        int sideOffset=Math.max(-2,Math.min(2,p.frontGateOffset));
+        if(p.entrances>=3 && x==maxX && Math.abs(z-(p.cz+sideOffset))<=1) return 1;
+        if(p.entrances>=4 && x==minX && Math.abs(z-(p.cz-sideOffset))<=1) return 1;
+        return -1;
+    }
+
+    private boolean isBayJoinOpening(HcfBasePlan p,int x,int yy,int z) {
+        if(p.surfaceShape!=2 || yy>p.surfaceY+3) return false;
+        int side=p.utilitySide;
+        int joinX=p.cx+side*p.surfaceHalfX;
+        int bz=p.cz+3+((p.seed/53)%5)-2;
+        return x==joinX && Math.abs(z-bz)<=1;
+    }
+
+    private boolean surfaceInside(HcfBasePlan p,int x,int z) {
+        int ax=Math.abs(x-p.cx),az=Math.abs(z-p.cz);
+        if(ax>p.surfaceHalfX || az>p.surfaceHalfZ) return false;
+        if(p.surfaceShape==1) {
+            // Three-block chamfers approximate the rounded/angled player bases
+            // seen in period footage while remaining cheap and easy to navigate.
+            return ax+az<=p.surfaceHalfX+p.surfaceHalfZ-3;
+        }
+        return true;
+    }
+
+    private boolean surfaceBoundary(HcfBasePlan p,int x,int z) {
+        if(!surfaceInside(p,x,z)) return false;
+        return !surfaceInside(p,x+1,z)||!surfaceInside(p,x-1,z)||
+               !surfaceInside(p,x,z+1)||!surfaceInside(p,x,z-1);
+    }
+
+    private boolean surfaceCornerLike(HcfBasePlan p,int x,int z) {
+        int missing=0;
+        if(!surfaceInside(p,x+1,z)) missing++;
+        if(!surfaceInside(p,x-1,z)) missing++;
+        if(!surfaceInside(p,x,z+1)) missing++;
+        if(!surfaceInside(p,x,z-1)) missing++;
+        return missing>=2;
+    }
+
+    private void buildSurfaceBay(World w,HcfBasePlan p,int bx,int bz,int side,int top) {
+        for(int x=bx-3;x<=bx+3;x++) for(int z=bz-4;z<=bz+4;z++) {
+            queue.add(new Op(w,x,p.surfaceY,z,p.surfaceFloor));
+            for(int yy=p.surfaceY+1;yy<=top;yy++) {
+                boolean edge=x==bx-3||x==bx+3||z==bz-4||z==bz+4;
+                queue.add(new Op(w,x,yy,z,edge?(((yy-p.surfaceY)%3==0)?p.surfaceFrame:Material.GLASS):Material.AIR));
+            }
+            queue.add(new Op(w,x,top+1,z,p.surfaceFrame));
+        }
+        int joinX=p.cx+side*p.surfaceHalfX;
+        for(int x=Math.min(joinX,bx);x<=Math.max(joinX,bx);x++)
+            for(int z=bz-1;z<=bz+1;z++)
+                for(int yy=p.surfaceY+1;yy<=p.surfaceY+3;yy++)
+                    queue.add(new Op(w,x,yy,z,Material.AIR));
+    }
+
+    private void bufferedGateZ(World w,int cx,int y,int wallZ,int inward,Material frame) {
+        int inner=wallZ+inward*3;
+        int lo=Math.min(wallZ-1,inner-1),hi=Math.max(wallZ+1,inner+1);
+        for(int z=lo;z<=hi;z++) for(int x=cx-1;x<=cx+1;x++)
+            for(int yy=y+1;yy<=y+2;yy++) queue.add(new Op(w,x,yy,z,Material.AIR));
+
+        for(int z:new int[]{wallZ,inner}) for(int x=cx-1;x<=cx+1;x++) {
+            for(int yy=y+1;yy<=y+2;yy++) queue.add(new Op(w,x,yy,z,Material.FENCE_GATE,(byte)0));
+            // The old buffer cleared y+3 but never replaced it, leaving a
+            // permanent horizontal hole above every entrance.
+            queue.add(new Op(w,x,y+3,z,frame));
+        }
+    }
+
+    private void bufferedGateX(World w,int wallX,int y,int cz,int inward,Material frame) {
+        int inner=wallX+inward*3;
+        int lo=Math.min(wallX-1,inner-1),hi=Math.max(wallX+1,inner+1);
+        for(int x=lo;x<=hi;x++) for(int z=cz-1;z<=cz+1;z++)
+            for(int yy=y+1;yy<=y+2;yy++) queue.add(new Op(w,x,yy,z,Material.AIR));
+
+        for(int x:new int[]{wallX,inner}) for(int z=cz-1;z<=cz+1;z++) {
+            for(int yy=y+1;yy<=y+2;yy++) queue.add(new Op(w,x,yy,z,Material.FENCE_GATE,(byte)1));
+            queue.add(new Op(w,x,y+3,z,frame));
+        }
+    }
+
+    private void buildUndergroundCore(World w,HcfBasePlan p) {
+        int minX=p.cx-p.coreHalfX,maxX=p.cx+p.coreHalfX;
+        int minZ=p.cz-p.coreHalfZ,maxZ=p.cz+p.coreHalfZ;
+        int floor=p.undergroundY,ceiling=floor+6;
+
+        for(int x=minX;x<=maxX;x++) for(int z=minZ;z<=maxZ;z++) {
+            queue.add(new Op(w,x,floor,z,p.undergroundFloor));
+            for(int yy=floor+1;yy<ceiling;yy++) queue.add(new Op(w,x,yy,z,Material.AIR));
+
+            boolean boundary=x==minX||x==maxX||z==minZ||z==maxZ;
+            if(boundary) {
+                Material wall=p.finishTier==0?Material.STONE:
+                    (((x+z+p.seed)%7==0)?p.undergroundTrim:Material.SMOOTH_BRICK);
+                for(int yy=floor+1;yy<ceiling;yy++) queue.add(new Op(w,x,yy,z,wall));
+            }
+
+            Material roof=p.finishTier==0?Material.STONE:
+                ((((x-p.cx)%7==0)||((z-p.cz)%7==0))?p.undergroundTrim:Material.SMOOTH_BRICK);
+            queue.add(new Op(w,x,ceiling,z,roof));
+        }
+
+        // Deliberately imperfect finishing for rushed/average builders.
+        if(p.finishTier==1) {
+            for(int x=minX+2;x<=minX+7;x++)
+                queue.add(new Op(w,x,floor+1,minZ,Material.COBBLESTONE));
+        }
+
+        buildVerticalTransit(w,p);
+        buildStorageTier(w,p,1);
+        buildFarmLevel(w,p,"cane");
+
+        int[] refill=p.anchor("refill");
+        queue.add(new Op(w,refill[0],refill[1],refill[2],Material.ENDER_CHEST));
+        queue.add(new Op(w,refill[0]+1,refill[1],refill[2],Material.ANVIL));
+        queue.add(new Op(w,refill[0]-1,refill[1],refill[2],Material.WORKBENCH));
+    }
+
+    private void buildVerticalTransit(World w,HcfBasePlan p) {
+        int[] top=p.anchor("drop");
+        int dx=top[0],dz=top[2];
+
+        // A real 3x3 dropdown must cut THROUGH the surface floor. The previous
+        // implementation stopped one block too high, leaving a solid floor over
+        // a visually-generated shaft and disconnecting the upper/lower base.
+        for(int x=dx-1;x<=dx+1;x++) for(int z=dz-1;z<=dz+1;z++) {
+            for(int yy=p.undergroundY+1;yy<=p.surfaceY;yy++)
+                queue.add(new Op(w,x,yy,z,Material.AIR));
+        }
+
+        // Fully line the shaft so intersecting caves/ravines cannot appear as
+        // random holes in the faction base. The 5x5 shell surrounds the 3x3 drop.
+        for(int x=dx-2;x<=dx+2;x++) for(int z=dz-2;z<=dz+2;z++) {
+            boolean shell=x==dx-2||x==dx+2||z==dz-2||z==dz+2;
+            if(!shell) continue;
+            for(int yy=p.undergroundY;yy<=p.surfaceY;yy++) {
+                Material mat=yy==p.surfaceY?p.surfaceFrame:p.undergroundTrim;
+                queue.add(new Op(w,x,yy,z,mat));
+            }
+        }
+
+        // Explicit surface rim: everything outside the intentional 3x3 opening
+        // is solid, so the roofed SOTW shell never has accidental floor gaps.
+        for(int x=dx-2;x<=dx+2;x++) for(int z=dz-2;z<=dz+2;z++) {
+            boolean opening=Math.abs(x-dx)<=1 && Math.abs(z-dz)<=1;
+            queue.add(new Op(w,x,p.surfaceY,z,opening?Material.AIR:p.surfaceFrame));
+        }
+
+        // Water landing fills the drop footprint. The exit gates are placed in
+        // the lined south wall at the SAME feet level as the water.
+        for(int x=dx-1;x<=dx+1;x++) for(int z=dz-1;z<=dz+1;z++)
+            queue.add(new Op(w,x,p.undergroundY+1,z,Material.STATIONARY_WATER));
+        for(int x=dx-1;x<=dx+1;x++) for(int yy=p.undergroundY+1;yy<=p.undergroundY+2;yy++)
+            queue.add(new Op(w,x,yy,dz+2,Material.FENCE_GATE,(byte)0));
+
+        // Clear a short dry exit into the central core.
+        for(int z=dz+3;z<=dz+4;z++) for(int x=dx-1;x<=dx+1;x++)
+            for(int yy=p.undergroundY+1;yy<=p.undergroundY+3;yy++)
+                queue.add(new Op(w,x,yy,z,Material.AIR));
+
+        int[] e=p.anchor("elevator");
+        queue.add(new Op(w,e[0],p.undergroundY,e[2],p.undergroundTrim));
+        queue.add(new Op(w,e[0],e[1],e[2],Material.SIGN_POST,(byte)8,"[Elevator]|Up"));
+        for(int yy=e[1]+1;yy<=e[1]+2;yy++) queue.add(new Op(w,e[0],yy,e[2],Material.AIR));
+    }
+
+    private void buildStorageTier(World w,HcfBasePlan p,int tier) {
+        String[] labels={"Pots","Pearls","Valuables","Blocks","Brewing","Farm","Overflow",
+            "Helmets","Chestplates","Leggings","Boots","Swords","Bows","Kits"};
+        int count=tier<=1?8:(tier==2?11:14);
+
+        for(int i=0;i<count;i++) {
+            int[] a=p.storageSlot(i);
+            doubleChest(w,a[0],a[1],a[2],labels[i]);
+        }
+
+        // Function is decoration: organized chest banks, signs and lighting make
+        // the room look intentional without a fantasy-build shell around it.
+        for(int x=p.cx-p.coreHalfX+2;x<=p.cx+p.coreHalfX-2;x+=8)
+            queue.add(new Op(w,x,p.undergroundY+5,p.cz,Material.GLOWSTONE));
+    }
+
+    private int storageCategoryIndex(String category) {
+        String c=category==null?"overflow":category.toLowerCase(java.util.Locale.ENGLISH);
+        if("pots".equals(c)) return 0;
+        if("pearls".equals(c)) return 1;
+        if("valuables".equals(c)) return 2;
+        if("blocks".equals(c)) return 3;
+        if("brewing".equals(c)) return 4;
+        if("farm".equals(c)) return 5;
+        if("helmets".equals(c)) return 7;
+        if("chestplates".equals(c)) return 8;
+        if("leggings".equals(c)) return 9;
+        if("boots".equals(c)) return 10;
+        if("swords".equals(c)) return 11;
+        if("bows".equals(c)) return 12;
+        if("kits".equals(c)) return 13;
+        return 6;
+    }
+
+    private void excavateFarmRoom(World w,int cx,int floor,int cz,int halfX,int halfZ,Material trim) {
+        for(int x=cx-halfX;x<=cx+halfX;x++) for(int z=cz-halfZ;z<=cz+halfZ;z++) {
+            queue.add(new Op(w,x,floor,z,Material.DIRT));
+            for(int yy=floor+1;yy<=floor+4;yy++) queue.add(new Op(w,x,yy,z,Material.AIR));
+            boolean edge=x==cx-halfX||x==cx+halfX||z==cz-halfZ||z==cz+halfZ;
+            if(edge) for(int yy=floor+1;yy<=floor+4;yy++) queue.add(new Op(w,x,yy,z,trim));
+            queue.add(new Op(w,x,floor+5,z,trim));
+        }
+    }
+
+    private void buildFarmLevel(World w,HcfBasePlan p,String preferred) {
+        int[] farm=p.anchor("farm");
+        int floor=farm[1]-1;
+        int hx=Math.max(10,p.coreHalfX-3),hz=Math.max(8,p.coreHalfZ-4);
+        excavateFarmRoom(w,farm[0],floor,farm[2],hx,hz,p.finishTier==0?Material.STONE:Material.SMOOTH_BRICK);
+
+        // Sugar cane is the Daegon money engine.  Put it in the largest lanes.
+        for(int z=farm[2]-hz+2;z<=farm[2]-1;z+=3) {
+            // Reserve the faction-center z line as a dry circulation/stair aisle.
+            if(Math.abs(z-p.cz)<=1) continue;
+            for(int x=farm[0]-hx+2;x<=farm[0]+hx-2;x++) {
+                boolean water=((x-(farm[0]-hx+2))%4)==1;
+                queue.add(new Op(w,x,floor,z,water?Material.STATIONARY_WATER:Material.SAND));
+                if(!water) {
+                    queue.add(new Op(w,x,floor+1,z,Material.SUGAR_CANE_BLOCK));
+                    if((x+z+p.seed)%3==0) queue.add(new Op(w,x,floor+2,z,Material.SUGAR_CANE_BLOCK));
+                }
+            }
+        }
+
+        // Wart + melon preserve the period HCF potion pipeline.
+        for(int z=farm[2]+2;z<=farm[2]+5;z++) for(int x=farm[0]-hx+2;x<=farm[0]-1;x++) {
+            queue.add(new Op(w,x,floor,z,Material.SOUL_SAND));
+            queue.add(new Op(w,x,floor+1,z,Material.NETHER_WARTS,(byte)3));
+        }
+        for(int z=farm[2]+2;z<=farm[2]+5;z++) for(int x=farm[0]+1;x<=farm[0]+hx-2;x++) {
+            boolean stem=((x+z)&1)==0;
+            queue.add(new Op(w,x,floor,z,Material.SOIL));
+            queue.add(new Op(w,x,floor+1,z,stem?Material.MELON_STEM:Material.MELON_BLOCK,stem?(byte)7:(byte)0));
+        }
+
+        for(int x=farm[0]-hx+2;x<=farm[0]+hx-2;x+=8)
+            queue.add(new Op(w,x,floor+4,farm[2],Material.GLOWSTONE));
+
+        // The farm is a lower underground level, but it must be physically
+        // connected. Build a walkable one-block-per-step stair tunnel from the
+        // central core instead of leaving a sealed room below it.
+        buildFarmAccess(w,p,floor);
+    }
+
+    private void buildFarmAccess(World w,HcfBasePlan p,int farmFloor) {
+        int dir=-p.utilitySide; // use the quiet half; storage rows reserve z=center
+        int z=p.cz;
+        int drop=p.undergroundY-farmFloor;
+        if(drop<1) return;
+
+        for(int i=1;i<=drop;i++) {
+            int x=p.cx+dir*i;
+            int stepY=p.undergroundY-i;
+
+            // Full block steps are intentionally simple: Mineflayer and human
+            // players can both traverse them reliably in 1.8.8.
+            queue.add(new Op(w,x,stepY,z,p.undergroundTrim));
+            queue.add(new Op(w,x,stepY+1,z,Material.AIR));
+            queue.add(new Op(w,x,stepY+2,z,Material.AIR));
+
+            // Seal the tunnel while it passes through natural stone between the
+            // core and farm. The final two steps open directly into the farm room.
+            if(i<=Math.max(1,drop-2)) {
+                for(int yy=stepY+1;yy<=stepY+2;yy++) {
+                    queue.add(new Op(w,x,yy,z-1,p.undergroundTrim));
+                    queue.add(new Op(w,x,yy,z+1,p.undergroundTrim));
+                }
+                queue.add(new Op(w,x,stepY+3,z,p.undergroundTrim));
+            }
+        }
+
+        // Guarantee a clear landing aisle at farm level.
+        int endX=p.cx+dir*drop;
+        for(int x=Math.min(p.cx,endX)-1;x<=Math.max(p.cx,endX)+1;x++) {
+            for(int yy=farmFloor+1;yy<=farmFloor+2;yy++)
+                queue.add(new Op(w,x,yy,z,Material.AIR));
+        }
+    }
+
+    private void buildUndergroundBrewer(World w,HcfBasePlan p) {
+        int[] a=p.anchor("brewer");
+        int cx=a[0],floor=a[1],cz=a[2];
+        int halfX=5,halfZ=8;
+        for(int x=cx-halfX;x<=cx+halfX;x++) for(int z=cz-halfZ;z<=cz+halfZ;z++) {
+            queue.add(new Op(w,x,floor,z,p.undergroundFloor));
+            for(int yy=floor+1;yy<=floor+5;yy++) queue.add(new Op(w,x,yy,z,Material.AIR));
+        }
+
+        // Exact lane coordinates intentionally match HcfAutoBrewerDirector:
+        // stand=(centerX, floorY+2, centerZ-5+lane*2).
+        // Four HEAL lanes dominate; the final two are lower-demand speed lanes.
+        String[] labels={"Heal II 1","Heal II 2","Heal II 3","Heal II 4","Speed II 1","Speed II 2"};
+        int lanes=6;
+        for(int i=0;i<lanes;i++) {
+            int z=cz-5+i*2;
+            queue.add(new Op(w,cx,floor+2,z,Material.BREWING_STAND));
+            queue.add(new Op(w,cx,floor+3,z,Material.HOPPER));
+            queue.add(new Op(w,cx,floor+4,z,Material.CHEST));
+            queue.add(new Op(w,cx-1,floor+2,z,Material.HOPPER,(byte)5));
+            queue.add(new Op(w,cx-1,floor+3,z,Material.CHEST));
+            queue.add(new Op(w,cx,floor+1,z,Material.HOPPER,(byte)5));
+            queue.add(new Op(w,cx+1,floor+1,z,Material.CHEST));
+            queue.add(new Op(w,cx+2,floor+1,z,p.undergroundTrim));
+            queue.add(new Op(w,cx+2,floor+2,z,Material.SIGN_POST,(byte)8,labels[i]));
+        }
+
+        // Visible compact redstone/control spine.
+        for(int z=cz-halfZ+1;z<=cz+halfZ-1;z+=2) {
+            queue.add(new Op(w,cx-4,floor+1,z,p.undergroundTrim));
+            queue.add(new Op(w,cx-4,floor+2,z,Material.REDSTONE_TORCH_ON));
+        }
+        queue.add(new Op(w,cx-4,floor+1,cz-halfZ+1,Material.LEVER));
+    }
+
+    private void buildFactionPortal(World w,HcfBasePlan p,String type) {
+        int[] a=p.anchor("nether".equals(type)?"portal-nether":"portal-end");
+        int x=a[0],y=a[1],z=a[2];
+
+        if("nether".equals(type)) {
+            // Compact wall-integrated 4x5 frame, matching the utility-first HCF look.
+            for(int dx=-1;dx<=2;dx++) for(int dy=0;dy<=4;dy++) {
+                boolean edge=dx==-1||dx==2||dy==0||dy==4;
+                queue.add(new Op(w,x+dx,y+dy,z,edge?Material.OBSIDIAN:Material.PORTAL));
+            }
+            return;
+        }
+
+        // Server-authoritative End portal tool: expensive to unlock, compact in
+        // the underground utility wing, and routed by HcfPortalDirector.
+        for(int dx=-2;dx<=2;dx++) for(int dz=-2;dz<=2;dz++) {
+            boolean frame=Math.abs(dx)==2||Math.abs(dz)==2;
+            if(frame && !(Math.abs(dx)==2&&Math.abs(dz)==2))
+                queue.add(new Op(w,x+dx,y,z+dz,Material.ENDER_PORTAL_FRAME));
+            else if(Math.abs(dx)<=1 && Math.abs(dz)<=1)
+                queue.add(new Op(w,x+dx,y,z+dz,Material.ENDER_PORTAL));
+        }
     }
 
     private void buildGlassBox(World w, int cx, int y, int cz, boolean brewerWing) {

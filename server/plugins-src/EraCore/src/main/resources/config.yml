@@ -169,8 +169,6 @@ sim-chat:
     - 'who just died at spawn'
     - 'selling 2 dubs of cane'
     - 'buying tnt'
-    - 'need fire res'
-    - 'who has a grinder'
     - 'inv me'
     - 'bruh'
     - 'that combo'
@@ -250,6 +248,8 @@ terrain:
 
 base-builder:
   blocks-per-tick: 120
+  visible-blocks-per-tick: 16
+  rebuild-blocks-per-tick: 600
   interval-ticks: 2
   gate-auto-close-ticks: 30
   repair-existing-on-start: true
@@ -326,11 +326,14 @@ spawn-build-protection:
   radius: 82
   corner-pad: 10
 
+travel:
+  # /spawn and /warp are HCF escape-sensitive commands, never instant.
+  warmup-seconds: 10
+
 stuck:
   cooldown-seconds: 60
 
-# Experimental three-runtime actor layer. Keep production materialization off
-# until /simactor probe <logical-online faction player> reports PASS locally.
+# Experimental three-runtime actor layer.
 actors:
   fake-player:
     enabled: false
@@ -339,8 +342,6 @@ actors:
     max-bodies: 8
     default-ping: 55
 
-# Deterministic bounded memory. Maintenance is local code only; no recurring
-# LLM summarization is required to age/dedupe/compact actor context.
 memory:
   relationship-max: 32
   history-max-events: 2500

@@ -33,7 +33,7 @@ commands:
     usage: /duel <player|accept|decline|stats>
   f:
     aliases: [faction, factions]
-    usage: /f <create|invite|join|leave|kick|disband|claim|unclaim|sethome|home|show|who|list|c>
+    usage: /f <create|invite|join|leave|kick|disband|claim|unclaim|map|sethome|home|show|who|list|c>
   simprobe:
     usage: /simprobe
   simmap:
@@ -64,11 +64,11 @@ commands:
   simchat:
     usage: /simchat <on|off|status|pulse>
   sotw:
-    usage: /sotw <status|reset|end>
+    usage: /sotw <status|reset [confirm|soft]|end>
   simworker:
-    usage: /simworker <sync|deposit|stash|crateprep|status>
+    usage: /simworker <sync|deposit|stash|crateprep|gearup|kitcycle|status>
   simcombat:
-    usage: /simcombat <sync|release|status>
+    usage: /simcombat <sync|release|loot|status|director>
   safezone:
     usage: /safezone <info|set [radius]|build>
   teamfight:
@@ -89,6 +89,25 @@ commands:
   baserebuild:
     description: Force rebuild generated faction bases
     usage: /baserebuild <all|nearest|faction|status>
+  mapinfo:
+    description: Show HCF map routes, landmarks, resources and protected zones
+    usage: /mapinfo <nearest|routes|resources|zones>
+  events:
+    description: Show active HCF event status
+    usage: /events
+  koth:
+    description: HCF KOTH locations and capture status
+    usage: /koth <list|nearest|status|start <id>|stop>
+  conquest:
+    description: HCF Conquest status and controls
+    usage: /conquest <status|start|stop>
+  oremountain:
+    aliases: [ore]
+    description: Travel to the protected regenerating Ore Mountain
+    usage: /oremountain
+  mapcompose:
+    description: Owner production-map schematic compositor controls
+    usage: /mapcompose <status|start>
 permissions:
   eracore.owner:
     default: op

@@ -4,8 +4,11 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$validatedCommit = 'e40cad1bcc008a5b8afd796d5a157caf1d7e9fd3'
+$validatedCommit = 'b5abb553bbbf161c02d7a5cf1b0e7afba413ddc7'
 $base = "https://raw.githubusercontent.com/josiahalora-beep/Minecraft-PVP/$validatedCommit"
+
+Write-Host 'IMPORTANT: stop the Minecraft server and all worker/coordinator processes before running this updater.' -ForegroundColor Yellow
+Write-Host "Pinned source: $validatedCommit" -ForegroundColor DarkGray
 
 $required = @(
   (Join-Path $root 'server\spigot-1.8.8.jar'),
@@ -17,36 +20,29 @@ foreach ($p in $required) {
   if (!(Test-Path $p)) { throw "Missing required Phase-0 file: $p" }
 }
 
-Write-Host 'IMPORTANT: stop the Minecraft server and worker pool before running this updater.' -ForegroundColor Yellow
-
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $backup = Join-Path $root "community-intelligence-backup-$stamp"
 New-Item -ItemType Directory -Force -Path $backup | Out-Null
 
-Write-Host "Validated source commit: $validatedCommit" -ForegroundColor DarkGray
-Write-Host "Creating safety backup..." -ForegroundColor Cyan
-
-$stateItems = @(
+$backupItems = @(
   'server\plugins\EraCore',
   'server\plugins\EraCore.jar',
+  'server\plugins-src\EraCore',
   'server\world',
   'server\world_nether',
   'server\world_the_end',
-  'server\plugins-src\EraCore',
   'bots\src',
   'bots\package.json',
-  'server\build-plugin.ps1',
-  'server\server.properties',
   'Start-HCF-ControlPlane.ps1',
   'Start-HCF-LocalWorker.ps1'
 )
 
-foreach ($relative in $stateItems) {
+Write-Host "Creating safety backup: $backup" -ForegroundColor Cyan
+foreach ($relative in $backupItems) {
   $src = Join-Path $root $relative
   if (!(Test-Path $src)) { continue }
   $dest = Join-Path $backup $relative
-  $parent = Split-Path $dest -Parent
-  New-Item -ItemType Directory -Force -Path $parent | Out-Null
+  New-Item -ItemType Directory -Force -Path (Split-Path $dest -Parent) | Out-Null
   Copy-Item $src $dest -Recurse -Force
 }
 
@@ -55,12 +51,13 @@ $files = @(
   'bots/src/combat-profiles.js',
   'bots/src/common.js',
   'bots/src/community-ai.js',
+  'bots/src/distributed-smoke-test.js',
   'bots/src/duel-bot.js',
   'bots/src/idle-benchmark.js',
   'bots/src/state-handoff.js',
   'bots/src/team-combat.js',
-  'bots/src/worker-pool.js',
   'bots/src/worker-coordinator.js',
+  'bots/src/worker-pool.js',
   'bots/start-worker-linux.sh',
   'bots/setup-linux-worker.sh',
   'Start-HCF-ControlPlane.ps1',
@@ -74,13 +71,13 @@ $files = @(
   'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfAutoBrewerDirector.java',
   'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfBaseBuilder.java',
   'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfBasePlan.java',
-  'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfElevatorDirector.java',
-  'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfPortalDirector.java',
-  'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfTravelDirector.java',
-  'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfInfrastructureDirector.java',
-  'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfGateDirector.java',
-  'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfTerrainDirector.java',
   'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfClassDirector.java',
+  'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfElevatorDirector.java',
+  'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfGateDirector.java',
+  'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfInfrastructureDirector.java',
+  'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfPortalDirector.java',
+  'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfTerrainDirector.java',
+  'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfTravelDirector.java',
   'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfZoneDisplayDirector.java',
   'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/LogicalTabListDirector.java',
   'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/SimChatDirector.java',
@@ -93,144 +90,26 @@ $files = @(
   'server/plugins-src/EraCore/src/main/resources/plugin.yml'
 )
 
-Write-Host "Downloading coordinated source set..." -ForegroundColor Cyan
+Write-Host 'Downloading coordinated HCF source set...' -ForegroundColor Cyan
 foreach ($remote in $files) {
-  $local = $remote -replace '/', '\'
-  $dest = Join-Path $root $local
-  $dir = Split-Path $dest -Parent
-  New-Item -ItemType Directory -Force -Path $dir | Out-Null
+  $dest = Join-Path $root ($remote -replace '/', '\')
+  New-Item -ItemType Directory -Force -Path (Split-Path $dest -Parent) | Out-Null
   $tmp = "$dest.download"
   Invoke-WebRequest -UseBasicParsing "$base/$remote" -OutFile $tmp
   Move-Item $tmp $dest -Force
 }
 
-# Base Intelligence v1 changes physical base geometry even when the world is preserved.
-# Reset only the structural repair marker; keep simulation/economy/rank/social state.
-$simulation = Join-Path (Join-Path $root 'server\plugins\EraCore') 'simulation.yml'
-if (Test-Path $simulation) {
-  $sourceLines = @(Get-Content $simulation)
+function Reset-BaseRepairMarker {
+  param([string]$SimulationPath)
+  if (!(Test-Path $SimulationPath)) { return }
+
+  $sourceLines = @(Get-Content $SimulationPath)
   $outputLines = New-Object System.Collections.Generic.List[string]
   $versionFound = $false
   $metaSeen = $false
 
   foreach ($line in $sourceLines) {
-    if ($line -match '^\s*terrain-repair-version:\s*\d+\s*
-  # Keep simulation/ranks/economy/faction history. Replace only physical worlds
-  # and generated-map state so the saved factions rematerialize from templates.
-  foreach ($worldName in @('world','world_nether','world_the_end')) {
-    $worldPath = Join-Path $root "server\$worldName"
-    if (Test-Path $worldPath) {
-      Remove-Item $worldPath -Recurse -Force
-    }
-  }
-
-  $runtime = Join-Path $root 'server\plugins\EraCore'
-  foreach ($relative in @('infrastructure.yml','warps.yml','config.yml')) {
-    $p = Join-Path $runtime $relative
-    if (Test-Path $p) { Remove-Item $p -Force }
-  }
-
-  # Force SimWorldDirector's structural migration to rebuild every saved base,
-  # storage vault, brewer and claim footprint onto the regenerated terrain.
-  $simulation = Join-Path $runtime 'simulation.yml'
-  if (Test-Path $simulation) {
-    $sourceLines = @(Get-Content $simulation)
-    $outputLines = New-Object System.Collections.Generic.List[string]
-    $versionFound = $false
-    $metaSeen = $false
-
-    foreach ($line in $sourceLines) {
-      if ($line -match '^\s*terrain-repair-version:\s*\d+\s*$') {
-        $indent = ([regex]::Match($line,'^\s*')).Value
-        $outputLines.Add($indent + 'terrain-repair-version: 0')
-        $versionFound = $true
-        continue
-      }
-
-      $outputLines.Add($line)
-      if (!$metaSeen -and $line.Trim() -eq 'meta:') {
-        $metaSeen = $true
-        if (!$versionFound) {
-          $outputLines.Add('  terrain-repair-version: 0')
-          $versionFound = $true
-        }
-      }
-    }
-
-    if (!$versionFound) {
-      $outputLines.Add('meta:')
-      $outputLines.Add('  terrain-repair-version: 0')
-    }
-
-    Set-Content -Path $simulation -Value $outputLines -Encoding UTF8
-  }
-
-  Write-Host "Legacy physical worlds removed. Backup: $backup" -ForegroundColor Green
-  Write-Host "Saved simulation/factions will rebuild on clean low-relief terrain at next start." -ForegroundColor Green
-}
-
-Write-Host "Installing Mineflayer world-intelligence dependencies..." -ForegroundColor Cyan
-Push-Location (Join-Path $root 'bots')
-try {
-  npm install --no-audit --no-fund
-  if ($LASTEXITCODE -ne 0) { throw 'npm install failed.' }
-} finally {
-  Pop-Location
-}
-
-Write-Host "Validating bot JavaScript..." -ForegroundColor Cyan
-Push-Location (Join-Path $root 'bots')
-try {
-  Get-ChildItem .\src\*.js | ForEach-Object {
-    node --check $_.FullName
-    if ($LASTEXITCODE -ne 0) { throw "JavaScript syntax check failed: $($_.Name)" }
-  }
-} finally {
-  Pop-Location
-}
-
-$javaHome = ([System.IO.File]::ReadAllText((Join-Path $root 'server\java8-home.txt'))).Trim()
-$spigot = Join-Path $root 'server\spigot-1.8.8.jar'
-
-Write-Host "Rebuilding EraCore with Java 8..." -ForegroundColor Cyan
-& (Join-Path $root 'server\build-plugin.ps1') -SpigotJar $spigot -JavaHome $javaHome
-if ($LASTEXITCODE -ne 0) { throw 'EraCore rebuild failed.' }
-
-Write-Host ''
-Write-Host 'HCF world/base/AI update installed (Base Intelligence v1).' -ForegroundColor Green
-Write-Host "Backup: $backup" -ForegroundColor DarkGray
-Write-Host ''
-if ($ResetWorld) {
-  Write-Host 'Physical worlds will regenerate; simulation/rank/economy/faction state was preserved.' -ForegroundColor Green
-} else {
-  Write-Host 'Live worlds were preserved. Existing bases will receive the v8 Base Intelligence structural migration.' -ForegroundColor Green
-  Write-Host 'Use -ResetWorld for the cleanest terrain/floating-block correction.' -ForegroundColor DarkYellow
-}
-Write-Host 'Restart the server first, then restart the worker pool.' -ForegroundColor Yellow
-Write-Host 'Recommended checks:' -ForegroundColor Yellow
-Write-Host '  /f show <faction>'
-Write-Host '  /keys'
-Write-Host '  /crates vote'
-Write-Host '  /crates donor'
-Write-Host '  /warp duels'
-Write-Host '  /simprobe'
-Write-Host '  /teamfight test 3'
-Write-Host ''
-Write-Host 'For performance calibration, run /teamfight test 3 first, then 4, then 5.' -ForegroundColor Yellow
-Write-Host ''
-Write-Host 'Kraken spawn setup after pasting the schematic:' -ForegroundColor Cyan
-Write-Host '  1. Stand at the exact spawn center facing the main road: /spawnpreset kraken center'
-Write-Host '  2. Stand at the desired road PvP point if you want to override auto placement: /spawnpreset kraken mark pvp'
-Write-Host '  3. Stand inside the real rooms: /spawnpreset kraken mark shop  and  /spawnpreset kraken mark enchant'
-Write-Host '  4. Look at each physical crate block: /spawnpreset kraken mark votecrate  and  /spawnpreset kraken mark donorcrate'
-Write-Host '  5. Verify everything: /spawnpreset kraken status'
-Write-Host '  Director debug: /simcombat director'
-Write-Host ''
-Write-Host 'Distributed workers:' -ForegroundColor Cyan
-Write-Host '  Home control plane: .\Start-HCF-ControlPlane.ps1 -CoordinatorToken <TOKEN>'
-Write-Host '  Local worker:      .\Start-HCF-LocalWorker.ps1 -CoordinatorToken <TOKEN> -Bodies 10'
-Write-Host '  Oracle workers use bots/start-worker-linux.sh with the same coordinator token.'
-) {
+    if ($line -match '^\s*terrain-repair-version:\s*\d+\s*$') {
       $indent = ([regex]::Match($line,'^\s*')).Value
       $outputLines.Add($indent + 'terrain-repair-version: 0')
       $versionFound = $true
@@ -251,79 +130,29 @@ Write-Host '  Oracle workers use bots/start-worker-linux.sh with the same coordi
     $outputLines.Add('meta:')
     $outputLines.Add('  terrain-repair-version: 0')
   }
-
-  Set-Content -Path $simulation -Value $outputLines -Encoding UTF8
+  Set-Content -Path $SimulationPath -Value $outputLines -Encoding UTF8
 }
 
-if ($ResetWorld) {
-  Write-Host "ResetWorld requested: replacing legacy physical worlds after backup..." -ForegroundColor Yellow
+$runtime = Join-Path $root 'server\plugins\EraCore'
+Reset-BaseRepairMarker -SimulationPath (Join-Path $runtime 'simulation.yml')
 
-  # Keep simulation/ranks/economy/faction history. Replace only physical worlds
-  # and generated-map state so the saved factions rematerialize from templates.
+if ($ResetWorld) {
+  Write-Host 'ResetWorld selected: replacing physical worlds after backup.' -ForegroundColor Yellow
   foreach ($worldName in @('world','world_nether','world_the_end')) {
     $worldPath = Join-Path $root "server\$worldName"
-    if (Test-Path $worldPath) {
-      Remove-Item $worldPath -Recurse -Force
-    }
+    if (Test-Path $worldPath) { Remove-Item $worldPath -Recurse -Force }
   }
-
-  $runtime = Join-Path $root 'server\plugins\EraCore'
   foreach ($relative in @('infrastructure.yml','warps.yml','config.yml')) {
     $p = Join-Path $runtime $relative
     if (Test-Path $p) { Remove-Item $p -Force }
   }
-
-  # Force SimWorldDirector's structural migration to rebuild every saved base,
-  # storage vault, brewer and claim footprint onto the regenerated terrain.
-  $simulation = Join-Path $runtime 'simulation.yml'
-  if (Test-Path $simulation) {
-    $sourceLines = @(Get-Content $simulation)
-    $outputLines = New-Object System.Collections.Generic.List[string]
-    $versionFound = $false
-    $metaSeen = $false
-
-    foreach ($line in $sourceLines) {
-      if ($line -match '^\s*terrain-repair-version:\s*\d+\s*$') {
-        $indent = ([regex]::Match($line,'^\s*')).Value
-        $outputLines.Add($indent + 'terrain-repair-version: 0')
-        $versionFound = $true
-        continue
-      }
-
-      $outputLines.Add($line)
-      if (!$metaSeen -and $line.Trim() -eq 'meta:') {
-        $metaSeen = $true
-        if (!$versionFound) {
-          $outputLines.Add('  terrain-repair-version: 0')
-          $versionFound = $true
-        }
-      }
-    }
-
-    if (!$versionFound) {
-      $outputLines.Add('meta:')
-      $outputLines.Add('  terrain-repair-version: 0')
-    }
-
-    Set-Content -Path $simulation -Value $outputLines -Encoding UTF8
-  }
-
-  Write-Host "Legacy physical worlds removed. Backup: $backup" -ForegroundColor Green
-  Write-Host "Saved simulation/factions will rebuild on clean low-relief terrain at next start." -ForegroundColor Green
 }
 
-Write-Host "Installing Mineflayer world-intelligence dependencies..." -ForegroundColor Cyan
+Write-Host 'Installing/validating Mineflayer dependencies...' -ForegroundColor Cyan
 Push-Location (Join-Path $root 'bots')
 try {
   npm install --no-audit --no-fund
   if ($LASTEXITCODE -ne 0) { throw 'npm install failed.' }
-} finally {
-  Pop-Location
-}
-
-Write-Host "Validating bot JavaScript..." -ForegroundColor Cyan
-Push-Location (Join-Path $root 'bots')
-try {
   Get-ChildItem .\src\*.js | ForEach-Object {
     node --check $_.FullName
     if ($LASTEXITCODE -ne 0) { throw "JavaScript syntax check failed: $($_.Name)" }
@@ -335,41 +164,30 @@ try {
 $javaHome = ([System.IO.File]::ReadAllText((Join-Path $root 'server\java8-home.txt'))).Trim()
 $spigot = Join-Path $root 'server\spigot-1.8.8.jar'
 
-Write-Host "Rebuilding EraCore with Java 8..." -ForegroundColor Cyan
+Write-Host 'Rebuilding EraCore with Java 8...' -ForegroundColor Cyan
 & (Join-Path $root 'server\build-plugin.ps1') -SpigotJar $spigot -JavaHome $javaHome
 if ($LASTEXITCODE -ne 0) { throw 'EraCore rebuild failed.' }
 
 Write-Host ''
-Write-Host 'HCF world/base/AI update installed.' -ForegroundColor Green
+Write-Host 'HCF community intelligence + Base Intelligence v1 installed.' -ForegroundColor Green
 Write-Host "Backup: $backup" -ForegroundColor DarkGray
-Write-Host ''
+Write-Host "Pinned source: $validatedCommit" -ForegroundColor DarkGray
 if ($ResetWorld) {
-  Write-Host 'Physical worlds will regenerate; simulation/rank/economy/faction state was preserved.' -ForegroundColor Green
+  Write-Host 'Physical worlds will regenerate; simulation/rank/economy/faction/social state was preserved.' -ForegroundColor Green
 } else {
-  Write-Host 'Live worlds were preserved. Existing bases will receive the v6 structural migration.' -ForegroundColor Green
-  Write-Host 'Use -ResetWorld for the cleanest terrain/floating-block correction.' -ForegroundColor DarkYellow
+  Write-Host 'Worlds were preserved and the v8 physical-base migration was forced.' -ForegroundColor Green
+  Write-Host 'Use -ResetWorld if legacy detached structures remain around old faction bases.' -ForegroundColor DarkYellow
 }
-Write-Host 'Restart the server first, then restart the worker pool.' -ForegroundColor Yellow
-Write-Host 'Recommended checks:' -ForegroundColor Yellow
-Write-Host '  /f show <faction>'
-Write-Host '  /keys'
-Write-Host '  /crates vote'
-Write-Host '  /crates donor'
-Write-Host '  /warp duels'
+
+Write-Host ''
+Write-Host 'Restart order:' -ForegroundColor Yellow
+Write-Host '  1. Minecraft server'
+Write-Host '  2. Home coordinator/control plane'
+Write-Host '  3. Local and Oracle workers'
+Write-Host ''
+Write-Host 'Checks:' -ForegroundColor Yellow
+Write-Host '  /sotw status'
 Write-Host '  /simprobe'
-Write-Host '  /teamfight test 3'
-Write-Host ''
-Write-Host 'For performance calibration, run /teamfight test 3 first, then 4, then 5.' -ForegroundColor Yellow
-Write-Host ''
-Write-Host 'Kraken spawn setup after pasting the schematic:' -ForegroundColor Cyan
-Write-Host '  1. Stand at the exact spawn center facing the main road: /spawnpreset kraken center'
-Write-Host '  2. Stand at the desired road PvP point if you want to override auto placement: /spawnpreset kraken mark pvp'
-Write-Host '  3. Stand inside the real rooms: /spawnpreset kraken mark shop  and  /spawnpreset kraken mark enchant'
-Write-Host '  4. Look at each physical crate block: /spawnpreset kraken mark votecrate  and  /spawnpreset kraken mark donorcrate'
-Write-Host '  5. Verify everything: /spawnpreset kraken status'
-Write-Host '  Director debug: /simcombat director'
-Write-Host ''
-Write-Host 'Distributed workers:' -ForegroundColor Cyan
-Write-Host '  Home control plane: .\Start-HCF-ControlPlane.ps1 -CoordinatorToken <TOKEN>'
-Write-Host '  Local worker:      .\Start-HCF-LocalWorker.ps1 -CoordinatorToken <TOKEN> -Bodies 10'
-Write-Host '  Oracle workers use bots/start-worker-linux.sh with the same coordinator token.'
+Write-Host '  /f show <faction>'
+Write-Host '  /baserate 1-5 [faction]'
+Write-Host '  /warps'

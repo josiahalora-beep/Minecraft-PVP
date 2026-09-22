@@ -459,7 +459,8 @@ function dimensionZone(bot) {
 function nearAssignedHome(state, radius=55) {
   const bot=state.bot
   if(!bot?.entity || dimensionZone(bot)!=='spawn') return false
-  const x=Number(state.job?.x), z=Number(state.job?.z)
+  const x=Number(state.job?.homeX ?? state.job?.x)
+  const z=Number(state.job?.homeZ ?? state.job?.z)
   if(!Number.isFinite(x) || !Number.isFinite(z)) return true
   const dx=bot.entity.position.x-x, dz=bot.entity.position.z-z
   return dx*dx+dz*dz <= radius*radius
@@ -590,7 +591,7 @@ async function finishCrateRun(state, force = false) {
 }
 
 function mapGoalPoint(state) {
-  const g=state?.job?.mapGoal?.destination
+  const g=state?.mapGoal?.destination
   if(!g || !Number.isFinite(Number(g.x)) || !Number.isFinite(Number(g.z))) return null
   return {x:Number(g.x), y:Number(g.y || 64), z:Number(g.z)}
 }
@@ -603,8 +604,188 @@ function currentMapContext(state) {
   return {
     region:regionForPoint(world,p.x,p.z),
     nearest:nearestLandmark(world,p.x,p.z),
-    goal:state?.job?.mapGoal || null
+    goal:state?.mapGoal || null
   }
+}
+
+function warzoneIntentAction(action) {
+  return ['patrol','scout','solo','solo_loot','event','koth','conquest'].includes(String(action||'').toLowerCase())
+}
+
+function standableAt(bot,x,y,z) {
+  if(!bot?.entity) return false
+  try {
+    const base=bot.entity.position.floored()
+    const at=(yy)=>bot.blockAt(base.offset(Math.floor(x)-base.x,Math.floor(yy)-base.y,Math.floor(z)-base.z))
+    const floor=at(y-1), feet=at(y), head=at(y+1)
+    if(!floor || blockIsOpen(floor) || waterBlock(floor)) return false
+    if(!feet || !head || !blockIsOpen(feet) || !blockIsOpen(head)) return false
+    if(waterBlock(feet) || waterBlock(head)) return false
+    return true
+  } catch {
+    return false
+  }
+}
+
+function safeCurrentFooting(bot) {
+  if(!bot?.entity) return false
+  const p=bot.entity.position
+  return standableAt(bot,Math.floor(p.x),Math.floor(p.y),Math.floor(p.z))
+}
+
+function safeForwardStep(state,distance=1.15) {
+  const bot=state.bot
+  if(!bot?.entity || Date.now()<(state.intentionalDropUntil||0)) return true
+  const yaw=Number(bot.entity.yaw||0)
+  const x=Math.floor(bot.entity.position.x-Math.sin(yaw)*distance)
+  const z=Math.floor(bot.entity.position.z-Math.cos(yaw)*distance)
+  const y=Math.floor(bot.entity.position.y)
+  return standableAt(bot,x,y,z) || standableAt(bot,x,y+1,z) || standableAt(bot,x,y-1,z)
+}
+
+function nearbySafeStand(state,radius=7,maxRise=6) {
+  const bot=state.bot
+  if(!bot?.entity) return null
+  const p=bot.entity.position
+  const bx=Math.floor(p.x),by=Math.floor(p.y),bz=Math.floor(p.z)
+  let best=null,bestScore=Infinity
+  for(let r=1;r<=radius;r++) {
+    for(let dx=-r;dx<=r;dx++) {
+      for(let dz=-r;dz<=r;dz++) {
+        if(Math.abs(dx)!==r && Math.abs(dz)!==r) continue
+        for(let dy=maxRise;dy>=-1;dy--) {
+          const y=by+dy
+          if(!standableAt(bot,bx+dx,y,bz+dz)) continue
+          const score=Math.abs(dx)+Math.abs(dz)+Math.max(0,dy)*0.35
+          if(score<bestScore) {
+            best={x:bx+dx+0.5,y,z:bz+dz+0.5}
+            bestScore=score
+          }
+          break
+        }
+      }
+    }
+    if(best) return best
+  }
+  return best
+}
+
+async function enforceCombatReadiness(state,action) {
+  const bot=state.bot
+  if(!bot?.entity || state.combat || !warzoneIntentAction(action)) return true
+  const cls=state.job?.class || 'DIAMOND'
+  if(roleArmorComplete(bot,cls)) return true
+
+  await equipBestArmor(state)
+  await equipBestWeapon(state)
+  if(roleArmorComplete(bot,cls)) return true
+
+  const faction=String(state.job?.faction || state.faction || 'none')
+  const now=Date.now()
+  stopMovement(bot)
+
+  // A real HCF player who is missing a set does not wander naked into warzone.
+  // He goes home, opens the armory/claims an available kit, and keeps progressing.
+  if(faction!=='none') {
+    if(!nearAssignedHome(state,62) && !commandTagged(state) &&
+       now-(state.lastTeleportAttempt||0)>4500) {
+      state.lastTeleportAttempt=now
+      await tryCommand(state,'/f home',900)
+      return false
+    }
+    if(nearAssignedHome(state,62) && now-(state.lastGearRequestAt||0)>1800) {
+      state.lastGearRequestAt=now
+      await queueBotCommand(state,'/simworker gearup',BOT_COMMAND_GAP_MS,80)
+      await sleep(180)
+      await equipBestArmor(state)
+      await equipBestWeapon(state)
+    }
+  } else if(!commandTagged(state) && now-(state.lastTeleportAttempt||0)>7000) {
+    state.lastTeleportAttempt=now
+    await tryCommand(state,'/spawn',900)
+  }
+  return roleArmorComplete(bot,cls)
+}
+
+function deterministicPhase(name,mod) {
+  let h=0
+  for(const c of String(name||'')) h=(h*31+c.charCodeAt(0))>>>0
+  return mod>0?h%mod:0
+}
+
+function basePurposeWaypoint(state,action) {
+  const j=state.job||{}
+  const hx=Number(j.homeX),hy=Number(j.homeY),hz=Number(j.homeZ)
+  if(![hx,hy,hz].every(Number.isFinite)) return null
+  const phase=(Math.floor(Date.now()/9000)+deterministicPhase(state.name,8))%8
+  const job=String(j.job||j.preferredJob||'').toLowerCase()
+
+  // Builders inspect the shell/gates, leaders make a wider perimeter round,
+  // farmers/brewers/miners move toward their real stations. Other members cycle
+  // a small courtyard route so spectating shows intent instead of jitter.
+  const isLeader=String(j.leader||'').toLowerCase()===String(state.name||'').toLowerCase()
+  const radius=isLeader?11:(job==='builder'?9:6)
+  const ring=[
+    [0,-radius],[radius,-radius],[radius,0],[radius,radius],
+    [0,radius],[-radius,radius],[-radius,0],[-radius,-radius]
+  ]
+  const off=ring[phase]
+  return {x:hx+off[0],y:hy,z:hz+off[1]}
+}
+
+function spawnPurposeWaypoint(state) {
+  const phase=(Math.floor(Date.now()/11000)+deterministicPhase(state.name,8))%8
+  const ring=[
+    [0,-72],[50,-50],[72,0],[50,50],
+    [0,72],[-50,50],[-72,0],[-50,-50]
+  ]
+  const off=ring[phase]
+  return {x:off[0],y:64,z:off[1]}
+}
+
+async function purposefulPassiveMotion(state,action) {
+  const bot=state.bot
+  if(!bot?.entity || state.combat) return false
+
+  const now=Date.now()
+  // A small minority of sessions genuinely AFK. AFK players do not twitch every
+  // second; they occasionally look around and then resume normal activity.
+  if(now<(state.afkUntil||0)) {
+    stopMovement(bot)
+    if(now-(state.lastAfkLookAt||0)>7000) {
+      state.lastAfkLookAt=now
+      try { await bot.look(bot.entity.yaw+rand(-0.20,0.20),rand(-0.08,0.10),false) } catch {}
+    }
+    return true
+  }
+  if(!state.afkUntil && Math.random()<0.018) {
+    state.afkUntil=now+Math.round(rand(12000,38000))
+    stopMovement(bot)
+    return true
+  }
+  if(state.afkUntil && now>=state.afkUntil) state.afkUntil=0
+
+  let target=null
+  const faction=String(state.job?.faction || state.faction || 'none')
+  if(faction!=='none' && nearAssignedHome(state,80)) target=basePurposeWaypoint(state,action)
+  else if(dimensionZone(bot)==='spawn' && ['idle','recruit','social','safe'].includes(String(action)))
+    target=spawnPurposeWaypoint(state)
+
+  if(!target) return false
+  const dx=bot.entity.position.x-target.x,dz=bot.entity.position.z-target.z
+  if(dx*dx+dz*dz>4*4) {
+    const y=Math.max(3,Number(target.y)||Math.floor(bot.entity.position.y))
+    const ok=await smartGoto(state,target.x,y,target.z,3,3200,false)
+    if(ok) return true
+  }
+
+  stopMovement(bot)
+  const nearby=nearestRoamStranger(state,18)
+  try {
+    if(nearby) await bot.lookAt(nearby.position.offset(0,1.3,0),false)
+    else await bot.look(bot.entity.yaw+rand(-0.32,0.32),rand(-0.08,0.12),false)
+  } catch {}
+  return true
 }
 
 async function commandBrain(state) {
@@ -623,21 +804,9 @@ async function commandBrain(state) {
     return
   }
 
-  const visibleFightJob=['patrol','solo','solo_loot','scout'].includes(String(action))
-  if(visibleFightJob && !roleArmorComplete(bot,state.job?.class || 'DIAMOND') && !tagged) {
-    // Do not send visually incomplete fighters into the warzone. First regroup at
-    // home, equip carried donor/starter gear, then pull any missing pieces from
-    // the armory. Donor/starter claim logic below can still run on the same pass.
-    if(faction!=='none' && !nearAssignedHome(state) && now-(state.lastTeleportAttempt || 0)>12000) {
-      state.lastTeleportAttempt=now
-      await tryCommand(state,'/f home',900)
-      return
-    }
-    if(faction!=='none' && nearAssignedHome(state) &&
-       now-(state.lastGearRequestAt || 0)>2200) {
-      state.lastGearRequestAt=now
-      await queueBotCommand(state,'/simworker gearup',BOT_COMMAND_GAP_MS,40)
-    }
+  if(warzoneIntentAction(action) && !tagged) {
+    const ready=await enforceCombatReadiness(state,action)
+    if(!ready) return
   }
 
   // Use shared faction storage as a real armory. Members near home periodically
@@ -770,7 +939,7 @@ async function commandBrain(state) {
   // Map-aware HCF travel.  Leases carry a deterministic mapGoal so leaders,
   // builders, miners, creators and prestige players understand the same map as
   // the server.  Commands are rate-limited and never used as combat escapes.
-  const mapGoal=state.job?.mapGoal
+  const mapGoal=state.mapGoal
   if(mapGoal && !tagged && now-(state.lastMapGoalCommandAt || 0)>60000) {
     const kind=String(mapGoal.kind || '')
     const command=String(mapGoal.command || '')
@@ -1416,30 +1585,62 @@ function recordMovementProgress(state) {
     state.lastProgressPos={x:p.x,y:p.y,z:p.z}
     state.lastMovedAt=Date.now()
   }
+  if(safeCurrentFooting(bot)) {
+    state.lastSafePos={x:p.x,y:p.y,z:p.z,at:Date.now()}
+  }
 }
 
 async function recoverIfStalled(state, action) {
   const bot=state.bot
   if(!bot?.entity || state.combat) return false
   recordMovementProgress(state)
-  const mobile=['patrol','scout','mine','gather','supply','farm','build','crate','solo','solo_loot','solo_build'].includes(action)
-  if(!mobile || Date.now()-(state.lastMovedAt || Date.now())<14000) return false
-  if(Date.now()-(state.lastStallRecoveryAt || 0)<6000) return true
+
+  const purposeful=String(action||'')!=='idle'
+  const unsafe=!safeCurrentFooting(bot) && !botInWater(bot) && Date.now()>=(state.intentionalDropUntil||0)
+  const stalled=purposeful && Date.now()-(state.lastMovedAt||Date.now())>=8000
+  if(!unsafe && !stalled) return false
+  if(Date.now()-(state.lastStallRecoveryAt||0)<1600) return true
   state.lastStallRecoveryAt=Date.now()
 
   try { bot.pathfinder?.stop() } catch {}
   stopMovement(bot)
+
+  // First choice: get back to the last verified two-block-high standing cell.
+  const safe=state.lastSafePos
+  if(safe && Date.now()-(safe.at||0)<30000) {
+    const d=Math.hypot(bot.entity.position.x-safe.x,bot.entity.position.z-safe.z)
+    if(d<=14) {
+      const ok=await rawGoto(state,safe.x,safe.y,safe.z,1,3000,false)
+      if(ok) {
+        state.lastMovedAt=Date.now()
+        return true
+      }
+    }
+  }
+
+  // Second choice: search locally for a standable column, preferring a small
+  // rise. This handles accidental 1x2/2x2 pits without random wall-running.
+  const escape=nearbySafeStand(state,8,7)
+  if(escape) {
+    const ok=await rawGoto(state,escape.x,escape.y,escape.z,1,4000,false)
+    if(ok) {
+      state.lastMovedAt=Date.now()
+      return true
+    }
+  }
+
+  // Last physical attempt: jump/back/strafe. Do not keep this loop forever.
   bot.setControlState('jump',true)
   bot.setControlState('back',true)
   if(Math.random()<0.5) bot.setControlState('left',true)
   else bot.setControlState('right',true)
-  await sleep(700)
+  await sleep(650)
   stopMovement(bot)
 
-  if(Date.now()-(state.lastMovedAt || 0)>28000 && !commandTagged(state) &&
-     Date.now()-(state.lastStuckCommandAt || 0)>65000) {
+  if(Date.now()-(state.lastMovedAt||0)>15000 && !commandTagged(state) &&
+     Date.now()-(state.lastStuckCommandAt||0)>22000) {
     state.lastStuckCommandAt=Date.now()
-    await queueBotCommand(state,'/stuck',BOT_COMMAND_GAP_MS,90)
+    await queueBotCommand(state,'/stuck',BOT_COMMAND_GAP_MS,100)
   }
   return true
 }
@@ -2041,7 +2242,13 @@ async function localMotion(state, action) {
       }
     }
 
-    if (moving && await avoidObviousFallTrap(state)) {
+    if (moving && (await avoidObviousFallTrap(state) || !safeForwardStep(state,1.2))) {
+      stopMovement(bot)
+      const escape=nearbySafeStand(state,5,3)
+      if(escape) await smartGoto(state,escape.x,escape.y,escape.z,1,2200,false)
+      else {
+        try { await bot.look(bot.entity.yaw+(Math.random()<0.5?-1:1)*1.25,0,false) } catch {}
+      }
       await sleep(Math.round(rand(180,340)))
       continue
     }
@@ -2175,14 +2382,14 @@ function startWorkLoop(state, settings) {
       if (passive) {
         bot.physicsEnabled = true
         const semanticWorked = await performPluginInteraction(state)
-        const worked = semanticWorked || await visibleStationWork(state, action)
-        if (!worked || Math.random() < 0.70) await localMotion(state, action)
+        const stationWorked = semanticWorked || await visibleStationWork(state, action)
+        const purposeful = stationWorked ? true : await purposefulPassiveMotion(state,action)
+        if(!purposeful) await localMotion(state,action)
 
-        // Even players waiting on gear/brewing don't freeze like NPCs.
-        if (Math.random() < 0.35) {
+        if (stationWorked && Math.random() < 0.25) {
           try { bot.swingArm('right') } catch {}
         }
-        await sleep(Math.round(rand(500, 1500)))
+        await sleep(Math.round(rand(550, 1450)))
         continue
       }
 
@@ -2290,8 +2497,13 @@ async function connectIdentity(candidate, settings) {
     lastWaterRecoveryAt: 0,
     lastStuckCommandAt: 0,
     lastProgressPos: null,
+    lastSafePos: null,
     lastMovedAt: Date.now(),
-    lastStallRecoveryAt: 0
+    lastStallRecoveryAt: 0,
+    mapGoal: candidate.mapGoal || null,
+    anchorReason: candidate.anchorReason || '',
+    afkUntil: 0,
+    lastAfkLookAt: 0
   }
   live.set(name, state)
 
@@ -2378,7 +2590,7 @@ async function connectIdentity(candidate, settings) {
     await waitForSpawn(bot, 20000)
     bot.settings.viewDistance = 'tiny'
     console.log(
-      name + ' HOT ' + (candidate.pinned ? 'YT' : 'worker') +
+      name + ' HOT ' + (candidate.pinned ? ('anchor:'+String(candidate.anchorReason||'priority')) : 'worker') +
       ' connected for ' + candidate.faction + ' (' + candidate.stage + ')'
     )
     await sleep(500)
@@ -2502,6 +2714,8 @@ async function reconcileDistributed() {
     state.faction=String(cand.faction||'none')
     state.stage=String(cand.stage||'')
     state.pinned=Boolean(cand.pinned)
+    state.mapGoal=cand.mapGoal || state.mapGoal || null
+    state.anchorReason=String(cand.anchorReason || state.anchorReason || '')
     state.missingCycles=0
     state.lastCandidateScore=Number(cand.score||state.lastCandidateScore||0)
 
@@ -2610,6 +2824,8 @@ async function reconcile() {
     state.faction = cand.faction
     state.stage = cand.stage
     state.pinned = cand.pinned
+    state.mapGoal = cand.mapGoal || state.mapGoal || null
+    state.anchorReason = String(cand.anchorReason || state.anchorReason || '')
     state.missingCycles = 0
     state.lastCandidateScore = cand.score || state.lastCandidateScore || 0
 

@@ -742,7 +742,7 @@ final class HcfBaseBuilder {
         int side=p.utilitySide;
         int joinX=p.cx+side*p.surfaceHalfX;
         int bz=p.cz+3+((p.seed/53)%5)-2;
-        return x==joinX && z==bz;
+        return x==joinX && Math.abs(z-bz)<=1;
     }
 
     private boolean surfaceInside(HcfBasePlan p,int x,int z) {
@@ -782,8 +782,9 @@ final class HcfBaseBuilder {
         }
         int joinX=p.cx+side*p.surfaceHalfX;
         for(int x=Math.min(joinX,bx);x<=Math.max(joinX,bx);x++)
-            for(int yy=p.surfaceY+1;yy<=p.surfaceY+3;yy++)
-                queue.add(new Op(w,x,yy,bz,Material.AIR));
+            for(int z=bz-1;z<=bz+1;z++)
+                for(int yy=p.surfaceY+1;yy<=p.surfaceY+3;yy++)
+                    queue.add(new Op(w,x,yy,z,Material.AIR));
     }
 
     private void bufferedGateZ(World w,int cx,int y,int wallZ,int inward,Material frame) {

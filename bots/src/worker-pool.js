@@ -843,10 +843,12 @@ function smartMovements(bot, canDig = false) {
   const moves = new Movements(bot)
   moves.canDig = Boolean(canDig)
   moves.allow1by1towers = false
-  // HCF terrain frequently contains deliberate fall traps. Normal roaming must
-  // prefer boring walkable routes; the known faction dropdown is handled as an
-  // explicit semantic action rather than generic parkour/pathfinder behavior.
+  // HCF terrain frequently contains deliberate fall traps. Normal pathfinding
+  // may only step down one block and may not treat water as an unlimited safe drop.
+  // The faction's known dropdown is handled explicitly outside the generic planner.
   moves.allowParkour = false
+  moves.maxDropDown = 1
+  moves.infiniteLiquidDropdownDistance = false
   return moves
 }
 
@@ -1034,7 +1036,7 @@ function obviousFallTrapAhead(state,maxDepth=8) {
 async function avoidObviousFallTrap(state) {
   const bot=state.bot
   const danger=obviousFallTrapAhead(state,10)
-  if(!danger || danger.waterLanding) return false
+  if(!danger) return false
 
   state.lastFallTrapAt=Date.now()
   state.lastFallTrapPos={x:danger.x,z:danger.z,depth:danger.depth}

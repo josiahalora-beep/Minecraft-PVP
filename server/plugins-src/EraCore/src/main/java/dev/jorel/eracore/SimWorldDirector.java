@@ -1733,6 +1733,52 @@ final class SimWorldDirector {
         catch(IOException e) { plugin.getLogger().warning("Could not save combat-hot.yml: "+e.getMessage()); }
     }
 
+    boolean hasIdentity(String name) {
+        return name!=null && players.containsKey(key(name));
+    }
+
+    String canonicalIdentity(String name) {
+        SimPlayer p=name==null?null:players.get(key(name));
+        return p==null?name:p.name;
+    }
+
+    boolean isLogicalOnlineIdentity(String name) {
+        SimPlayer p=name==null?null:players.get(key(name));
+        return p!=null && p.logicalOnline && p.bannedUntil<=System.currentTimeMillis();
+    }
+
+    String factionOfIdentity(String name) {
+        SimPlayer p=name==null?null:players.get(key(name));
+        return p==null || p.faction==null?"":p.faction;
+    }
+
+    Location logicalLocationFor(String name) {
+        SimPlayer p=name==null?null:players.get(key(name));
+        if(p==null || !p.logicalOnline) return null;
+        WorkerTask t=workerTaskFor(p.name);
+        World w=worldForActorZone(t.zone);
+        if(w==null) return null;
+
+        double x=t.x;
+        double z=t.z;
+        if(Math.abs(x)<0.001 && Math.abs(z)<0.001) {
+            Location spawn=w.getSpawnLocation();
+            x=spawn.getX();z=spawn.getZ();
+        }
+        double y=t.y;
+        if(y<=1 || y>=w.getMaxHeight()) y=Math.max(2,w.getHighestBlockYAt((int)Math.floor(x),(int)Math.floor(z))+1);
+        return new Location(w,x+0.5,y,z+0.5);
+    }
+
+    private World worldForActorZone(String zone) {
+        String z=zone==null?"":zone.toLowerCase(Locale.ENGLISH);
+        World.Environment wanted=
+            "nether".equals(z)?World.Environment.NETHER:
+            ("end".equals(z)?World.Environment.THE_END:World.Environment.NORMAL);
+        for(World w:Bukkit.getWorlds()) if(w.getEnvironment()==wanted) return w;
+        return Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
+    }
+
     WorkerTask workerTaskFor(String name) {
         SimPlayer p = players.get(key(name));
         WorkerTask t = new WorkerTask();

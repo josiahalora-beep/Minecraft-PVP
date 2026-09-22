@@ -855,20 +855,20 @@ final class HcfBaseBuilder {
 
     private void buildUndergroundBrewer(World w,HcfBasePlan p) {
         int[] a=p.anchor("brewer");
-        int cx=a[0],floor=p.undergroundY,cz=a[2];
+        int cx=a[0],floor=a[1],cz=a[2];
         int halfX=5,halfZ=8;
         for(int x=cx-halfX;x<=cx+halfX;x++) for(int z=cz-halfZ;z<=cz+halfZ;z++) {
             queue.add(new Op(w,x,floor,z,p.undergroundFloor));
             for(int yy=floor+1;yy<=floor+5;yy++) queue.add(new Op(w,x,yy,z,Material.AIR));
         }
 
-        // Four reliable Heal-II lines are the baseline.  The authoritative
-        // director handles production; these blocks preserve the recognizable
-        // 1.8 auto-brewer machine and give HOT workers real stations to use.
-        String[] labels={"Heal II 1","Heal II 2","Heal II 3","Heal II 4","Speed II","Spare"};
-        int lanes=Math.max(4,Math.min(6,2+p.profile.members));
+        // Exact lane coordinates intentionally match HcfAutoBrewerDirector:
+        // stand=(centerX, floorY+2, centerZ-5+lane*2).
+        // Four HEAL lanes dominate; the final two are lower-demand speed lanes.
+        String[] labels={"Heal II 1","Heal II 2","Heal II 3","Heal II 4","Speed II 1","Speed II 2"};
+        int lanes=6;
         for(int i=0;i<lanes;i++) {
-            int z=cz-halfZ+2+i*3;
+            int z=cz-5+i*2;
             queue.add(new Op(w,cx,floor+2,z,Material.BREWING_STAND));
             queue.add(new Op(w,cx,floor+3,z,Material.HOPPER));
             queue.add(new Op(w,cx,floor+4,z,Material.CHEST));

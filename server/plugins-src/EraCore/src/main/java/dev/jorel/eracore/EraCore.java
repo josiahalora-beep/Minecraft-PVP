@@ -1912,10 +1912,14 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
         if(simWorld!=null) simWorld.resetForSotw();
         if(eventDirector!=null) eventDirector.resetForNewMap();
-        if(claimDirector!=null) {
-            for(Faction f:new ArrayList<Faction>(factions.values()))
-                claimDirector.clearFactionClaim(f.name);
-        }
+
+        // A full SOTW is a fresh map economy/faction race. Donor ranks, player
+        // identity history and the long-term AI memory archive persist.
+        for(Faction f:new ArrayList<Faction>(factions.values())) removeFaction(f);
+        factions.clear();
+        claimOwners.clear();
+        economyData.set("balances",null);
+        for(String key:new ArrayList<String>(kitsData.getKeys(false))) kitsData.set(key,null);
         saveAll();
         Bukkit.broadcastMessage(color("&4[SOTW] &cFull season reset queued. &7Server shutting down safely in 5 seconds."));
         for(Player x:Bukkit.getOnlinePlayers())

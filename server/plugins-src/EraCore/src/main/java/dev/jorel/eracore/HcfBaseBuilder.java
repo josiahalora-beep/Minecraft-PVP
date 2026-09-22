@@ -63,6 +63,7 @@ final class HcfBaseBuilder {
             completed.add(surfaceKey);
         }
         buildUndergroundCore(world,plan);
+        sealCriticalEnvelope(world,plan,true);
 
         if ("fall_trap".equalsIgnoreCase(trapPreset)) buildFallTrap(world,cx,y,cz);
         else if ("fence_gate_bow".equalsIgnoreCase(trapPreset)) buildFenceGateBowTrap(world,cx,y,cz);
@@ -78,6 +79,7 @@ final class HcfBaseBuilder {
         HcfBasePlan plan=planFor(faction,cx,y,cz);
         prepareTerrainPad(world,cx,y,cz,plan.surfacePadRadius(),plan.surfacePadRadius());
         buildSurfaceShell(world,plan,false);
+        sealCriticalEnvelope(world,plan,false);
         ensureRunner();
     }
 
@@ -179,6 +181,7 @@ final class HcfBaseBuilder {
         fillFoundationOnly(world,cx,y,cz,plan.surfacePadRadius(),plan.surfacePadRadius());
         buildSurfaceShell(world,plan,false);
         buildUndergroundCore(world,plan);
+        sealCriticalEnvelope(world,plan,true);
         rescueEmbeddedPlayers(world,cx,y,cz,plan.surfacePadRadius());
         ensureRunner();
     }
@@ -655,6 +658,46 @@ final class HcfBaseBuilder {
         if(openTransit) buildVerticalTransit(w,p);
     }
 
+    private void sealCriticalEnvelope(World w,HcfBasePlan p,boolean dropdownOpen) {
+        int top=p.surfaceY+p.surfaceHeight;
+        int[] d=p.anchor("drop");
+
+        // Re-assert every structural surface-floor and roof cell after all
+        // decorative/modules operations. Only the intentional dropdown may be open.
+        for(int x=p.cx-p.surfaceHalfX;x<=p.cx+p.surfaceHalfX;x++) {
+            for(int z=p.cz-p.surfaceHalfZ;z<=p.cz+p.surfaceHalfZ;z++) {
+                if(!surfaceInside(p,x,z)) continue;
+                boolean dropCell=dropdownOpen && Math.abs(x-d[0])<=1 && Math.abs(z-d[2])<=1;
+                queue.add(new Op(w,x,p.surfaceY,z,dropCell?Material.AIR:p.surfaceFloor));
+
+                boolean edge=surfaceBoundary(p,x,z);
+                boolean roofBeam=edge || ((x-p.cx)%6==0)||((z-p.cz)%6==0);
+                queue.add(new Op(w,x,top+1,z,roofBeam?p.surfaceFrame:Material.GLASS));
+            }
+        }
+
+        // Re-assert the underground central box envelope. Internal modules are
+        // left untouched; this only prevents cave/excavation seams at the shell.
+        int minX=p.cx-p.coreHalfX,maxX=p.cx+p.coreHalfX;
+        int minZ=p.cz-p.coreHalfZ,maxZ=p.cz+p.coreHalfZ;
+        int ceiling=p.undergroundY+6;
+        for(int x=minX;x<=maxX;x++) for(int z=minZ;z<=maxZ;z++) {
+            boolean boundary=x==minX||x==maxX||z==minZ||z==maxZ;
+            if(boundary) {
+                Material wall=p.finishTier==0?Material.STONE:Material.SMOOTH_BRICK;
+                for(int yy=p.undergroundY+1;yy<ceiling;yy++)
+                    queue.add(new Op(w,x,yy,z,wall));
+            }
+            queue.add(new Op(w,x,ceiling,z,p.finishTier==0?Material.STONE:Material.SMOOTH_BRICK));
+        }
+
+        if(dropdownOpen) {
+            // The integrity pass runs last; re-open/re-line only the one legal
+            // vertical connection so envelope sealing cannot accidentally close it.
+            buildVerticalTransit(w,p);
+        }
+    }
+
     private boolean surfaceInside(HcfBasePlan p,int x,int z) {
         int ax=Math.abs(x-p.cx),az=Math.abs(z-p.cz);
         if(ax>p.surfaceHalfX || az>p.surfaceHalfZ) return false;
@@ -753,22 +796,45 @@ final class HcfBaseBuilder {
 
     private void buildVerticalTransit(World w,HcfBasePlan p) {
         int[] top=p.anchor("drop");
-        int[] bottom=p.anchor("drop-bottom");
         int dx=top[0],dz=top[2];
 
-        // 3x3 real dropdown from the finished upper shell to the underground core.
+        // A real 3x3 dropdown must cut THROUGH the surface floor. The previous
+        // implementation stopped one block too high, leaving a solid floor over
+        // a visually-generated shaft and disconnecting the upper/lower base.
         for(int x=dx-1;x<=dx+1;x++) for(int z=dz-1;z<=dz+1;z++) {
-            for(int yy=p.undergroundY+1;yy<=p.surfaceY+1;yy++)
+            for(int yy=p.undergroundY+1;yy<=p.surfaceY;yy++)
                 queue.add(new Op(w,x,yy,z,Material.AIR));
         }
 
-        // Two-block-deep water landing with the gate exit on the same feet level.
-        for(int x=dx-1;x<=dx+1;x++) for(int z=dz-1;z<=dz;z++)
+        // Fully line the shaft so intersecting caves/ravines cannot appear as
+        // random holes in the faction base. The 5x5 shell surrounds the 3x3 drop.
+        for(int x=dx-2;x<=dx+2;x++) for(int z=dz-2;z<=dz+2;z++) {
+            boolean shell=x==dx-2||x==dx+2||z==dz-2||z==dz+2;
+            if(!shell) continue;
+            for(int yy=p.undergroundY;yy<=p.surfaceY;yy++) {
+                Material mat=yy==p.surfaceY?p.surfaceFrame:p.undergroundTrim;
+                queue.add(new Op(w,x,yy,z,mat));
+            }
+        }
+
+        // Explicit surface rim: everything outside the intentional 3x3 opening
+        // is solid, so the roofed SOTW shell never has accidental floor gaps.
+        for(int x=dx-2;x<=dx+2;x++) for(int z=dz-2;z<=dz+2;z++) {
+            boolean opening=Math.abs(x-dx)<=1 && Math.abs(z-dz)<=1;
+            queue.add(new Op(w,x,p.surfaceY,z,opening?Material.AIR:p.surfaceFrame));
+        }
+
+        // Water landing fills the drop footprint. The exit gates are placed in
+        // the lined south wall at the SAME feet level as the water.
+        for(int x=dx-1;x<=dx+1;x++) for(int z=dz-1;z<=dz+1;z++)
             queue.add(new Op(w,x,p.undergroundY+1,z,Material.STATIONARY_WATER));
         for(int x=dx-1;x<=dx+1;x++) for(int yy=p.undergroundY+1;yy<=p.undergroundY+2;yy++)
-            queue.add(new Op(w,x,yy,dz+1,Material.FENCE_GATE,(byte)0));
-        for(int x=dx-2;x<=dx+2;x++)
-            queue.add(new Op(w,x,p.undergroundY,dz+2,p.undergroundTrim));
+            queue.add(new Op(w,x,yy,dz+2,Material.FENCE_GATE,(byte)0));
+
+        // Clear a short dry exit into the central core.
+        for(int z=dz+3;z<=dz+4;z++) for(int x=dx-1;x<=dx+1;x++)
+            for(int yy=p.undergroundY+1;yy<=p.undergroundY+3;yy++)
+                queue.add(new Op(w,x,yy,z,Material.AIR));
 
         int[] e=p.anchor("elevator");
         queue.add(new Op(w,e[0],p.undergroundY,e[2],p.undergroundTrim));
@@ -851,6 +917,46 @@ final class HcfBaseBuilder {
 
         for(int x=farm[0]-hx+2;x<=farm[0]+hx-2;x+=8)
             queue.add(new Op(w,x,floor+4,farm[2],Material.GLOWSTONE));
+
+        // The farm is a lower underground level, but it must be physically
+        // connected. Build a walkable one-block-per-step stair tunnel from the
+        // central core instead of leaving a sealed room below it.
+        buildFarmAccess(w,p,floor);
+    }
+
+    private void buildFarmAccess(World w,HcfBasePlan p,int farmFloor) {
+        int dir=-p.utilitySide; // use the quiet half; storage rows reserve z=center
+        int z=p.cz;
+        int drop=p.undergroundY-farmFloor;
+        if(drop<1) return;
+
+        for(int i=1;i<=drop;i++) {
+            int x=p.cx+dir*i;
+            int stepY=p.undergroundY-i;
+
+            // Full block steps are intentionally simple: Mineflayer and human
+            // players can both traverse them reliably in 1.8.8.
+            queue.add(new Op(w,x,stepY,z,p.undergroundTrim));
+            queue.add(new Op(w,x,stepY+1,z,Material.AIR));
+            queue.add(new Op(w,x,stepY+2,z,Material.AIR));
+
+            // Seal the tunnel while it passes through natural stone between the
+            // core and farm. The final two steps open directly into the farm room.
+            if(i<=Math.max(1,drop-2)) {
+                for(int yy=stepY+1;yy<=stepY+2;yy++) {
+                    queue.add(new Op(w,x,yy,z-1,p.undergroundTrim));
+                    queue.add(new Op(w,x,yy,z+1,p.undergroundTrim));
+                }
+                queue.add(new Op(w,x,stepY+3,z,p.undergroundTrim));
+            }
+        }
+
+        // Guarantee a clear landing aisle at farm level.
+        int endX=p.cx+dir*drop;
+        for(int x=Math.min(p.cx,endX)-1;x<=Math.max(p.cx,endX)+1;x++) {
+            for(int yy=farmFloor+1;yy<=farmFloor+2;yy++)
+                queue.add(new Op(w,x,yy,z,Material.AIR));
+        }
     }
 
     private void buildUndergroundBrewer(World w,HcfBasePlan p) {

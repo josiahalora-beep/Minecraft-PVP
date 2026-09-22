@@ -61,7 +61,7 @@ final class HcfMapDirector implements Listener {
         ensureOreMountainWorld();
         rebuildRegistry();
         bootstrapWarps();
-        if(plugin.getConfig().getBoolean("map-layout.build-visible-borders",true)) {
+        if(plugin.getConfig().getBoolean("map-layout.build-visible-borders",false)) {
             new BukkitRunnable() {
                 public void run(){ buildVisibleBorders(); }
             }.runTaskLater(plugin,120L);
@@ -370,8 +370,10 @@ final class HcfMapDirector implements Listener {
             new BukkitRunnable() {
                 public void run() {
                     int n=0;
-                    while(!q.isEmpty() && n++<128) {
+                    while(!q.isEmpty() && n++<24) {
                         int[] pos=q.removeFirst();
+                        int chunkX=pos[0] >> 4, chunkZ=pos[1] >> 4;
+                        if(!overworld.isChunkLoaded(chunkX,chunkZ)) continue;
                         int y=Math.max(1,overworld.getHighestBlockYAt(pos[0],pos[1]));
                         Block b=overworld.getBlockAt(pos[0],Math.max(1,y-1),pos[1]);
                         if(b.getType()==Material.BEDROCK) continue;

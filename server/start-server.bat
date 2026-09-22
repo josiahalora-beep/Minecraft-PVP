@@ -17,6 +17,17 @@ if not exist java8-home.txt (
 set /p JAVA8_HOME=<java8-home.txt
 set "JAVA8=%JAVA8_HOME%\bin\java.exe"
 
+if exist "%~dp0plugins\EraCore\season-reset.pending" (
+  echo Preparing requested HCF SOTW world reset...
+  powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0Prepare-HCF-Season-Reset.ps1" -ServerRoot "%~dp0"
+  if errorlevel 1 (
+    echo.
+    echo HCF SOTW reset preflight failed. Existing worlds were left in place when possible.
+    pause
+    exit /b 1
+  )
+)
+
 if not exist "%JAVA8%" (
   echo Java 8 was saved at:
   echo   %JAVA8_HOME%

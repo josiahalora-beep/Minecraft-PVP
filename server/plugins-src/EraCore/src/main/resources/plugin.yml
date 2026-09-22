@@ -86,6 +86,9 @@ commands:
   baserate:
     description: Rate the nearest generated faction base for design feedback
     usage: /baserate <1-5> [faction]
+  baserebuild:
+    description: Force rebuild generated faction bases
+    usage: /baserebuild <all|nearest|faction|status>
 permissions:
   eracore.owner:
     default: op

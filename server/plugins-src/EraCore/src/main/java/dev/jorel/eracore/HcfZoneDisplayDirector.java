@@ -51,16 +51,19 @@ final class HcfZoneDisplayDirector implements Listener {
     void start() {
         plugin.getServer().getPluginManager().registerEvents(this,plugin);
         bootstrapLoadedWorlds();
+        cleanupStaleDtrLabels();
 
-        labelTask=plugin.getServer().getScheduler().runTaskTimer(plugin,new Runnable() {
-            public void run() { updateLabels(); }
-        },20L,10L);
+        if(plugin.getConfig().getBoolean("presentation.faction-dtr-overhead",false)) {
+            labelTask=plugin.getServer().getScheduler().runTaskTimer(plugin,new Runnable() {
+                public void run() { updateLabels(); }
+            },20L,10L);
+        }
 
         tagTask=plugin.getServer().getScheduler().runTaskTimer(plugin,new Runnable() {
             public void run() { expireTags(); }
         },20L,20L);
 
-        if(plugin.getConfig().getBoolean("safezones.auto-build-borders",true)) {
+        if(plugin.getConfig().getBoolean("safezones.auto-build-borders",false)) {
             new BukkitTaskStarter(plugin,this).startLater(80L);
         }
     }
@@ -315,6 +318,25 @@ final class HcfZoneDisplayDirector implements Listener {
         while(it.hasNext()) if(it.next().getValue()<=now) it.remove();
     }
 
+    private void cleanupStaleDtrLabels() {
+        int removed=0;
+        for(World w:Bukkit.getWorlds()) {
+            for(ArmorStand a:new ArrayList<ArmorStand>(w.getEntitiesByClass(ArmorStand.class))) {
+                if(a==null || a.isDead() || !a.isCustomNameVisible()) continue;
+                String raw=a.getCustomName();
+                if(raw==null || raw.isEmpty()) continue;
+                String plain=ChatColor.stripColor(raw);
+                if(plain==null) continue;
+                String upper=plain.toUpperCase(Locale.ENGLISH);
+                if(upper.contains(" DTR]") || upper.contains("[RAIDABLE]")) {
+                    a.remove();
+                    removed++;
+                }
+            }
+        }
+        if(removed>0) plugin.getLogger().info("Removed "+removed+" stale faction/DTR overhead labels.");
+    }
+
     private void updateLabels() {
         Set<UUID> seen=new HashSet<UUID>();
         for(Player p:Bukkit.getOnlinePlayers()) {
@@ -382,8 +404,10 @@ final class HcfZoneDisplayDirector implements Listener {
         new org.bukkit.scheduler.BukkitRunnable() {
             public void run() {
                 int n=0;
-                while(!q.isEmpty() && n++<96) {
+                while(!q.isEmpty() && n++<24) {
                     int[] pos=q.removeFirst();
+                    int chunkX=pos[0] >> 4, chunkZ=pos[1] >> 4;
+                    if(!w.isChunkLoaded(chunkX,chunkZ)) continue;
                     int y=Math.max(1,w.getHighestBlockYAt(pos[0],pos[1]));
                     Block b=w.getBlockAt(pos[0],y,pos[1]);
                     if(b.getType()==Material.AIR) b=w.getBlockAt(pos[0],Math.max(1,y-1),pos[1]);

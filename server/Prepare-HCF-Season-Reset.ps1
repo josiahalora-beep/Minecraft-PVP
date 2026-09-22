@@ -72,9 +72,9 @@ foreach ($name in @('claims-v2.yml','events.yml','combat-hot.yml')) {
 $config = Join-Path $era 'config.yml'
 if (Test-Path $config) {
     $text = Get-Content -LiteralPath $config -Raw
-    $text = [regex]::Replace($text, '(?m)^(\s*auto-bootstrap:\s*).+$', '1true', 1)
-    $text = [regex]::Replace($text, '(?m)^(\s*complete:\s*).+$', '1false', 1)
-    $text = [regex]::Replace($text, '(?m)^(\s*warzone-smoothing-version:\s*).+$', '10', 1)
+    $text = [regex]::Replace($text, '(?m)^(\s*auto-bootstrap:\s*).+$', '${1}true', 1)
+    $text = [regex]::Replace($text, '(?m)^(\s*complete:\s*).+$', '${1}false', 1)
+    $text = [regex]::Replace($text, '(?m)^(\s*warzone-smoothing-version:\s*).+$', '${1}0', 1)
     Set-Content -LiteralPath $config -Value $text -Encoding UTF8
 }
 
@@ -83,7 +83,7 @@ $simulation = Join-Path $era 'simulation.yml'
 if (Test-Path $simulation) {
     $text = Get-Content -LiteralPath $simulation -Raw
     if ($text -match '(?m)^\s*terrain-repair-version:\s*\d+\s*$') {
-        $text = [regex]::Replace($text, '(?m)^(\s*terrain-repair-version:\s*)\d+\s*$', '10')
+        $text = [regex]::Replace($text, '(?m)^(\s*terrain-repair-version:\s*)\d+\s*$', '${1}0')
     }
     Set-Content -LiteralPath $simulation -Value $text -Encoding UTF8
 }

@@ -163,6 +163,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         migrateDirectorIntelligenceConfig();
         migrateDistributedWorkerConfig();
         migrateLivingWorldConfig();
+        migrateStartupPerformanceConfig();
         initFiles();
         initShops();
         loadFactions();
@@ -247,12 +248,14 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             }.runTaskLater(this, 80L);
         }
 
-        new BukkitRunnable() {
-            public void run() {
-                World world=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
-                if(world!=null) scheduleWarzoneSmoothing(world);
-            }
-        }.runTaskLater(this,220L);
+        if(getConfig().getBoolean("map.auto-warzone-smoothing",false)) {
+            new BukkitRunnable() {
+                public void run() {
+                    World world=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
+                    if(world!=null) scheduleWarzoneSmoothing(world);
+                }
+            }.runTaskLater(this,220L);
+        }
         getLogger().info("EraCore 0.2 enabled: classic warps, paced sim chat, factions, economy and PvP baseline ready.");
     }
 
@@ -443,6 +446,37 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         getConfig().set("migration.living-world-version",version);
         saveConfig();
         getLogger().info("Applied living-world v"+version+": staged bases, combat presentation, quieter chat and logical tab population.");
+    }
+
+    private void migrateStartupPerformanceConfig() {
+        int version=getConfig().getInt("migration.startup-performance-version",0);
+        if(version>=1) return;
+
+        // Normal boot must never start million-column terrain passes or bulk
+        // schematic/resource materialization on the primary server thread.
+        getConfig().set("map.auto-bootstrap",false);
+        getConfig().set("map.auto-warzone-smoothing",false);
+        getConfig().set("map-layout.build-visible-borders",false);
+        getConfig().set("safezones.auto-build-borders",false);
+        getConfig().set("resources.bootstrap-spawners",false);
+        getConfig().set("base-builder.repair-existing-on-start",false);
+
+        // Return simulation cadence to the paced R23-era model. The previous
+        // 8s/100-faction setting performed nearly the whole logical world plus
+        // a save in one synchronous pass.
+        getConfig().set("sim-world.tick-seconds",30);
+        getConfig().set("sim-world.factions-per-tick",4);
+
+        // Manual composition is still available, but at a bounded live-server
+        // budget rather than the former 7000 block writes per tick.
+        getConfig().set("world-composer.blocks-per-tick",350);
+
+        // Physical ArmorStand DTR labels are opt-in only.
+        getConfig().set("presentation.faction-dtr-overhead",false);
+
+        getConfig().set("migration.startup-performance-version",1);
+        saveConfig();
+        getLogger().info("Applied startup performance v1: disabled automatic world rewrites, paced simulation 30s/4 factions.");
     }
 
     private void bindCommands() {

@@ -336,6 +336,7 @@ actors:
     enabled: false
     allow-probe: true
     materialize-on-tp: false
+    max-bodies: 8
     default-ping: 55
 
 # Deterministic bounded memory. Maintenance is local code only; no recurring

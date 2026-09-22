@@ -338,9 +338,8 @@ final class SpawnRewardsDirector implements Listener {
             for(int i=0;i<12;i++) p.getInventory().addItem(new ItemStack(Material.POTION,1,(short)16421));
             finishReward(p,"12 Splash Health II",false);
         } else if(r<8500) {
-            for(int i=0;i<3;i++) p.getInventory().addItem(new ItemStack(Material.POTION,1,(short)8226));
-            for(int i=0;i<2;i++) p.getInventory().addItem(new ItemStack(Material.POTION,1,(short)8259));
-            finishReward(p,"3 Speed II + 2 Fire Resistance",false);
+            for(int i=0;i<4;i++) p.getInventory().addItem(new ItemStack(Material.POTION,1,(short)8226));
+            finishReward(p,"4 Speed II",false);
         } else if(r<9100) {
             ItemStack[] set={
                 enchanted(Material.IRON_HELMET,2), enchanted(Material.IRON_CHESTPLATE,2),
@@ -401,7 +400,7 @@ final class SpawnRewardsDirector implements Listener {
         if("donor".equalsIgnoreCase(type)) {
             p.sendMessage(EraCore.colorText("&6--- Donor Crate Odds ---"));
             p.sendMessage(EraCore.colorText("&f$750 &720%  &f16 Pearls &718%  &f8 Diamonds &715%"));
-            p.sendMessage(EraCore.colorText("&f16 Obsidian &712%  &f12 Heals &712%  &fSpeed/Fire &78%"));
+            p.sendMessage(EraCore.colorText("&f16 Obsidian &712%  &f12 Heals &712%  &f4 Speed II &78%"));
             p.sendMessage(EraCore.colorText("&fP2 Iron Set &76%  &fSharp II Diamond &74%  &f2 Vote Keys &73%"));
             p.sendMessage(EraCore.colorText("&fP2 Diamond Chest &71%  &fBonus Donor Key &70.5%  &dRank Upgrade &70.5%"));
         } else {

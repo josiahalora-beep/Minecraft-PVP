@@ -3451,14 +3451,36 @@ final class SimWorldDirector {
         return Math.max(0,Math.min(100,n));
     }
 
+    private int relationshipMemoryLimit() {
+        return Math.max(8,Math.min(64,plugin.getConfig().getInt("memory.relationship-max",32)));
+    }
+
+    private int historyMemoryLimit() {
+        return Math.max(250,Math.min(10000,plugin.getConfig().getInt("memory.history-max-events",2500)));
+    }
+
+    private long historyDuplicateWindowMillis() {
+        return Math.max(30L,plugin.getConfig().getLong("memory.duplicate-window-seconds",900L))*1000L;
+    }
+
+    private long archiveMaxBytes() {
+        return Math.max(1024L*1024L,plugin.getConfig().getLong("memory.archive-max-bytes",8L*1024L*1024L));
+    }
+
     private void rememberRelationship(SocialEdge e,String memory) {
         if(e==null || memory==null) return;
         String m=memory.replace('\n',' ').replace('\r',' ').replace(';',',').trim();
         if(m.isEmpty()) return;
         if(m.length()>140) m=m.substring(0,140).trim();
-        if(!e.memories.isEmpty() && e.memories.peekLast().equalsIgnoreCase(m)) return;
+
+        // Reinforcement beats duplication: a repeated durable fact becomes the
+        // newest memory instead of consuming another slot forever.
+        Iterator<String> it=e.memories.iterator();
+        while(it.hasNext()) {
+            if(it.next().equalsIgnoreCase(m)) { it.remove(); break; }
+        }
         e.memories.addLast(m);
-        while(e.memories.size()>64) e.memories.removeFirst();
+        while(e.memories.size()>relationshipMemoryLimit()) e.memories.removeFirst();
         e.lastInteraction=System.currentTimeMillis();
     }
 

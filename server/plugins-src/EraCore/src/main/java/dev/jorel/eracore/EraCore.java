@@ -2973,29 +2973,27 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         }
 
         if(sub.equals("claim")) {
-            if(mapDirector!=null && !mapDirector.canClaim(p.getLocation())) {
-                p.sendMessage(color("&cYou cannot claim here. &7"+mapDirector.claimReason(p.getLocation())));
-                return true;
-            }
-            String ck=claimKey(p.getLocation());
-            String existing=claimOwners.get(ck);
-            if(existing!=null&&!existing.equalsIgnoreCase(f.name)) {
-                p.sendMessage(color("&cAlready claimed by "+existing));
-                return true;
-            }
             if(!leader) {
-                p.sendMessage(color("&cLeader only for now."));
+                p.sendMessage(color("&cLeader only."));
                 return true;
             }
-            int maxClaims=Math.min(getConfig().getInt("claims.max-cap",12), getConfig().getInt("claims.base",4)+f.members.size()*getConfig().getInt("claims.per-member",2));
-            if(f.claims.size()+1>maxClaims) {
-                p.sendMessage(color("&cYour faction claim limit is "+maxClaims+" chunks."));
+            if(claimDirector==null) {
+                p.sendMessage(color("&cClaim system is not ready."));
                 return true;
             }
-            f.claims.add(ck);
-            claimOwners.put(ck,f.name);
-            saveFactions();
-            p.sendMessage(color("&aClaimed this chunk."));
+            if(a.length>1 && a[1].equalsIgnoreCase("confirm")) {
+                if(claimDirector.confirmSelection(p,f.name)) {
+                    // Remove old chunk ownership after the exact rectangle is authoritative.
+                    for(String ck:new ArrayList<String>(f.claims)) {
+                        String owner=claimOwners.get(ck);
+                        if(owner!=null && owner.equalsIgnoreCase(f.name)) claimOwners.remove(ck);
+                    }
+                    f.claims.clear();
+                    saveFactions();
+                }
+                return true;
+            }
+            claimDirector.giveWand(p);
             return true;
         }
 
@@ -3004,20 +3002,32 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
                 p.sendMessage(color("&cLeader only."));
                 return true;
             }
-            String ck=claimKey(p.getLocation());
-            if(!f.claims.remove(ck)) {
-                p.sendMessage(color("&cYour faction does not own this chunk."));
-                return true;
+            boolean removed=claimDirector!=null && claimDirector.clearFactionClaim(f.name);
+            for(String ck:new ArrayList<String>(f.claims)) {
+                String owner=claimOwners.get(ck);
+                if(owner!=null && owner.equalsIgnoreCase(f.name)) claimOwners.remove(ck);
             }
-            claimOwners.remove(ck);
+            if(!f.claims.isEmpty()) removed=true;
+            f.claims.clear();
             saveFactions();
-            p.sendMessage(color("&eUnclaimed chunk."));
+            p.sendMessage(color(removed?"&eYour faction claim was removed.":"&cYour faction has no claim."));
+            return true;
+        }
+
+        if(sub.equals("map")) {
+            if(claimDirector!=null) claimDirector.showMap(p);
+            else p.sendMessage(color("&cClaim map unavailable."));
             return true;
         }
 
         if(sub.equals("sethome")) {
             if(!leader) {
                 p.sendMessage(color("&cLeader only."));
+                return true;
+            }
+            if(claimDirector!=null && claimDirector.claim(f.name)!=null &&
+               !claimDirector.factionOwns(f.name,p.getLocation())) {
+                p.sendMessage(color("&cFaction home must be set inside your claim."));
                 return true;
             }
             f.home=p.getLocation();
@@ -3058,7 +3068,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         viewer.sendMessage(color("&6"+q.name+" &7(" + q.members.size()+"/"+SimWorldDirector.MAX_FACTION_MEMBERS + ")"));
         viewer.sendMessage(color("&7Leader: &f"+q.leader+
             " &7DTR: "+dtrColor(q)+fmtDtr(q.dtr)+"&7/&f"+fmtDtr(maxDtr(q))+
-            " &7Claims: &f"+q.claims.size()));
+            " &7Claim: &f"+(claimDirector==null?(q.claims.isEmpty()?"none":q.claims.size()+" legacy chunks"):claimDirector.describe(q.name))));
         if(simWorld!=null && simWorld.contains(q.leader)) {
             viewer.sendMessage(color("&7Leadership: &f"+simWorld.publicLeaderStyleFor(q.leader)+
                 " &8• &7"+simWorld.publicLeaderReputationFor(q.leader)));
@@ -3080,7 +3090,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     private void sendFactionHelp(Player p) {
-        p.sendMessage(color("&6/f create, invite, join, leave, kick, disband, claim, unclaim, sethome, home, show, who, list, c"));
+        p.sendMessage(color("&6/f create, invite, join, leave, kick, disband, claim, unclaim, map, sethome, home, show, who, list, c"));
     }
 
     private void removeFaction(Faction f) {

@@ -114,9 +114,9 @@ final class HcfBasePlan {
         if("refill".equals(k)) return new int[]{cx-1,undergroundY+1,cz-coreHalfZ+4};
         if("brewer".equals(k)) return new int[]{cx+coreHalfX-6,undergroundY+1,cz+1};
         if("farm".equals(k) || "money-farm".equals(k))
-            return new int[]{cx,undergroundY-5,cz+coreHalfZ+9};
+            return new int[]{cx,undergroundY-6,cz+5};
         if("wart-farm".equals(k))
-            return new int[]{cx,undergroundY-5,cz+coreHalfZ+20};
+            return new int[]{cx,undergroundY-6,cz-8};
         if("portal-nether".equals(k))
             return new int[]{cx+coreHalfX-3,undergroundY+1,cz-coreHalfZ+5};
         if("portal-end".equals(k))

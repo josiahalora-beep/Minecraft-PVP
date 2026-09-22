@@ -695,7 +695,7 @@ final class HcfBaseBuilder {
         int[] refill=p.anchor("refill");
         queue.add(new Op(w,refill[0],refill[1],refill[2],Material.ENDER_CHEST));
         queue.add(new Op(w,refill[0]+1,refill[1],refill[2],Material.ANVIL));
-        queue.add(new Op(w,refill[0]-1,refill[1],refill[2],Material.CRAFTING_TABLE));
+        queue.add(new Op(w,refill[0]-1,refill[1],refill[2],Material.WORKBENCH));
     }
 
     private void buildVerticalTransit(World w,HcfBasePlan p) {

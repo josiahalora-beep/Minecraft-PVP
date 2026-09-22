@@ -9,7 +9,7 @@ owner:
     - Sim
     - Fake
 map:
-  auto-bootstrap: true
+  auto-bootstrap: false
   complete: false
   surface-y: 63
   world-border: 3000
@@ -183,8 +183,8 @@ logical-tab:
 
 sim-world:
   population: 150
-  tick-seconds: 8
-  factions-per-tick: 100
+  tick-seconds: 30
+  factions-per-tick: 4
   underdog-leaders: 2
   base-y: 64
   min-base-y: 50
@@ -256,7 +256,7 @@ base-builder:
   rebuild-blocks-per-tick: 600
   interval-ticks: 2
   gate-auto-close-ticks: 30
-  repair-existing-on-start: true
+  repair-existing-on-start: false
 
 combat-director:
   hot-body-budget: 12
@@ -305,7 +305,7 @@ safezones:
   overworld-radius: 110
   nether-radius: 75
   end-radius: 95
-  auto-build-borders: true
+  auto-build-borders: false
   archer-tag-seconds: 10
   archer-tag-damage-multiplier: 1.20
 
@@ -356,7 +356,7 @@ map-layout:
   nether-build-radius: 120
   end-build-radius: 145
   ore-world: ore_mountain
-  build-visible-borders: true
+  build-visible-borders: false
   show-claim-border: true
 
 events:
@@ -368,7 +368,7 @@ events:
   conquest-score-to-win: 300
 
 resources:
-  bootstrap-spawners: true
+  bootstrap-spawners: false
   mob-stack-merge-radius: 10.0
   glowstone:
     x: 0
@@ -422,7 +422,7 @@ resources:
 
 world-composer:
   enabled: true
-  blocks-per-tick: 7000
+  blocks-per-tick: 350
   spawn-anchor-y: 66
   conquest-anchor-y: 63
   nether-anchor-y: 70
@@ -453,3 +453,9 @@ memory:
   history-max-events: 2500
   archive-max-bytes: 8388608
   duplicate-window-seconds: 900
+
+# Physical overhead faction/DTR labels are disabled by default. They used
+# persistent ArmorStands and could leave stale floating labels after an
+# unclean shutdown.
+presentation:
+  faction-dtr-overhead: false

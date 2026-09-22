@@ -404,6 +404,7 @@ final class SimWorldDirector {
     private final Map<String,Conversation> conversations = new HashMap<String,Conversation>();
     private final Map<String,SocialEdge> socialEdges = new LinkedHashMap<String,SocialEdge>();
     private final Deque<HistoryEvent> communityHistory = new ArrayDeque<HistoryEvent>();
+    private final Map<String,Long> recentHistoryFingerprints = new LinkedHashMap<String,Long>();
     private final Set<String> combatLootMemoryOnce = new LinkedHashSet<String>();
     private final Map<String,String> lastReplyTarget = new HashMap<String,String>();
     private final Deque<ChatEvent> pendingChat = new ArrayDeque<ChatEvent>();
@@ -1728,6 +1729,52 @@ final class SimWorldDirector {
         }
         try { y.save(combatFile); }
         catch(IOException e) { plugin.getLogger().warning("Could not save combat-hot.yml: "+e.getMessage()); }
+    }
+
+    boolean hasIdentity(String name) {
+        return name!=null && players.containsKey(key(name));
+    }
+
+    String canonicalIdentity(String name) {
+        SimPlayer p=name==null?null:players.get(key(name));
+        return p==null?name:p.name;
+    }
+
+    boolean isLogicalOnlineIdentity(String name) {
+        SimPlayer p=name==null?null:players.get(key(name));
+        return p!=null && p.logicalOnline && p.bannedUntil<=System.currentTimeMillis();
+    }
+
+    String factionOfIdentity(String name) {
+        SimPlayer p=name==null?null:players.get(key(name));
+        return p==null || p.faction==null?"":p.faction;
+    }
+
+    Location logicalLocationFor(String name) {
+        SimPlayer p=name==null?null:players.get(key(name));
+        if(p==null || !p.logicalOnline) return null;
+        WorkerTask t=workerTaskFor(p.name);
+        World w=worldForActorZone(t.zone);
+        if(w==null) return null;
+
+        double x=t.x;
+        double z=t.z;
+        if(Math.abs(x)<0.001 && Math.abs(z)<0.001) {
+            Location spawn=w.getSpawnLocation();
+            x=spawn.getX();z=spawn.getZ();
+        }
+        double y=t.y;
+        if(y<=1 || y>=w.getMaxHeight()) y=Math.max(2,w.getHighestBlockYAt((int)Math.floor(x),(int)Math.floor(z))+1);
+        return new Location(w,x+0.5,y,z+0.5);
+    }
+
+    private World worldForActorZone(String zone) {
+        String z=zone==null?"":zone.toLowerCase(Locale.ENGLISH);
+        World.Environment wanted=
+            "nether".equals(z)?World.Environment.NETHER:
+            ("end".equals(z)?World.Environment.THE_END:World.Environment.NORMAL);
+        for(World w:Bukkit.getWorlds()) if(w.getEnvironment()==wanted) return w;
+        return Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
     }
 
     WorkerTask workerTaskFor(String name) {
@@ -3195,28 +3242,57 @@ final class SimWorldDirector {
         } catch(Exception ignored) { return ""; }
     }
 
+    private void writeMemoryLine(BufferedWriter w,HistoryEvent e) throws IOException {
+        StringBuilder people=new StringBuilder();
+        for(String p:e.people) {
+            if(people.length()>0) people.append(',');
+            people.append(p.replace(',','_'));
+        }
+        w.write(Long.toString(e.at));w.write("\t");
+        w.write(Integer.toString(e.importance));w.write("\t");
+        w.write(memoryEncode(e.type));w.write("\t");
+        w.write(memoryEncode(e.faction));w.write("\t");
+        w.write(memoryEncode(people.toString()));w.write("\t");
+        w.write(memoryEncode(e.summary));
+        w.newLine();
+    }
+
+    private void compactMemoryArchive() {
+        if(!memoryFile.getParentFile().exists()) memoryFile.getParentFile().mkdirs();
+        File tmp=new File(memoryFile.getParentFile(),"memory-events.compact.tmp");
+        File bak=new File(memoryFile.getParentFile(),"memory-events.compact.bak");
+        try {
+            BufferedWriter w=new BufferedWriter(new FileWriter(tmp,false));
+            for(HistoryEvent h:communityHistory) writeMemoryLine(w,h);
+            w.close();
+
+            if(bak.exists()) bak.delete();
+            if(memoryFile.exists() && !memoryFile.renameTo(bak))
+                throw new IOException("could not stage old archive");
+            if(!tmp.renameTo(memoryFile)) {
+                if(bak.exists()) bak.renameTo(memoryFile);
+                throw new IOException("could not install compact archive");
+            }
+            if(bak.exists()) bak.delete();
+            plugin.getLogger().info("Compacted actor memory archive to "+communityHistory.size()+" salient/recent events.");
+        } catch(IOException ex) {
+            if(tmp.exists()) tmp.delete();
+            plugin.getLogger().warning("Could not compact memory archive: "+ex.getMessage());
+        }
+    }
+
     private void appendMemoryArchive(HistoryEvent e) {
         if(e==null) return;
         try {
             if(!memoryFile.getParentFile().exists()) memoryFile.getParentFile().mkdirs();
-            if(memoryFile.exists() && memoryFile.length()>64L*1024L*1024L) {
-                File old=new File(memoryFile.getParentFile(),"memory-events.1.log");
-                if(old.exists()) old.delete();
-                memoryFile.renameTo(old);
-            }
-            StringBuilder people=new StringBuilder();
-            for(String p:e.people) {
-                if(people.length()>0) people.append(',');
-                people.append(p.replace(',','_'));
+            // recordHistory inserts e into the bounded in-memory deque first, so
+            // compaction already contains this event and must not append it twice.
+            if(memoryFile.exists() && memoryFile.length()>archiveMaxBytes()) {
+                compactMemoryArchive();
+                return;
             }
             BufferedWriter w=new BufferedWriter(new FileWriter(memoryFile,true));
-            w.write(Long.toString(e.at));w.write("\t");
-            w.write(Integer.toString(e.importance));w.write("\t");
-            w.write(memoryEncode(e.type));w.write("\t");
-            w.write(memoryEncode(e.faction));w.write("\t");
-            w.write(memoryEncode(people.toString()));w.write("\t");
-            w.write(memoryEncode(e.summary));
-            w.newLine();
+            writeMemoryLine(w,e);
             w.close();
         } catch(IOException ex) {
             plugin.getLogger().warning("Could not append memory archive: "+ex.getMessage());
@@ -3246,7 +3322,7 @@ final class SimWorldDirector {
                 e.summary=memoryDecode(p[5]);
                 if(e.summary.isEmpty()) continue;
                 loaded.addLast(e);
-                while(loaded.size()>2500) loaded.removeFirst();
+                while(loaded.size()>historyMemoryLimit()) loaded.removeFirst();
             }
             r.close();
         } catch(IOException ex) {
@@ -3274,8 +3350,22 @@ final class SimWorldDirector {
                 if(!e.people.contains(person)) e.people.add(person);
             }
         }
+
+        // Low-value repeated ambient events should reinforce context, not grow
+        // storage. High-importance kills/raids/promotions are never suppressed.
+        if(e.importance<=4) {
+            String fp=(e.type+"|"+e.faction+"|"+e.summary).toLowerCase(Locale.ENGLISH);
+            Long last=recentHistoryFingerprints.get(fp);
+            if(last!=null && e.at-last<historyDuplicateWindowMillis()) return;
+            recentHistoryFingerprints.put(fp,e.at);
+            while(recentHistoryFingerprints.size()>1200) {
+                Iterator<String> it=recentHistoryFingerprints.keySet().iterator();
+                if(it.hasNext()){it.next();it.remove();} else break;
+            }
+        }
+
         communityHistory.addLast(e);
-        while(communityHistory.size()>2500) communityHistory.removeFirst();
+        while(communityHistory.size()>historyMemoryLimit()) communityHistory.removeFirst();
         appendMemoryArchive(e);
     }
 
@@ -3289,7 +3379,7 @@ final class SimWorldDirector {
             if(!relevant && person!=null && !person.isEmpty()) {
                 for(String p:e.people) if(person.equalsIgnoreCase(p)) { relevant=true; break; }
             }
-            if(relevant || e.importance>=8) out.add(e);
+            if(relevant || (e.importance>=9 && (e.faction==null || e.faction.isEmpty()))) out.add(e);
         }
         return out;
     }
@@ -3360,14 +3450,36 @@ final class SimWorldDirector {
         return Math.max(0,Math.min(100,n));
     }
 
+    private int relationshipMemoryLimit() {
+        return Math.max(8,Math.min(64,plugin.getConfig().getInt("memory.relationship-max",32)));
+    }
+
+    private int historyMemoryLimit() {
+        return Math.max(250,Math.min(10000,plugin.getConfig().getInt("memory.history-max-events",2500)));
+    }
+
+    private long historyDuplicateWindowMillis() {
+        return Math.max(30L,plugin.getConfig().getLong("memory.duplicate-window-seconds",900L))*1000L;
+    }
+
+    private long archiveMaxBytes() {
+        return Math.max(1024L*1024L,plugin.getConfig().getLong("memory.archive-max-bytes",8L*1024L*1024L));
+    }
+
     private void rememberRelationship(SocialEdge e,String memory) {
         if(e==null || memory==null) return;
         String m=memory.replace('\n',' ').replace('\r',' ').replace(';',',').trim();
         if(m.isEmpty()) return;
         if(m.length()>140) m=m.substring(0,140).trim();
-        if(!e.memories.isEmpty() && e.memories.peekLast().equalsIgnoreCase(m)) return;
+
+        // Reinforcement beats duplication: a repeated durable fact becomes the
+        // newest memory instead of consuming another slot forever.
+        Iterator<String> it=e.memories.iterator();
+        while(it.hasNext()) {
+            if(it.next().equalsIgnoreCase(m)) { it.remove(); break; }
+        }
         e.memories.addLast(m);
-        while(e.memories.size()>64) e.memories.removeFirst();
+        while(e.memories.size()>relationshipMemoryLimit()) e.memories.removeFirst();
         e.lastInteraction=System.currentTimeMillis();
     }
 
@@ -5966,7 +6078,7 @@ final class SimWorldDirector {
                 e.people.addAll(h.getStringList("people"));
                 if(!e.summary.isEmpty()) communityHistory.addLast(e);
             }
-            while(communityHistory.size()>2500) communityHistory.removeFirst();
+            while(communityHistory.size()>historyMemoryLimit()) communityHistory.removeFirst();
         }
 
         ConfigurationSection social = data.getConfigurationSection("social");
@@ -5986,7 +6098,7 @@ final class SimWorldDirector {
                 for(String memory:s.getStringList("memories")) {
                     if(memory!=null && !memory.trim().isEmpty()) e.memories.addLast(memory);
                 }
-                while(e.memories.size()>64) e.memories.removeFirst();
+                while(e.memories.size()>relationshipMemoryLimit()) e.memories.removeFirst();
                 socialEdges.put(socialKey(e.from,e.to),e);
             }
         }

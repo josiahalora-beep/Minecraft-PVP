@@ -16,7 +16,7 @@ $JavaSourceDir = Join-Path $Server 'plugins-src\EraCore\src\main\java\dev\jorel\
 
 # This repository is often installed as a plain folder rather than a Git clone.
 # Always sync the exact coordinated source generation before compiling.
-$SourceCommit = 'ebbfb04e19cc9583985f74ae7291420d79a3c0b6'
+$SourceCommit = '7f266cdcaaf19d53f99058a72da2904db526a6c1'
 $RawBase = 'https://raw.githubusercontent.com/josiahalora-beep/Minecraft-PVP/' + $SourceCommit
 $SourceFiles = @(
     'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/ActorDirectory.java',
@@ -224,6 +224,22 @@ if ($downloadEra -notmatch 'permanent-speed-2' -or $downloadEra -notmatch 'facti
 if ($downloadEra -notmatch 'ensureRuntimeConfigReadable' -or
     $downloadEra -notmatch 'consumeSeasonResetReceipt') {
     throw 'Downloaded EraCore is missing safe config recovery/reset-receipt handling.'
+}
+$downloadInfrastructure = Get-Content -LiteralPath (Join-Path $tempRoot 'server\plugins-src\EraCore\src\main\java\dev\jorel\eracore\HcfInfrastructureDirector.java') -Raw
+$downloadRewards = Get-Content -LiteralPath (Join-Path $tempRoot 'server\plugins-src\EraCore\src\main\java\dev\jorel\eracore\SpawnRewardsDirector.java') -Raw
+$downloadSim = Get-Content -LiteralPath (Join-Path $tempRoot 'server\plugins-src\EraCore\src\main\java\dev\jorel\eracore\SimWorldDirector.java') -Raw
+$downloadComposer = Get-Content -LiteralPath (Join-Path $tempRoot 'server\plugins-src\EraCore\src\main\java\dev\jorel\eracore\LegacySchematicComposer.java') -Raw
+if ($downloadInfrastructure -notmatch 'Production schematic mode: preserving Kraken \+ Nether/End geometry exactly') {
+    throw 'Downloaded infrastructure director can still fall back to generic production geometry.'
+}
+if ($downloadRewards -notmatch 'placeFunctionalCrate' -or $downloadRewards -notmatch 'Refusing to overwrite Kraken block') {
+    throw 'Downloaded rewards director is missing non-destructive Kraken crate placement.'
+}
+if ($downloadSim -notmatch 'case-insensitive unique identities' -or $downloadSim -notmatch 'namePrestigeTier') {
+    throw 'Downloaded simulation is missing unique/prestige-aware HCF identities.'
+}
+if ($downloadComposer -notmatch 'Kraken Spawn.*false' -or $downloadComposer -notmatch 'selection padding, not instructions to excavate') {
+    throw 'Downloaded composer is not using non-air Kraken production paste.'
 }
 if ($downloadReset -match 'Set-YamlScalar' -or
     $downloadReset -match 'Set-Content -LiteralPath \$config') {

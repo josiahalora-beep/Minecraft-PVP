@@ -13,8 +13,7 @@ import java.util.*;
  * Builds/repairs physical HCF infrastructure that must exist independently of
  * the legacy map bootstrap:
  * - dedicated PotPvP duel arena
- * - Nether Safezone/warp hub
- * - End Safezone/warp hub
+ * - internal Nether/End arrival routing when production schematics are present
  *
  * The first few spawn columns are repaired synchronously so nobody is ever
  * teleported into a block. The larger decorative structures are queued.
@@ -576,7 +575,10 @@ final class HcfInfrastructureDirector {
                     task.cancel();
                     task=null;
                     duelReady=validateSpawn(duelHuman)&&validateSpawn(duelSim);
-                    plugin.getLogger().info("HCF infrastructure build complete: duel arena + Nether/End warp hubs.");
+                    if(plugin.getConfig().getBoolean("infrastructure.external-dimension-schematics",true))
+                        plugin.getLogger().info("HCF infrastructure ready: duel arena built; production Nether/End schematics preserved unchanged.");
+                    else
+                        plugin.getLogger().info("HCF infrastructure build complete: duel arena + fallback Nether/End hubs.");
                 }
             }
         },1L,1L);

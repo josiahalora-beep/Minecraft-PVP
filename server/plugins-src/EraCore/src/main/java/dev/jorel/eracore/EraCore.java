@@ -63,6 +63,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     private HcfBaseBuilder hcfBaseBuilder;
     private HcfZoneDisplayDirector hcfZones;
     private LogicalTabListDirector logicalTab;
+    private HcfSidebarDirector sidebar;
     private SpawnRewardsDirector spawnRewards;
     private HcfAutoBrewerDirector autoBrewer;
     private HcfInfrastructureDirector infrastructure;
@@ -162,11 +163,19 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     @Override public void onEnable() {
         saveDefaultConfig();
 
-        // A full SOTW reset must be applied before Spigot loads the replacement
-        // worlds. If a custom launcher bypasses server/start-server.bat, refuse
-        // to initialize EraCore instead of silently pasting production builds
-        // over the old map.
-        File pendingReset = new File(getDataFolder(), "season-reset.pending");
+        migrateDirectorIntelligenceConfig();
+        migrateDistributedWorkerConfig();
+        migrateLivingWorldConfig();
+        migrateStartupPerformanceConfig();
+        migrateProductionUnificationConfig();
+        initFiles();
+        initShops();
+        loadFactions();
+
+        // All persistent YAML handles are initialized before this guard so the
+        // normal disable path is safe even when a bad launcher bypassed reset
+        // preflight.
+        final File pendingReset = new File(getDataFolder(), "season-reset.pending");
         if (pendingReset.isFile()) {
             getLogger().severe("SOTW RESET PENDING: the server was started without running Prepare-HCF-Season-Reset.ps1.");
             getLogger().severe("EraCore will not build over the existing world. Start with server\\start-server.bat.");
@@ -176,14 +185,6 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             return;
         }
 
-        migrateDirectorIntelligenceConfig();
-        migrateDistributedWorkerConfig();
-        migrateLivingWorldConfig();
-        migrateStartupPerformanceConfig();
-        migrateProductionUnificationConfig();
-        initFiles();
-        initShops();
-        loadFactions();
         warpManager = new WarpManager(this);
         warpManager.bootstrapDefaults();
         configureWorldBorders();
@@ -211,6 +212,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         worldBuildDirector = new HcfWorldBuildDirector(this,mapDirector,resourceDirector,schematicComposer);
         infrastructure = new HcfInfrastructureDirector(this,warpManager,hcfZones);
         logicalTab = new LogicalTabListDirector(this, simWorld);
+        sidebar = new HcfSidebarDirector(this,simWorld,eventDirector);
         spawnRewards = new SpawnRewardsDirector(this, warpManager);
         bindCommands();
         getServer().getPluginManager().registerEvents(this, this);
@@ -226,6 +228,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         startDtrRegen();
         simWorld.start();
         logicalTab.start();
+        sidebar.start();
         new BukkitRunnable() {
             public void run() {
                 if (simWorld != null) simWorld.refreshVisibleCombat();
@@ -279,6 +282,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (autoBrewer != null) autoBrewer.stop();
         if (spawnRewards != null) spawnRewards.stop();
         if (spawnPresence != null) spawnPresence.stop();
+        if (sidebar != null) sidebar.stop();
         if (logicalTab != null) logicalTab.stop();
         if (hcfZones != null) hcfZones.stop();
         if (hcfClasses != null) hcfClasses.stop();

@@ -2404,6 +2404,14 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             hcfBaseBuilder.forceRebuild(faction,preset,trapPreset,x,y,z,
                 storageTier,brewer,netherPortal,endPortal);
     }
+    void lazyMaterializeSimBase(String faction,String preset,String trapPreset,
+                                int x,int y,int z,int storageTier,
+                                boolean brewer,boolean netherPortal,boolean endPortal) {
+        if(hcfBaseBuilder!=null)
+            hcfBaseBuilder.lazyMaterialize(faction,preset,trapPreset,x,y,z,
+                storageTier,brewer,netherPortal,endPortal);
+    }
+
 
     void queueSimSurfaceBuild(String faction,String preset,int x,int y,int z) {
         if(hcfBaseBuilder!=null) hcfBaseBuilder.queueSurfaceStarter(faction,preset,x,y,z);

@@ -17,10 +17,10 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * HCF-style delayed /spawn and /warp travel.  Warmups are cancelled by
- * meaningful movement or damage so command teleports cannot be used as an
- * instant escape.  Portals remain the fast physical route for established
- * factions.
+ * HCF-style delayed command travel. Normal players use this for /f home and
+ * /f stuck; owner-only diagnostics may also route through it. Warmups are
+ * cancelled by meaningful movement or damage so commands cannot become an
+ * instant combat escape. Physical portals remain the dimension route.
  */
 final class HcfTravelDirector implements Listener {
     static final class Pending {
@@ -40,10 +40,14 @@ final class HcfTravelDirector implements Listener {
     }
 
     boolean request(final Player p,final Location target,String label) {
+        return request(p,target,label,Math.max(1,plugin.getConfig().getInt("travel.warmup-seconds",10)));
+    }
+
+    boolean request(final Player p,final Location target,String label,int requestedSeconds) {
         if(p==null || target==null || target.getWorld()==null) return false;
         cancel(p,false);
 
-        final int seconds=Math.max(1,plugin.getConfig().getInt("travel.warmup-seconds",10));
+        final int seconds=Math.max(1,requestedSeconds);
         final Pending q=new Pending();
         q.id=p.getUniqueId();
         q.start=p.getLocation().clone();

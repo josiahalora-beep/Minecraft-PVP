@@ -3615,9 +3615,27 @@ final class SimWorldDirector {
 
     private File coldArchiveDir() {
         String configured=plugin.getConfig().getString("memory.cold-archive-directory","");
-        File dir;
-        if(configured!=null && !configured.trim().isEmpty()) dir=new File(configured.trim());
-        else dir=new File(plugin.getDataFolder(),"memory-archive");
+        File dir=null;
+        if(configured!=null && !configured.trim().isEmpty()) {
+            dir=new File(configured.trim());
+        } else {
+            try {
+                File pluginsDir=plugin.getDataFolder().getParentFile();
+                File serverRoot=pluginsDir==null?null:pluginsDir.getParentFile();
+                File pointer=serverRoot==null?null:new File(serverRoot,"cold-storage-root.txt");
+                if(pointer!=null && pointer.isFile()) {
+                    BufferedReader in=new BufferedReader(new InputStreamReader(new FileInputStream(pointer),"UTF-8"));
+                    try {
+                        String root=in.readLine();
+                        if(root!=null && !root.trim().isEmpty())
+                            dir=new File(new File(root.trim()),"memory-archive");
+                    } finally { in.close(); }
+                }
+            } catch(Exception e) {
+                plugin.getLogger().warning("Could not read cold-storage-root.txt for memory archive: "+e.getMessage());
+            }
+        }
+        if(dir==null) dir=new File(plugin.getDataFolder(),"memory-archive");
         if(!dir.exists()) dir.mkdirs();
         return dir;
     }

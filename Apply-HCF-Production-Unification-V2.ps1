@@ -52,6 +52,7 @@ $SourceFiles = @(
     'server/plugins-src/EraCore/src/main/resources/config.yml',
     'server/plugins-src/EraCore/src/main/resources/plugin.yml',
     'server/Prepare-HCF-Season-Reset.ps1',
+    'server/start-server.bat',
     'bots/src/worker-pool.js',
     'bots/src/hcf-map-intelligence.js',
     'docs/ACTOR_RUNTIME.md'
@@ -136,6 +137,7 @@ foreach ($rel in $SourceFiles) {
 $downloadEra = Get-Content -LiteralPath (Join-Path $tempRoot 'server\plugins-src\EraCore\src\main\java\dev\jorel\eracore\EraCore.java') -Raw
 $downloadWorld = Get-Content -LiteralPath (Join-Path $tempRoot 'server\plugins-src\EraCore\src\main\java\dev\jorel\eracore\HcfWorldBuildDirector.java') -Raw
 $downloadReset = Get-Content -LiteralPath (Join-Path $tempRoot 'server\Prepare-HCF-Season-Reset.ps1') -Raw
+$downloadLauncher = Get-Content -LiteralPath (Join-Path $tempRoot 'server\start-server.bat') -Raw
 $downloadWorker = Get-Content -LiteralPath (Join-Path $tempRoot 'bots\src\worker-pool.js') -Raw
 $downloadMapAi = Get-Content -LiteralPath (Join-Path $tempRoot 'bots\src\hcf-map-intelligence.js') -Raw
 if ($downloadEra -notmatch 'migrateProductionUnificationConfig') { throw 'Downloaded EraCore is not the production-unification generation.' }
@@ -172,8 +174,13 @@ if ($downloadWorld -notmatch 'restartSotwProtectionClock') {
 if ($downloadEra -notmatch 'permanent-speed-2' -or $downloadEra -notmatch 'factionPrefix') {
     throw 'Downloaded EraCore is missing HCF v4 movement/presentation rules.'
 }
+if ($downloadLauncher -notmatch 'season-reset\.pending' -or
+    $downloadLauncher -notmatch 'Prepare-HCF-Season-Reset\.ps1' -or
+    $downloadLauncher -notmatch 'if errorlevel 1') {
+    throw 'Downloaded start-server.bat does not enforce the SOTW reset preflight.'
+}
 [void][ScriptBlock]::Create($downloadReset)
-Write-Host '[OK] Downloaded source/reset/worker validation passed.' -ForegroundColor Green
+Write-Host '[OK] Downloaded source/reset/launcher/worker validation passed.' -ForegroundColor Green
 
 Write-Host '[2/6] Creating rollback backup...' -ForegroundColor Cyan
 if (Test-Path $PluginJar) {
@@ -200,6 +207,10 @@ if (Test-Path (Join-Path $Server 'plugins-src\EraCore')) {
 }
 if (Test-Path $ResetScript) {
     Copy-Item -LiteralPath $ResetScript -Destination (Join-Path $backupRoot 'Prepare-HCF-Season-Reset.ps1') -Force
+}
+$startBat = Join-Path $Server 'start-server.bat'
+if (Test-Path $startBat) {
+    Copy-Item -LiteralPath $startBat -Destination (Join-Path $backupRoot 'start-server.bat') -Force
 }
 $botBackup = Join-Path $backupRoot 'bots-src'
 New-Item -ItemType Directory -Path $botBackup -Force | Out-Null
@@ -234,6 +245,9 @@ if (Test-Path $Source) {
 }
 if (Test-Path (Join-Path $Here 'Prepare-HCF-Season-Reset.ps1')) {
     Copy-Item -LiteralPath (Join-Path $Here 'Prepare-HCF-Season-Reset.ps1') -Destination (Join-Path $Server 'Prepare-HCF-Season-Reset.ps1') -Force
+}
+if (Test-Path (Join-Path $Here 'start-server.bat')) {
+    Copy-Item -LiteralPath (Join-Path $Here 'start-server.bat') -Destination (Join-Path $Server 'start-server.bat') -Force
 }
 $BotSource = Join-Path $Here 'bots-src'
 if (Test-Path $BotSource) {

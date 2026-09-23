@@ -16,7 +16,7 @@ $JavaSourceDir = Join-Path $Server 'plugins-src\EraCore\src\main\java\dev\jorel\
 
 # This repository is often installed as a plain folder rather than a Git clone.
 # Always sync the exact coordinated source generation before compiling.
-$SourceCommit = '28d373b6967335dc544782ea56aa78c88404eeed'
+$SourceCommit = '3425a7c0f8d8d0ce0da5d02317110a6c0a209a7a'
 $RawBase = 'https://raw.githubusercontent.com/josiahalora-beep/Minecraft-PVP/' + $SourceCommit
 $SourceFiles = @(
     'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/ActorDirectory.java',
@@ -24,6 +24,7 @@ $SourceFiles = @(
     'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/ContextChatBrain.java',
     'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/EraCore.java',
     'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfAutoBrewerDirector.java',
+    'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfAtmosphereDirector.java',
     'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfBaseBuilder.java',
     'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfBasePlan.java',
     'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfClaimDirector.java',
@@ -165,14 +166,18 @@ if ($downloadWorld -notmatch 'STRUCTURES' -or $downloadWorld -notmatch 'RESOURCE
 if ($downloadTerrain -notmatch 'terrain\.spawn-flat-radius' -or
     $downloadTerrain -notmatch 'terrain\.spawn-transition-radius' -or
     $downloadTerrain -notmatch 'terrain\.wilderness-amplitude' -or
-    $downloadTerrain -notmatch 'old-HCF readable first, natural second') {
-    throw 'Downloaded terrain director is missing the Build Viewer low-relief contract.'
+    $downloadTerrain -notmatch 'Natural HCF terrain v3' -or
+    $downloadTerrain -notmatch 'valueNoise\(' -or
+    $downloadTerrain -notmatch 'koth-classic-flat-radius') {
+    throw 'Downloaded terrain director is missing the natural HCF v3 terrain contract.'
 }
 if ($downloadBasePlan -notmatch 'Family selection happens BEFORE dimensions' -or
     $downloadBasePlan -notmatch 'coreHalfX\+20' -or
     $downloadBasePlan -notmatch 'war-room' -or
     $downloadBaseBuilder -notmatch 'prepareTerrainPad\(World w,HcfBasePlan p\)' -or
     $downloadBaseBuilder -notmatch 'buildCoreUtilityModules' -or
+    $downloadBaseBuilder -notmatch 'surfaceWallMaterial' -or
+    $downloadBaseBuilder -notmatch 'surfaceRoofMaterial' -or
     $downloadBaseBuilder -notmatch '\[base-plan\]') {
     throw 'Downloaded base compiler is missing the Build Viewer topology/terraforming contract.'
 }
@@ -444,9 +449,13 @@ Write-Host '[6/6] Deployment validation complete.' -ForegroundColor Green
 Write-Host ''
 Write-Host 'Installed capabilities:' -ForegroundColor Cyan
 Write-Host '  - scan/write-aware v7 production-map build with Kraken air-padding preserved as terrain'
-Write-Host '  - Build Viewer terrain contract: 300 flat spawn apron, 300-500 transition, +/-5 low-relief wilderness'
+Write-Host '  - natural HCF terrain v3: ~175 flat spawn apron, 175-300 transition, +/-7 domain-warped wilderness'
+Write-Host '  - narrow readable roads + event-specific terrain pads sized to the real KOTH/Conquest builds'
+Write-Host '  - clustered grass-dominant terrain materials: restrained dirt/gravel/rock/dry-region patches'
+Write-Host '  - permanent clear noon presentation: rain/thunder rejected and time automatically restored'
 Write-Host '  - blended faction-site terraforming: flat PvP frontage without giant square plateaus'
 Write-Host '  - five real base topologies: Redemption / Base-HCF / ModernHCF / Tunnel / Cave'
+Write-Host '  - family-specific exterior silhouettes/walls/roofs instead of one repeated glass-box shell'
 Write-Host '  - underground compiler modules: dropdown/elevator, 14-dub storage, enchant, war-room, utility, farm, brewer, portals, traps'
 Write-Host '  - claim envelope covers the farthest compiled module plus the configured outside buffer'
 Write-Host '  - minimal Kraken crate row: Vote chest + donor Ender Chest + KOTH chest'

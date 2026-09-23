@@ -18,8 +18,10 @@ import org.bukkit.event.player.*;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.potion.Potion;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
+import org.bukkit.potion.PotionType;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scoreboard.Scoreboard;
 import org.bukkit.scoreboard.Team;
@@ -676,6 +678,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
         maybeClaimOwner(p);
         ensurePlayerData(p);
+        purgeObsoletePotions(p);
         Rank r = bot ? simRankFor(p.getName()) : getRank(p.getName());
         applyCreatorTag(p);
         p.setPlayerListName(color(identityPrefix(p.getName(), r) + rankNameColor(r) + p.getName()));
@@ -2732,6 +2735,33 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             else p.getInventory().setItem(slot, i);
         }
         return left == 0;
+    }
+
+    private boolean isObsoletePotion(ItemStack item) {
+        if(item==null || item.getType()!=Material.POTION) return false;
+        try {
+            PotionType type=Potion.fromItemStack(item).getType();
+            return type==PotionType.SPEED || type==PotionType.FIRE_RESISTANCE;
+        } catch(Throwable ignored) {
+            short data=item.getDurability();
+            return data==(short)8226 || data==(short)8259;
+        }
+    }
+
+    private void purgeObsoletePotions(Player p) {
+        if(p==null) return;
+        PlayerInventory inv=p.getInventory();
+        boolean changed=false;
+        for(int slot=0;slot<inv.getSize();slot++) {
+            ItemStack item=inv.getItem(slot);
+            if(!isObsoletePotion(item)) continue;
+            inv.setItem(slot,null);
+            changed=true;
+        }
+        if(changed) {
+            p.updateInventory();
+            p.sendMessage(color("&7Legacy Speed/Fire Resistance potions were removed. &fSpeed II is permanent &7and Fire Resistance is disabled for this map."));
+        }
     }
 
     private void configureWorldBorders() {

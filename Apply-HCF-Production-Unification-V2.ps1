@@ -16,7 +16,7 @@ $JavaSourceDir = Join-Path $Server 'plugins-src\EraCore\src\main\java\dev\jorel\
 
 # This repository is often installed as a plain folder rather than a Git clone.
 # Always sync the exact coordinated source generation before compiling.
-$SourceCommit = 'ddd38bafa0a66e25545e7977523ebb16a1d38372'
+$SourceCommit = '13dabc1edd11c8ff7382d1c8ce0e963423ff62e1'
 $RawBase = 'https://raw.githubusercontent.com/josiahalora-beep/Minecraft-PVP/' + $SourceCommit
 $SourceFiles = @(
     'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/ActorDirectory.java',
@@ -55,6 +55,7 @@ $SourceFiles = @(
     'server/start-server.bat',
     'bots/src/worker-pool.js',
     'bots/src/hcf-map-intelligence.js',
+    'bots/src/community-ai.js',
     'Start-Daegon-With-Workers.ps1',
     'Start-Daegon-Adaptive.ps1',
     'docs/ACTOR_RUNTIME.md'
@@ -142,6 +143,9 @@ $downloadReset = Get-Content -LiteralPath (Join-Path $tempRoot 'server\Prepare-H
 $downloadLauncher = Get-Content -LiteralPath (Join-Path $tempRoot 'server\start-server.bat') -Raw
 $downloadWorker = Get-Content -LiteralPath (Join-Path $tempRoot 'bots\src\worker-pool.js') -Raw
 $downloadMapAi = Get-Content -LiteralPath (Join-Path $tempRoot 'bots\src\hcf-map-intelligence.js') -Raw
+$downloadCommunityAi = Get-Content -LiteralPath (Join-Path $tempRoot 'bots\src\community-ai.js') -Raw
+$downloadComposer = Get-Content -LiteralPath (Join-Path $tempRoot 'server\plugins-src\EraCore\src\main\java\dev\jorel\eracore\LegacySchematicComposer.java') -Raw
+$downloadSimWorld = Get-Content -LiteralPath (Join-Path $tempRoot 'server\plugins-src\EraCore\src\main\java\dev\jorel\eracore\SimWorldDirector.java') -Raw
 $downloadStackLauncher = Get-Content -LiteralPath (Join-Path $tempRoot 'Start-Daegon-With-Workers.ps1') -Raw
 $downloadAdaptiveLauncher = Get-Content -LiteralPath (Join-Path $tempRoot 'Start-Daegon-Adaptive.ps1') -Raw
 if ($downloadEra -notmatch 'migrateProductionUnificationConfig') { throw 'Downloaded EraCore is not the production-unification generation.' }
@@ -173,13 +177,26 @@ if ($downloadStackLauncher -notmatch 'WORKER_COORDINATOR_URL=http://127\.0\.0\.1
     $downloadAdaptiveLauncher -notmatch 'Start-Daegon-With-Workers\.ps1') {
     throw 'Downloaded Daegon launcher chain is incomplete.'
 }
-if ($downloadEra -notmatch 'production-unification-version",5' -or
+if ($downloadEra -notmatch 'production-unification-version",6' -or
     $downloadEra -notmatch 'world-composer\.blocks-per-tick",320') {
-    throw 'Downloaded EraCore is missing production pacing v5.'
+    throw 'Downloaded EraCore is missing production pacing/presentation v6.'
 }
-if ($downloadWorld -notmatch 'jobProgress=' -or
-    (Get-Content -LiteralPath (Join-Path $tempRoot 'server\plugins-src\EraCore\src\main\java\dev\jorel\eracore\LegacySchematicComposer.java') -Raw) -notmatch 'writes=') {
+if ($downloadWorld -notmatch 'jobProgress=' -or $downloadComposer -notmatch 'writes=') {
     throw 'Downloaded production composer is missing scan/write-aware progress reporting.'
+}
+if ($downloadComposer -notmatch 'Kraken Spawn[\s\S]{0,500},false\)') {
+    throw 'Downloaded production composer still allows Kraken selection air to carve the terrain.'
+}
+if ($downloadSimWorld -notmatch 'uniquePlayerNames' -or
+    $downloadSimWorld -notmatch 'name-skill-model-version",3') {
+    throw 'Downloaded simulation is missing unique-name/rare-handle skill model v3.'
+}
+if ($downloadCommunityAi -notmatch 'EADDRINUSE') {
+    throw 'Downloaded community AI bridge can still kill the coordinator on an occupied AI port.'
+}
+if ($downloadStackLauncher -notmatch 'coordinator\.err\.log' -or
+    $downloadStackLauncher -notmatch 'node_modules\\yaml') {
+    throw 'Downloaded adaptive launcher is missing coordinator diagnostics/dependency preflight.'
 }
 if ($downloadMapAi -match "x:\s*650" -or $downloadMapAi -match "z:\s*-?650") {
     throw 'Downloaded HCF map intelligence still contains the obsolete +/-650 KOTH layout.'
@@ -247,7 +264,7 @@ foreach ($name in @('Start-Daegon-With-Workers.ps1','Start-Daegon-Adaptive.ps1')
 }
 $botBackup = Join-Path $backupRoot 'bots-src'
 New-Item -ItemType Directory -Path $botBackup -Force | Out-Null
-foreach ($name in @('worker-pool.js','hcf-map-intelligence.js')) {
+foreach ($name in @('worker-pool.js','hcf-map-intelligence.js','community-ai.js')) {
     $p = Join-Path $Root ('bots\src\' + $name)
     if (Test-Path $p) { Copy-Item -LiteralPath $p -Destination (Join-Path $botBackup $name) -Force }
 }
@@ -354,8 +371,10 @@ foreach ($cmd in @('simtab:','mapcompose:','sotw:','baserebuild:','simactor:')) 
 Write-Host '[6/6] Deployment validation complete.' -ForegroundColor Green
 Write-Host ''
 Write-Host 'Installed capabilities:' -ForegroundColor Cyan
-Write-Host '  - scan/write-aware v7 production-map build with adaptive MSPT throttling'
-Write-Host '  - restored Start-Daegon-Adaptive.ps1 -> current 8770 coordinator/worker stack'
+Write-Host '  - scan/write-aware v7 production-map build with Kraken air-padding preserved as terrain'
+Write-Host '  - minimal Kraken crate row: Vote chest + donor Ender Chest + KOTH chest'
+Write-Host '  - unique period usernames with rare 4-6 letter handles weighted toward elite PvP'
+Write-Host '  - restored Start-Daegon-Adaptive.ps1 -> current 8770 coordinator/worker stack with logs'
 Write-Host '  - canonical KOTH/portal/conquest geometry'
 Write-Host '  - hybrid five-family faction bases + rectangular claim containment'
 Write-Host '  - local-first contextual chat + semantic anti-repeat + hard AI budget'

@@ -341,6 +341,10 @@ final class SimWorldDirector {
         int trapZ;
         String trapType = "none";
         String focus = "";
+        String engagementMode = "ENGAGE"; // ENGAGE, WATCH, CLEANUP
+        int engageDelayMs;
+        int watchDistance = 16;
+        final List<String> neutrals = new ArrayList<String>();
         int lootHealNeed;
         int lootPearlNeed;
         int lootSpeedNeed;
@@ -368,6 +372,10 @@ final class SimWorldDirector {
                 " trapX=" + trapX + " trapY=" + trapY + " trapZ=" + trapZ +
                 " trapType=" + trapType +
                 " focus=" + focus +
+                " engagementMode=" + engagementMode +
+                " engageDelayMs=" + engageDelayMs +
+                " watchDistance=" + watchDistance +
+                " neutrals=" + joinNames(neutrals) +
                 " lootHealNeed=" + lootHealNeed +
                 " lootPearlNeed=" + lootPearlNeed +
                 " lootSpeedNeed=" + lootSpeedNeed +
@@ -1411,6 +1419,11 @@ final class SimWorldDirector {
         List<SimPlayer> sideB=pickFightMembers(b,sizes[1]);
         if(sideA.isEmpty() || sideB.isEmpty()) return null;
 
+        if(!shouldOpenFight(a,b,sideA.size(),sideB.size(),atBase)) {
+            rememberPeacefulEncounter(a,b,sideA.size(),sideB.size());
+            return null;
+        }
+
         int cx,cz;
         String anchor="";
         boolean trapFight=false;
@@ -1461,16 +1474,97 @@ final class SimWorldDirector {
         return fight;
     }
 
+    private int factionTemperament(SimFaction f) {
+        if(f==null || f.members.isEmpty()) return 50;
+        int total=0,n=0;
+        for(String member:f.members) {
+            SimPlayer p=players.get(key(member));
+            if(p==null) continue;
+            total+=p.aggression+p.riskTolerance+(100-p.patience)/2;
+            n++;
+        }
+        return n==0?50:total/n;
+    }
+
+    private int factionMercy(SimFaction f) {
+        if(f==null || f.members.isEmpty()) return 45;
+        int total=0,n=0;
+        for(String member:f.members) {
+            SimPlayer p=players.get(key(member));
+            if(p==null) continue;
+            total+=p.patience+p.teamwork+p.loyalty-p.aggression/2;
+            n++;
+        }
+        return n==0?45:Math.max(0,Math.min(100,total/(n*3/1)));
+    }
+
+    private boolean shouldOpenFight(SimFaction a,SimFaction b,int sizeA,int sizeB,boolean atBase) {
+        if(a==null || b==null) return false;
+        int rivalry=rivalryScore(a.name,b.name);
+        if(atBase || rivalry>=28 ||
+           (a.campTarget!=null && a.campTarget.equalsIgnoreCase(b.name)) ||
+           (b.campTarget!=null && b.campTarget.equalsIgnoreCase(a.name))) return true;
+
+        int chance=58;
+        chance+=(factionTemperament(a)+factionTemperament(b)-100)/5;
+        if("PVP".equals(a.archetype) || "PVP".equals(b.archetype)) chance+=12;
+        chance+=Math.min(22,rivalry);
+
+        int big=Math.max(sizeA,sizeB), small=Math.min(sizeA,sizeB);
+        if(big>=3 && small==1) {
+            SimFaction larger=sizeA>sizeB?a:b;
+            int mercy=factionMercy(larger);
+            chance-=18+mercy/5; // nice factions frequently let a lone player pass
+        } else if(big-small>=2) {
+            chance-=10;
+        }
+
+        chance=Math.max(22,Math.min(92,chance));
+        return rng.nextInt(100)<chance;
+    }
+
+    private void rememberPeacefulEncounter(SimFaction a,SimFaction b,int sizeA,int sizeB) {
+        SimFaction larger=sizeA>=sizeB?a:b;
+        SimFaction smaller=larger==a?b:a;
+        String summary;
+        if(Math.max(sizeA,sizeB)>=3 && Math.min(sizeA,sizeB)==1)
+            summary=larger.name+" let a lone "+smaller.name+" player pass in warzone";
+        else
+            summary=a.name+" and "+b.name+" crossed paths without committing to a fight";
+        recordHistory("TRUCE",4,summary,"",a.name,b.name);
+        SimPlayer leader=players.get(key(larger.leader));
+        if(leader!=null && leader.logicalOnline && rng.nextInt(100)<38)
+            enqueue(leader.name,oneOf("leave him hes solo","dont chase that","we're not fighting them rn","just let them go"),false);
+    }
+
     private static double distSq(double ax,double az,double bx,double bz) {
         double dx=ax-bx,dz=az-bz;
         return dx*dx+dz*dz;
     }
 
+    private String thirdPartyStance(SimFaction third,SimFaction a,SimFaction b) {
+        SimPlayer leader=third==null?null:players.get(key(third.leader));
+        int aggression=leader==null?50:leader.aggression;
+        int patience=leader==null?50:leader.patience;
+        int politics=leader==null?50:leader.politicalIq;
+        int rivalry=Math.max(rivalryScore(third.name,a.name),rivalryScore(third.name,b.name));
+        int roll=rng.nextInt(100);
+
+        int commit=8+aggression/5+Math.min(24,rivalry);
+        int cleanup=24+politics/5+aggression/8;
+        if(patience>=70) { commit-=8; cleanup+=8; }
+        if("PVP".equals(third.archetype)) { commit+=10; cleanup+=8; }
+
+        if(roll<Math.max(5,Math.min(45,commit))) return "ENGAGE";
+        if(roll<Math.max(35,Math.min(82,commit+cleanup))) return "CLEANUP";
+        return "WATCH";
+    }
+
     private VisibleFight createThreeWayFight(Player observer,List<SimFaction> ready,SimFaction anchor) {
         List<SimFaction> nearby=new ArrayList<SimFaction>();
         int radius=Math.max(300,plugin.getConfig().getInt("combat-director.brawl-radius",420)*2);
-
         boolean overworld=observer.getWorld().equals(Bukkit.getWorlds().get(0));
+
         for(SimFaction f:ready) {
             if(f==anchor) continue;
             if(!overworld || distSq(anchor.baseX,anchor.baseZ,f.baseX,f.baseZ)<=radius*radius) nearby.add(f);
@@ -1479,28 +1573,22 @@ final class SimWorldDirector {
 
         Collections.sort(nearby,new Comparator<SimFaction>() {
             public int compare(SimFaction x,SimFaction y) {
-                int rx=rivalryScore(anchor.name,x.name);
-                int ry=rivalryScore(anchor.name,y.name);
-                return Integer.compare(ry,rx);
+                return Integer.compare(rivalryScore(anchor.name,y.name),rivalryScore(anchor.name,x.name));
             }
         });
 
         SimFaction b=nearby.get(0);
         SimFaction d=nearby.get(1);
+        String stance=thirdPartyStance(d,anchor,b);
 
         int multiBudget=Math.max(6,Math.min(12,hotCombatBudget()));
-        int perSide=Math.max(2,Math.min(4,multiBudget/3));
-        List<SimPlayer> aa=pickFightMembers(anchor,Math.min(perSide,activeFightMembers(anchor)));
-        List<SimPlayer> bb=pickFightMembers(b,Math.min(perSide,activeFightMembers(b)));
-        List<SimPlayer> dd=pickFightMembers(d,Math.min(perSide,activeFightMembers(d)));
-        if(aa.isEmpty()||bb.isEmpty()||dd.isEmpty()) return null;
+        int mainSide=Math.max(1,Math.min(4,(multiBudget-2)/2));
+        int thirdSize=Math.max(1,Math.min(3,multiBudget-mainSide*2));
 
-        while(aa.size()+bb.size()+dd.size()>multiBudget) {
-            if(aa.size()>=bb.size() && aa.size()>=dd.size() && aa.size()>1) aa.remove(aa.size()-1);
-            else if(bb.size()>=dd.size() && bb.size()>1) bb.remove(bb.size()-1);
-            else if(dd.size()>1) dd.remove(dd.size()-1);
-            else break;
-        }
+        List<SimPlayer> aa=pickFightMembers(anchor,Math.min(mainSide,activeFightMembers(anchor)));
+        List<SimPlayer> bb=pickFightMembers(b,Math.min(mainSide,activeFightMembers(b)));
+        List<SimPlayer> dd=pickFightMembers(d,Math.min(thirdSize,activeFightMembers(d)));
+        if(aa.isEmpty()||bb.isEmpty()||dd.isEmpty()) return null;
 
         Location ol=observer.getLocation();
         boolean nearAnchor=observer.getWorld().equals(Bukkit.getWorlds().get(0)) &&
@@ -1508,35 +1596,66 @@ final class SimWorldDirector {
             Math.pow(plugin.getConfig().getInt("combat-director.observation-radius",160)*1.7,2);
 
         int cx,cz;
-        if(nearAnchor) {
-            cx=anchor.baseX;
-            cz=anchor.baseZ-30;
-        } else {
+        if(nearAnchor) { cx=anchor.baseX; cz=anchor.baseZ-30; }
+        else {
             double angle=rng.nextDouble()*Math.PI*2.0;
-            double dist=plugin.isHcfSafezone(ol) ? (82+rng.nextInt(36)) : (38+rng.nextInt(30));
+            double dist=plugin.isHcfSafezone(ol)?(82+rng.nextInt(36)):(38+rng.nextInt(30));
             cx=(int)Math.round(ol.getX()+Math.cos(angle)*dist);
             cz=(int)Math.round(ol.getZ()+Math.sin(angle)*dist);
         }
 
         World w=observer.getWorld();
         int cy=Math.max(4,w.getHighestBlockYAt(cx,cz)+1);
-
         VisibleFight fight=new VisibleFight();
         fight.id="M"+System.currentTimeMillis();
-        fight.type="BRAWL_3WAY_"+aa.size()+"v"+bb.size()+"v"+dd.size();
-        fight.world=observer.getWorld().getName();
-        fight.centerX=cx; fight.centerY=cy; fight.centerZ=cz;
+        fight.type="THIRD_PARTY_"+stance+"_"+aa.size()+"v"+bb.size()+"+"+dd.size();
+        fight.world=w.getName();
+        fight.centerX=cx;fight.centerY=cy;fight.centerZ=cz;
         fight.anchorFaction=nearAnchor?anchor.name:"";
         fight.expiresAt=System.currentTimeMillis()+
             Math.max(70,plugin.getConfig().getInt("combat-director.visible-fight-duration-seconds",95))*1000L;
 
-        addMultiAssignments(fight,anchor,aa,bb,dd,0);
-        addMultiAssignments(fight,b,bb,aa,dd,1);
+        // Main factions fight each other. The third faction begins neutral unless
+        // its stance is an immediate full commit.
+        if("ENGAGE".equals(stance)) {
+            addMultiAssignments(fight,anchor,aa,bb,dd,0);
+            addMultiAssignments(fight,b,bb,aa,dd,1);
+        } else {
+            addMultiAssignments(fight,anchor,aa,bb,Collections.<SimPlayer>emptyList(),0);
+            addMultiAssignments(fight,b,bb,aa,Collections.<SimPlayer>emptyList(),1);
+        }
         addMultiAssignments(fight,d,dd,aa,bb,2);
 
-        recordRivalry(anchor.name,b.name,4+rng.nextInt(5));
-        recordRivalry(anchor.name,d.name,3+rng.nextInt(5));
-        recordRivalry(b.name,d.name,2+rng.nextInt(4));
+        List<String> thirdNames=new ArrayList<String>();
+        for(SimPlayer p:dd) thirdNames.add(p.name);
+        if(!"ENGAGE".equals(stance)) {
+            for(SimPlayer p:aa) {
+                CombatAssignment ca=fight.assignments.get(key(p.name));
+                if(ca!=null) ca.neutrals.addAll(thirdNames);
+            }
+            for(SimPlayer p:bb) {
+                CombatAssignment ca=fight.assignments.get(key(p.name));
+                if(ca!=null) ca.neutrals.addAll(thirdNames);
+            }
+        }
+        for(SimPlayer p:dd) {
+            CombatAssignment ca=fight.assignments.get(key(p.name));
+            if(ca==null) continue;
+            ca.engagementMode=stance;
+            ca.watchDistance=14+rng.nextInt(9);
+            ca.engageDelayMs="CLEANUP".equals(stance)?(9000+rng.nextInt(15000)):0;
+        }
+
+        recordRivalry(anchor.name,b.name,3+rng.nextInt(4));
+        if("ENGAGE".equals(stance)) {
+            recordRivalry(anchor.name,d.name,2+rng.nextInt(4));
+            recordRivalry(b.name,d.name,2+rng.nextInt(4));
+        } else {
+            recordHistory("WARZONE_SCENE",4,d.name+" "+("CLEANUP".equals(stance)?
+                "waited outside a "+anchor.name+" vs "+b.name+" fight looking for a cleanup":
+                "watched "+anchor.name+" fight "+b.name+" from a distance"),
+                d.name,d.leader,anchor.leader,b.leader);
+        }
         return fight;
     }
 
@@ -1829,6 +1948,10 @@ final class SimWorldDirector {
                 y.set(b+".trap-z",ca.trapZ);
                 y.set(b+".trap-type",ca.trapType);
                 y.set(b+".focus",ca.focus);
+                y.set(b+".engagement-mode",ca.engagementMode);
+                y.set(b+".engage-delay-ms",ca.engageDelayMs);
+                y.set(b+".watch-distance",ca.watchDistance);
+                y.set(b+".neutrals",ca.neutrals);
                 y.set(b+".loot-heal-need",ca.lootHealNeed);
                 y.set(b+".loot-pearl-need",ca.lootPearlNeed);
                 y.set(b+".loot-speed-need",ca.lootSpeedNeed);

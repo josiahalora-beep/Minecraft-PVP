@@ -2,9 +2,8 @@
 // Keep this deterministic and dependency-free: the server-side HcfMapDirector uses
 // the same coordinates/radii from config.yml.
 //
-// The production 3k map intentionally uses +/-650 quadrant KOTHs instead of +/-500.
-// On a +/-1500 border this leaves enough road-side faction land between Spawn's
-// claim exclusion and the KOTH protection rings while keeping every event reachable.
+// Canonical v7 production geometry. The four Overworld KOTHs use +/-500
+// quadrants, matching EraCore's production compositor and map-layout config.
 
 export const HCF_MAP = Object.freeze({
   overworld: Object.freeze({
@@ -19,10 +18,10 @@ export const HCF_MAP = Object.freeze({
       west: Object.freeze({ x: -1500, z: 0 })
     }),
     koths: Object.freeze([
-      Object.freeze({ id: 'classic', name: 'Classic', x: 650, y: 64, z: -650, radius: 165 }),
-      Object.freeze({ id: 'endstyle', name: 'EndStyle', x: -650, y: 64, z: -650, radius: 165 }),
-      Object.freeze({ id: 'egypt', name: 'Egypt', x: 650, y: 64, z: 650, radius: 165 }),
-      Object.freeze({ id: 'frost', name: 'Frost', x: -650, y: 64, z: 650, radius: 165 })
+      Object.freeze({ id: 'classic', name: 'Classic', x: 500, y: 64, z: -500, radius: 165 }),
+      Object.freeze({ id: 'endstyle', name: 'EndStyle', x: -500, y: 64, z: -500, radius: 165 }),
+      Object.freeze({ id: 'egypt', name: 'Egypt', x: 500, y: 64, z: 500, radius: 165 }),
+      Object.freeze({ id: 'frost', name: 'Frost', x: -500, y: 64, z: 500, radius: 165 })
     ]),
     endPortals: Object.freeze([
       Object.freeze({ id: 'ne-end', x: 1000, y: 64, z: -1000, radius: 125 }),

@@ -98,6 +98,7 @@ final class HcfWorldBuildDirector {
         if(!plugin.getConfig().getBoolean("map.complete",false) ||
            !plugin.getConfig().getBoolean("world-build.complete",false)) {
             stage("FINALIZE");
+            boolean fullSotwBuild=plugin.getConfig().getBoolean("map.auto-bootstrap",false);
             plugin.finalizeProductionSpawn();
             map.bootstrapWarps();
             plugin.getConfig().set("map.complete",true);
@@ -105,6 +106,10 @@ final class HcfWorldBuildDirector {
             plugin.getConfig().set("world-build.complete",true);
             plugin.getConfig().set("world-build.active",false);
             plugin.saveConfig();
+            if(fullSotwBuild) {
+                plugin.restartSotwProtectionClock();
+                plugin.getLogger().info("[SOTW] Protection clock started now that the production map is READY.");
+            }
             plugin.getLogger().info("[world-build] READY: production structures/resources are materialized.");
             if(plugin.hasHumanOnline())
                 plugin.broadcastCommunityEvent("&a[Map] &fDaegon HCF production map is ready.");

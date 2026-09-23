@@ -681,6 +681,16 @@ async function tryFactionHome(state, cooldownMs=900) {
   return sent
 }
 
+function inventoryCountByName(bot, names=[]) {
+  if(!bot?.inventory) return 0
+  const wanted=new Set(names.map(x=>String(x).toLowerCase()))
+  let n=0
+  for(const item of bot.inventory.items()) {
+    if(wanted.has(String(item?.name || '').toLowerCase())) n+=Number(item.count || 0)
+  }
+  return n
+}
+
 function inventoryFreeSlots(bot) {
   try {
     if(typeof bot?.inventory?.emptySlotCount === 'function') return bot.inventory.emptySlotCount()
@@ -937,6 +947,7 @@ async function commandBrain(state) {
   const tagged = commandTagged(state)
   const now=Date.now()
   const targetZone=String(state.job?.zone || 'spawn').toLowerCase()
+  const resourceSupply=String(action)==='supply' && (targetZone==='nether' || targetZone==='end')
 
   // A crate trip that was interrupted by combat/faction duty resumes cleanup
   // first. Keys remain server-persistent, so abandoning the trip never loses one.
@@ -992,6 +1003,39 @@ async function commandBrain(state) {
     state.lastStarterAttempt=now
     await tryCommand(state,'/kit starter '+starterForState(state),900)
     return
+  }
+
+  // Resource runners carry their haul home before the next trip. This keeps
+  // the visible inventory, /f home warmup and faction economy synchronized.
+  if(resourceSupply && !tagged) {
+    const currentZone=dimensionZone(bot)
+
+    if(state.resourceBankPending) {
+      if(currentZone==='spawn' && nearAssignedHome(state,80)) {
+        await deposit(state)
+        await queueBotCommand(state,'/simworker stash',BOT_COMMAND_GAP_MS,50)
+        state.resourceBankPending=false
+        state.resourceTripStartedAt=0
+        state.physicalOps=0
+        return
+      }
+      if(now >= (state.homeWarmupUntil || 0)) await tryFactionHome(state,900)
+      return
+    }
+
+    if(currentZone===targetZone) {
+      if(!state.resourceTripStartedAt) state.resourceTripStartedAt=now
+      const gathered=targetZone==='nether'
+        ? inventoryCountByName(bot,['glowstone_dust'])
+        : inventoryCountByName(bot,['gunpowder'])
+      const targetQty=targetZone==='nether'?24:16
+      const tripOld=now-(state.resourceTripStartedAt || now)>=45000
+      if(gathered>=targetQty || inventoryFreeSlots(bot)<=8 || tripOld) {
+        state.resourceBankPending=true
+        await tryFactionHome(state,900)
+        return
+      }
+    }
   }
 
   // Dimension-bound supply/patrol work must reach the actual faction portal
@@ -2640,7 +2684,10 @@ function startWorkLoop(state, settings) {
         }
       }
 
-      if (state.physicalOps > 0 && (
+      const remoteResourceRun=
+        action==='supply' && ['nether','end'].includes(String(state.job?.zone || '').toLowerCase()) &&
+        dimensionZone(bot)!=='spawn'
+      if (!remoteResourceRun && state.physicalOps > 0 && (
         state.physicalOps % 3 === 0 ||
         Date.now() - state.lastDepositAt >= 15000
       )) {

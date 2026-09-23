@@ -26,6 +26,7 @@ final class HcfTerrainDirector implements Listener {
     private final EraCore plugin;
     private final ArrayDeque<Chunk> productionQueue=new ArrayDeque<Chunk>();
     private final Set<Long> queuedChunks=new HashSet<Long>();
+    private final Set<Long> normalizedThisRun=new HashSet<Long>();
     private BukkitTask productionTask;
 
     HcfTerrainDirector(EraCore plugin) {
@@ -62,7 +63,7 @@ final class HcfTerrainDirector implements Listener {
                 for(int i=0;i<perTick && !productionQueue.isEmpty();i++) {
                     Chunk chunk=productionQueue.removeFirst();
                     queuedChunks.remove(chunkKey(chunk.getX(),chunk.getZ()));
-                    if(chunk.isLoaded()) normalize(chunk);
+                    if(chunk.isLoaded()) normalizeProductionChunk(chunk);
                 }
                 if(productionQueue.isEmpty()) finishProductionTerrain();
             }
@@ -96,11 +97,11 @@ final class HcfTerrainDirector implements Listener {
         productionTask=null;
         productionQueue.clear();
         queuedChunks.clear();
+        normalizedThisRun.clear();
     }
 
     @EventHandler(priority=EventPriority.MONITOR)
     public void onChunkLoad(final ChunkLoadEvent e) {
-        if(!e.isNewChunk()) return;
         if(!plugin.getConfig().getBoolean("terrain.normalize-new-chunks",true)) return;
         if(e.getWorld().getEnvironment()!=World.Environment.NORMAL) return;
         // Ore Mountain is a separate resource world and keeps its own terrain.
@@ -108,27 +109,38 @@ final class HcfTerrainDirector implements Listener {
 
         final Chunk chunk=e.getChunk();
 
-        // During production composition, a newly generated chunk must be
-        // normalized *inside* its ChunkLoad callback. world.loadChunk() then
-        // returns to the composer, which can safely paste the schematic after
-        // terrain has been formed. A delayed task here would race and erase the
-        // pasted structure one tick later.
-        if(plugin.getConfig().getBoolean("world-build.active",false) &&
-           plugin.getConfig().getBoolean("world-build.terrain-complete",false)) {
-            normalize(chunk);
+        boolean production=plugin.getConfig().getBoolean("world-build.active",false);
+        boolean terrainDone=plugin.getConfig().getBoolean("world-build.terrain-complete",false);
+        boolean structuresDone=plugin.getConfig().getBoolean("map.structures-complete",false);
+        long key=chunkKey(chunk.getX(),chunk.getZ());
+
+        // Production repair also covers EXISTING chunks from an interrupted
+        // composer pass. Normalize each chunk once per runtime before the
+        // composer writes it; remembering the chunk prevents later reloads
+        // during the same structure pass from erasing already-pasted blocks.
+        if(production && !structuresDone) {
+            if(!terrainDone || busy()) {
+                enqueue(chunk);
+                return;
+            }
+            if(normalizedThisRun.add(key)) normalize(chunk);
             return;
         }
 
-        if(busy()) {
-            enqueue(chunk);
-            return;
-        }
-
+        // Outside production, only newly generated terrain is normalized.
+        if(!e.isNewChunk()) return;
         Bukkit.getScheduler().runTaskLater(plugin,new Runnable() {
             public void run() {
                 if(chunk.isLoaded()) normalize(chunk);
             }
         },1L);
+    }
+
+    private void normalizeProductionChunk(Chunk chunk) {
+        if(chunk==null) return;
+        long key=chunkKey(chunk.getX(),chunk.getZ());
+        if(!normalizedThisRun.add(key)) return;
+        normalize(chunk);
     }
 
     private void normalize(Chunk chunk) {

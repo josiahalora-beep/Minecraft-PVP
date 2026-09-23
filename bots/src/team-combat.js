@@ -500,6 +500,41 @@ export function createTeamCombatController(bot, assignmentProvider, eventReporte
     }
   }
 
+  function thirdPartyReady(a) {
+    const mode=String(a?.engagementMode || 'ENGAGE').toUpperCase()
+    if(mode==='ENGAGE') return true
+    // Any faction that gets hit is allowed to defend itself immediately.
+    if(Date.now()-lastDamageAt<1800) return true
+    if(mode==='WATCH') return false
+
+    const delay=Math.max(5000,Number(a?.engageDelayMs || 12000))
+    if(Date.now()-fightStartedAt>=delay) return true
+
+    // Cleanup factions are watching for a death/separation. If fewer members of
+    // the original fight remain visible, they may opportunistically collapse.
+    const listed=Array.isArray(a?.enemies)?a.enemies.length:0
+    const visible=countNearby(bot,a?.enemies || [],34)
+    return listed>=2 && visible<=Math.max(1,listed-1)
+  }
+
+  async function thirdPartyWatchTick(a,target) {
+    if(!bot.entity) return true
+    const watch=Math.max(10,Math.min(28,Number(a?.watchDistance || 16)))
+    if(!target) {
+      stop(bot)
+      return true
+    }
+
+    const dist=target.dist
+    if(dist<watch-3) moveAway(bot,target.entity)
+    else if(dist>watch+7) moveToward(bot,target.entity.position.x,target.entity.position.z,false)
+    else {
+      stop(bot)
+      try { await bot.lookAt(target.entity.position.offset(0,1.25,0),false) } catch {}
+    }
+    return true
+  }
+
   async function humanMistakeTick(a,target) {
     if(!bot.entity || !profile) return false
     const now=Date.now()
@@ -1131,9 +1166,22 @@ export function createTeamCombatController(bot, assignmentProvider, eventReporte
         }
       }
       if (!target) target = nearestNamedEntity(bot, a.enemies || [])
+
+      // Main-fight assignments keep spectators neutral. If a neutral third party
+      // actually hits this bot, defend against the closest one instead of
+      // pretending the attack did not happen.
+      if(Date.now()-lastDamageAt<1800 && Array.isArray(a?.neutrals) && a.neutrals.length) {
+        const neutral=nearestNamedEntity(bot,a.neutrals)
+        if(neutral && neutral.dist<=9) target=neutral
+      }
+
       const cls = String(a.class || 'DIAMOND').toUpperCase()
 
       if (await terrainEscapeTick(a,target)) return
+      if(!thirdPartyReady(a)) {
+        await thirdPartyWatchTick(a,target)
+        return
+      }
       if (await teamCohesionTick(a,target)) return
       if (await humanMistakeTick(a,target)) return
 

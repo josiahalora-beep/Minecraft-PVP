@@ -45,6 +45,10 @@ final class HcfBasePlan {
     final int frontGateOffset;
     final int utilitySide;
     final int finishTier;
+    // Design vocabulary distilled from the five supplied HCF base families.
+    // 0 Redemption, 1 Base-HCF, 2 ModernHCF, 3 Tunnel, 4 Cave.
+    final int primaryFamily;
+    final int secondaryFamily;
 
     final Material surfaceFrame;
     final Material surfaceFloor;
@@ -84,6 +88,17 @@ final class HcfBasePlan {
         this.surfaceShape=(seed/37)%3;
         this.frontGateOffset=((seed/41)%5)-2;
         this.utilitySide=((seed/47)&1)==0?-1:1;
+
+        int family=seed%5;
+        String arch=this.profile.archetype==null?"BALANCED":this.profile.archetype.toUpperCase(Locale.ENGLISH);
+        if("TRAPPER".equals(arch)) family=((seed/5)&1)==0?4:3;
+        else if("ECONOMY".equals(arch)) family=((seed/7)&1)==0?1:2;
+        else if("PVP".equals(arch)) family=((seed/11)&1)==0?0:2;
+        else if("UNDERDOG".equals(arch)) family=((seed/13)&1)==0?3:4;
+        this.primaryFamily=family;
+        int secondary=(family+1+((seed/59)%4))%5;
+        if(secondary==family) secondary=(secondary+1)%5;
+        this.secondaryFamily=secondary;
 
         int finish=this.profile.builderQuality>=76?2:(this.profile.builderQuality>=48?1:0);
         if(this.profile.wealthTier>=2 && finish<2) finish++;
@@ -165,7 +180,24 @@ final class HcfBasePlan {
     }
 
     int surfacePadRadius() {
-        return Math.max(surfaceHalfX,surfaceHalfZ)+8;
+        // Include underground utility wings/tunnels in the claim/build pad, not
+        // just the visible upper shell.
+        return Math.max(Math.max(surfaceHalfX,surfaceHalfZ)+8,
+            Math.max(coreHalfX,coreHalfZ)+14);
+    }
+
+    String primaryFamilyName() { return familyName(primaryFamily); }
+    String secondaryFamilyName() { return familyName(secondaryFamily); }
+
+    private String familyName(int id) {
+        switch(id) {
+            case 0: return "REDEMPTION";
+            case 1: return "BASE_HCF";
+            case 2: return "MODERN_HCF";
+            case 3: return "TUNNEL";
+            case 4: return "CAVE";
+            default: return "BALANCED";
+        }
     }
 
     private static int positiveHash(String text) {

@@ -1258,9 +1258,73 @@ function smartMovements(bot, canDig = false) {
   // may only step down one block and may not treat water as an unlimited safe drop.
   // The faction's known dropdown is handled explicitly outside the generic planner.
   moves.allowParkour = false
+  moves.allowSprinting = true
   moves.maxDropDown = 1
   moves.infiniteLiquidDropdownDistance = false
   return moves
+}
+
+function collisionSolid(block) {
+  if(!block) return false
+  if(block.boundingBox==='block') return true
+  const name=String(block.name||'')
+  return !['air','tall_grass','grass','dandelion','poppy','water','flowing_water'].includes(name) &&
+    block.boundingBox!=='empty'
+}
+
+function collisionOpen(block) {
+  return !block || block.boundingBox==='empty' ||
+    ['air','tall_grass','grass','dandelion','poppy'].includes(String(block.name||''))
+}
+
+function autoStepOneBlock(state) {
+  const bot=state?.bot
+  if(!bot?.entity || state.combat || botInWater(bot)) return
+  if(Date.now() < Number(state.intentionalDropUntil||0)) return
+  if(bot.entity.onGround===false) return
+
+  const v=bot.entity.velocity
+  let dx=Number(v?.x||0), dz=Number(v?.z||0)
+  let speed=Math.sqrt(dx*dx+dz*dz)
+
+  // When already pressing against a block, velocity can collapse to zero.
+  // Fall back to the facing direction for purposeful non-idle work.
+  if(speed<0.035) {
+    const action=String(state.job?.action||'idle')
+    if(['idle','safe','spectate','afk'].includes(action)) {
+      if(state.autoStepActive && Date.now()>Number(state.autoStepReleaseAt||0)) {
+        try { bot.setControlState('jump',false) } catch {}
+        state.autoStepActive=false
+      }
+      return
+    }
+    const yaw=Number(bot.entity.yaw||0)
+    dx=-Math.sin(yaw); dz=-Math.cos(yaw); speed=1
+  }
+
+  dx/=speed; dz/=speed
+  const p=bot.entity.position
+  const y=Math.floor(p.y)
+  const ax=Math.floor(p.x+dx*0.85)
+  const az=Math.floor(p.z+dz*0.85)
+
+  try {
+    const obstacle=bot.blockAt(worldVec(bot,ax,y,az))
+    const above=bot.blockAt(worldVec(bot,ax,y+1,az))
+    const head=bot.blockAt(worldVec(bot,ax,y+2,az))
+    if(collisionSolid(obstacle) && collisionOpen(above) && collisionOpen(head)) {
+      bot.setControlState('jump',true)
+      bot.setControlState('sprint',true)
+      state.autoStepActive=true
+      state.autoStepReleaseAt=Date.now()+180
+      return
+    }
+  } catch {}
+
+  if(state.autoStepActive && Date.now()>Number(state.autoStepReleaseAt||0)) {
+    try { bot.setControlState('jump',false) } catch {}
+    state.autoStepActive=false
+  }
 }
 
 async function rawGoto(state, x, y, z, radius = 2, timeoutMs = 9000, canDig = false) {
@@ -2896,6 +2960,7 @@ async function connectIdentity(candidate, settings) {
       queueBotCommand(state,'/simcombat loot '+safeItem,BOT_COMMAND_GAP_MS,15).catch(()=>{})
     })
     bot.on('physicsTick', () => {
+      autoStepOneBlock(state)
       if (state.combatController && state.combat) {
         state.combatController.tick().catch(() => {})
       }

@@ -2338,7 +2338,7 @@ final class SimWorldDirector {
                 break;
         }
 
-        if (p.logicalOnline && p.currentGoal != null && !p.currentGoal.isEmpty()) {
+        if (!"spectate".equals(t.action) && p.logicalOnline && p.currentGoal != null && !p.currentGoal.isEmpty()) {
             String g=p.currentGoal;
             if("patrol".equals(g) && f.stage==Stage.PVP_READY &&
                !shouldRoamNow(p,f) && !shouldContestActiveEvent(p,f)) {

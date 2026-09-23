@@ -412,7 +412,9 @@ final class HcfBaseBuilder {
                 int target=(int)Math.round(p.surfaceY+naturalDelta*t);
                 target=Math.max(p.surfaceY-5,Math.min(p.surfaceY+5,target));
 
-                boolean structureWork=ax<=workX && az<=workZ;
+                int shellDx=Math.max(0,ax-p.surfaceHalfX);
+                int shellDz=Math.max(0,az-p.surfaceHalfZ);
+                boolean structureWork=Math.sqrt((double)shellDx*shellDx+(double)shellDz*shellDz)<=3.25;
                 boolean elevationChange=target!=surface;
 
                 // Outside the compact cradle, preserve the generated terrain and
@@ -1089,21 +1091,20 @@ final class HcfBaseBuilder {
         int frontX=p.cx+p.frontGateOffset;
         if(z==minZ && Math.abs(x-frontX)<=1) return 0;
 
-        int backX=p.cx-p.frontGateOffset;
-        if(z==maxZ && Math.abs(x-backX)<=1) return 0;
+        if(p.entrances>=2) {
+            int sideX=p.utilitySide>0?maxX:minX;
+            if(x==sideX && Math.abs(z-p.cz)<=1) return 1;
+        }
 
-        int sideOffset=Math.max(-2,Math.min(2,p.frontGateOffset));
-        if(p.entrances>=3 && x==maxX && Math.abs(z-(p.cz+sideOffset))<=1) return 1;
-        if(p.entrances>=4 && x==minX && Math.abs(z-(p.cz-sideOffset))<=1) return 1;
+        if(p.entrances>=3) {
+            int backX=p.cx-p.frontGateOffset;
+            if(z==maxZ && Math.abs(x-backX)<=1) return 0;
+        }
         return -1;
     }
 
     private boolean isBayJoinOpening(HcfBasePlan p,int x,int yy,int z) {
-        if(p.surfaceShape!=2 || yy>p.surfaceY+3) return false;
-        int side=p.utilitySide;
-        int joinX=p.cx+side*p.surfaceHalfX;
-        int bz=p.cz+3+((p.seed/53)%5)-2;
-        return x==joinX && Math.abs(z-bz)<=1;
+        return false;
     }
 
     private boolean surfaceInside(HcfBasePlan p,int x,int z) {
@@ -1259,6 +1260,125 @@ final class HcfBaseBuilder {
         queue.add(new Op(w,x+1,y+1,z,Material.FURNACE));
         queue.add(new Op(w,x-1,y+1,z,Material.FURNACE));
         queue.add(new Op(w,x,y+1,z+1,Material.ENDER_CHEST));
+    }
+
+    private Material[] sampleLocalPalette(World w,HcfBasePlan p) {
+        int r=p.terrainCradleRadius()+5;
+        Map<Material,Integer> count=new LinkedHashMap<Material,Integer>();
+        for(int x=p.cx-r;x<=p.cx+r;x+=4) {
+            for(int z=p.cz-r;z<=p.cz+r;z+=4) {
+                // Sample the outer site more heavily than the center that is
+                // about to be excavated.
+                if(Math.abs(x-p.cx)<p.surfaceHalfX+3 && Math.abs(z-p.cz)<p.surfaceHalfZ+3) continue;
+                int y=solidSurfaceY(w,x,z);
+                Material m=w.getBlockAt(x,y,z).getType();
+                if(m==Material.GRASS || m==Material.DIRT || m==Material.SAND ||
+                   m==Material.GRAVEL || m==Material.STONE || m==Material.COBBLESTONE ||
+                   m==Material.MOSSY_COBBLESTONE) {
+                    Integer n=count.get(m);
+                    count.put(m,n==null?1:n+1);
+                }
+            }
+        }
+
+        Material dominant=Material.GRASS;
+        int best=-1;
+        for(Map.Entry<Material,Integer> e:count.entrySet()) {
+            if(e.getValue()>best) { best=e.getValue(); dominant=e.getKey(); }
+        }
+
+        if(dominant==Material.SAND)
+            return new Material[]{Material.SAND,Material.SAND,Material.SANDSTONE};
+        if(dominant==Material.STONE || dominant==Material.COBBLESTONE || dominant==Material.MOSSY_COBBLESTONE)
+            return new Material[]{dominant,Material.STONE,Material.GRAVEL};
+        if(dominant==Material.GRAVEL)
+            return new Material[]{Material.GRASS,Material.DIRT,Material.GRAVEL};
+        return new Material[]{Material.GRASS,Material.DIRT,Material.COBBLESTONE};
+    }
+
+    private double cradleNoise(int x,int z,int seed) {
+        int gx=Math.floorDiv(x,5),gz=Math.floorDiv(z,5);
+        double fx=(Math.floorMod(x,5))/5.0,fz=(Math.floorMod(z,5))/5.0;
+        fx=fx*fx*(3.0-2.0*fx); fz=fz*fz*(3.0-2.0*fz);
+        double a=cradleLattice(gx,gz,seed),b=cradleLattice(gx+1,gz,seed);
+        double c0=cradleLattice(gx,gz+1,seed),d=cradleLattice(gx+1,gz+1,seed);
+        double ab=a+(b-a)*fx,cd=c0+(d-c0)*fx;
+        return ab+(cd-ab)*fz;
+    }
+
+    private double cradleLattice(int x,int z,int seed) {
+        long h=((long)x*341873128712L)^((long)z*132897987541L)^((long)seed*31L);
+        h^=(h>>>21); h*=0x9E3779B97F4A7C15L; h^=(h>>>29);
+        return (h&0xffffL)/65535.0;
+    }
+
+    private void buildTerrainCradle(World w,HcfBasePlan p,int top) {
+        Material[] palette=sampleLocalPalette(w,p);
+        Material topMat=palette[0],fillMat=palette[1],accent=palette[2];
+
+        int extra=Math.max(7,plugin.getConfig().getInt("base-builder.cradle-extra-radius",11));
+        int maxHeight=Math.max(3,plugin.getConfig().getInt("base-builder.concealment-max-height",5));
+        int approach=Math.max(6,plugin.getConfig().getInt("base-builder.entrance-approach-length",9));
+        int conceal=p.concealmentTier();
+        int minZ=p.cz-p.surfaceHalfZ;
+        int gateX=p.cx+p.frontGateOffset;
+
+        double familyFactor=p.primaryFamily==3?1.22:(p.primaryFamily==4?1.28:(p.primaryFamily==2?0.82:1.0));
+        double tierFactor=conceal==0?0.72:(conceal==1?0.92:1.08);
+
+        int outerX=p.surfaceHalfX+extra;
+        int outerZ=p.surfaceHalfZ+extra;
+        for(int x=p.cx-outerX;x<=p.cx+outerX;x++) {
+            for(int z=p.cz-outerZ;z<=p.cz+outerZ;z++) {
+                if(surfaceInside(p,x,z)) continue;
+
+                int ax=Math.abs(x-p.cx),az=Math.abs(z-p.cz);
+                int ex=Math.max(0,ax-p.surfaceHalfX);
+                int ez=Math.max(0,az-p.surfaceHalfZ);
+                double dist=Math.sqrt((double)ex*ex+(double)ez*ez);
+                if(dist>extra+1) continue;
+
+                // Bent, unmarked approach corridor. It stays walkable but does
+                // not look like a gravel runway pointing directly at the gate.
+                if(z<=minZ && z>=minZ-approach) {
+                    int depth=minZ-z;
+                    int bend=p.utilitySide*(depth/4);
+                    if(Math.abs(x-(gateX+bend))<=2) continue;
+                }
+
+                double falloff=Math.max(0.0,1.0-dist/(extra+1.0));
+                double backBias=z>=p.cz?1.12:(z<minZ?0.72:1.0);
+                double n=0.62+cradleNoise(x,z,p.seed)*0.58;
+                int h=(int)Math.round(maxHeight*falloff*n*familyFactor*tierFactor*backBias);
+                h=Math.max(0,Math.min(maxHeight+1,h));
+                if(h<=0) continue;
+
+                for(int yy=p.surfaceY+1;yy<p.surfaceY+h;yy++) {
+                    Material m=(yy<=p.surfaceY+1 && h>=4 && cradleNoise(x+9,z-7,p.seed)>0.73)
+                        ?accent:fillMat;
+                    queue.add(new Op(w,x,yy,z,m));
+                }
+                queue.add(new Op(w,x,p.surfaceY+h,z,topMat));
+            }
+        }
+
+        // Partial soil roof. Tunnel/Cave hide most of their surface roof,
+        // Redemption/Base-HCF hide roughly half, Modern leaves more craft visible.
+        double cover=p.primaryFamily==3?0.78:(p.primaryFamily==4?0.84:
+            (p.primaryFamily==2?0.28:(p.primaryFamily==0?0.58:0.48)));
+        cover=Math.min(0.92,cover+conceal*0.06);
+
+        for(int x=p.cx-p.surfaceHalfX;x<=p.cx+p.surfaceHalfX;x++) {
+            for(int z=p.cz-p.surfaceHalfZ;z<=p.cz+p.surfaceHalfZ;z++) {
+                if(!surfaceInside(p,x,z)) continue;
+                int frontDepth=z-minZ;
+                if(frontDepth<=2 && Math.abs(x-gateX)<=3) continue;
+                if(cradleNoise(x,z,p.seed+991)>cover) continue;
+
+                queue.add(new Op(w,x,top+2,z,fillMat));
+                queue.add(new Op(w,x,top+3,z,topMat));
+            }
+        }
     }
 
     private void decorateSurfaceGrammar(World w,HcfBasePlan p,int top) {

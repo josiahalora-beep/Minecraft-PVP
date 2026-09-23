@@ -268,7 +268,12 @@ combat-director:
   visible-fight-max-seconds: 22
   visible-fight-duration-seconds: 110
   visible-fight-chance-percent: 94
+  # This is third-party PRESENCE, not automatic combat. Most third factions
+  # watch, shadow, wait for a cleanup, or pass without entering the fight.
   three-way-brawl-chance-percent: 12
+  third-party-decision-seconds: 3
+  third-party-cleanup-health: 8.0
+  third-party-shadow-health: 5.0
   max-hot-per-faction: 5
   observation-radius: 220
   offscreen-resolution-seconds: 5

@@ -20,7 +20,7 @@ import java.util.*;
  */
 @SuppressWarnings("deprecation")
 final class HcfInfrastructureDirector {
-    private static final int VERSION=4;
+    private static final int VERSION=5;
 
     private static final class Op {
         final World world;
@@ -113,20 +113,27 @@ final class HcfInfrastructureDirector {
         warps.setWarp("duels",duelLobby);
 
         if(data.getInt("version",0)<VERSION) {
-            boolean externalSpawn=plugin.getConfig().getBoolean("spawn.external-schematic",false);
-            if(!externalSpawn) {
+            boolean productionSchematics=plugin.getConfig().getBoolean("spawn.external-schematic",true) ||
+                plugin.getConfig().getInt("map.production-layout-version",0)>=4;
+
+            if(productionSchematics) {
+                // Production schematics are authoritative. Never let stale
+                // runtime config trigger the legacy generic spawn or dimension
+                // hub builders after READY.
+                plugin.getLogger().info("Production schematic mode: preserving Kraken + Nether/End geometry exactly.");
+            } else {
                 queueSpawnFoundationRepair(overworld);
                 queueClassicHcfSpawn(overworld);
-            } else {
-                plugin.getLogger().info("External spawn schematic mode: preserving pasted spawn blocks.");
             }
+
+            // Duels live in their own flat world and cannot contaminate HCF map
+            // geometry, so this remains the only infrastructure we materialize
+            // automatically in production mode.
             queueDuelArena(duelWorld,dcx,dfloor,dcz);
-            boolean externalDimensions=plugin.getConfig().getBoolean("infrastructure.external-dimension-schematics",true);
-            if(!externalDimensions) {
+
+            if(!productionSchematics) {
                 if(netherHub!=null) queueDimensionHub(netherHub,Material.NETHER_BRICK,Material.NETHER_FENCE,Material.GLOWSTONE);
                 if(endHub!=null) queueDimensionHub(endHub,Material.ENDER_STONE,Material.IRON_FENCE,Material.GLOWSTONE);
-            } else {
-                plugin.getLogger().info("External Nether/End schematic mode: preserving production dimension builds.");
             }
             runQueue();
         } else {

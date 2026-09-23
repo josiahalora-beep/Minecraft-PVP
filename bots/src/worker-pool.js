@@ -2373,7 +2373,7 @@ async function redeemCrate(state) {
   }
 
   try {
-    const keyName=type==='donor'?'blaze_rod':'tripwire_hook'
+    const keyName=type==='donor'?'blaze_rod':(type==='koth'?'nether_star':'tripwire_hook')
     const held=bot.heldItem
     const key=held?.name===keyName ? held : bot.inventory.items().find(i=>i.name===keyName)
     if(key && held!==key) await bot.equip(key,'hand')

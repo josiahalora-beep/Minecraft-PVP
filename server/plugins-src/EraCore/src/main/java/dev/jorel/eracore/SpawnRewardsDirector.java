@@ -33,6 +33,7 @@ final class SpawnRewardsDirector implements Listener {
     private Location voteCrate;
     private Location donorCrate;
     private Location kothCrate;
+    private Location utilityEnderChest;
     private BukkitTask readinessTask;
 
     SpawnRewardsDirector(EraCore plugin,WarpManager warps) {
@@ -80,22 +81,48 @@ final class SpawnRewardsDirector implements Listener {
         if(w==null) return;
         int y=plugin.getConfig().getInt("spawn.crates.y",67);
         int z=plugin.getConfig().getInt("spawn.crates.z",36);
-        voteCrate=new Location(w,plugin.getConfig().getInt("spawn.crates.vote-x",-8),y,z);
-        donorCrate=new Location(w,plugin.getConfig().getInt("spawn.crates.donor-x",0),y,z);
-        kothCrate=new Location(w,plugin.getConfig().getInt("spawn.crates.koth-x",8),y,z);
 
-        if(!placeFunctionalCrate(voteCrate,Material.CHEST,"vote") ||
-           !placeFunctionalCrate(donorCrate,Material.ENDER_CHEST,"donor") ||
-           !placeFunctionalCrate(kothCrate,Material.CHEST,"koth")) {
-            plugin.getLogger().severe("Kraken crate placement refused because a configured crate position contains schematic decoration. No replacement structure was built.");
+        // Kraken itself is the architecture. These are four isolated utility
+        // blocks placed into existing open floor space—never booths, pads,
+        // pillars or a generated crate court.
+        voteCrate=findOpenKrakenUtility(w,plugin.getConfig().getInt("spawn.crates.vote-x",-12),y,z);
+        donorCrate=findOpenKrakenUtility(w,plugin.getConfig().getInt("spawn.crates.donor-x",-4),y,z);
+        kothCrate=findOpenKrakenUtility(w,plugin.getConfig().getInt("spawn.crates.koth-x",4),y,z);
+        utilityEnderChest=findOpenKrakenUtility(w,plugin.getConfig().getInt("spawn.crates.ender-x",12),y,z);
+
+        if(voteCrate==null || donorCrate==null || kothCrate==null || utilityEnderChest==null ||
+           !placeFunctionalCrate(voteCrate,Material.CHEST,"vote") ||
+           !placeFunctionalCrate(donorCrate,Material.CHEST,"donor") ||
+           !placeFunctionalCrate(kothCrate,Material.CHEST,"koth") ||
+           !placeFunctionalCrate(utilityEnderChest,Material.ENDER_CHEST,"ender")) {
+            plugin.getLogger().severe("Kraken utility placement refused: no safe open schematic floor was found. No fallback structure was built.");
             return;
         }
 
         rememberCrate("vote",voteCrate);
         rememberCrate("donor",donorCrate);
         rememberCrate("koth",kothCrate);
-        plugin.getLogger().info("Kraken crate blocks ready: vote="+locText(voteCrate)+
-            " donor="+locText(donorCrate)+" koth="+locText(kothCrate));
+        plugin.getLogger().info("Kraken utility blocks ready: vote="+locText(voteCrate)+
+            " donor="+locText(donorCrate)+" koth="+locText(kothCrate)+
+            " ender="+locText(utilityEnderChest));
+    }
+
+    private Location findOpenKrakenUtility(World w,int preferredX,int preferredY,int preferredZ) {
+        for(int radius=0;radius<=8;radius++) {
+            for(int dx=-radius;dx<=radius;dx++) {
+                for(int dz=-radius;dz<=radius;dz++) {
+                    if(radius>0 && Math.abs(dx)!=radius && Math.abs(dz)!=radius) continue;
+                    Location l=new Location(w,preferredX+dx,preferredY,preferredZ+dz);
+                    Block feet=l.getBlock();
+                    Block head=l.clone().add(0,1,0).getBlock();
+                    Block floor=l.clone().subtract(0,1,0).getBlock();
+                    if(feet.getType()!=Material.AIR || head.getType()!=Material.AIR) continue;
+                    if(!floor.getType().isSolid()) continue;
+                    return l.getBlock().getLocation();
+                }
+            }
+        }
+        return null;
     }
 
     private boolean placeFunctionalCrate(Location location,Material material,String label) {
@@ -339,8 +366,9 @@ final class SpawnRewardsDirector implements Listener {
         p.sendMessage(EraCore.colorText("&6Spawn Crates"));
         p.sendMessage(EraCore.colorText("&eVote Chest &7- voting and vote parties"));
         p.sendMessage(EraCore.colorText("&6KOTH Chest &7- event capture keys"));
-        p.sendMessage(EraCore.colorText("&bDonor Ender Chest &7- Basic / Silver / Gold / Platinum keys"));
-        p.sendMessage(EraCore.colorText("&7All three are plain interaction blocks built into Kraken spawn."));
+        p.sendMessage(EraCore.colorText("&bDonor Chest &7- Basic / Silver / Gold / Platinum keys"));
+        p.sendMessage(EraCore.colorText("&5Ender Chest &7- personal storage utility"));
+        p.sendMessage(EraCore.colorText("&7Kraken remains the spawn build; these are isolated utility blocks only."));
         return true;
     }
 
@@ -719,7 +747,7 @@ final class SpawnRewardsDirector implements Listener {
     }
 
     private String prettyType(String type) {
-        if("donor".equalsIgnoreCase(type)) return "Donor Ender Chest";
+        if("donor".equalsIgnoreCase(type)) return "Donor Chest";
         if("koth".equalsIgnoreCase(type)) return "KOTH Chest";
         return "Vote Chest";
     }
@@ -738,12 +766,14 @@ final class SpawnRewardsDirector implements Listener {
 
         // Minimal fallback only. Even outside production Kraken mode EraCore
         // never constructs a crate court, beacon, frame, pad or sign.
-        voteCrate=new Location(w,spawn.getBlockX()-8,y,z);
-        donorCrate=new Location(w,spawn.getBlockX(),y,z);
-        kothCrate=new Location(w,spawn.getBlockX()+8,y,z);
+        voteCrate=new Location(w,spawn.getBlockX()-12,y,z);
+        donorCrate=new Location(w,spawn.getBlockX()-4,y,z);
+        kothCrate=new Location(w,spawn.getBlockX()+4,y,z);
+        utilityEnderChest=new Location(w,spawn.getBlockX()+12,y,z);
         voteCrate.getBlock().setType(Material.CHEST);
-        donorCrate.getBlock().setType(Material.ENDER_CHEST);
+        donorCrate.getBlock().setType(Material.CHEST);
         kothCrate.getBlock().setType(Material.CHEST);
+        utilityEnderChest.getBlock().setType(Material.ENDER_CHEST);
     }
 
     private void save() {

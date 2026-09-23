@@ -59,15 +59,18 @@ export const HCF_MAP = Object.freeze({
 })
 
 export const HCF_COMMANDS = Object.freeze({
-  spawn: '/spawn',
+  // Player travel is intentionally physical. /f home is the one normal
+  // convenience return used by faction members; spawn, KOTH, Nether and End
+  // routes are walked/portal-traversed.
+  spawn: '',
   factionHome: '/f home',
   map: '/mapinfo',
   events: '/events',
   koths: '/koth list',
   nearestKoth: '/koth nearest',
   conquest: '/conquest status',
-  oreMountain: '/oremountain',
-  warps: '/warps',
+  oreMountain: '',
+  warps: '',
   kits: '/kits',
   keys: '/keys',
   crates: '/crates',
@@ -181,8 +184,8 @@ export function mapGoalFor({player={},faction={},event={},combat=false}={}) {
   if(combat) return {kind:'combat',command:'',destination:null}
   if(ratio<0.35 || faction?.['recovery-mode']) return {kind:'home',command:HCF_COMMANDS.factionHome,destination:null}
   if(stage==='SCOUT_CLAIM') return {kind:'road-claim-scout',command:HCF_COMMANDS.map,destination:{x:0,y:64,z:560}}
-  if(['GATHER_STARTER','GEARING'].includes(stage) && job==='miner') return {kind:'ore-mountain',command:HCF_COMMANDS.oreMountain,destination:null}
-  if(['BREWER','GEARING'].includes(stage) && job==='brewer') return {kind:'glowstone',command:'/warp nether',destination:HCF_MAP.nether.glowstone}
+  if(['GATHER_STARTER','GEARING'].includes(stage) && job==='miner') return {kind:'mine',command:'',destination:null}
+  if(['BREWER','GEARING'].includes(stage) && job==='brewer') return {kind:'glowstone',command:'',destination:HCF_MAP.nether.glowstone}
   if(String(event?.type||'').toUpperCase()==='KOTH' && event?.active) {
     const k=HCF_MAP.overworld.koths.find(x=>lower(x.id)===lower(event.id)||lower(x.name)===lower(event.name))
     if(k) return {kind:'koth',command:'',destination:k}
@@ -202,12 +205,12 @@ export function commandHelpForIntent(intent) {
     case 'koth': return HCF_COMMANDS.koths
     case 'conquest': return HCF_COMMANDS.conquest
     case 'ore':
-    case 'oremountain': return HCF_COMMANDS.oreMountain
+    case 'oremountain': return HCF_COMMANDS.map
     case 'map':
     case 'route': return HCF_COMMANDS.map
     case 'events': return HCF_COMMANDS.events
     case 'home': return HCF_COMMANDS.factionHome
-    case 'spawn': return HCF_COMMANDS.spawn
+    case 'spawn': return HCF_COMMANDS.map
     default: return HCF_COMMANDS.map
   }
 }

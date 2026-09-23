@@ -8658,7 +8658,10 @@ final class SimWorldDirector {
         if (cluster.size() < 2) return;
 
         Collections.shuffle(cluster, rng);
-        while (cluster.size() > 4) cluster.remove(cluster.size()-1);
+        // Offscreen simulation resolves one primary matchup at a time. Nearby
+        // third factions may still appear through the visible watch/shadow/cleanup
+        // system, but they are never silently treated as automatic combatants.
+        while (cluster.size() > 2) cluster.remove(cluster.size()-1);
 
         // Sample one performance for this encounter. Real ability anchors
         // the result; form, pressure and mistakes can swing close fights.

@@ -313,33 +313,36 @@ final class HcfTerrainDirector implements Listener {
         // material independently for every block; that was the source of the
         // confetti look in the v3 QA screenshots.
         if(x>560 && z>260) {
-            double dry=valueNoise(x,z,135.0,0x7719L);
-            double stone=valueNoise(x,z,82.0,0x773BL);
-            if(dry>0.48) {
-                if(stone>0.56) return new SurfaceSpec(Material.SANDSTONE,0);
+            // Regional identity is expressed as many small connected patches,
+            // never one huge brown/desert carpet.
+            double dry=valueNoise(x,z,58.0,0x7719L);
+            double stone=valueNoise(x,z,31.0,0x773BL);
+            if(dry>0.70) {
+                if(stone>0.76) return new SurfaceSpec(Material.SANDSTONE,0);
                 return new SurfaceSpec(Material.SAND,0);
             }
-            if(dry>0.08) return new SurfaceSpec(Material.DIRT,1);
+            if(dry>0.52) return new SurfaceSpec(Material.DIRT,1);
         }
 
         // Rocky southwest: clustered exposed rock / gravel shelves with grass
         // remaining the dominant material between them.
         if(x<-700 && z>200) {
-            double rock=valueNoise(x,z,105.0,0x5521L);
+            double rock=valueNoise(x,z,44.0,0x5521L);
+            double breakup=valueNoise(x,z,23.0,0x55A9L);
             int delta=Math.abs(y-base);
-            if(delta>=4 && rock>0.78) return new SurfaceSpec(Material.STONE,0);
-            if(delta>=3 && rock>0.64) return new SurfaceSpec(Material.GRAVEL,0);
-            if(rock>0.50) return new SurfaceSpec(Material.DIRT,1);
+            if(delta>=4 && rock>0.72 && breakup>0.16) return new SurfaceSpec(Material.STONE,0);
+            if(delta>=3 && rock>0.60 && breakup>-0.02) return new SurfaceSpec(Material.GRAVEL,0);
+            if(rock>0.50 && breakup>0.10) return new SurfaceSpec(Material.DIRT,1);
         }
 
         // General slope accents stay restrained. Grass is the dominant HCF
         // surface; these coherent scars exist to reveal a slope, not recolor a
         // whole hillside.
         if(canSurfaceAccent(x,z)) {
-            double accent=valueNoise(x,z,88.0,0x39A7L);
+            double accent=valueNoise(x,z,46.0,0x39A7L);
             int delta=Math.abs(y-base);
-            if(delta>=5 && accent>0.80) return new SurfaceSpec(Material.GRAVEL,0);
-            if(delta>=3 && accent>0.64) return new SurfaceSpec(Material.DIRT,1);
+            if(delta>=5 && accent>0.78) return new SurfaceSpec(Material.GRAVEL,0);
+            if(delta>=3 && accent>0.66) return new SurfaceSpec(Material.DIRT,1);
         }
 
         return new SurfaceSpec(Material.GRASS,0);

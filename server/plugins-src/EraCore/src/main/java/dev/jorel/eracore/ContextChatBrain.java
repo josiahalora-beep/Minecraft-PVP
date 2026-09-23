@@ -115,17 +115,26 @@ final class ContextChatBrain {
 
     private String recruitmentReply(Snapshot s, String m) {
         if (s.responderFaction.isEmpty()) {
-            return oneOf("im lff too","still solo rn","need a fac too");
+            if(s.responderSkill<45)
+                return oneOf("im looking too lol","same idk anyone yet","still trying to find one","if you find one lmk");
+            return oneOf("im lff too","still solo rn","need a fac too","same im looking","havent found one yet");
         }
         if (s.factionNeed == null || s.factionNeed.isEmpty()) {
-            return oneOf("we might be full","think we are set rn","ask our leader");
+            if(s.grudge>=45) return oneOf("nah ask someone else","we arent taking you rn","dont think so");
+            return oneOf("think we are set rn","ask our leader maybe","roster is pretty much full","we might have one spot idk");
         }
-        if (m.contains("bard") && s.factionNeed.contains("bard")) return "we actually need a bard msg me";
-        if (m.contains("archer") && s.factionNeed.contains("archer")) return "we need an archer msg me";
-        if (m.contains("miner") && s.factionNeed.contains("miner")) return "we need a miner msg me";
-        if (m.contains("brewer") && s.factionNeed.contains("brewer")) return "we need someone to brew msg me";
-        if (m.contains("builder") && s.factionNeed.contains("builder")) return "we could use a builder";
-        return "we need " + s.factionNeed + " msg me";
+        if (m.contains("bard") && s.factionNeed.contains("bard"))
+            return oneOf("we actually need bard msg leader","yeah we need a bard","bard? msg our leader");
+        if (m.contains("archer") && s.factionNeed.contains("archer"))
+            return oneOf("we need archer actually","msg our leader if you archer","archer spot might be open");
+        if (m.contains("miner") && s.factionNeed.contains("miner"))
+            return oneOf("we need someone mining","miner would help rn","yeah we need a miner");
+        if (m.contains("brewer") && s.factionNeed.contains("brewer"))
+            return oneOf("we need a brewer bad","if you brew msg leader","brewer spot is open i think");
+        if (m.contains("builder") && s.factionNeed.contains("builder"))
+            return oneOf("we could use a builder","builder would be nice","msg leader if you can build");
+        return oneOf("we need "+s.factionNeed+" rn","msg our leader we need "+s.factionNeed,
+            "might take you if you can "+s.factionNeed,"we still need "+s.factionNeed);
     }
 
     private String factionReply(Snapshot s, String m) {
@@ -142,22 +151,30 @@ final class ContextChatBrain {
 
     private String pvpReply(Snapshot s, String m) {
         if (s.recovery || s.raidable) {
-            return oneOf("not feeding dtr rn","we are staying in","not roaming till dtr is back");
+            return oneOf("not feeding dtr rn","we are staying in","not roaming till dtr is back",
+                "nah we low dtr","later we gotta regen");
         }
         if (!s.pvpReady) {
-            if ("GEARING".equals(s.factionStage)) return "still finishing sets";
-            if ("BREWER".equals(s.factionStage)) return "still making pots";
-            return oneOf("not geared yet","not ready yet","give us a bit");
+            if ("GEARING".equals(s.factionStage)) return oneOf("still making sets","not done gearing","need a set first");
+            if ("BREWER".equals(s.factionStage)) return oneOf("still making pots","brewer isnt ready yet","need pots first");
+            return oneOf("not geared yet","still setting up","we arent ready","later maybe");
         }
 
         if (m.contains("1v1")) {
-            if (s.responderSkill >= 80) return oneOf("sure meet spawn","im down","come spawn");
-            if (s.responderSkill >= 60) return oneOf("maybe in a min","yeah after i refill","could");
-            return oneOf("nah im good","not trying to 1v1 rn");
+            if (s.responderSkill >= 80)
+                return oneOf("sure spawn road","yeah run it","im down where","send duel","come north road");
+            if (s.responderSkill >= 60)
+                return oneOf("after refill maybe","could run one","give me a sec","maybe after this");
+            return oneOf("nah im good","not 1v1ing rn","im not that good lol","rather roam with fac");
         }
 
-        if (s.responderAggression >= 70) return oneOf("come spawn","where you at","we can fight");
-        return oneOf("maybe if my fac is on","we might roam soon","give us a min");
+        if (s.grudge>=55 && s.responderAggression>=55)
+            return oneOf("where you at","come out then","we'll see you","say where");
+        if (s.responderAggression >= 78)
+            return oneOf("we're outside","come road","where are you","we're looking rn");
+        if (s.responderAggression <= 38)
+            return oneOf("not really looking for fights","we're just chilling rn","only if someone hits us","probably staying around base");
+        return oneOf("might roam later","we're around","depends who is on","maybe if the fac goes out","we might go road");
     }
 
     private String dtrReply(Snapshot s, String m) {
@@ -221,15 +238,17 @@ final class ContextChatBrain {
             return "idk";
         }
         if (m.contains("what")) return activityState(s);
-        if (m.contains("when")) return oneOf("soon","idk yet","give it a bit");
-        return oneOf("idk","probably","maybe","yeah");
+        if (m.contains("when")) return oneOf("soon","idk yet","later probably","after we finish this","not sure");
+        return oneOf("idk","probably","maybe","could be","no clue","depends");
     }
 
     private String statementReply(Snapshot s, String m) {
-        if (m.contains("gg")) return oneOf("gg","ggs");
-        if (m.contains("bruh") || m.contains("lol")) return oneOf("lol","lmao");
-        if (m.contains("rip")) return "rip";
-        return rng.nextBoolean() ? "yeah" : null;
+        if (m.contains("gg")) return oneOf("gg","ggs","gf");
+        if (m.contains("bruh") || m.contains("lol")) return oneOf("lol","lmao","bro lol","fr");
+        if (m.contains("rip")) return oneOf("rip","damn","unlucky");
+        int roll=rng.nextInt(100);
+        if(roll<10) return oneOf("yeah","true","fr","maybe","idk");
+        return null;
     }
 
     private String locationState(Snapshot s) {

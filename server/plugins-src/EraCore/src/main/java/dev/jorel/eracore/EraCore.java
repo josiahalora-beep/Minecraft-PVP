@@ -2225,7 +2225,18 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             p.sendMessage(color(ok?"&aProduction map composition queued.":"&cCould not queue production map. Check console/assets."));
             return true;
         }
-        p.sendMessage("/mapcompose <status|start>");
+        if("spawn".equals(sub)) {
+            if(schematicComposer.busy()) {
+                p.sendMessage(color("&cA composition pass is already running."));
+                return true;
+            }
+            boolean ok=schematicComposer.queueSpawnOnly();
+            p.sendMessage(color(ok
+                ?"&aKraken spawn-only reset queued. &7Use &f/mapcompose status &7until busy=false, then stand at the intended center/facing and run &f/spawnpreset kraken center&7."
+                :"&cCould not queue Kraken spawn. Check console and map-assets/krakenhcf.schematic."));
+            return true;
+        }
+        p.sendMessage("/mapcompose <status|start|spawn>");
         return true;
     }
 

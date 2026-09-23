@@ -297,40 +297,48 @@ final class HcfTerrainDirector implements Listener {
     }
 
     private SurfaceSpec surfaceSpec(int x,int z,int y,int base) {
-        long h=terrainHash(x,z);
         double spawn=Math.sqrt((double)x*x+(double)z*z);
         double axis=Math.min(Math.abs((double)x),Math.abs((double)z));
 
+        // Roads keep a deliberate old-HCF gravel identity, but shoulder
+        // materials vary in long coherent stretches instead of pixel noise.
         if(spawn>165 && axis<=4) return new SurfaceSpec(Material.GRAVEL,0);
         if(spawn>170 && axis<=14) {
-            int r=(int)(h%100);
-            if(r<30) return new SurfaceSpec(Material.DIRT,1);
-            if(r<42) return new SurfaceSpec(Material.GRAVEL,0);
+            double shoulder=valueNoise(x,z,46.0,0x4301L);
+            if(shoulder>0.28) return new SurfaceSpec(Material.DIRT,1);
+            if(shoulder<-0.42) return new SurfaceSpec(Material.GRAVEL,0);
         }
 
-        // Southeast is a dry HCF basin, not a featureless desert. Grass,
-        // coarse dirt, sand and occasional sandstone interlock in broad patches.
+        // Southeast dry basin: broad connected patches. Never choose a new
+        // material independently for every block; that was the source of the
+        // confetti look in the v3 QA screenshots.
         if(x>560 && z>260) {
-            double dry=valueNoise(x,z,115.0,0x7719L);
-            int r=(int)(h%100);
-            if(dry>0.28) {
-                if(r<10) return new SurfaceSpec(Material.SANDSTONE,0);
+            double dry=valueNoise(x,z,135.0,0x7719L);
+            double stone=valueNoise(x,z,82.0,0x773BL);
+            if(dry>0.48) {
+                if(stone>0.56) return new SurfaceSpec(Material.SANDSTONE,0);
                 return new SurfaceSpec(Material.SAND,0);
             }
-            if(dry>-0.18 || r<18) return new SurfaceSpec(Material.DIRT,1);
+            if(dry>0.08) return new SurfaceSpec(Material.DIRT,1);
         }
 
+        // Rocky southwest: clustered exposed rock / gravel shelves with grass
+        // remaining the dominant material between them.
         if(x<-700 && z>200) {
-            int r=(int)(h%100);
-            if(r<7) return new SurfaceSpec(Material.STONE,0);
-            if(r<13) return new SurfaceSpec(Material.GRAVEL,0);
-            if(r<23) return new SurfaceSpec(Material.DIRT,1);
+            double rock=valueNoise(x,z,105.0,0x5521L);
+            if(rock>0.62) return new SurfaceSpec(Material.STONE,0);
+            if(rock>0.42) return new SurfaceSpec(Material.GRAVEL,0);
+            if(rock>0.18) return new SurfaceSpec(Material.DIRT,1);
         }
 
+        // General slope accents are also coherent patches. They only appear on
+        // meaningful relief and therefore reinforce the landform instead of
+        // visually flattening it with random texture noise.
         if(canSurfaceAccent(x,z)) {
-            int r=(int)(h%1000);
-            if(r<28 && Math.abs(y-base)>=2) return new SurfaceSpec(Material.DIRT,1);
-            if(r>=28 && r<35 && Math.abs(y-base)>=4) return new SurfaceSpec(Material.GRAVEL,0);
+            double accent=valueNoise(x,z,88.0,0x39A7L);
+            int delta=Math.abs(y-base);
+            if(delta>=4 && accent>0.66) return new SurfaceSpec(Material.GRAVEL,0);
+            if(delta>=2 && accent>0.48) return new SurfaceSpec(Material.DIRT,1);
         }
 
         return new SurfaceSpec(Material.GRASS,0);

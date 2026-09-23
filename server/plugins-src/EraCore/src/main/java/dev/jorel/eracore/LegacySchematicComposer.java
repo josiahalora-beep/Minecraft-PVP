@@ -311,10 +311,11 @@ final class LegacySchematicComposer {
                 }
                 if(jobs.isEmpty()) {
                     if(productionRun) {
+                        plugin.finalizeProductionSpawn();
                         plugin.getConfig().set("map.structures-complete",true);
-                        plugin.getConfig().set("map.production-layout-version",2);
+                        plugin.getConfig().set("map.production-layout-version",3);
                         plugin.saveConfig();
-                        plugin.getLogger().info("[composer] production HCF structures complete; resource stage may begin.");
+                        plugin.getLogger().info("[composer] production HCF structures complete; Kraken spawn finalized and resource stage may begin.");
                     }
                     productionRun=false;
                     runner.cancel();runner=null;

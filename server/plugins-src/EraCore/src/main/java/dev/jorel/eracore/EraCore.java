@@ -271,7 +271,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
                 }
             }.runTaskLater(this,220L);
         }
-        getLogger().info("EraCore 0.2 enabled: classic warps, paced sim chat, factions, economy and PvP baseline ready.");
+        getLogger().info("EraCore 0.2 enabled: physical HCF travel, paced sim chat, factions, economy and PvP baseline ready.");
     }
 
     @Override public void onDisable() {

@@ -16,7 +16,7 @@ $JavaSourceDir = Join-Path $Server 'plugins-src\EraCore\src\main\java\dev\jorel\
 
 # This repository is often installed as a plain folder rather than a Git clone.
 # Always sync the exact coordinated source generation before compiling.
-$SourceCommit = '7b73ac866e335b4d66b106fdbd4d5205daa1ec32'
+$SourceCommit = 'e36edecf816d66a4e72feaaf37d3d461edbff557'
 $RawBase = 'https://raw.githubusercontent.com/josiahalora-beep/Minecraft-PVP/' + $SourceCommit
 $SourceFiles = @(
     'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/ActorDirectory.java',

@@ -248,7 +248,21 @@ final class LogicalTabListDirector {
 
         Class<?> wsClass=Class.forName("net.minecraft.server.v1_8_R3.WorldServer");
         Class<?> pimClass=Class.forName("net.minecraft.server.v1_8_R3.PlayerInteractManager");
-        Object pim=pimClass.getConstructor(wsClass).newInstance(worldServer);
+
+        // Spigot 1.8.8's PlayerInteractManager constructor is declared against
+        // the NMS World base class, not WorldServer. Reflection requires the
+        // exact declared parameter type, which is why getConstructor(WorldServer)
+        // spammed NoSuchMethodException even though WorldServer is a subclass.
+        Object pim=null;
+        for(Constructor<?> ctor:pimClass.getConstructors()) {
+            Class<?>[] params=ctor.getParameterTypes();
+            if(params.length==1 && params[0].isAssignableFrom(worldServer.getClass())) {
+                pim=ctor.newInstance(worldServer);
+                break;
+            }
+        }
+        if(pim==null)
+            throw new NoSuchMethodException("No compatible PlayerInteractManager(world) constructor");
 
         Class<?> msClass=Class.forName("net.minecraft.server.v1_8_R3.MinecraftServer");
         Class<?> epClass=Class.forName("net.minecraft.server.v1_8_R3.EntityPlayer");
@@ -315,8 +329,12 @@ final class LogicalTabListDirector {
             failures++;
             lastFailure=t.getClass().getSimpleName()+": "+String.valueOf(t.getMessage());
             lastFailureAt=System.currentTimeMillis();
-            if(add) plugin.getLogger().warning("Logical tab packet failed for "+lowerNames.size()+
-                " identities: "+lastFailure);
+
+            // Do not flood the console every refresh tick if one reflection
+            // signature is wrong. Keep diagnostics available through /simtab.
+            if(add && (failures<=3 || failures%30==0))
+                plugin.getLogger().warning("Logical tab packet failed for "+lowerNames.size()+
+                    " identities: "+lastFailure);
         }
     }
 

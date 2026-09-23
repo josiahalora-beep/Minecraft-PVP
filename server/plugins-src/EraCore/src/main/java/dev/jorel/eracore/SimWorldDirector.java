@@ -439,25 +439,25 @@ final class SimWorldDirector {
     private static final Pattern MONEY = Pattern.compile("(?:\\$\\s*)?(\\d{2,7})");
 
     private static final String[] PLAYER_NAMES = {
-        "Stimpy","PainfulPvP","lolitsalex","Skimpy","Vexon","Mints","Syrup","Tew","Kinq","Aero"
-        "Zyro","Nox","Riven","Sora","Axion","Kryptic","Finesse","Deceive","Jettison","Vaporized"
-        "Shanked","Reborn","Ghosted","Murked","Beamed","Tagged","Claimed","Pearled","Chased","Trapped"
-        "Vaulted","Quickdrop","Spleefed","Knockback","Ruthless","Shiver","Mercy","Tempo","Haze","Fable"
-        "Nero","Scythe","Wraith","Glitch","Rook","Dusk","Vivid","Toxxic","Melted","Roasted"
-        "Hexed","Jinxed","Ripped","Lethal","Strafe","Comboed","Vexing","Hollow","Avenge","Crimson"
-        "Quartz","Orbit","Mango","Kiwi","Grape","Bamboo","Waffle","PurpleDino","Redstone","Nightfall"
-        "Monarch","Drowsy","Static","Frostbite","Lucid","Rapture","Cipher","Swerve","Recoil","Sentry"
-        "Talon","Riot","Cinder","Axiom","Mythic","Vandal","Sage","Rift","Daze","Morrow"
-        "Flare","Drift","Sway","Flux","Eon","Lunar","Karma","Venomous","Jax","Kairo"
-        "Zane","Trey","Jordan","Mason","Nate","Chris","Luke","Nick","Ben","Rico"
-        "Cody","Dylan","Evan","Noah","Miles","Cole","Cameron","Tyler","Brady","Logan"
-        "xRico","xSavage","xNova","xPulse","xScope","xBlade","xViper","xFrost","xVelocity","xRekt"
-        "iTzMason","iTzJordan","iTzLuke","iTzBen","iTzChris","FrostyHD","MasonHD","JordanHD","TreyHD","DemonHD"
-        "SethPvP","CamPvP","RyanPvP","PandaPvP","BreezyMC","CreeperHD","AeroPvP","DizzyPvP","VibePvP","LethalPvP"
-        "DuskPvP","AuraPvP","WafflePvP","KairoPvP","CobraPvP","RazePvP","TempoPvP","KiteMC","ClutchKid","StrafeKid"
-        "ArcherKid","BardMain","RogueMain","DiamondKid","DTRKing","KOTHKid","NetherKid","EndRoamer","PearlClip","CaneFarmer"
-        "ObbyMiner","BlazeKid","RefillKid","GateKid","BrewMaster","MinerMatt","qTip","SoupCan","RawrXD","z0mbie"
-        "SevenUp","NoChill","PingLord","Laggy","PotatoAim","DoorCamper","RoadRunner","OneTap","NoDebuff","Soup"
+        "Stimpy","PainfulPvP","lolitsalex","Skimpy","Vexon","Mints","Syrup","Tew","Kinq","Aero",
+        "Zyro","Nox","Riven","Sora","Axion","Kryptic","Finesse","Deceive","Jettison","Vaporized",
+        "Shanked","Reborn","Ghosted","Murked","Beamed","Tagged","Claimed","Pearled","Chased","Trapped",
+        "Vaulted","Quickdrop","Spleefed","Knockback","Ruthless","Shiver","Mercy","Tempo","Haze","Fable",
+        "Nero","Scythe","Wraith","Glitch","Rook","Dusk","Vivid","Toxxic","Melted","Roasted",
+        "Hexed","Jinxed","Ripped","Lethal","Strafe","Comboed","Vexing","Hollow","Avenge","Crimson",
+        "Quartz","Orbit","Mango","Kiwi","Grape","Bamboo","Waffle","PurpleDino","Redstone","Nightfall",
+        "Monarch","Drowsy","Static","Frostbite","Lucid","Rapture","Cipher","Swerve","Recoil","Sentry",
+        "Talon","Riot","Cinder","Axiom","Mythic","Vandal","Sage","Rift","Daze","Morrow",
+        "Flare","Drift","Sway","Flux","Eon","Lunar","Karma","Venomous","Jax","Kairo",
+        "Zane","Trey","Jordan","Mason","Nate","Chris","Luke","Nick","Ben","Rico",
+        "Cody","Dylan","Evan","Noah","Miles","Cole","Cameron","Tyler","Brady","Logan",
+        "xRico","xSavage","xNova","xPulse","xScope","xBlade","xViper","xFrost","xVelocity","xRekt",
+        "iTzMason","iTzJordan","iTzLuke","iTzBen","iTzChris","FrostyHD","MasonHD","JordanHD","TreyHD","DemonHD",
+        "SethPvP","CamPvP","RyanPvP","PandaPvP","BreezyMC","CreeperHD","AeroPvP","DizzyPvP","VibePvP","LethalPvP",
+        "DuskPvP","AuraPvP","WafflePvP","KairoPvP","CobraPvP","RazePvP","TempoPvP","KiteMC","ClutchKid","StrafeKid",
+        "ArcherKid","BardMain","RogueMain","DiamondKid","DTRKing","KOTHKid","NetherKid","EndRoamer","PearlClip","CaneFarmer",
+        "ObbyMiner","BlazeKid","RefillKid","GateKid","BrewMaster","MinerMatt","qTip","SoupCan","RawrXD","z0mbie",
+        "SevenUp","NoChill","PingLord","Laggy","PotatoAim","DoorCamper","RoadRunner","OneTap","NoDebuff","Soup",
         "Melee","Flick","Refill","Kiter","Debuff","Invis"
     };
 
@@ -6451,7 +6451,8 @@ final class SimWorldDirector {
         for (String k : ps.getKeys(false)) {
             ConfigurationSection s = ps.getConfigurationSection(k);
             SimPlayer p = new SimPlayer();
-            p.name = s.getString("name", k);
+            String loadedName=s.getString("name", k);
+            p.name = canonicalIdentityName(loadedName);
             p.faction = s.getString("faction", "");
             p.role = s.getString("role", "member");
             p.factionTitle = s.getString("faction-title","leader".equalsIgnoreCase(p.role)?"leader":"member");
@@ -6511,7 +6512,30 @@ final class SimWorldDirector {
             ConfigurationSection st = s.getConfigurationSection("stock");
             if (st != null) for (String item : st.getKeys(false)) p.stock.put(item, st.getInt(item));
             economy.initializePlayer(p);
-            players.put(key(p.name), p);
+
+            // Old builds seeded Stimpy, Stimpypvp and Marcel as separate people.
+            // Collapse those aliases without throwing away the stronger saved
+            // progression from either record.
+            SimPlayer existing=players.get(key(p.name));
+            if(existing==null) {
+                players.put(key(p.name),p);
+            } else {
+                existing.balance=Math.max(existing.balance,p.balance);
+                existing.skill=Math.max(existing.skill,p.skill);
+                existing.mechanics=Math.max(existing.mechanics,p.mechanics);
+                existing.pvpIq=Math.max(existing.pvpIq,p.pvpIq);
+                existing.gameSense=Math.max(existing.gameSense,p.gameSense);
+                existing.reputation=Math.max(existing.reputation,p.reputation);
+                existing.kills=Math.max(existing.kills,p.kills);
+                existing.deaths=Math.max(existing.deaths,p.deaths);
+                existing.donorLevel=Math.max(existing.donorLevel,p.donorLevel);
+                existing.donationUsd=Math.max(existing.donationUsd,p.donationUsd);
+                existing.logicalOnline=existing.logicalOnline||p.logicalOnline;
+                existing.pendingVoteKeys=Math.max(existing.pendingVoteKeys,p.pendingVoteKeys);
+                existing.pendingDonorKeys=Math.max(existing.pendingDonorKeys,p.pendingDonorKeys);
+                if((existing.faction==null||existing.faction.isEmpty()) && p.faction!=null)
+                    existing.faction=p.faction;
+            }
         }
 
         int nameSkillVersion=data.getInt("meta.name-skill-model-version",0);
@@ -6546,7 +6570,10 @@ final class SimWorldDirector {
                 e.type=h.getString("type","");
                 e.summary=h.getString("summary","");
                 e.faction=h.getString("faction","");
-                e.people.addAll(h.getStringList("people"));
+                for(String person:h.getStringList("people")) {
+                    String canonical=canonicalIdentityName(person);
+                    if(!canonical.isEmpty() && !e.people.contains(canonical)) e.people.add(canonical);
+                }
                 if(!e.summary.isEmpty()) communityHistory.addLast(e);
             }
             while(communityHistory.size()>historyMemoryLimit()) communityHistory.removeFirst();
@@ -6558,9 +6585,9 @@ final class SimWorldDirector {
                 ConfigurationSection s=social.getConfigurationSection(sk);
                 if(s==null) continue;
                 SocialEdge e=new SocialEdge();
-                e.from=s.getString("from","");
-                e.to=s.getString("to","");
-                if(e.from.isEmpty() || e.to.isEmpty()) continue;
+                e.from=canonicalIdentityName(s.getString("from",""));
+                e.to=canonicalIdentityName(s.getString("to",""));
+                if(e.from.isEmpty() || e.to.isEmpty() || e.from.equalsIgnoreCase(e.to)) continue;
                 e.affinity=clampAffinity(s.getInt("affinity",0));
                 e.trust=clampSocial(s.getInt("trust",50));
                 e.respect=clampSocial(s.getInt("respect",50));
@@ -6580,7 +6607,7 @@ final class SimWorldDirector {
                 ConfigurationSection s = fs.getConfigurationSection(k);
                 SimFaction f = new SimFaction();
                 f.name = s.getString("name", k);
-                f.leader = s.getString("leader", "");
+                f.leader = canonicalIdentityName(s.getString("leader", ""));
                 f.targetSize = Math.min(MAX_FACTION_MEMBERS, s.getInt("target-size", 3));
                 try { f.stage = Stage.valueOf(s.getString("stage", "SCOUT_CLAIM")); } catch (Exception ignored) {}
                 f.basePreset = s.getString("base-preset", "hcf_glass_box");
@@ -6628,7 +6655,10 @@ final class SimWorldDirector {
                 f.cane = s.getInt("cane");
                 f.treasury = s.getDouble("treasury");
                 f.actionCounter = s.getLong("actions");
-                f.members.addAll(s.getStringList("members"));
+                for(String member:s.getStringList("members")) {
+                    String canonical=canonicalIdentityName(member);
+                    if(!canonical.isEmpty() && !f.members.contains(canonical)) f.members.add(canonical);
+                }
                 while (f.members.size() > MAX_FACTION_MEMBERS) f.members.remove(f.members.size() - 1);
                 factions.put(key(f.name), f);
             }
@@ -8343,6 +8373,14 @@ final class SimWorldDirector {
             if(tmp.exists()) tmp.delete();
             plugin.getLogger().warning("Could not atomically save simulation.yml: " + e.getMessage());
         }
+    }
+
+    private String canonicalIdentityName(String name) {
+        if(name==null) return "";
+        String trimmed=name.trim();
+        String n=trimmed.toLowerCase(Locale.ENGLISH);
+        if(n.equals("marcel") || n.equals("stimp") || n.equals("stimpypvp")) return "Stimpy";
+        return trimmed;
     }
 
     private String key(String s) {

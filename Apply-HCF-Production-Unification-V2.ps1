@@ -16,7 +16,7 @@ $JavaSourceDir = Join-Path $Server 'plugins-src\EraCore\src\main\java\dev\jorel\
 
 # This repository is often installed as a plain folder rather than a Git clone.
 # Always sync the exact coordinated source generation before compiling.
-$SourceCommit = '833c052dae694e42a9196bcc5e96b7aa9aab3516'
+$SourceCommit = 'cdf04e63d8c9408e372b49cdf5be2d18734a817b'
 $RawBase = 'https://raw.githubusercontent.com/josiahalora-beep/Minecraft-PVP/' + $SourceCommit
 $SourceFiles = @(
     'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/ActorDirectory.java',
@@ -173,6 +173,14 @@ if ($downloadWorld -notmatch 'restartSotwProtectionClock') {
 }
 if ($downloadEra -notmatch 'permanent-speed-2' -or $downloadEra -notmatch 'factionPrefix') {
     throw 'Downloaded EraCore is missing HCF v4 movement/presentation rules.'
+}
+if ($downloadEra -notmatch 'ensureRuntimeConfigReadable' -or
+    $downloadEra -notmatch 'consumeSeasonResetReceipt') {
+    throw 'Downloaded EraCore is missing safe config recovery/reset-receipt handling.'
+}
+if ($downloadReset -match 'Set-YamlScalar' -or
+    $downloadReset -match 'Set-Content -LiteralPath \$config') {
+    throw 'Downloaded reset preflight still mutates config.yml directly.'
 }
 if ($downloadLauncher -notmatch 'season-reset\.pending' -or
     $downloadLauncher -notmatch 'Prepare-HCF-Season-Reset\.ps1' -or

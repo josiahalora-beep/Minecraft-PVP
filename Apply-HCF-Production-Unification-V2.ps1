@@ -16,7 +16,7 @@ $JavaSourceDir = Join-Path $Server 'plugins-src\EraCore\src\main\java\dev\jorel\
 
 # This repository is often installed as a plain folder rather than a Git clone.
 # Always sync the exact coordinated source generation before compiling.
-$SourceCommit = 'e5d28755801893dc02c7608a9574c879df9a5ba3'
+$SourceCommit = '833c052dae694e42a9196bcc5e96b7aa9aab3516'
 $RawBase = 'https://raw.githubusercontent.com/josiahalora-beep/Minecraft-PVP/' + $SourceCommit
 $SourceFiles = @(
     'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/ActorDirectory.java',
@@ -176,8 +176,13 @@ if ($downloadEra -notmatch 'permanent-speed-2' -or $downloadEra -notmatch 'facti
 }
 if ($downloadLauncher -notmatch 'season-reset\.pending' -or
     $downloadLauncher -notmatch 'Prepare-HCF-Season-Reset\.ps1' -or
-    $downloadLauncher -notmatch 'if errorlevel 1') {
-    throw 'Downloaded start-server.bat does not enforce the SOTW reset preflight.'
+    $downloadLauncher -notmatch 'if errorlevel 1' -or
+    $downloadLauncher -match '-ServerRoot') {
+    throw 'Downloaded start-server.bat does not enforce the safe script-local SOTW reset preflight.'
+}
+if ($downloadReset -notmatch 'GetFullPath' -or
+    $downloadReset -notmatch 'Test-Path -LiteralPath \$marker') {
+    throw 'Downloaded reset script is missing normalized literal-path handling.'
 }
 [void][ScriptBlock]::Create($downloadReset)
 Write-Host '[OK] Downloaded source/reset/launcher/worker validation passed.' -ForegroundColor Green

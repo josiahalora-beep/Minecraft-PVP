@@ -400,6 +400,36 @@ final class HcfEventDirector {
         save();
     }
 
+    String sidebarEventName() {
+        if(!activeKoth.isEmpty()) {
+            HcfMapDirector.Region r=map.region(activeKoth);
+            return r==null?"KOTH":r.name;
+        }
+        if(conquestActive) return "Conquest";
+        if(nextAutoAt<=0L) return "Scheduling";
+        String id=scheduledEventId();
+        if("conquest".equals(id)) return "Conquest";
+        HcfMapDirector.Region r=map.region(id);
+        return r==null?"KOTH":r.name;
+    }
+
+    long sidebarEventMillis() {
+        if(!activeKoth.isEmpty()) {
+            int cap=Math.max(30,plugin.getConfig().getInt("events.koth-capture-seconds",180));
+            return Math.max(0,cap-kothProgress)*1000L;
+        }
+        if(conquestActive) return -1L;
+        return nextAutoAt<=0L?0L:Math.max(0L,nextAutoAt-System.currentTimeMillis());
+    }
+
+    boolean sidebarEventActive() {
+        return !activeKoth.isEmpty() || conquestActive;
+    }
+
+    boolean sidebarConquestActive() {
+        return conquestActive;
+    }
+
     private String scoreText() {
         if(conquestScores.isEmpty()) return "No score yet.";
         List<Map.Entry<String,Integer>> xs=new ArrayList<Map.Entry<String,Integer>>(conquestScores.entrySet());

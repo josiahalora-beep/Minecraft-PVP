@@ -170,7 +170,7 @@ final class HcfBaseBuilder {
     private void clearBrokenBaseVolumes(World w,HcfBasePlan p) {
         // Surface: remove every previous generated shell/wing/roof in this
         // faction work pad. Grade itself is rebuilt by prepareTerrainPad().
-        int pad=p.surfacePadRadius();
+        int pad=p.terrainCradleRadius()+3;
         int top=Math.min(w.getMaxHeight()-1,p.surfaceY+p.surfaceHeight+10);
         for(int x=p.cx-pad;x<=p.cx+pad;x++) for(int z=p.cz-pad;z<=p.cz+pad;z++) {
             for(int yy=p.surfaceY+1;yy<=top;yy++)
@@ -334,7 +334,8 @@ final class HcfBaseBuilder {
         if (world == null) return;
 
         HcfBasePlan plan=planFor(faction,cx,y,cz);
-        fillFoundationOnly(world,cx,y,cz,plan.surfacePadRadius(),plan.surfacePadRadius());
+        int cradle=plan.terrainCradleRadius()+3;
+        fillFoundationOnly(world,cx,y,cz,cradle,cradle);
         buildSurfaceShell(world,plan,false);
         buildUndergroundCore(world,plan);
         sealCriticalEnvelope(world,plan,true);

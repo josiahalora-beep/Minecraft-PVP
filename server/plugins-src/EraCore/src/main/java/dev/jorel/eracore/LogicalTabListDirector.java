@@ -182,12 +182,21 @@ final class LogicalTabListDirector {
 
     private void ensureTeams() {
         Scoreboard b=Bukkit.getScoreboardManager().getMainScoreboard();
-        makeTeam(b,"simtab0","&7[Member] ");
-        makeTeam(b,"simtab1","&a[Basic] ");
-        makeTeam(b,"simtab2","&f[Silver] ");
-        makeTeam(b,"simtab3","&6[Gold] ");
-        makeTeam(b,"simtab4","&b[Platinum] ");
-        makeTeam(b,"simtabyt","&c[Yt] ");
+
+        // Donor ranks are intentionally name colors only. Old HCF tab/chat
+        // presentation was much cleaner than prefixing every player with a
+        // bracketed store rank.
+        makeTeam(b,"simtab0","&f");
+        makeTeam(b,"simtab1","&a");
+        makeTeam(b,"simtab2","&f");
+        makeTeam(b,"simtab3","&6");
+        makeTeam(b,"simtab4","&b");
+
+        makeTeam(b,"simyt0","&c[YT] &f");
+        makeTeam(b,"simyt1","&c[YT] &a");
+        makeTeam(b,"simyt2","&c[YT] &f");
+        makeTeam(b,"simyt3","&c[YT] &6");
+        makeTeam(b,"simyt4","&c[YT] &b");
     }
 
     private Team makeTeam(Scoreboard b,String name,String prefix) {
@@ -200,7 +209,8 @@ final class LogicalTabListDirector {
     private void applyFakeRankTeam(String name) {
         if(Bukkit.getPlayerExact(name)!=null) return;
         Scoreboard b=Bukkit.getScoreboardManager().getMainScoreboard();
-        String team=plugin.isCreatorIdentity(name)?"simtabyt":"simtab"+plugin.simulatedDonorLevel(name);
+        int donor=Math.max(0,Math.min(4,plugin.simulatedDonorLevel(name)));
+        String team=plugin.isCreatorIdentity(name)?"simyt"+donor:"simtab"+donor;
         Team t=b.getTeam(team);
         if(t==null) return;
         OfflinePlayer op=Bukkit.getOfflinePlayer(name);
@@ -208,9 +218,10 @@ final class LogicalTabListDirector {
     }
 
     private void applyPhysicalRankTeam(Player p) {
-        if(plugin.isCreatorIdentity(p.getName())) return; // existing [YT] team owns creators
         Scoreboard b=Bukkit.getScoreboardManager().getMainScoreboard();
-        Team t=b.getTeam("simtab"+plugin.simulatedDonorLevel(p.getName()));
+        int donor=Math.max(0,Math.min(4,plugin.simulatedDonorLevel(p.getName())));
+        String team=plugin.isCreatorIdentity(p.getName())?"simyt"+donor:"simtab"+donor;
+        Team t=b.getTeam(team);
         if(t!=null && !t.hasPlayer(p)) t.addPlayer(p);
     }
 

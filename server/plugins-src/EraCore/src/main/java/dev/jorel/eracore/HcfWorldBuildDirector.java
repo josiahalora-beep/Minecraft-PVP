@@ -136,6 +136,8 @@ final class HcfWorldBuildDirector {
             " resources="+plugin.getConfig().getBoolean("world-build.resources-complete",false)+
             " complete="+plugin.getConfig().getBoolean("world-build.complete",false)+
             " composerJobs="+(composer==null?0:composer.queuedJobs())+
+            " job="+(composer==null?"":composer.currentJobLabel())+
+            " jobProgress="+(composer==null?100:composer.currentJobProgress())+"%"+
             " resourceOps="+(resources==null?0:resources.queuedOperations())+
             " p95="+String.format(Locale.US,"%.2f",Math.max(0.0,p95));
     }

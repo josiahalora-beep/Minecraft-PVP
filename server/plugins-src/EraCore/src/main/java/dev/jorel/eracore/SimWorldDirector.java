@@ -6786,6 +6786,20 @@ final class SimWorldDirector {
             }
         }
 
+        int rosterVersion=data.getInt("meta.identity-roster-version",0);
+        if(rosterVersion<2 && !plugin.productionWorldReady() && factions.isEmpty()) {
+            // This generation is still in pre-READY SOTW setup, so replacing
+            // the old synthetic username roster is safe: no claims, faction
+            // history or live PvP state exist yet. This makes the curated
+            // unique-name pool take effect without another physical world reset.
+            plugin.resetSimFactionAuthority(new ArrayList<String>(players.keySet()));
+            seed();
+            data.set("meta.identity-roster-version",2);
+            save();
+            plugin.getLogger().info("Identity roster v2: reseeded pre-READY SOTW population with unique period-style names.");
+            return;
+        }
+
         expandPopulationIfConfigured();
         normalizeFactionClasses();
         seedStaffRolesIfNeeded();
@@ -6871,6 +6885,8 @@ final class SimWorldDirector {
         factions.clear();
         rivalries.clear();
         communityHistory.clear();
+        socialEdges.clear();
+        activeOrders.clear();
         pendingChat.clear();
         sotwTicks = 0;
         sotwStartedAt = System.currentTimeMillis();
@@ -8496,6 +8512,7 @@ final class SimWorldDirector {
 
         data.set("meta.schema", 4);
         data.set("meta.name-skill-model-version",2);
+        data.set("meta.identity-roster-version",2);
         data.set("meta.sotw-ticks", sotwTicks);
         data.set("meta.sotw-started-at", sotwStartedAt);
         data.set("meta.faction-name-cursor", factionNameCursor);

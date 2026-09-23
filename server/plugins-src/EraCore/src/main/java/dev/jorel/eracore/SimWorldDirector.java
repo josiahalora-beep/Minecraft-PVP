@@ -439,25 +439,25 @@ final class SimWorldDirector {
     private static final Pattern MONEY = Pattern.compile("(?:\\$\\s*)?(\\d{2,7})");
 
     private static final String[] PLAYER_NAMES = {
-        "Stimpy","PainfulPvP","lolitsalex","Skimpy","Vexon","Mints","Syrup","Tew","Kinq","Aero"
-        "Zyro","Nox","Riven","Sora","Axion","Kryptic","Finesse","Deceive","Jettison","Vaporized"
-        "Shanked","Reborn","Ghosted","Murked","Beamed","Tagged","Claimed","Pearled","Chased","Trapped"
-        "Vaulted","Quickdrop","Spleefed","Knockback","Ruthless","Shiver","Mercy","Tempo","Haze","Fable"
-        "Nero","Scythe","Wraith","Glitch","Rook","Dusk","Vivid","Toxxic","Melted","Roasted"
-        "Hexed","Jinxed","Ripped","Lethal","Strafe","Comboed","Vexing","Hollow","Avenge","Crimson"
-        "Quartz","Orbit","Mango","Kiwi","Grape","Bamboo","Waffle","PurpleDino","Redstone","Nightfall"
-        "Monarch","Drowsy","Static","Frostbite","Lucid","Rapture","Cipher","Swerve","Recoil","Sentry"
-        "Talon","Riot","Cinder","Axiom","Mythic","Vandal","Sage","Rift","Daze","Morrow"
-        "Flare","Drift","Sway","Flux","Eon","Lunar","Karma","Venomous","Jax","Kairo"
-        "Zane","Trey","Jordan","Mason","Nate","Chris","Luke","Nick","Ben","Rico"
-        "Cody","Dylan","Evan","Noah","Miles","Cole","Cameron","Tyler","Brady","Logan"
-        "xRico","xSavage","xNova","xPulse","xScope","xBlade","xViper","xFrost","xVelocity","xRekt"
-        "iTzMason","iTzJordan","iTzLuke","iTzBen","iTzChris","FrostyHD","MasonHD","JordanHD","TreyHD","DemonHD"
-        "SethPvP","CamPvP","RyanPvP","PandaPvP","BreezyMC","CreeperHD","AeroPvP","DizzyPvP","VibePvP","LethalPvP"
-        "DuskPvP","AuraPvP","WafflePvP","KairoPvP","CobraPvP","RazePvP","TempoPvP","KiteMC","ClutchKid","StrafeKid"
-        "ArcherKid","BardMain","RogueMain","DiamondKid","DTRKing","KOTHKid","NetherKid","EndRoamer","PearlClip","CaneFarmer"
-        "ObbyMiner","BlazeKid","RefillKid","GateKid","BrewMaster","MinerMatt","qTip","SoupCan","RawrXD","z0mbie"
-        "SevenUp","NoChill","PingLord","Laggy","PotatoAim","DoorCamper","RoadRunner","OneTap","NoDebuff","Soup"
+        "Stimpy","PainfulPvP","lolitsalex","Skimpy","Vexon","Mints","Syrup","Tew","Kinq","Aero",
+        "Zyro","Nox","Riven","Sora","Axion","Kryptic","Finesse","Deceive","Jettison","Vaporized",
+        "Shanked","Reborn","Ghosted","Murked","Beamed","Tagged","Claimed","Pearled","Chased","Trapped",
+        "Vaulted","Quickdrop","Spleefed","Knockback","Ruthless","Shiver","Mercy","Tempo","Haze","Fable",
+        "Nero","Scythe","Wraith","Glitch","Rook","Dusk","Vivid","Toxxic","Melted","Roasted",
+        "Hexed","Jinxed","Ripped","Lethal","Strafe","Comboed","Vexing","Hollow","Avenge","Crimson",
+        "Quartz","Orbit","Mango","Kiwi","Grape","Bamboo","Waffle","PurpleDino","Redstone","Nightfall",
+        "Monarch","Drowsy","Static","Frostbite","Lucid","Rapture","Cipher","Swerve","Recoil","Sentry",
+        "Talon","Riot","Cinder","Axiom","Mythic","Vandal","Sage","Rift","Daze","Morrow",
+        "Flare","Drift","Sway","Flux","Eon","Lunar","Karma","Venomous","Jax","Kairo",
+        "Zane","Trey","Jordan","Mason","Nate","Chris","Luke","Nick","Ben","Rico",
+        "Cody","Dylan","Evan","Noah","Miles","Cole","Cameron","Tyler","Brady","Logan",
+        "xRico","xSavage","xNova","xPulse","xScope","xBlade","xViper","xFrost","xVelocity","xRekt",
+        "iTzMason","iTzJordan","iTzLuke","iTzBen","iTzChris","FrostyHD","MasonHD","JordanHD","TreyHD","DemonHD",
+        "SethPvP","CamPvP","RyanPvP","PandaPvP","BreezyMC","CreeperHD","AeroPvP","DizzyPvP","VibePvP","LethalPvP",
+        "DuskPvP","AuraPvP","WafflePvP","KairoPvP","CobraPvP","RazePvP","TempoPvP","KiteMC","ClutchKid","StrafeKid",
+        "ArcherKid","BardMain","RogueMain","DiamondKid","DTRKing","KOTHKid","NetherKid","EndRoamer","PearlClip","CaneFarmer",
+        "ObbyMiner","BlazeKid","RefillKid","GateKid","BrewMaster","MinerMatt","qTip","SoupCan","RawrXD","z0mbie",
+        "SevenUp","NoChill","PingLord","Laggy","PotatoAim","DoorCamper","RoadRunner","OneTap","NoDebuff","Soup",
         "Melee","Flick","Refill","Kiter","Debuff","Invis"
     };
 

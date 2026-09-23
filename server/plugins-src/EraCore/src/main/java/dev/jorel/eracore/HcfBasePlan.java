@@ -41,7 +41,7 @@ final class HcfBasePlan {
     final int coreHalfX;
     final int coreHalfZ;
     final int storageVariant;
-    final int surfaceShape; // 0 box, 1 chamfered, 2 box + small later-looking bay
+    final int surfaceShape; // 0 compact, 1 chamfered/organic, 2 asymmetric low-profile
     final int frontGateOffset;
     final int utilitySide;
     final int finishTier;
@@ -80,28 +80,29 @@ final class HcfBasePlan {
         this.utilitySide=((seed/47)&1)==0?-1:1;
 
         int members=Math.max(1,Math.min(8,this.profile.members));
-        int sx=8+members+((seed/7)%2);
-        int sz=7+members+((seed/13)%3);
-        int sh=5+Math.min(2,Math.max(0,this.profile.builderQuality-45)/22);
 
-        // Redemption = compact/vertical; Base-HCF = broad ring; Modern = richer
-        // open footprint; Tunnel = long practical rectangle; Cave = wider rough
-        // footprint. These remain normal-player scale, not schematic castles.
-        if(family==0) { sx=Math.max(9,sx-1); sz=Math.max(8,sz-1); sh++; }
-        else if(family==1) { sx+=1; sz+=1; }
-        else if(family==2) { sx+=2; sz+=1; sh++; }
-        else if(family==3) { sx+=3; sz=Math.max(8,sz-1); }
-        else if(family==4) { sx+=1; sz+=2; }
+        // Concealment-first surface planning: visible scale grows much slower
+        // than underground capacity. A large faction needs more storage/farms,
+        // not a 40-block glass advertisement on the surface.
+        int sx=5+(members/2)+((seed/7)&1);
+        int sz=5+((members+1)/3)+((seed/13)&1);
+        int sh=3+Math.min(2,Math.max(0,this.profile.builderQuality-50)/25);
+
+        // Families now alter exposure strategy, not merely trim.
+        if(family==0) { sx=Math.max(5,sx-1); sz=Math.max(5,sz-1); }          // compact/vertical
+        else if(family==1) { sx+=1; sz+=1; }                                // classic balanced
+        else if(family==2) { sx+=2; sz+=1; sh=Math.min(5,sh+1); }           // polished but low
+        else if(family==3) { sx=Math.max(5,sx-1); sz=Math.max(5,sz-1); }     // tunnel: minimal surface
+        else if(family==4) { sx+=1; sz+=1; sh=Math.max(3,sh-1); }            // cave: terrain dominant
 
         this.surfaceHalfX=sx;
         this.surfaceHalfZ=sz;
-        this.surfaceHeight=Math.min(8,sh);
+        this.surfaceHeight=Math.min(5,sh);
 
-        int access=2;
-        if(this.profile.gameSense>=58 || this.profile.pvpIq>=68) access++;
-        if((this.profile.gameSense>=78 && this.profile.decisiveness>=62) ||
-           (this.profile.riskTolerance>=72 && this.profile.pvpIq>=72)) access++;
-        this.entrances=Math.max(2,Math.min(4,access));
+        int access=1;
+        if(this.profile.gameSense>=62 || this.profile.pvpIq>=72) access++;
+        if(this.profile.gameSense>=82 && this.profile.decisiveness>=72) access++;
+        this.entrances=Math.max(1,Math.min(3,access));
 
         int depth=(family==0?17:(family==3?20:18))+(seed%5);
         this.undergroundY=Math.max(10,y-depth);
@@ -212,6 +213,16 @@ final class HcfBasePlan {
         int[] zOffsets={-10,-7,-4,2,5,8,10};
         int z=cz+zOffsets[col]; // permanent center gap for dropdown/elevator traffic
         return new int[]{x,undergroundY+1,z};
+    }
+
+    int concealmentTier() {
+        int score=profile.builderQuality + profile.gameSense/2 + profile.organization/3 + profile.wealthTier*18;
+        return score>=150?2:(score>=105?1:0);
+    }
+
+    int terrainCradleRadius() {
+        int extra=primaryFamily==3?9:(primaryFamily==4?13:11);
+        return Math.max(surfaceHalfX,surfaceHalfZ)+extra;
     }
 
     int surfacePadRadius() {

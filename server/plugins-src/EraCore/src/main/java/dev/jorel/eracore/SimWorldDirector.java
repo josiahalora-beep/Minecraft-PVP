@@ -139,7 +139,9 @@ final class SimWorldDirector {
         boolean farmBuilt;
         boolean recoveryMode;
         String archetype = "BALANCED";
-        String campTarget = "";
+        String campTarget = "";   // hostile/rival target
+        String watchTarget = "";  // social creator/faction spectating, not hostility
+        long watchUntil;
         boolean specialTrapBuilt;
         int baseX;
         int baseY = 64;
@@ -1506,6 +1508,8 @@ final class SimWorldDirector {
            (b.campTarget!=null && b.campTarget.equalsIgnoreCase(a.name))) return true;
 
         int chance=58;
+        if((a.watchTarget!=null && a.watchTarget.equalsIgnoreCase(b.name)) ||
+           (b.watchTarget!=null && b.watchTarget.equalsIgnoreCase(a.name))) chance-=34;
         chance+=(factionTemperament(a)+factionTemperament(b)-100)/5;
         if("PVP".equals(a.archetype) || "PVP".equals(b.archetype)) chance+=12;
         chance+=Math.min(22,rivalry);
@@ -2269,7 +2273,15 @@ final class SimWorldDirector {
                 break;
 
             case PVP_READY:
-                if(shouldContestActiveEvent(p,f)) {
+                if(shouldSpectateTarget(p,f)) {
+                    SimFaction watched=factions.get(key(f.watchTarget));
+                    int[] watch=spectatePoint(f,watched);
+                    t.action="spectate";
+                    t.zone="spawn";
+                    t.pvpIntent="AVOID";
+                    if(watch!=null){t.x=watch[0];t.y=watch[1];t.z=watch[2];}
+                    t.priority=62+p.sociability/5+p.teamwork/8;
+                } else if(shouldContestActiveEvent(p,f)) {
                     int[] eventPoint=plugin.activeHcfEventPoint();
                     t.action="patrol";
                     t.zone="spawn";
@@ -2393,6 +2405,31 @@ final class SimWorldDirector {
             }
         }
         return t;
+    }
+
+    private boolean shouldSpectateTarget(SimPlayer p,SimFaction f) {
+        if(p==null || f==null || f.watchTarget==null || f.watchTarget.isEmpty() ||
+           f.recoveryMode || f.watchUntil<=System.currentTimeMillis()) return false;
+        SimFaction target=factions.get(key(f.watchTarget));
+        if(target==null || target.baseX==0 && target.baseZ==0) return false;
+        // A faction usually shows up as a small visible group, not necessarily
+        // every member. Aggressive players are more likely to wander off.
+        int interest=p.sociability+p.teamwork+p.politicalIq-p.aggression/2+
+            ("leader".equals(p.role)?25:0);
+        int gate=Math.abs((key(p.name)+"|watch|"+key(f.watchTarget)).hashCode())%100;
+        return gate<Math.max(30,Math.min(88,interest/2));
+    }
+
+    private int[] spectatePoint(SimFaction watcher,SimFaction target) {
+        if(watcher==null || target==null) return null;
+        int h=Math.abs(key(watcher.name).hashCode());
+        double angle=(h%360)*Math.PI/180.0;
+        int radius=18+(h%10);
+        return new int[]{
+            target.baseX+(int)Math.round(Math.cos(angle)*radius),
+            target.baseY+1,
+            target.baseZ+(int)Math.round(Math.sin(angle)*radius)
+        };
     }
 
     private boolean shouldContestActiveEvent(SimPlayer p,SimFaction f) {
@@ -7033,6 +7070,8 @@ final class SimWorldDirector {
                 f.recoveryMode = s.getBoolean("recovery-mode", false);
                 f.archetype = s.getString("archetype", "");
                 f.campTarget = s.getString("camp-target", "");
+                f.watchTarget = s.getString("watch-target", "");
+                f.watchUntil = s.getLong("watch-until",0L);
                 f.specialTrapBuilt = s.getBoolean("special-trap-built", false);
                 f.powerFaction = s.getBoolean("power-faction", false);
                 f.underdog = s.getBoolean("underdog", false);
@@ -7387,25 +7426,68 @@ final class SimWorldDirector {
     }
 
     private void updateCampTargets() {
+        long now=System.currentTimeMillis();
+
+        // Resolve currently visible creator factions once. Watching a creator is
+        // social/curiosity behavior and must not create rivalry by itself.
+        List<SimFaction> creatorFactions=new ArrayList<SimFaction>();
+        for(String creator:plugin.getConfig().getStringList("creator-tag.creators")) {
+            SimPlayer cp=players.get(key(creator));
+            if(cp==null || !cp.logicalOnline || cp.faction==null || cp.faction.isEmpty()) continue;
+            SimFaction cf=factions.get(key(cp.faction));
+            if(cf!=null && !creatorFactions.contains(cf)) creatorFactions.add(cf);
+        }
+
         SimPlayer alex=players.get("lolitsalex");
         String alexFaction=(alex==null)?"":alex.faction;
 
         for(SimFaction f:factions.values()) {
+            if(f.watchUntil>0L && now>=f.watchUntil) {
+                f.watchTarget="";
+                f.watchUntil=0L;
+            }
+
             if(f.recoveryMode || f.stage!=Stage.PVP_READY) {
                 if(rng.nextInt(100)<25) f.campTarget="";
+                f.watchTarget="";
+                f.watchUntil=0L;
                 continue;
             }
 
-            if(!alexFaction.isEmpty() && !f.name.equalsIgnoreCase(alexFaction)) {
-                if(("PVP".equals(f.archetype) && rng.nextInt(100)<48) ||
-                   (f.powerFaction && rng.nextInt(100)<13)) {
+            // Some factions hang around a creator faction simply to watch,
+            // talk, or be on camera. This lasts minutes, not forever.
+            if((f.watchTarget==null || f.watchTarget.isEmpty()) && !creatorFactions.isEmpty() &&
+               (f.campTarget==null || f.campTarget.isEmpty())) {
+                SimPlayer leader=players.get(key(f.leader));
+                int interest=leader==null?12:(leader.sociability/5+leader.politicalIq/7+
+                    (leader.aggression<55?8:0));
+                if(rng.nextInt(100)<Math.max(4,Math.min(34,interest))) {
+                    List<SimFaction> options=new ArrayList<SimFaction>();
+                    for(SimFaction cf:creatorFactions) if(!cf.name.equalsIgnoreCase(f.name)) options.add(cf);
+                    if(!options.isEmpty()) {
+                        SimFaction cf=options.get(rng.nextInt(options.size()));
+                        f.watchTarget=cf.name;
+                        f.watchUntil=now+(2+rng.nextInt(5))*60L*1000L;
+                        recordHistory("SPECTATE",3,f.name+" started hanging outside "+cf.name+
+                            " to watch the creator activity",f.name,f.leader,cf.leader);
+                    }
+                }
+            }
+
+            // Hostile camping remains separate and is much less common than
+            // simply being present near a creator base.
+            if(!alexFaction.isEmpty() && !f.name.equalsIgnoreCase(alexFaction) &&
+               (f.watchTarget==null || f.watchTarget.isEmpty())) {
+                if(("PVP".equals(f.archetype) && rng.nextInt(100)<18) ||
+                   (f.powerFaction && rng.nextInt(100)<6)) {
                     f.campTarget=alexFaction;
                     recordRivalry(f.name,alexFaction,1+rng.nextInt(2));
                     continue;
                 }
             }
 
-            if("PVP".equals(f.archetype) && (f.campTarget==null || f.campTarget.isEmpty()) && rng.nextInt(100)<30) {
+            if("PVP".equals(f.archetype) && (f.campTarget==null || f.campTarget.isEmpty()) &&
+               (f.watchTarget==null || f.watchTarget.isEmpty()) && rng.nextInt(100)<20) {
                 String rival=strongestRival(f.name);
                 if(!rival.isEmpty()) f.campTarget=rival;
             }
@@ -8799,6 +8881,8 @@ final class SimWorldDirector {
             data.set(b + ".recovery-mode", f.recoveryMode);
             data.set(b + ".archetype", f.archetype);
             data.set(b + ".camp-target", f.campTarget);
+            data.set(b + ".watch-target", f.watchTarget);
+            data.set(b + ".watch-until", f.watchUntil);
             data.set(b + ".special-trap-built", f.specialTrapBuilt);
             data.set(b + ".power-faction", f.powerFaction);
             data.set(b + ".underdog", f.underdog);

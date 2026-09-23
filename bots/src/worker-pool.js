@@ -1565,6 +1565,64 @@ function nearestHostileMob(state, radius=14) {
   return best
 }
 
+function nearestNamedMob(state, wanted, radius=24) {
+  const bot=state.bot
+  if(!bot?.entity) return null
+  let best=null,bestDist=Infinity
+  for(const entity of Object.values(bot.entities || {})) {
+    if(!entity || entity===bot.entity || entity.type!=='mob') continue
+    if(entityMobName(entity)!==wanted) continue
+    const d=bot.entity.position.distanceTo(entity.position)
+    if(d<=radius && d<bestDist){best=entity;bestDist=d}
+  }
+  return best
+}
+
+async function huntResourceMob(state, wanted='creeper') {
+  const bot=state.bot
+  if(!bot?.entity || state.combat) return false
+  const mob=nearestNamedMob(state,wanted,28)
+  if(!mob?.position) return false
+
+  await equipBestWeapon(state)
+  for(let hit=0;hit<6 && mob.isValid!==false && bot.entity;hit++) {
+    let dist=bot.entity.position.distanceTo(mob.position)
+    if(dist>3.5) {
+      const reached=await smartGoto(state,mob.position.x,mob.position.y,mob.position.z,3,3500,false)
+      if(!reached) return false
+      dist=bot.entity.position.distanceTo(mob.position)
+    }
+
+    // Creeper farming is deliberate hit-and-reset movement, not face-tanking.
+    if(wanted==='creeper' && dist<2.4) {
+      stopMovement(bot)
+      bot.setControlState('back',true)
+      bot.setControlState('sprint',true)
+      await sleep(500)
+      stopMovement(bot)
+    }
+
+    try {
+      await bot.lookAt(mob.position.offset(0,Math.min(1.1,mob.height || 1),0),false)
+      bot.attack(mob)
+      state.physicalOps++
+    } catch { return false }
+
+    if(wanted==='creeper') {
+      bot.setControlState('back',true)
+      bot.setControlState('sprint',true)
+      await sleep(Math.round(rand(620,820)))
+      stopMovement(bot)
+    } else {
+      await sleep(Math.round(rand(380,520)))
+    }
+  }
+
+  await sleep(180)
+  await lootNearbyDrop(state)
+  return true
+}
+
 function waterBlock(block) {
   const n=String(block?.name || '').toLowerCase()
   return n==='water' || n==='flowing_water' || n==='stationary_water'
@@ -1657,6 +1715,11 @@ async function defendAgainstHostileMob(state) {
   if(Date.now()-(state.lastMobDefenseAt || 0)<450) return false
   const mob=nearestHostileMob(state,14)
   if(!mob) return false
+
+  // A protected SOTW gunpowder runner intentionally hunts creepers; do not let
+  // the generic survival layer endlessly kite its assigned resource target.
+  if(String(state.job?.targetBlock || '').toLowerCase()==='gunpowder' &&
+     entityMobName(mob)==='creeper') return false
 
   state.mobDefenseBusy=true
   state.lastMobDefenseAt=Date.now()
@@ -1981,7 +2044,24 @@ async function doPhysicalWork(state, action) {
     return await digBest(state, ['diamond_ore', 'iron_ore', 'coal_ore', 'stone', 'cobblestone'])
   }
 
-  if (action === 'gather' || action === 'supply') {
+  if (action === 'supply') {
+    const target=String(state.job?.targetBlock || '').toLowerCase()
+    const zone=dimensionZone(bot)
+    if(target==='glowstone' || zone==='nether') {
+      const mined=await digBest(state,['glowstone'])
+      if(mined) return true
+    }
+    if(target==='gunpowder' || zone==='end') {
+      const hunted=await huntResourceMob(state,'creeper')
+      if(hunted) return true
+      return await lootNearbyDrop(state)
+    }
+    const gotLog = await digBest(state,['log','log2'])
+    if(gotLog) return true
+    return await digBest(state,['stone','cobblestone','iron_ore'])
+  }
+
+  if (action === 'gather') {
     const gotLog = await digBest(state, ['log', 'log2'])
     if (gotLog) return true
     return await digBest(state, ['stone', 'cobblestone', 'iron_ore'])

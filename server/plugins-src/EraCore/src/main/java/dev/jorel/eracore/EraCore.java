@@ -1119,6 +1119,10 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         return s==null?"":s;
     }
 
+    int simulatedLogicalOnlineCount() {
+        return simWorld==null?0:simWorld.logicalOnlineCount();
+    }
+
 
     boolean isOwnerPlayer(Player p) {
         return p != null && (getRank(p.getName()) == Rank.OWNER || p.hasPermission("eracore.owner"));

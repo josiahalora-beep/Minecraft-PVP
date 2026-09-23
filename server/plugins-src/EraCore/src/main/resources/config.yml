@@ -185,6 +185,7 @@ sim-chat:
     - 'who is rich rn'
 
 logical-tab:
+  packet-batch-size: 20
   visible-identities: 100
   refresh-seconds: 10
 
@@ -251,7 +252,7 @@ sotw:
   protection-minutes: 12
 
 terrain:
-  normalize-new-chunks: true
+  normalize-new-chunks: false
   cleanup-height: 46
   road-flat-half-width: 20.0
   road-shoulder-half-width: 72.0

@@ -1365,6 +1365,11 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if(spawnRewards!=null) spawnRewards.ensurePhysicalPendingKey(p,type);
     }
 
+    void noteSimPremiumReward(Player p,String label) {
+        if(p==null || simWorld==null || !isBotIdentity(p.getName())) return;
+        simWorld.notePremiumReward(p.getName(),label);
+    }
+
     int logicalPopulationCount() {
         return simWorld == null ? 0 : simWorld.allIdentityNames().size();
     }
@@ -2210,11 +2215,14 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             legs=Material.IRON_LEGGINGS;boots=Material.IRON_BOOTS;
         }
 
-        inv.setHelmet(armor(helmet,2));
-        inv.setChestplate(armor(chest,2));
-        inv.setLeggings(armor(legs,2));
-        inv.setBoots(armor(boots,2));
-        inv.setItem(0,sword(swordMat,2));
+        // Normal map combat is Protection I / Sharpness I. Protection II and
+        // Sharpness II + Fire I are prestige loot from KOTH/donor/vote crates,
+        // not something the combat projector manufactures for every fight.
+        inv.setHelmet(armor(helmet,1));
+        inv.setChestplate(armor(chest,1));
+        inv.setLeggings(armor(legs,1));
+        inv.setBoots(armor(boots,1));
+        inv.setItem(0,sword(swordMat,1));
 
         if(type==SimWorldDirector.CombatClass.ARCHER) {
             ItemStack bow=new ItemStack(Material.BOW,1);
@@ -2222,8 +2230,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             inv.setItem(1,bow);
             inv.setItem(2,new ItemStack(Material.ARROW,64));
         } else if(type==SimWorldDirector.CombatClass.ROGUE) {
-            inv.setItem(1,sword(Material.GOLD_SWORD,2));
-            inv.setItem(2,sword(Material.GOLD_SWORD,2));
+            inv.setItem(1,sword(Material.GOLD_SWORD,1));
+            inv.setItem(2,sword(Material.GOLD_SWORD,1));
         } else if(type==SimWorldDirector.CombatClass.BARD) {
             inv.setItem(28,new ItemStack(Material.BLAZE_ROD,1));
             inv.setItem(29,new ItemStack(Material.GHAST_TEAR,1));
@@ -2237,9 +2245,9 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             inv.setItem(28,pick);
         }
 
-        // One consistent PvP ceiling: Protection II / Sharpness II, splash
-        // Healing II and pearls. Speed II is permanent server-wide, so carrying
-        // speed bottles wastes refill slots and creates the wrong HCF economy.
+        // One consistent baseline: Protection I / Sharpness I, splash
+        // Healing II and pearls. Premium P2/S2F1 stays scarce and persistent.
+        // Speed II is permanent server-wide, so speed bottles waste refill slots.
         int hotbarStart=type==SimWorldDirector.CombatClass.ARCHER?3:
             (type==SimWorldDirector.CombatClass.ROGUE?3:1);
         int placed=0;

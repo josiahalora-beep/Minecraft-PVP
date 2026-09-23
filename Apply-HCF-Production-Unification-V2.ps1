@@ -16,7 +16,7 @@ $JavaSourceDir = Join-Path $Server 'plugins-src\EraCore\src\main\java\dev\jorel\
 
 # This repository is often installed as a plain folder rather than a Git clone.
 # Always sync the exact coordinated source generation before compiling.
-$SourceCommit = 'e15c44ab00fe2ea007b9d3a4de8f038707c4cd8d'
+$SourceCommit = 'e5d28755801893dc02c7608a9574c879df9a5ba3'
 $RawBase = 'https://raw.githubusercontent.com/josiahalora-beep/Minecraft-PVP/' + $SourceCommit
 $SourceFiles = @(
     'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/ActorDirectory.java',
@@ -139,6 +139,7 @@ $downloadReset = Get-Content -LiteralPath (Join-Path $tempRoot 'server\Prepare-H
 $downloadWorker = Get-Content -LiteralPath (Join-Path $tempRoot 'bots\src\worker-pool.js') -Raw
 $downloadMapAi = Get-Content -LiteralPath (Join-Path $tempRoot 'bots\src\hcf-map-intelligence.js') -Raw
 if ($downloadEra -notmatch 'migrateProductionUnificationConfig') { throw 'Downloaded EraCore is not the production-unification generation.' }
+if ($downloadEra -match 'factionSuffix\s*\(') { throw 'Downloaded EraCore still contains the removed factionSuffix method reference.' }
 if ($downloadEra -notmatch 'cmdSimTab') { throw 'Downloaded EraCore is missing /simtab diagnostics.' }
 if ($downloadWorld -notmatch 'STRUCTURES' -or $downloadWorld -notmatch 'RESOURCES') { throw 'Downloaded staged world builder is incomplete.' }
 $forbiddenWorkerTravel = @(

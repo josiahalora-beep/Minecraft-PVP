@@ -254,16 +254,31 @@ sotw:
 terrain:
   normalize-new-chunks: true
   cleanup-height: 46
-  # Build Viewer terrain contract: broad flat spawn frontage, then a very long
-  # transition into bounded old-HCF wilderness. No mountains/ravines.
-  spawn-flat-radius: 300.0
-  spawn-transition-radius: 500.0
-  wilderness-amplitude: 5.0
-  road-flat-half-width: 22.0
-  road-shoulder-half-width: 92.0
+  # Visual HCF terrain v2: Kraken remains clean, then terrain becomes visibly
+  # rolling on the scale a player can actually see while fighting/travelling.
+  spawn-flat-radius: 210.0
+  spawn-transition-radius: 345.0
+  wilderness-amplitude: 8.0
+  road-flat-half-width: 18.0
+  road-shoulder-half-width: 58.0
+  koth-flat-radius: 172.0
+  koth-blend-radius: 225.0
+  portal-flat-radius: 128.0
+  portal-blend-radius: 182.0
+  conquest-flat-radius: 182.0
+  conquest-blend-radius: 235.0
   custom-decoration: true
-  tree-chance-percent: 34
-  rock-chance-percent: 14
+  tree-chance-percent: 28
+  rock-chance-percent: 18
+  ground-detail-chance-percent: 62
+
+atmosphere:
+  # HCF presentation is intentionally consistent: bright daytime PvP with no
+  # rain/thunder interruptions or random night cycle.
+  lock-day: true
+  day-time: 6000
+  clear-weather: true
+  enforce-every-ticks: 100
 
 base-builder:
   blocks-per-tick: 96

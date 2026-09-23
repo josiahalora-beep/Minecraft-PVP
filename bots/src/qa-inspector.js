@@ -152,17 +152,42 @@ await sleep(800)
 bot.chat('/simprobe')
 await sleep(800)
 
+// Presentation invariant test: try to force bad atmosphere, then verify the
+// server's HCF atmosphere director restores clear noon without human help.
+if(process.env.QA_TEST_ATMOSPHERE!=='0') {
+  const before={time:bot.time?.timeOfDay ?? null,raining:Boolean(bot.isRaining)}
+  bot.chat('/weather rain')
+  bot.chat('/time set night')
+  await sleep(7000)
+  manifest.atmosphere={
+    before,
+    after:{time:bot.time?.timeOfDay ?? null,raining:Boolean(bot.isRaining)},
+    expected:{time:6000,raining:false}
+  }
+  writeManifest()
+}
+
 if(process.env.QA_BASES_ONLY!=='1') {
   const fixed=[
-    ['spawn-overview',{x:0,y:105,z:-45},{x:0,y:64,z:0}],
-    ['spawn-ground',{x:0,y:67,z:-78},{x:0,y:68,z:0}],
-    ['north-road-transition',{x:78,y:92,z:-390},{x:0,y:63,z:-500}],
-    ['wilderness-low-relief',{x:360,y:92,z:-690},{x:360,y:63,z:-760}],
-    ['koth2',{x:500,y:108,z:-555},{x:500,y:64,z:-500}],
-    ['endstyle-koth',{x:-500,y:108,z:-555},{x:-500,y:64,z:-500}],
-    ['egypt-koth',{x:500,y:108,z:445},{x:500,y:64,z:500}],
-    ['koth-forty',{x:-500,y:108,z:445},{x:-500,y:64,z:500}],
-    ['conquest',{x:0,y:118,z:1060},{x:0,y:64,z:1125}]
+    ['spawn-overview',{x:0,y:108,z:-48},{x:0,y:64,z:0}],
+    ['spawn-ground',{x:0,y:68,z:-82},{x:0,y:68,z:0}],
+    ['north-road-long',{x:0,y:72,z:-255},{x:0,y:64,z:-620}],
+    ['north-road-transition',{x:74,y:92,z:-335},{x:0,y:64,z:-470}],
+    ['road-shoulder-relief',{x:92,y:88,z:-430},{x:150,y:64,z:-520}],
+    ['northwest-bowl',{x:-610,y:94,z:-650},{x:-720,y:63,z:-720}],
+    ['northeast-wooded-rise',{x:650,y:96,z:-650},{x:760,y:65,z:-760}],
+    ['southwest-rocky-rise',{x:-690,y:98,z:650},{x:-790,y:66,z:760}],
+    ['southeast-dry-basin',{x:690,y:92,z:650},{x:790,y:61,z:760}],
+    ['koth2',{x:500,y:110,z:-555},{x:500,y:64,z:-500}],
+    ['koth2-approach',{x:500,y:86,z:-760},{x:500,y:64,z:-500}],
+    ['endstyle-koth',{x:-500,y:110,z:-555},{x:-500,y:64,z:-500}],
+    ['endstyle-approach',{x:-500,y:86,z:-760},{x:-500,y:64,z:-500}],
+    ['egypt-koth',{x:500,y:110,z:445},{x:500,y:64,z:500}],
+    ['egypt-approach',{x:500,y:86,z:760},{x:500,y:64,z:500}],
+    ['koth-forty',{x:-500,y:110,z:445},{x:-500,y:64,z:500}],
+    ['frost-approach',{x:-500,y:86,z:760},{x:-500,y:64,z:500}],
+    ['conquest',{x:0,y:120,z:1060},{x:0,y:64,z:1125}],
+    ['conquest-approach',{x:0,y:88,z:860},{x:0,y:64,z:1125}]
   ]
   for(const [name,pos,target] of fixed) await capture(name,pos,target,3800)
 }
@@ -182,9 +207,13 @@ if(bases.length){
   }
   for(const b of bases.slice(0,6)){
     await capture('base-'+b.name+'-overview',
-      {x:b.x,y:b.y+34,z:b.z-18},{x:b.x,y:b.y+2,z:b.z},6000)
+      {x:b.x,y:b.y+38,z:b.z-26},{x:b.x,y:b.y+2,z:b.z},6000)
     await capture('base-'+b.name+'-frontage',
-      {x:b.x,y:b.y+3,z:b.z-42},{x:b.x,y:b.y+4,z:b.z},4800)
+      {x:b.x,y:b.y+5,z:b.z-48},{x:b.x,y:b.y+4,z:b.z},4800)
+    await capture('base-'+b.name+'-side',
+      {x:b.x+48,y:b.y+7,z:b.z},{x:b.x,y:b.y+4,z:b.z},4800)
+    await capture('base-'+b.name+'-claim-context',
+      {x:b.x+52,y:b.y+30,z:b.z-52},{x:b.x,y:b.y+2,z:b.z},5200)
   }
 }
 

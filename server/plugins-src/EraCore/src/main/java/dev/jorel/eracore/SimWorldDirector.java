@@ -3382,16 +3382,17 @@ final class SimWorldDirector {
         SimFaction f=factions.get(key(p.faction));
         if(f==null) return;
 
-        // Every donor tier is one capped P2/S2 diamond set. Higher tiers only
-        // scale consumables modestly because higher ranks can claim lower kits too.
+        // Every donor tier contributes one normal P1/S1 combat loadout.
+        // Higher tiers scale convenience modestly because higher ranks can also
+        // claim every lower kit. Premium P2/S2F1 never enters through /kit.
         int pearls=1,heals=2;
         if(rankLevel==1){pearls=2;heals=3;}
         else if(rankLevel==2){pearls=3;heals=4;}
         else if(rankLevel==3){pearls=4;heals=5;}
         else if(rankLevel>=4){pearls=5;heals=6;}
 
-        // Legacy field names are retained for save compatibility; their meaning
-        // is now capped P2 sets and S2 swords.
+        // Legacy field names are retained for save compatibility; they now
+        // represent ordinary P1 armor sets and S1 swords in the abstract stock.
         f.p4Sets+=1;
         f.sharp4Swords+=1;
         f.pearls+=pearls;
@@ -3450,6 +3451,21 @@ final class SimWorldDirector {
             ChatEvent contextual=contextualFactionChat(p,f);
             if(contextual!=null) return contextual;
         } else {
+            if(isHcfNovice(p) && rng.nextInt(100)<78) {
+                return new ChatEvent(p.name,oneOf(
+                    "how do i get a claim",
+                    "what kit am i supposed to use",
+                    "anyone know where end is",
+                    "can someone show me how factions work",
+                    "why cant i hit anyone",
+                    "where do i sell stuff",
+                    "any fac taking someone new",
+                    "what does dtr mean",
+                    "how do i get pots",
+                    "im just at spawn idk what to do",
+                    "who can help me start",
+                    "do i need a bard set"));
+            }
             String solo=soloActionFor(p);
             if("solo_loot".equals(solo)) {
                 String[] x={"any loot at spawn","who just died outside spawn","found pots on the ground lol","im just running around warzone"};
@@ -3737,6 +3753,22 @@ final class SimWorldDirector {
         return Math.max(-100,Math.min(100,n));
     }
 
+    private String speechStyleFor(SimPlayer p) {
+        if(p==null) return "plain";
+        int h=Math.abs(key(p.name).hashCode())%8;
+        if(isHcfNovice(p)) return h%2==0?"new-player-question-heavy":"new-player-short-confused";
+        switch(h) {
+            case 0:return "terse-dry";
+            case 1:return "chatty-lowercase";
+            case 2:return "competitive-short";
+            case 3:return "friendly-casual";
+            case 4:return "old-minecraft-slang";
+            case 5:return "typo-prone-fast";
+            case 6:return "quiet-observational";
+            default:return "matter-of-fact";
+        }
+    }
+
     private String semanticContext(SimPlayer p,String speaker) {
         SocialEdge rel=relationship(p.name,speaker,true);
         StringBuilder b=new StringBuilder();
@@ -3753,6 +3785,8 @@ final class SimWorldDirector {
          .append("; ownerAffinity=").append(p.ownerAffinity)
          .append("; publicNamePrestige=").append(namePrestigeTier(p.name))
          .append("; knownCreator=").append(plugin.isCreatorIdentity(p.name))
+         .append("; hcfExperience=").append(isHcfNovice(p)?"novice":(p.gameSense>=72?"veteran":"intermediate"))
+         .append("; speechStyle=").append(speechStyleFor(p))
          .append("; kills=").append(p.kills)
          .append("; deaths=").append(p.deaths)
          .append("; aggression=").append(p.aggression)
@@ -7298,11 +7332,12 @@ final class SimWorldDirector {
 
         List<SimFaction> open = new ArrayList<SimFaction>(factions.values());
         Collections.shuffle(open, rng);
-        int recruits = 0;
-        for (SimFaction f : open) {
-            if (f.members.size() >= f.targetSize || f.members.size() >= MAX_FACTION_MEMBERS) continue;
-            if (rng.nextInt(100) < 72 && recruitBestCandidate(f)) recruits++;
-            if (recruits >= 8) break;
+        int recruits=0;
+        for(SimFaction f:open) {
+            if(f.members.size()>=f.targetSize || f.members.size()>=MAX_FACTION_MEMBERS) continue;
+            int chance=f.underdog?54:(f.powerFaction?30:42);
+            if(rng.nextInt(100)<chance && recruitBestCandidate(f)) recruits++;
+            if(recruits>=3) break;
         }
     }
 
@@ -7609,27 +7644,45 @@ final class SimWorldDirector {
     }
 
     private ChatEvent recruitmentChatEvent() {
-        List<SimPlayer> solos = new ArrayList<SimPlayer>();
-        for (SimPlayer p : players.values()) {
-            if (p.faction.isEmpty() && !p.leaderCandidate) solos.add(p);
+        List<SimPlayer> solos=new ArrayList<SimPlayer>();
+        for(SimPlayer p:players.values())
+            if(p.logicalOnline && p.faction.isEmpty() && !p.leaderCandidate) solos.add(p);
+
+        List<SimFaction> open=new ArrayList<SimFaction>();
+        for(SimFaction f:factions.values())
+            if(f.members.size()<f.targetSize && f.members.size()<MAX_FACTION_MEMBERS) open.add(f);
+
+        int mode=rng.nextInt(100);
+        if(!solos.isEmpty() && (open.isEmpty() || mode<46)) {
+            SimPlayer p=solos.get(rng.nextInt(solos.size()));
+            return new ChatEvent(p.name,lffLine(p));
         }
 
-        List<SimFaction> open = new ArrayList<SimFaction>();
-        for (SimFaction f : factions.values()) {
-            if (f.members.size() < f.targetSize && f.members.size() < MAX_FACTION_MEMBERS) open.add(f);
-        }
+        if(!open.isEmpty()) {
+            SimFaction f=open.get(rng.nextInt(open.size()));
+            SimPlayer leader=players.get(key(f.leader));
+            if(leader==null) return null;
 
-        if (!solos.isEmpty() && (open.isEmpty() || rng.nextBoolean())) {
-            SimPlayer p = solos.get(rng.nextInt(solos.size()));
-            return new ChatEvent(p.name, lffLine(p));
+            // Members actually participate in recruiting: vouching, asking for a
+            // missing role, or telling a questionable recruit to message leader.
+            if(f.members.size()>1 && mode<72) {
+                List<SimPlayer> members=new ArrayList<SimPlayer>();
+                for(String name:f.members) {
+                    SimPlayer m=players.get(key(name));
+                    if(m!=null && m.logicalOnline && !m.name.equalsIgnoreCase(f.leader)) members.add(m);
+                }
+                if(!members.isEmpty()) {
+                    SimPlayer m=members.get(rng.nextInt(members.size()));
+                    String need=factionNeedText(f);
+                    return new ChatEvent(m.name,oneOf(
+                        "we still need "+(need.isEmpty()?"one active":need)+" msg "+leader.name,
+                        "ask "+leader.name+" for inv we got "+(Math.min(MAX_FACTION_MEMBERS,f.targetSize)-f.members.size())+" spot",
+                        "if you can "+(need.isEmpty()?"play":need)+" msg our leader",
+                        "we might take one more"));
+                }
+            }
+            return new ChatEvent(leader.name,recruitingLine(f));
         }
-
-        if (!open.isEmpty()) {
-            SimFaction f = open.get(rng.nextInt(open.size()));
-            SimPlayer leader = players.get(key(f.leader));
-            if (leader != null) return new ChatEvent(leader.name, recruitingLine(f));
-        }
-
         return null;
     }
 

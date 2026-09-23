@@ -174,11 +174,11 @@ final class HcfBasePlan {
         if("portal-end".equals(k))
             return new int[]{cx+utilitySide*(coreHalfX-3),undergroundY+1,cz-coreHalfZ+12};
         if("enchant".equals(k))
-            return new int[]{cx-utilitySide*(coreHalfX-6),undergroundY+1,cz-coreHalfZ+5};
+            return new int[]{cx+utilitySide*(coreHalfX-5),undergroundY+1,cz+coreHalfZ-5};
         if("war-room".equals(k) || "warroom".equals(k))
             return new int[]{cx,undergroundY+1,cz+coreHalfZ-5};
         if("utility".equals(k))
-            return new int[]{cx+utilitySide*(coreHalfX-5),undergroundY+1,cz+coreHalfZ-5};
+            return new int[]{cx-utilitySide*(coreHalfX-5),undergroundY+1,cz+coreHalfZ-5};
         return new int[]{cx,undergroundY+1,cz};
     }
 

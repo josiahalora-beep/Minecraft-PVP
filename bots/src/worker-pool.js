@@ -511,7 +511,7 @@ async function enterFactionPortal(state, zone) {
   // Returning from a resource dimension uses the normal HCF /f home return.
   // Outbound dimension travel is always through the actual portal in the base.
   if(dimensionZone(bot)!=='spawn') {
-    await tryCommand(state,'/f home',900)
+    await tryFactionHome(state,900)
     return false
   }
 
@@ -519,7 +519,7 @@ async function enterFactionPortal(state, zone) {
   if(!point) return false
 
   if(!nearAssignedHome(state,90)) {
-    await tryCommand(state,'/f home',900)
+    await tryFactionHome(state,900)
     return false
   }
 
@@ -560,7 +560,7 @@ async function walkTowardSpawn(state) {
   if(!bot?.entity || state.combat) return false
   if(dimensionZone(bot)!=='spawn') {
     const faction=String(state.job?.faction || state.faction || 'none')
-    if(faction!=='none' && !commandTagged(state)) await tryCommand(state,'/f home',900)
+    if(faction!=='none' && !commandTagged(state)) await tryFactionHome(state,900)
     return false
   }
   return await walkTowardPoint(state,spawnPoint(),10,7000)
@@ -574,7 +574,7 @@ async function ensurePhysicalZone(state, zone) {
   }
   if(current!=='spawn') {
     const faction=String(state.job?.faction || state.faction || 'none')
-    if(faction!=='none' && !commandTagged(state)) await tryCommand(state,'/f home',900)
+    if(faction!=='none' && !commandTagged(state)) await tryFactionHome(state,900)
     return false
   }
   return true
@@ -666,6 +666,21 @@ async function tryCommand(state, command, cooldownMs = 5000) {
   return await queueBotCommand(state,command,BOT_COMMAND_GAP_MS,10)
 }
 
+async function tryFactionHome(state, cooldownMs=900) {
+  if(!state?.bot?.entity || state.combat || commandTagged(state)) return false
+  const now=Date.now()
+  if(now < (state.homeWarmupUntil || 0)) return true
+  const sent=await tryCommand(state,'/f home',cooldownMs)
+  if(sent) {
+    // Classic HCF /f home has a movement/damage-cancellable warmup. Freeze
+    // normal worker behavior until it finishes so Mineflayer does not cancel
+    // its own teleport by immediately walking away.
+    state.homeWarmupUntil=Date.now()+11000
+    stopMovement(state.bot)
+  }
+  return sent
+}
+
 function inventoryFreeSlots(bot) {
   try {
     if(typeof bot?.inventory?.emptySlotCount === 'function') return bot.inventory.emptySlotCount()
@@ -700,7 +715,7 @@ async function finishCrateRun(state, force = false) {
     state.lastTeleportAttempt=now
     state.cratePhase='posthome'
     state.cratePhaseAt=now
-    await tryCommand(state,'/f home',700)
+    await tryFactionHome(state,700)
     return true
   }
 
@@ -814,7 +829,7 @@ async function enforceCombatReadiness(state,action) {
     if(!nearAssignedHome(state,62) && !commandTagged(state) &&
        now-(state.lastTeleportAttempt||0)>4500) {
       state.lastTeleportAttempt=now
-      await tryCommand(state,'/f home',900)
+      await tryFactionHome(state,900)
       return false
     }
     if(nearAssignedHome(state,62) && now-(state.lastGearRequestAt||0)>1800) {
@@ -950,7 +965,7 @@ async function commandBrain(state) {
   if (action !== 'crate' && donorKits.length && !tagged && faction !== 'none' && now >= (state.nextKitSweepAt || 0)) {
     if (!nearAssignedHome(state) && now - (state.lastTeleportAttempt || 0) > 12000) {
       state.lastTeleportAttempt=now
-      await tryCommand(state,'/f home',900)
+      await tryFactionHome(state,900)
       return
     }
 
@@ -992,7 +1007,7 @@ async function commandBrain(state) {
   if(baseBoundAction && faction!=='none' && !tagged && !nearAssignedHome(state,72) &&
      now-(state.lastTeleportAttempt||0)>5000) {
     state.lastTeleportAttempt=now
-    await tryCommand(state,'/f home',900)
+    await tryFactionHome(state,900)
     return
   }
 
@@ -1000,7 +1015,7 @@ async function commandBrain(state) {
   if (action === 'safe' && !tagged && faction !== 'none' &&
       now - (state.lastTeleportAttempt || 0) > 20000) {
     state.lastTeleportAttempt = now
-    await tryCommand(state, '/f home', 900)
+    await tryFactionHome(state,900)
     return
   }
 
@@ -1019,7 +1034,7 @@ async function commandBrain(state) {
       state.cratePhase='home'
       state.cratePhaseAt=now
       state.lastTeleportAttempt=now
-      await tryCommand(state,'/f home',700)
+      await tryFactionHome(state,700)
       return
     }
 
@@ -1061,7 +1076,7 @@ async function commandBrain(state) {
       if(dimensionZone(bot)!=='spawn') {
         if(faction!=='none' && now-(state.lastTeleportAttempt || 0)>3500) {
           state.lastTeleportAttempt=now
-          await tryCommand(state,'/f home',700)
+          await tryFactionHome(state,700)
         }
         return
       }
@@ -1128,7 +1143,7 @@ async function commandBrain(state) {
           now - (state.lastTeleportAttempt || 0) > 45000) {
         state.lastTeleportAttempt = now
         state.lastPatrolZone=''
-        await tryCommand(state, '/f home', 900)
+        await tryFactionHome(state,900)
       }
     }
   }
@@ -1151,7 +1166,7 @@ async function emergencyRetreat(state) {
   }
 
   const faction = String(state.job?.faction || state.faction || 'none')
-  if (faction !== 'none') await tryCommand(state, '/f home', 800)
+  if (faction !== 'none') await tryFactionHome(state,800)
   else await walkTowardSpawn(state)
 }
 
@@ -2468,6 +2483,12 @@ function startWorkLoop(state, settings) {
       const action = job.action || 'idle'
 
       if (state.combat) {
+        await sleep(250)
+        continue
+      }
+
+      if(Date.now() < (state.homeWarmupUntil || 0)) {
+        stopMovement(bot)
         await sleep(250)
         continue
       }

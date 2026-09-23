@@ -16,6 +16,11 @@ import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.FileReader;
 import java.io.FileWriter;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.zip.GZIPOutputStream;
 import java.text.DecimalFormat;
 import java.util.*;
 import java.util.regex.Matcher;
@@ -3354,7 +3359,8 @@ final class SimWorldDirector {
 
         if(!rel.memories.isEmpty()) {
             b.append("; durableMemories=");
-            int skipMem=Math.max(0,rel.memories.size()-6),mi=0;
+            int memoryTake=Math.max(2,Math.min(16,plugin.getConfig().getInt("memory.chat-relationship-memories",10)));
+            int skipMem=Math.max(0,rel.memories.size()-memoryTake),mi=0;
             for(String memory:rel.memories) {
                 if(mi++<skipMem) continue;
                 b.append("[").append(memory.replace(';',',')).append("]");
@@ -3431,6 +3437,49 @@ final class SimWorldDirector {
         w.newLine();
     }
 
+    private File coldArchiveDir() {
+        String configured=plugin.getConfig().getString("memory.cold-archive-directory","");
+        File dir;
+        if(configured!=null && !configured.trim().isEmpty()) dir=new File(configured.trim());
+        else dir=new File(plugin.getDataFolder(),"memory-archive");
+        if(!dir.exists()) dir.mkdirs();
+        return dir;
+    }
+
+    private void archiveColdShard(File source) throws IOException {
+        if(source==null || !source.isFile() || source.length()<=0L) return;
+        File dir=coldArchiveDir();
+        String name="memory-events-"+System.currentTimeMillis()+".log.gz";
+        File out=new File(dir,name);
+        InputStream in=new FileInputStream(source);
+        OutputStream gz=new GZIPOutputStream(new FileOutputStream(out));
+        try {
+            byte[] buf=new byte[32768];
+            int n;
+            while((n=in.read(buf))>0) gz.write(buf,0,n);
+        } finally {
+            try{in.close();}catch(Exception ignored){}
+            try{gz.close();}catch(Exception ignored){}
+        }
+        pruneColdShards(dir);
+        plugin.getLogger().info("Archived cold actor memory shard "+out.getAbsolutePath()+
+            " bytes="+out.length());
+    }
+
+    private void pruneColdShards(File dir) {
+        File[] files=dir.listFiles(new FilenameFilter(){
+            public boolean accept(File d,String name){
+                return name.startsWith("memory-events-") && name.endsWith(".log.gz");
+            }
+        });
+        if(files==null) return;
+        Arrays.sort(files,new Comparator<File>(){
+            public int compare(File a,File b){return Long.compare(a.lastModified(),b.lastModified());}
+        });
+        int max=Math.max(4,Math.min(256,plugin.getConfig().getInt("memory.cold-max-shards",48)));
+        for(int i=0;i<files.length-max;i++) files[i].delete();
+    }
+
     private void compactMemoryArchive() {
         if(!memoryFile.getParentFile().exists()) memoryFile.getParentFile().mkdirs();
         File tmp=new File(memoryFile.getParentFile(),"memory-events.compact.tmp");
@@ -3441,8 +3490,11 @@ final class SimWorldDirector {
             w.close();
 
             if(bak.exists()) bak.delete();
-            if(memoryFile.exists() && !memoryFile.renameTo(bak))
-                throw new IOException("could not stage old archive");
+            if(memoryFile.exists()) {
+                archiveColdShard(memoryFile);
+                if(!memoryFile.renameTo(bak))
+                    throw new IOException("could not stage old archive");
+            }
             if(!tmp.renameTo(memoryFile)) {
                 if(bak.exists()) bak.renameTo(memoryFile);
                 throw new IOException("could not install compact archive");
@@ -3577,7 +3629,8 @@ final class SimWorldDirector {
 
     private String historyContextFor(SimPlayer p) {
         String faction=p==null?"":p.faction;
-        List<HistoryEvent> xs=relevantHistory(p==null?"":p.name,faction,12);
+        int max=Math.max(3,Math.min(24,plugin.getConfig().getInt("memory.chat-history-events",12)));
+        List<HistoryEvent> xs=relevantHistory(p==null?"":p.name,faction,max);
         if(xs.isEmpty()) return "";
         StringBuilder b=new StringBuilder();
         for(HistoryEvent e:xs) {

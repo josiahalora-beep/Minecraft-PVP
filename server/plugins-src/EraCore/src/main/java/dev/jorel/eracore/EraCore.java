@@ -1039,6 +1039,12 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     boolean simWorldProtectionActive() {
         return simWorld != null && simWorld.sotwProtectionActive();
     }
+    boolean productionWorldReady() {
+        boolean active=getConfig().getBoolean("map.auto-bootstrap",false) ||
+            getConfig().getBoolean("world-build.active",false);
+        return !active || getConfig().getBoolean("world-build.complete",false);
+    }
+
 
     boolean isOwnerPlayer(Player p) {
         return p != null && (getRank(p.getName()) == Rank.OWNER || p.hasPermission("eracore.owner"));

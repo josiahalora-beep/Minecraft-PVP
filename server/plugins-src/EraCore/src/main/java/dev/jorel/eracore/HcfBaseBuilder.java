@@ -539,17 +539,29 @@ final class HcfBaseBuilder {
                 int rebuild=Math.max(8,plugin.getConfig().getInt("base-builder.rebuild-blocks-per-tick",32));
 
                 int normal=plugin.hasHumanOnline()?Math.min(configured,visible):configured;
-                int budget=maintenanceRebuild?Math.min(rebuild,plugin.hasHumanOnline()?24:40):normal;
+                boolean qaFast=maintenanceRebuild &&
+                    plugin.getConfig().getBoolean("base-builder.qa-fast-rebuild",false);
+                int budget;
+                if(qaFast) {
+                    // Explicit disposable-QA mode only. This lets the headless
+                    // visual harness materialize full deterministic bases in
+                    // minutes; the production default is false and retains all
+                    // combat-safe throttles below.
+                    budget=Math.max(40,Math.min(3000,
+                        plugin.getConfig().getInt("base-builder.qa-fast-rebuild-blocks-per-run",1800)));
+                } else {
+                    budget=maintenanceRebuild?Math.min(rebuild,plugin.hasHumanOnline()?24:40):normal;
 
-                // Construction is cosmetic/physical projection, never allowed to
-                // compete with combat or normal movement. Pause or taper instantly
-                // as p95 tick time rises.
-                double p95=plugin.currentP95Mspt();
-                if(p95>=45.0) budget=0;
-                else if(p95>=32.0) budget=Math.min(budget,2);
-                else if(p95>=26.0) budget=Math.min(budget,4);
-                else if(p95>=22.0) budget=Math.min(budget,8);
-                else if(p95>=18.0) budget=Math.min(budget,12);
+                    // Construction is cosmetic/physical projection, never allowed to
+                    // compete with combat or normal movement. Pause or taper instantly
+                    // as p95 tick time rises.
+                    double p95=plugin.currentP95Mspt();
+                    if(p95>=45.0) budget=0;
+                    else if(p95>=32.0) budget=Math.min(budget,2);
+                    else if(p95>=26.0) budget=Math.min(budget,4);
+                    else if(p95>=22.0) budget=Math.min(budget,8);
+                    else if(p95>=18.0) budget=Math.min(budget,12);
+                }
 
                 if(budget<=0) return;
                 int n = 0;

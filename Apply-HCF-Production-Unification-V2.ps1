@@ -16,7 +16,7 @@ $JavaSourceDir = Join-Path $Server 'plugins-src\EraCore\src\main\java\dev\jorel\
 
 # This repository is often installed as a plain folder rather than a Git clone.
 # Always sync the exact coordinated source generation before compiling.
-$SourceCommit = 'cdf04e63d8c9408e372b49cdf5be2d18734a817b'
+$SourceCommit = '33cf6dfeb3a920bd18134ef353cf65141ee7cfd5'
 $RawBase = 'https://raw.githubusercontent.com/josiahalora-beep/Minecraft-PVP/' + $SourceCommit
 $SourceFiles = @(
     'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/ActorDirectory.java',
@@ -55,6 +55,8 @@ $SourceFiles = @(
     'server/start-server.bat',
     'bots/src/worker-pool.js',
     'bots/src/hcf-map-intelligence.js',
+    'Start-Daegon-With-Workers.ps1',
+    'Start-Daegon-Adaptive.ps1',
     'docs/ACTOR_RUNTIME.md'
 )
 
@@ -140,6 +142,8 @@ $downloadReset = Get-Content -LiteralPath (Join-Path $tempRoot 'server\Prepare-H
 $downloadLauncher = Get-Content -LiteralPath (Join-Path $tempRoot 'server\start-server.bat') -Raw
 $downloadWorker = Get-Content -LiteralPath (Join-Path $tempRoot 'bots\src\worker-pool.js') -Raw
 $downloadMapAi = Get-Content -LiteralPath (Join-Path $tempRoot 'bots\src\hcf-map-intelligence.js') -Raw
+$downloadStackLauncher = Get-Content -LiteralPath (Join-Path $tempRoot 'Start-Daegon-With-Workers.ps1') -Raw
+$downloadAdaptiveLauncher = Get-Content -LiteralPath (Join-Path $tempRoot 'Start-Daegon-Adaptive.ps1') -Raw
 if ($downloadEra -notmatch 'migrateProductionUnificationConfig') { throw 'Downloaded EraCore is not the production-unification generation.' }
 if ($downloadEra -match 'factionSuffix\s*\(') { throw 'Downloaded EraCore still contains the removed factionSuffix method reference.' }
 if ($downloadEra -notmatch 'cmdSimTab') { throw 'Downloaded EraCore is missing /simtab diagnostics.' }
@@ -164,6 +168,14 @@ if ($downloadWorker -notmatch 'enterFactionPortal' -or $downloadWorker -notmatch
 }
 if ($downloadMapAi -notmatch "factionHome:\s*'/f home'") {
     throw 'Downloaded HCF map intelligence is missing faction-home routing.'
+}
+if ($downloadStackLauncher -notmatch 'WORKER_COORDINATOR_URL=http://127\.0\.0\.1:8770' -or
+    $downloadAdaptiveLauncher -notmatch 'Start-Daegon-With-Workers\.ps1') {
+    throw 'Downloaded Daegon launcher chain is incomplete.'
+}
+if ($downloadEra -notmatch 'production-unification-version",5' -or
+    $downloadEra -notmatch 'world-composer\.blocks-per-tick",320') {
+    throw 'Downloaded EraCore is missing production pacing v5.'
 }
 if ($downloadMapAi -match "x:\s*650" -or $downloadMapAi -match "z:\s*-?650") {
     throw 'Downloaded HCF map intelligence still contains the obsolete +/-650 KOTH layout.'
@@ -225,6 +237,10 @@ $startBat = Join-Path $Server 'start-server.bat'
 if (Test-Path $startBat) {
     Copy-Item -LiteralPath $startBat -Destination (Join-Path $backupRoot 'start-server.bat') -Force
 }
+foreach ($name in @('Start-Daegon-With-Workers.ps1','Start-Daegon-Adaptive.ps1')) {
+    $p = Join-Path $Root $name
+    if (Test-Path $p) { Copy-Item -LiteralPath $p -Destination (Join-Path $backupRoot $name) -Force }
+}
 $botBackup = Join-Path $backupRoot 'bots-src'
 New-Item -ItemType Directory -Path $botBackup -Force | Out-Null
 foreach ($name in @('worker-pool.js','hcf-map-intelligence.js')) {
@@ -261,6 +277,10 @@ if (Test-Path (Join-Path $Here 'Prepare-HCF-Season-Reset.ps1')) {
 }
 if (Test-Path (Join-Path $Here 'start-server.bat')) {
     Copy-Item -LiteralPath (Join-Path $Here 'start-server.bat') -Destination (Join-Path $Server 'start-server.bat') -Force
+}
+foreach ($name in @('Start-Daegon-With-Workers.ps1','Start-Daegon-Adaptive.ps1')) {
+    $p = Join-Path $Here $name
+    if (Test-Path $p) { Copy-Item -LiteralPath $p -Destination (Join-Path $Root $name) -Force }
 }
 $BotSource = Join-Path $Here 'bots-src'
 if (Test-Path $BotSource) {
@@ -330,7 +350,8 @@ foreach ($cmd in @('simtab:','mapcompose:','sotw:','baserebuild:','simactor:')) 
 Write-Host '[6/6] Deployment validation complete.' -ForegroundColor Green
 Write-Host ''
 Write-Host 'Installed capabilities:' -ForegroundColor Cyan
-Write-Host '  - staged automatic v7 production-map build with MSPT throttling'
+Write-Host '  - scan/write-aware v7 production-map build with adaptive MSPT throttling'
+Write-Host '  - restored Start-Daegon-Adaptive.ps1 -> current 8770 coordinator/worker stack'
 Write-Host '  - canonical KOTH/portal/conquest geometry'
 Write-Host '  - hybrid five-family faction bases + rectangular claim containment'
 Write-Host '  - local-first contextual chat + semantic anti-repeat + hard AI budget'

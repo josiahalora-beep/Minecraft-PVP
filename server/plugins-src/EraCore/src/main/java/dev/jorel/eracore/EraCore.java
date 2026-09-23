@@ -18,8 +18,10 @@ import org.bukkit.event.player.*;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.potion.Potion;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
+import org.bukkit.potion.PotionType;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scoreboard.Scoreboard;
 import org.bukkit.scoreboard.Team;
@@ -496,7 +498,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     private void migrateProductionUnificationConfig() {
         int version=getConfig().getInt("migration.production-unification-version",0);
-        if(version>=3) return;
+        if(version>=4) return;
 
         // Canonical v7 map geometry.
         getConfig().set("map-layout.koth-offset",500);
@@ -520,8 +522,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             getConfig().getBoolean("map.complete",false));
         getConfig().set("world-build.max-p95-mspt",20.0);
         if(!getConfig().contains("world-build.archive-directory")) getConfig().set("world-build.archive-directory","");
-        getConfig().set("world-composer.blocks-per-tick",120);
-        getConfig().set("resources.blocks-per-tick",90);
+        getConfig().set("world-composer.blocks-per-tick",160);
+        getConfig().set("resources.blocks-per-tick",110);
         getConfig().set("resources.bootstrap-spawners",false);
         getConfig().set("resources.ore-mountain.enabled",true);
         getConfig().set("resources.ore-mountain.base-y",63);
@@ -532,7 +534,13 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         getConfig().set("infrastructure.duel-center-z",0);
         getConfig().set("infrastructure.duel-floor-y",64);
         getConfig().set("infrastructure.external-dimension-schematics",true);
-        getConfig().set("infrastructure.blocks-per-tick",120);
+        getConfig().set("infrastructure.blocks-per-tick",150);
+        getConfig().set("base-builder.blocks-per-tick",96);
+        getConfig().set("base-builder.visible-blocks-per-tick",16);
+        getConfig().set("base-builder.rebuild-blocks-per-tick",40);
+        getConfig().set("hcf-classes.permanent-speed-2",true);
+        getConfig().set("travel.faction-home-warmup-seconds",10);
+        getConfig().set("travel.faction-stuck-warmup-seconds",180);
 
         // Large persistent memory with small retrieval windows. This increases
         // continuity without increasing per-chat prompt size or tick work.
@@ -570,9 +578,9 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         getConfig().set("worker-pool.creator-bodies",Arrays.asList(
             "Stimpy","PainfulPvP","lolitsalex","Skimpy"));
 
-        getConfig().set("migration.production-unification-version",3);
+        getConfig().set("migration.production-unification-version",4);
         saveConfig();
-        getLogger().info("Applied production unification v3: verified fresh-map reset, Kraken spawn alignment, classic presentation and canonical creator identities.");
+        getLogger().info("Applied production unification v4: physical HCF travel, faction-prefix chat, permanent Speed II, SOTW economy rush and faster staged production builds.");
     }
 
     private void bindCommands() {
@@ -612,13 +620,12 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         sellPrices.put(Material.GOLD_INGOT, 14.0);
         sellPrices.put(Material.DIAMOND, 60.0);
 
-        // Finished PvP consumables are an expensive convenience. Mature factions
-        // save heavily by brewing instead of buying finished pots.
-        addBuy("healthpot", Material.POTION, (short)16421, 135.0);
-        addBuy("speedpot", Material.POTION, (short)8226, 95.0);
-        addBuy("pearl", Material.ENDER_PEARL, (short)0, 160.0);
-        addBuy("obsidian", Material.OBSIDIAN, (short)0, 30.0);
-        addBuy("iron", Material.IRON_INGOT, (short)0, 18.0);
+        // Classic HCF shop: sell farm output for money, then buy building and
+        // brewing inputs. Finished Speed/Heal potions are not sold; players
+        // brew heals and every player receives permanent Speed II.
+        addBuy("pearl", Material.ENDER_PEARL, (short)0, 175.0);
+        addBuy("obsidian", Material.OBSIDIAN, (short)0, 24.0);
+        addBuy("iron", Material.IRON_INGOT, (short)0, 15.0);
         addBuy("steak", Material.COOKED_BEEF, (short)0, 6.0);
 
         // Farm/bootstrap supplies. A $500 start can establish one modest farm,
@@ -630,21 +637,25 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         addBuy("sand", Material.SAND, (short)0, 2.0);
         addBuy("dirt", Material.DIRT, (short)0, 1.0);
         addBuy("waterbucket", Material.WATER_BUCKET, (short)0, 35.0);
-        addBuy("chest", Material.CHEST, (short)0, 20.0);
-        addBuy("hopper", Material.HOPPER, (short)0, 65.0);
-        addBuy("brewingstand", Material.BREWING_STAND_ITEM, (short)0, 140.0);
+        addBuy("chest", Material.CHEST, (short)0, 12.0);
+        addBuy("hopper", Material.HOPPER, (short)0, 50.0);
+        addBuy("brewingstand", Material.BREWING_STAND_ITEM, (short)0, 100.0);
         addBuy("redstone", Material.REDSTONE, (short)0, 4.0);
-        addBuy("netherwart", Material.NETHER_STALK, (short)0, 12.0);
-        addBuy("glowstone", Material.GLOWSTONE_DUST, (short)0, 12.0);
-        addBuy("gunpowder", Material.SULPHUR, (short)0, 18.0);
-        addBuy("glisteringmelon", Material.SPECKLED_MELON, (short)0, 24.0);
+        addBuy("netherwart", Material.NETHER_STALK, (short)0, 10.0);
+        // Glowstone/gunpowder stay deliberately expensive so experienced
+        // factions prefer protected SOTW resource runs over buying everything.
+        addBuy("glowstone", Material.GLOWSTONE_DUST, (short)0, 24.0);
+        addBuy("gunpowder", Material.SULPHUR, (short)0, 30.0);
+        addBuy("glisteringmelon", Material.SPECKLED_MELON, (short)0, 20.0);
         addBuy("sugar", Material.SUGAR, (short)0, 6.0);
         addBuy("magmacream", Material.MAGMA_CREAM, (short)0, 22.0);
-        addBuy("glass", Material.GLASS, (short)0, 2.0);
-        // Physical portals are intentionally expensive strategic infrastructure.
-        addBuy("flintsteel", Material.FLINT_AND_STEEL, (short)0, 1500.0);
-        addBuy("endframe", Material.ENDER_PORTAL_FRAME, (short)0, 1200.0);
-        addBuy("eyeofender", Material.EYE_OF_ENDER, (short)0, 250.0);
+        addBuy("glass", Material.GLASS, (short)0, 1.5);
+        // Physical portals replace player warp commands. Nether access should
+        // be obtainable during SOTW; private End access remains a meaningful
+        // faction investment while public End portals are still walkable.
+        addBuy("flintsteel", Material.FLINT_AND_STEEL, (short)0, 80.0);
+        addBuy("endframe", Material.ENDER_PORTAL_FRAME, (short)0, 65.0);
+        addBuy("eyeofender", Material.EYE_OF_ENDER, (short)0, 15.0);
         addBuy("book", Material.BOOK, (short)0, 12.0);
         addBuy("lapis", Material.INK_SACK, (short)4, 5.0);
     }
@@ -669,6 +680,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
         maybeClaimOwner(p);
         ensurePlayerData(p);
+        purgeObsoletePotions(p);
         Rank r = bot ? simRankFor(p.getName()) : getRank(p.getName());
         applyCreatorTag(p);
         p.setPlayerListName(color(identityPrefix(p.getName(), r) + rankNameColor(r) + p.getName()));
@@ -721,7 +733,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (!hasHumanOnline()) return;
         Rank rank = simRankFor(name);
         String marker = joining ? "&8[&a+&8] " : "&8[&c-&8] ";
-        Bukkit.broadcastMessage(color(marker + identityPrefix(name,rank) + rankNameColor(rank) + name + factionSuffix(name)));
+        Bukkit.broadcastMessage(color(marker + factionPrefix(name) + identityPrefix(name,rank) + rankNameColor(rank) + name));
     }
 
     @EventHandler(priority=EventPriority.MONITOR, ignoreCancelled=true)
@@ -747,7 +759,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             return;
         }
         Rank r = isBotIdentity(p.getName()) ? simRankFor(p.getName()) : getRank(p.getName());
-        e.setFormat(color(identityPrefix(p.getName(), r) + rankNameColor(r) + p.getName() + factionSuffix(p.getName()) + "&7: &f") + "%2$s");
+        e.setFormat(color(factionPrefix(p.getName()) + identityPrefix(p.getName(), r) + rankNameColor(r) + p.getName() + "&7: &f") + "%2$s");
         final String chatText = e.getMessage();
         if (simChat != null) {
             Bukkit.getScheduler().runTask(this, new Runnable() {
@@ -787,6 +799,19 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
                 p.sendMessage(color((r.ok?"&a":"&c")+r.message));
             }
         }
+    }
+
+    @EventHandler(priority=EventPriority.HIGHEST, ignoreCancelled=true) public void onForbiddenPotionUse(PlayerInteractEvent e) {
+        Action action=e.getAction();
+        if(action!=Action.RIGHT_CLICK_AIR && action!=Action.RIGHT_CLICK_BLOCK) return;
+        ItemStack item=e.getItem();
+        if(!isObsoletePotion(item)) return;
+
+        e.setCancelled(true);
+        Player p=e.getPlayer();
+        p.setItemInHand(null);
+        p.updateInventory();
+        p.sendMessage(color("&cThat potion is disabled. &7Speed II is permanent and Fire Resistance is removed from this map."));
     }
 
     @EventHandler(priority=EventPriority.HIGHEST, ignoreCancelled=true) public void onPearlUse(PlayerInteractEvent e) {
@@ -1072,21 +1097,21 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         return "&f";
     }
 
-    private String factionSuffix(String name) {
+    private String factionPrefix(String name) {
         Faction real = factionOf(name);
         String faction = real == null ? "" : real.name;
         if (faction.isEmpty() && simWorld != null) faction = simWorld.factionOf(name);
-        return faction.isEmpty() ? "" : " &8[&7" + faction + "&8]";
+        return faction.isEmpty() ? "" : "&8[&7" + faction + "&8] ";
     }
 
     void broadcastSimulatedChat(String name, String message) {
         Rank rank = simRankFor(name);
-        Bukkit.broadcastMessage(color(identityPrefix(name, rank) + rankNameColor(rank) + name + factionSuffix(name) + "&7: &f" + message));
+        Bukkit.broadcastMessage(color(factionPrefix(name) + identityPrefix(name, rank) + rankNameColor(rank) + name + "&7: &f" + message));
     }
 
     void sendSimulatedPrivate(Player target, String from, String message) {
         Rank rank = simRankFor(from);
-        target.sendMessage(color("&8[&7From " + identityPrefix(from, rank) + rankNameColor(rank) + from + factionSuffix(from) + "&8] &f" + message));
+        target.sendMessage(color("&8[&7From &r" + factionPrefix(from) + identityPrefix(from, rank) + rankNameColor(rank) + from + "&8] &f" + message));
     }
 
     void broadcastKillCounter(String name,int kills,int deaths) {
@@ -1157,6 +1182,10 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     boolean simWorldProtectionActive() {
         return simWorld != null && simWorld.sotwProtectionActive();
+    }
+
+    void restartSotwProtectionClock() {
+        if(simWorld!=null) simWorld.restartSotwProtectionClock();
     }
     boolean productionWorldReady() {
         boolean active=getConfig().getBoolean("map.auto-bootstrap",false) ||
@@ -1371,7 +1400,10 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (c.equals("events")) return eventDirector != null && eventDirector.commandEvents(p,args);
         if (c.equals("koth")) return eventDirector != null && eventDirector.commandKoth(p,args);
         if (c.equals("conquest")) return eventDirector != null && eventDirector.commandConquest(p,args);
-        if (c.equals("oremountain")) return mapDirector != null && mapDirector.commandOreMountain(p);
+        if (c.equals("oremountain")) {
+            if(!ownerOnly(p)) return true;
+            return mapDirector != null && mapDirector.commandOreMountain(p);
+        }
         if (c.equals("mapcompose")) return cmdMapCompose(p,args);
         return false;
     }
@@ -1695,6 +1727,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     private boolean cmdSpawn(Player p) {
+        if(!ownerOnly(p)) return true;
         Location target=warpManager.getSpawn();
         if(hcfZones!=null && hcfZones.isTagged(p) && !isOwnerPlayer(p)) {
             p.sendMessage(color("&cYou cannot /spawn while combat tagged. &7"+hcfZones.tagSeconds(p)+"s remaining."));
@@ -1706,6 +1739,10 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     private boolean cmdStuck(Player p) {
+        if(!ownerOnly(p)) {
+            p.sendMessage(color("&7Use &f/f home &7for your faction base. Normal HCF travel back to spawn/events is physical."));
+            return true;
+        }
         if(activeDuel!=null && p.getName().equalsIgnoreCase(activeDuel.human)) {
             p.sendMessage(color("&cYou cannot /stuck during a duel."));
             return true;
@@ -1757,6 +1794,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     private boolean cmdWarp(Player p, String[] a) {
+        if(!ownerOnly(p)) return true;
         if (a.length != 1) return cmdWarps(p);
         Location l = warpManager.getWarp(a[0]);
         if (l == null) {
@@ -1774,6 +1812,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     private boolean cmdWarps(Player p) {
+        if(!ownerOnly(p)) return true;
         List<String> names = warpManager.names();
         p.sendMessage(color("&6Warps: &fspawn" + (names.isEmpty() ? "" : ", " + join(names, ", "))));
         return true;
@@ -2066,7 +2105,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         Material helmet=Material.DIAMOND_HELMET, chest=Material.DIAMOND_CHESTPLATE,
             legs=Material.DIAMOND_LEGGINGS, boots=Material.DIAMOND_BOOTS;
         Material swordMat=Material.DIAMOND_SWORD;
-        int heals=24,pearls=8,speeds=2;
+        int heals=24,pearls=8;
 
         if(type==SimWorldDirector.CombatClass.BARD) {
             helmet=Material.GOLD_HELMET;chest=Material.GOLD_CHESTPLATE;
@@ -2110,24 +2149,20 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             inv.setItem(28,pick);
         }
 
-        // One consistent PvP ceiling: Protection II / Sharpness II, splash heals,
-        // pearls and speed only. No Fire Aspect and no fire-resistance potions.
+        // One consistent PvP ceiling: Protection II / Sharpness II, splash
+        // Healing II and pearls. Speed II is permanent server-wide, so carrying
+        // speed bottles wastes refill slots and creates the wrong HCF economy.
         int hotbarStart=type==SimWorldDirector.CombatClass.ARCHER?3:
             (type==SimWorldDirector.CombatClass.ROGUE?3:1);
         int placed=0;
         for(int slot=hotbarStart;slot<=5 && placed<heals;slot++,placed++)
             if(inv.getItem(slot)==null) inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
-        inv.setItem(7,new ItemStack(Material.POTION,1,(short)8226));
+        inv.setItem(7,new ItemStack(Material.COOKED_BEEF,16));
         inv.setItem(8,new ItemStack(Material.ENDER_PEARL,pearls));
         for(int slot=9;slot<=35 && placed<heals;slot++) {
             if(inv.getItem(slot)!=null) continue;
             inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
             placed++;
-        }
-        if(speeds>1) {
-            for(int slot=35;slot>=9;slot--) {
-                if(inv.getItem(slot)==null) { inv.setItem(slot,new ItemStack(Material.POTION,1,(short)8226)); break; }
-            }
         }
 
         p.setHealth(20.0);
@@ -2256,7 +2291,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         Location target = new Location(world,task.x + 0.5,y,task.z + 0.5);
 
         // Do not teleport ordinary workers to semantic targets. A HOT body is a
-        // visible player and must use /f home, /spawn, /warp or walk there.
+        // visible HCF player: it may /f home, but spawn/KOTH/dimension travel is
+        // physical and Nether/End transitions use the faction's real portals.
         // Combat projection has its own explicit fight-spawn path.
         Material tool = Material.WOOD_PICKAXE;
         if ("mine".equals(task.action) || "gather".equals(task.action) || "supply".equals(task.action)) tool = Material.IRON_PICKAXE;
@@ -2673,7 +2709,6 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         else if ("tnt".equals(key)) m = Material.TNT;
         else if ("pearl".equals(key)) m = Material.ENDER_PEARL;
         else if ("healthpot".equals(key)) { m = Material.POTION; data = (short)16421; }
-        else if ("speedpot".equals(key)) { m = Material.POTION; data = (short)8226; }
         if (m == null) return false;
 
         int left = qty;
@@ -2699,8 +2734,6 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         else if ("tnt".equals(key)) m = Material.TNT;
         else if ("pearl".equals(key)) m = Material.ENDER_PEARL;
         else if ("healthpot".equals(key)) { m = Material.POTION; data = (short)16421; }
-        else if ("speedpot".equals(key)) { m = Material.POTION; data = (short)8226; }
-        else if ("fireres".equals(key)) { m = Material.POTION; data = (short)8259; }
         if (m == null) return false;
 
         int have = 0;
@@ -2721,6 +2754,33 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             else p.getInventory().setItem(slot, i);
         }
         return left == 0;
+    }
+
+    private boolean isObsoletePotion(ItemStack item) {
+        if(item==null || item.getType()!=Material.POTION) return false;
+        try {
+            PotionType type=Potion.fromItemStack(item).getType();
+            return type==PotionType.SPEED || type==PotionType.FIRE_RESISTANCE;
+        } catch(Throwable ignored) {
+            short data=item.getDurability();
+            return data==(short)8226 || data==(short)8259;
+        }
+    }
+
+    private void purgeObsoletePotions(Player p) {
+        if(p==null) return;
+        PlayerInventory inv=p.getInventory();
+        boolean changed=false;
+        for(int slot=0;slot<inv.getSize();slot++) {
+            ItemStack item=inv.getItem(slot);
+            if(!isObsoletePotion(item)) continue;
+            inv.setItem(slot,null);
+            changed=true;
+        }
+        if(changed) {
+            p.updateInventory();
+            p.sendMessage(color("&7Legacy Speed/Fire Resistance potions were removed. &fSpeed II is permanent &7and Fire Resistance is disabled for this map."));
+        }
     }
 
     private void configureWorldBorders() {
@@ -2851,22 +2911,22 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     private void grantKit(Player p, Rank r) {
-        int pearls=1,heals=2,speed=0,steak=16;
+        int pearls=1,heals=2,steak=16;
         switch(r) {
             case MEMBER:
-                pearls=1; heals=2; speed=0; steak=16;
+                pearls=1; heals=2; steak=16;
                 break;
             case BASIC:
-                pearls=2; heals=3; speed=1; steak=16;
+                pearls=2; heals=3; steak=16;
                 break;
             case SILVER:
-                pearls=3; heals=4; speed=1; steak=20;
+                pearls=3; heals=4; steak=20;
                 break;
             case GOLD:
-                pearls=4; heals=5; speed=1; steak=24;
+                pearls=4; heals=5; steak=24;
                 break;
             case PLATINUM:
-                pearls=5; heals=6; speed=1; steak=32;
+                pearls=5; heals=6; steak=32;
                 break;
             default:
                 break;
@@ -2882,7 +2942,6 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         add(p,new ItemStack(Material.ENDER_PEARL,pearls));
         add(p,new ItemStack(Material.COOKED_BEEF,steak));
         for(int i=0;i<heals;i++) add(p,new ItemStack(Material.POTION,1,(short)16421));
-        for(int i=0;i<speed;i++) add(p,new ItemStack(Material.POTION,1,(short)8226));
 
         // Small economy utility at the top without adding more combat power.
         if(r==Rank.GOLD) add(p,new ItemStack(Material.NETHER_STALK,4));
@@ -2940,8 +2999,6 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         add(p,new ItemStack(Material.COOKED_BEEF,32));
         int heals="miner".equals(type)?6:10;
         for(int i=0;i<heals;i++) add(p,new ItemStack(Material.POTION,1,(short)16421));
-        add(p,new ItemStack(Material.POTION,1,(short)8226));
-        if(!"miner".equals(type)) add(p,new ItemStack(Material.POTION,1,(short)8226));
     }
 
     private ItemStack armor(Material m,int prot) {
@@ -3078,9 +3135,9 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         p.sendMessage(color("&6--- Classic Server Shop ---"));
         p.sendMessage(color("&eSell crops: &fcane $3, cactus $2.25, pumpkin $5.50, melon $0.75, wheat/carrot/potato $1.25"));
         p.sendMessage(color("&eSell ores: &firon $8, gold $14, diamond $60"));
-        p.sendMessage(color("&ePvP: &fhealthpot $135, speedpot $95, pearl $160, obsidian $30, steak $6"));
+        p.sendMessage(color("&ePvP: &fpearl $175, obsidian $24, steak $6 &7(heals are brewed; Speed II is permanent)"));
         p.sendMessage(color("&eFarm: &fcane $9, cactus $7, pumpkinseed $8, melonseed $5, sand $2, dirt $1, waterbucket $35"));
-        p.sendMessage(color("&eSupplies: &firon $18, brewingstand $140, hopper $65, book $12, lapis $5\n&eBrewing: &fnetherwart $12, glowstone $12, gunpowder $18, glisteringmelon $24, sugar $6"));
+        p.sendMessage(color("&eSupplies: &firon $15, brewingstand $100, hopper $50, chest $12, book $12, lapis $5\n&eBrewing: &fnetherwart $10, glowstone $24, gunpowder $30, glisteringmelon $20"));
         p.sendMessage(color("&7Use /sell hand, /sell all, or /buy <item> <amount>."));
         return true;
     }
@@ -3573,7 +3630,27 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
                 p.sendMessage(color("&cNo faction home."));
                 return true;
             }
-            p.teleport(f.home);
+            if(travelDirector!=null) {
+                int seconds=Math.max(1,getConfig().getInt("travel.faction-home-warmup-seconds",
+                    getConfig().getInt("travel.warmup-seconds",10)));
+                travelDirector.request(p,f.home,"faction home",seconds);
+            } else p.teleport(f.home);
+            return true;
+        }
+
+        if(sub.equals("stuck")) {
+            if(hcfZones!=null && hcfZones.isTagged(p) && !isOwnerPlayer(p)) {
+                p.sendMessage(color("&cYou cannot /f stuck while combat tagged. &7"+hcfZones.tagSeconds(p)+"s remaining."));
+                return true;
+            }
+            Location target=findFactionStuckDestination(p);
+            if(target==null) {
+                p.sendMessage(color("&cCould not find nearby unclaimed wilderness for /f stuck."));
+                return true;
+            }
+            int seconds=Math.max(30,getConfig().getInt("travel.faction-stuck-warmup-seconds",180));
+            if(travelDirector!=null) travelDirector.request(p,target,"nearby wilderness",seconds);
+            else p.teleport(target);
             return true;
         }
 
@@ -3617,8 +3694,43 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         viewer.sendMessage(color("&8&m--------------------------------"));
     }
 
+    private Location findFactionStuckDestination(Player p) {
+        if(p==null || p.getWorld()==null || p.getWorld().getEnvironment()!=World.Environment.NORMAL) return null;
+        World w=p.getWorld();
+        Location from=p.getLocation();
+        int ox=from.getBlockX(),oz=from.getBlockZ();
+
+        // Search concentric square rings. Eight-block sampling is fine-grained
+        // enough to exit a rectangular HCF claim without synchronously loading a
+        // huge area. Protected spawn/KOTH/portal regions are never destinations.
+        for(int radius=16;radius<=256;radius+=8) {
+            for(int d=-radius;d<=radius;d+=8) {
+                int[][] points={{ox+d,oz-radius},{ox+d,oz+radius},{ox-radius,oz+d},{ox+radius,oz+d}};
+                for(int[] point:points) {
+                    int x=point[0],z=point[1];
+                    int y=Math.max(2,w.getHighestBlockYAt(x,z)+1);
+                    if(y>=w.getMaxHeight()-2) continue;
+                    Location at=new Location(w,x+0.5,y,z+0.5,from.getYaw(),from.getPitch());
+
+                    String owner=claimDirector==null?"":claimDirector.ownerAt(at);
+                    if(owner!=null && !owner.isEmpty()) continue;
+                    if(mapDirector!=null && mapDirector.protectsBuild(at)) continue;
+                    if(isHcfSafezone(at)) continue;
+
+                    Material floor=w.getBlockAt(x,y-1,z).getType();
+                    Material feet=w.getBlockAt(x,y,z).getType();
+                    Material head=w.getBlockAt(x,y+1,z).getType();
+                    if(!floor.isSolid() || isWarzoneLiquid(floor)) continue;
+                    if(feet.isSolid() || head.isSolid() || isWarzoneLiquid(feet) || isWarzoneLiquid(head)) continue;
+                    return at;
+                }
+            }
+        }
+        return null;
+    }
+
     private void sendFactionHelp(Player p) {
-        p.sendMessage(color("&6/f create, invite, join, leave, kick, disband, claim, unclaim, map, sethome, home, show, who, list, c"));
+        p.sendMessage(color("&6/f create, invite, join, leave, kick, disband, claim, unclaim, map, sethome, home, stuck, show, who, list, c"));
     }
 
     private void removeFaction(Faction f) {
@@ -4238,21 +4350,18 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         inv.setBoots(armor(Material.DIAMOND_BOOTS,2));
         inv.setItem(0,pvpSword(Material.DIAMOND_SWORD,2,2));
 
-        // Hotbar: sword, five Healing II splashes, steak, Speed II, pearls.
+        // Hotbar: sword, six Healing II splashes, steak and pearls. Permanent
+        // Speed II comes from the HCF class director rather than consumables.
         for(int slot=1;slot<=5;slot++) inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
         inv.setItem(6,new ItemStack(Material.COOKED_BEEF,16));
-        inv.setItem(7,new ItemStack(Material.POTION,1,(short)8226));
+        inv.setItem(7,new ItemStack(Material.POTION,1,(short)16421));
         inv.setItem(8,new ItemStack(Material.ENDER_PEARL,16));
 
-        // Reserve inventory: Healing II plus Speed II only.
-        for(int slot=9;slot<=31;slot++) inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
-        inv.setItem(33,new ItemStack(Material.POTION,1,(short)8226));
-        inv.setItem(35,new ItemStack(Material.POTION,1,(short)8226));
+        for(int slot=9;slot<=34;slot++) inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
 
         p.setHealth(20.0);
         p.setFoodLevel(20);
         p.setSaturation(5.0f);
-        p.removePotionEffect(PotionEffectType.SPEED);
         p.removePotionEffect(PotionEffectType.FIRE_RESISTANCE);
     }
 

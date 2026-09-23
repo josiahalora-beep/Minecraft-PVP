@@ -170,6 +170,8 @@ final class SimWorldDirector {
         int obsidian;
         int glass;
         int cane;
+        int glowstone;
+        int gunpowder;
         double treasury;
         long actionCounter;
         final List<String> members = new ArrayList<String>();
@@ -255,6 +257,14 @@ final class SimWorldDirector {
         int elevatorX;
         int elevatorY;
         int elevatorZ;
+        int netherPortalX;
+        int netherPortalY;
+        int netherPortalZ;
+        int endPortalX;
+        int endPortalY;
+        int endPortalZ;
+        boolean netherPortal;
+        boolean endPortal;
         int undergroundY;
         int x;
         int y;
@@ -286,6 +296,10 @@ final class SimWorldDirector {
                 " gateX=" + gateX + " gateY=" + gateY + " gateZ=" + gateZ +
                 " dropX=" + dropX + " dropY=" + dropY + " dropZ=" + dropZ +
                 " elevatorX=" + elevatorX + " elevatorY=" + elevatorY + " elevatorZ=" + elevatorZ +
+                " netherPortal=" + netherPortal +
+                " netherPortalX=" + netherPortalX + " netherPortalY=" + netherPortalY + " netherPortalZ=" + netherPortalZ +
+                " endPortal=" + endPortal +
+                " endPortalX=" + endPortalX + " endPortalY=" + endPortalY + " endPortalZ=" + endPortalZ +
                 " undergroundY=" + undergroundY +
                 " x=" + x + " y=" + y + " z=" + z +
                 " priority=" + priority +
@@ -819,8 +833,7 @@ final class SimWorldDirector {
         // Otherwise withdraw a full faction-stock HCF loadout.
         int heal=24;
         int pearls=8;
-        int speed=2;
-        if(f.healPots<heal || f.pearls<pearls || f.speedPots<speed) return false;
+        if(f.healPots<heal || f.pearls<pearls) return false;
 
         if(type==CombatClass.DIAMOND) {
             if(f.p4Sets<1 || f.sharp4Swords<1) return false;
@@ -842,7 +855,6 @@ final class SimWorldDirector {
 
         f.healPots-=heal;
         f.pearls-=pearls;
-        f.speedPots-=speed;
 
         CombatReservation r=new CombatReservation();
         r.fightId=fightId;
@@ -851,7 +863,7 @@ final class SimWorldDirector {
         r.type=type;
         r.healPots=heal;
         r.pearls=pearls;
-        r.speedPots=speed;
+        r.speedPots=0;
         r.minerIron=type==CombatClass.MINER?24:0;
         combatReservations.put(key(name),r);
         save();
@@ -888,10 +900,8 @@ final class SimWorldDirector {
         // conserves loot picked up from enemies because it was never in this
         // faction's stock before the fight.
         int heals=countPotion(body,(short)16421);
-        int speeds=countPotion(body,(short)8226);
         int pearls=countMaterial(body,Material.ENDER_PEARL);
         f.healPots+=heals;
-        f.speedPots+=speeds;
         f.pearls+=pearls;
 
         // Return surviving worn gear and recognizable captured sets.
@@ -922,7 +932,7 @@ final class SimWorldDirector {
 
         clearCombatInventory(body);
         save();
-        return "heal="+heals+" pearls="+pearls+" speed="+speeds+
+        return "heal="+heals+" pearls="+pearls+
             " p2="+(diamondPieces/4)+" sharp2="+sharp2;
     }
 
@@ -1057,7 +1067,7 @@ final class SimWorldDirector {
         int members=Math.max(1,f.members.size());
         ca.lootHealNeed=Math.max(0,members*28-f.healPots);
         ca.lootPearlNeed=Math.max(0,members*8-f.pearls);
-        ca.lootSpeedNeed=Math.max(0,members*3-f.speedPots);
+        ca.lootSpeedNeed=0;
         ca.lootSetNeed=Math.max(0,members-f.p4Sets);
     }
 
@@ -1984,8 +1994,14 @@ final class SimWorldDirector {
         int[] drop=plugin.simBaseAnchor(f.name,f.basePreset,"drop",f.baseX,f.baseY,f.baseZ);
         int[] elevator=plugin.simBaseAnchor(f.name,f.basePreset,"elevator",f.baseX,f.baseY,f.baseZ);
         int[] core=plugin.simBaseAnchor(f.name,f.basePreset,"core",f.baseX,f.baseY,f.baseZ);
+        int[] netherPortal=plugin.simBaseAnchor(f.name,f.basePreset,"portal-nether",f.baseX,f.baseY,f.baseZ);
+        int[] endPortal=plugin.simBaseAnchor(f.name,f.basePreset,"portal-end",f.baseX,f.baseY,f.baseZ);
         t.dropX=drop[0]; t.dropY=drop[1]; t.dropZ=drop[2];
         t.elevatorX=elevator[0]; t.elevatorY=elevator[1]; t.elevatorZ=elevator[2];
+        t.netherPortal=f.netherPortal;
+        t.netherPortalX=netherPortal[0]; t.netherPortalY=netherPortal[1]; t.netherPortalZ=netherPortal[2];
+        t.endPortal=f.endPortal;
+        t.endPortalX=endPortal[0]; t.endPortalY=endPortal[1]; t.endPortalZ=endPortal[2];
         t.undergroundY=core[1];
 
         boolean assignedFight=visibleFight!=null && visibleFight.assignments.containsKey(key(p.name));
@@ -2203,6 +2219,28 @@ final class SimWorldDirector {
             }
         }
 
+        // Protected SOTW resource run: after a usable base exists, experienced
+        // or donor members rush scarce brewing materials through physical base
+        // portals before the PvP timer expires and those spots become camped.
+        if(sotwProtectionActive() && f.storage && "supply".equals(t.action) && sotwResourceRunner(p)) {
+            boolean preferEnd=f.endPortal && ((p.name.hashCode() & 1)==0);
+            if(preferEnd) {
+                t.zone="end";
+                t.x=plugin.getConfig().getInt("resources.creeper.x",160);
+                t.y=69;
+                t.z=plugin.getConfig().getInt("resources.creeper.z",235);
+                t.targetBlock="gunpowder";
+                t.priority=Math.max(t.priority,112);
+            } else if(f.netherPortal) {
+                t.zone="nether";
+                t.x=plugin.getConfig().getInt("resources.glowstone.x",0);
+                t.y=70;
+                t.z=plugin.getConfig().getInt("resources.glowstone.z",-320);
+                t.targetBlock="glowstone";
+                t.priority=Math.max(t.priority,110);
+            }
+        }
+
         // Re-derive the physical interaction target after goal overrides. The
         // semantic target and the movement coordinates therefore cannot drift
         // apart when COLD-state planning changes a worker's current goal.
@@ -2396,7 +2434,7 @@ final class SimWorldDirector {
         if (f == null) return "no-faction";
 
         int stone=0, wood=0, iron=0, diamond=0, obsidian=0;
-        int cane=0, cactus=0, pumpkin=0, melon=0;
+        int cane=0, cactus=0, pumpkin=0, melon=0, glowstone=0, gunpowder=0;
 
         org.bukkit.inventory.ItemStack[] contents = body.getInventory().getContents();
         for (int slot=0; slot<contents.length; slot++) {
@@ -2430,6 +2468,10 @@ final class SimWorldDirector {
                     pumpkin += n; break;
                 case MELON:
                     melon += n; break;
+                case GLOWSTONE_DUST:
+                    glowstone += n; break;
+                case SULPHUR:
+                    gunpowder += n; break;
                 default:
                     take = false;
             }
@@ -2442,6 +2484,8 @@ final class SimWorldDirector {
         f.iron += iron;
         f.diamonds += diamond;
         f.obsidian += obsidian;
+        f.glowstone += glowstone;
+        f.gunpowder += gunpowder;
         if(f.storage) {
             mirrorDepositToStorage(f,Material.COBBLESTONE,stone);
             mirrorDepositToStorage(f,Material.LOG,wood);
@@ -2456,14 +2500,14 @@ final class SimWorldDirector {
 
         save();
         return "stone="+stone+" wood="+wood+" iron="+iron+" diamond="+diamond+
-            " obsidian="+obsidian+" cane="+cane+" cactus="+cactus+
-            " pumpkin="+pumpkin+" melon="+melon;
+            " obsidian="+obsidian+" glowstone="+glowstone+" gunpowder="+gunpowder+
+            " cane="+cane+" cactus="+cactus+" pumpkin="+pumpkin+" melon="+melon;
     }
 
     private String depositSoloLoot(Player body,SimPlayer p) {
         org.bukkit.inventory.PlayerInventory inv=body.getInventory();
-        int pearls=0,heals=0,speeds=0,fires=0,iron=0,obby=0,diamonds=0,cane=0,cactus=0;
-        int keptPearls=0,keptHeals=0,keptSpeeds=0,keptFires=0;
+        int pearls=0,heals=0,iron=0,obby=0,diamonds=0,cane=0,cactus=0;
+        int keptPearls=0,keptHeals=0;
 
         for(int slot=0;slot<36;slot++) {
             org.bukkit.inventory.ItemStack item=inv.getItem(slot);
@@ -2485,18 +2529,12 @@ final class SimWorldDirector {
                 keptHeals+=retained;
                 take=amount-retained;
                 stockKey="healthpot";
-            } else if(m==Material.POTION && item.getDurability()==(short)8226) {
-                int keep=Math.max(0,1-keptSpeeds);
-                int retained=Math.min(keep,amount);
-                keptSpeeds+=retained;
-                take=amount-retained;
-                stockKey="speedpot";
-            } else if(m==Material.POTION && item.getDurability()==(short)8259) {
-                int keep=Math.max(0,1-keptFires);
-                int retained=Math.min(keep,amount);
-                keptFires+=retained;
-                take=amount-retained;
-                stockKey="fireres";
+            } else if(m==Material.POTION &&
+                     (item.getDurability()==(short)8226 || item.getDurability()==(short)8259)) {
+                // Legacy Speed II / Fire Resistance bottles are invalid on this
+                // map generation. Remove them instead of banking or valuing them.
+                inv.setItem(slot,null);
+                continue;
             } else if(m==Material.IRON_INGOT || m==Material.IRON_ORE) {
                 take=amount; stockKey="iron";
             } else if(m==Material.OBSIDIAN) {
@@ -2521,8 +2559,6 @@ final class SimWorldDirector {
 
             if("pearl".equals(stockKey)) pearls+=take;
             else if("healthpot".equals(stockKey)) heals+=take;
-            else if("speedpot".equals(stockKey)) speeds+=take;
-            else if("fireres".equals(stockKey)) fires+=take;
             else if("iron".equals(stockKey)) iron+=take;
             else if("obsidian".equals(stockKey)) obby+=take;
             else if("diamond".equals(stockKey)) diamonds+=take;
@@ -2531,12 +2567,12 @@ final class SimWorldDirector {
         }
 
         body.updateInventory();
-        int value=pearls*150+heals*90+speeds*70+fires*80+iron*10+obby*22+diamonds*55+cane*3+cactus*2;
+        int value=pearls*150+heals*90+iron*10+obby*22+diamonds*55+cane*3+cactus*2;
         if(value>0) {
             p.reputation=Math.min(999,p.reputation+Math.min(3,1+value/1200));
             save();
         }
-        return "solo-bank pearls="+pearls+" heals="+heals+" speed="+speeds+" fire="+fires+
+        return "solo-bank pearls="+pearls+" heals="+heals+
             " iron="+iron+" obby="+obby+" diamond="+diamonds+" cane="+cane+" cactus="+cactus;
     }
 
@@ -2602,8 +2638,13 @@ final class SimWorldDirector {
                     continue;
                 }
                 stash=true;
+            } else if(m==Material.POTION &&
+                     (item.getDurability()==(short)8226 || item.getDurability()==(short)8259)) {
+                // Purge obsolete Speed II / Fire Resistance bottles from old
+                // inventories instead of preserving them in shared storage.
+                inv.setItem(slot,null);
+                continue;
             } else if(m==Material.POTION) {
-                // Spare speed/fire/utility pots are faction stock after the first few slots.
                 stash=true;
             } else if(m==Material.DIAMOND || m==Material.DIAMOND_ORE ||
                       m==Material.IRON_INGOT || m==Material.IRON_ORE ||
@@ -2714,7 +2755,6 @@ final class SimWorldDirector {
         }
 
         supplies+=refillPotion(inv,f,(short)16421,20);
-        supplies+=refillPotion(inv,f,(short)8226,2);
         supplies+=refillMaterial(inv,f,"pearls",Material.ENDER_PEARL,8);
         supplies+=refillMaterial(inv,f,"overflow",Material.COOKED_BEEF,32);
 
@@ -3128,11 +3168,11 @@ final class SimWorldDirector {
 
         // Every donor tier is one capped P2/S2 diamond set. Higher tiers only
         // scale consumables modestly because higher ranks can claim lower kits too.
-        int pearls=1,heals=2,speed=0;
-        if(rankLevel==1){pearls=2;heals=3;speed=1;}
-        else if(rankLevel==2){pearls=3;heals=4;speed=1;}
-        else if(rankLevel==3){pearls=4;heals=5;speed=1;}
-        else if(rankLevel>=4){pearls=5;heals=6;speed=1;}
+        int pearls=1,heals=2;
+        if(rankLevel==1){pearls=2;heals=3;}
+        else if(rankLevel==2){pearls=3;heals=4;}
+        else if(rankLevel==3){pearls=4;heals=5;}
+        else if(rankLevel>=4){pearls=5;heals=6;}
 
         // Legacy field names are retained for save compatibility; their meaning
         // is now capped P2 sets and S2 swords.
@@ -3140,7 +3180,7 @@ final class SimWorldDirector {
         f.sharp4Swords+=1;
         f.pearls+=pearls;
         f.healPots+=heals;
-        f.speedPots+=speed;
+        f.speedPots=0;
         f.firePots=0;
 
         p.reputation=Math.min(999,p.reputation+1);
@@ -3302,7 +3342,6 @@ final class SimWorldDirector {
             case BREWER: {
                 List<String> needs=new ArrayList<String>();
                 if(f.healPots<20) needs.add("heals");
-                if(f.speedPots<10) needs.add("speed");
                 if(f.pearls<12) needs.add("pearls");
                 String need=needs.isEmpty()?"pots":needs.get(rng.nextInt(needs.size()));
                 String[] x={
@@ -4326,10 +4365,8 @@ final class SimWorldDirector {
                 if(!projectedDeath) {
                     int lostHeals=Math.min(vf.healPots,10+rng.nextInt(11));
                     int lostPearls=Math.min(vf.pearls,2+rng.nextInt(5));
-                    int lostSpeed=Math.min(vf.speedPots,1);
                     vf.healPots -= lostHeals;
                     vf.pearls -= lostPearls;
-                    vf.speedPots -= lostSpeed;
 
                     boolean lostMainSet=false;
                     if (victim.combatClass == CombatClass.DIAMOND) {
@@ -4349,7 +4386,6 @@ final class SimWorldDirector {
                             // Simulate what survives on the ground and is actually picked up.
                             kf.healPots += (int)Math.floor(lostHeals*0.70);
                             kf.pearls += (int)Math.floor(lostPearls*0.85);
-                            kf.speedPots += lostSpeed;
                             if(lostMainSet && rng.nextInt(100)<78) {
                                 if(victim.combatClass==CombatClass.DIAMOND){kf.p4Sets++;kf.sharp4Swords++;}
                                 else if(victim.combatClass==CombatClass.BARD) kf.bardSets++;
@@ -4687,6 +4723,48 @@ final class SimWorldDirector {
         }
     }
 
+    private boolean sotwResourceRunner(SimPlayer p) {
+        if(p==null) return false;
+        return "brewer".equals(p.preferredJob) || p.donorLevel>0 ||
+            p.skill>=72 || p.gameSense>=74 || p.economicIq>=72 ||
+            plugin.isCreatorIdentity(p.name);
+    }
+
+    private boolean hasExperiencedOrDonor(SimFaction f) {
+        if(f==null) return false;
+        for(String member:f.members) {
+            SimPlayer p=players.get(key(member));
+            if(p!=null && sotwResourceRunner(p)) return true;
+        }
+        return false;
+    }
+
+    private int sotwRushMultiplier(SimFaction f) {
+        if(!sotwProtectionActive()) return 1;
+        long total=Math.max(1L,plugin.getConfig().getLong("sotw.protection-minutes",20L))*60000L;
+        long left=sotwMillisLeft();
+        if(f!=null && !f.storage && left<=total/4L) return 3;
+        if(f!=null && !f.storage && left<=total/2L) return 2;
+        return 1;
+    }
+
+    private void fundSotwEssentials(SimFaction f,double target) {
+        if(f==null || f.treasury>=target) return;
+        for(String member:f.members) {
+            SimPlayer p=players.get(key(member));
+            if(p==null) continue;
+            double reserve=p.donorLevel>0?80.0:100.0;
+            double available=Math.max(0.0,p.balance-reserve);
+            if(available<=0.0) continue;
+            double need=target-f.treasury;
+            double share=Math.min(available,Math.min(need,Math.max(40.0,p.balance*0.35)));
+            if(share<=0.0) continue;
+            p.balance-=share;
+            f.treasury+=share;
+            if(f.treasury>=target) break;
+        }
+    }
+
     private String chooseGoal(SimPlayer p) {
         if(p.faction.isEmpty()) {
             if(p.leaderCandidate) return p.sociability>=45?"recruit":"gather";
@@ -4699,6 +4777,22 @@ final class SimWorldDirector {
         SimFaction f=factions.get(key(p.faction));
         if(f==null) return "idle";
         if(f.recoveryMode) return p.riskTolerance<80?"safe":"defend";
+
+        // SOTW is a race against protection expiry. Before PvP enables, real
+        // factions prioritize a usable storage/base, then protected resource
+        // runs so glowstone/gunpowder are banked before those locations get camped.
+        if(sotwProtectionActive()) {
+            if(!f.storage) {
+                if("builder".equals(p.preferredJob)) return "build";
+                if("miner".equals(p.preferredJob)) return "mine";
+                return "gather";
+            }
+            if("builder".equals(p.preferredJob) && f.buildProgress<f.buildTarget) return "build";
+            if("farmer".equals(p.preferredJob) && p.economicIq>=60) return "farm";
+            if(sotwResourceRunner(p)) return "supply";
+            if("miner".equals(p.preferredJob)) return "mine";
+            return rng.nextInt(100)<58?"supply":"gather";
+        }
 
         switch(f.stage) {
             case RECRUITING:
@@ -5693,7 +5787,7 @@ final class SimWorldDirector {
             }
 
             if ("mine".equals(p.currentGoal) || "gather".equals(p.currentGoal) || "supply".equals(p.currentGoal)) {
-                int urgency=(!f.surfaceQueued && sotwMillisLeft()<=180000L)?2:1;
+                int urgency=sotwRushMultiplier(f);
                 if("gather".equals(p.currentGoal) || "supply".equals(p.currentGoal)) {
                     // General SOTW gathering must actually produce logs; the old
                     // abstraction only produced stone/iron and could deadlock a
@@ -5764,7 +5858,8 @@ final class SimWorldDirector {
     }
 
     private void buyMissingInfrastructure(SimFaction f) {
-        if (f.treasury < 40) return;
+        if(sotwProtectionActive()) fundSotwEssentials(f,650.0);
+        if (f.treasury < 20) return;
 
         if(!f.surfaceQueued) {
             int need=surfaceMaterialCost(f)[4]-f.glass;
@@ -5801,19 +5896,22 @@ final class SimWorldDirector {
         }
 
         boolean large=f.members.size()>=4 || f.powerFaction;
-        double flintCost=Math.max(1500.0,plugin.buyUnitPrice("flintsteel"));
-        if(large && f.brewer && !f.netherPortal && f.treasury>=Math.max(3500.0,flintCost) && f.obsidian>=14) {
-            // Obsidian is consumed from faction stock; the expensive shop-only
-            // activation tool represents the convenience premium of fast Nether access.
+        boolean fastFaction=large || hasExperiencedOrDonor(f);
+        if(sotwProtectionActive()) fundSotwEssentials(f,1200.0);
+
+        // With player warp commands gone, a private Nether portal is normal base
+        // infrastructure rather than an end-game luxury.
+        double flintCost=Math.max(1.0,plugin.buyUnitPrice("flintsteel"));
+        if(!f.netherPortal && f.treasury>=flintCost && f.obsidian>=10) {
             f.treasury-=flintCost;
-            f.obsidian-=14;
+            f.obsidian-=10;
             f.netherPortal=true;
             plugin.queueSimPortalBuild(f.name,f.basePreset,"nether",f.baseX,f.baseY,f.baseZ);
         }
 
-        double endCost=12.0*Math.max(1200.0,plugin.buyUnitPrice("endframe"))+
-            12.0*Math.max(250.0,plugin.buyUnitPrice("eyeofender"));
-        if(large && f.netherPortal && !f.endPortal && f.treasury>=endCost) {
+        double endCost=12.0*Math.max(1.0,plugin.buyUnitPrice("endframe"))+
+            12.0*Math.max(1.0,plugin.buyUnitPrice("eyeofender"));
+        if(fastFaction && f.netherPortal && !f.endPortal && f.treasury>=endCost) {
             f.treasury-=endCost;
             f.endPortal=true;
             plugin.queueSimPortalBuild(f.name,f.basePreset,"end",f.baseX,f.baseY,f.baseZ);
@@ -5898,24 +5996,32 @@ final class SimWorldDirector {
             // COLD path: preserve 24/7 progression without loading remote chunks.
             // Costs are ingredient-batch costs; one ingredient set brews 3 pots.
             double waterCost=Math.max(1.0,plugin.buyUnitPrice("glass"));
-            double healBatchCost=waterCost*3.0+plugin.buyUnitPrice("netherwart")+
-                plugin.buyUnitPrice("glisteringmelon")+plugin.buyUnitPrice("glowstone")+
+            double baseBatchCost=waterCost*3.0+plugin.buyUnitPrice("netherwart")+
+                plugin.buyUnitPrice("glisteringmelon");
+            double boughtBatchCost=baseBatchCost+plugin.buyUnitPrice("glowstone")+
                 plugin.buyUnitPrice("gunpowder");
-            double speedBatchCost=waterCost*3.0+plugin.buyUnitPrice("netherwart")+
-                plugin.buyUnitPrice("sugar")+plugin.buyUnitPrice("glowstone");
 
             int healNeed=Math.max(0,members*28-f.healPots);
-            if(healNeed>0 && f.treasury>=healBatchCost) {
-                int batches=Math.min(4,Math.min((healNeed+2)/3,(int)Math.floor(f.treasury/healBatchCost)));
-                f.healPots+=batches*3;
-                f.treasury-=batches*healBatchCost;
+            int wanted=Math.min(4,(healNeed+2)/3);
+
+            // Protected resource runs are economically meaningful: every
+            // banked glowstone+gunpowder pair replaces those two shop inputs for
+            // one three-potion Healing II batch.
+            int stocked=Math.min(wanted,Math.min(f.glowstone,f.gunpowder));
+            int affordableStocked=baseBatchCost<=0.0?stocked:
+                Math.min(stocked,(int)Math.floor(f.treasury/baseBatchCost));
+            if(affordableStocked>0) {
+                f.glowstone-=affordableStocked;
+                f.gunpowder-=affordableStocked;
+                f.healPots+=affordableStocked*3;
+                f.treasury-=affordableStocked*baseBatchCost;
+                wanted-=affordableStocked;
             }
 
-            int speedNeed=Math.max(0,members*3-f.speedPots);
-            if(speedNeed>0 && f.treasury>=speedBatchCost) {
-                int batches=Math.min(1,Math.min((speedNeed+2)/3,(int)Math.floor(f.treasury/speedBatchCost)));
-                f.speedPots+=batches*3;
-                f.treasury-=batches*speedBatchCost;
+            if(wanted>0 && f.treasury>=boughtBatchCost) {
+                int batches=Math.min(wanted,(int)Math.floor(f.treasury/boughtBatchCost));
+                f.healPots+=batches*3;
+                f.treasury-=batches*boughtBatchCost;
             }
 
         }
@@ -5934,24 +6040,37 @@ final class SimWorldDirector {
 
         int members=Math.max(1,f.members.size());
         int healNeed=Math.max(0,members*28-f.healPots);
-        int speedNeed=Math.max(0,members*3-f.speedPots);
-        if(healNeed+speedNeed<=0) return;
+        if(healNeed<=0) return;
 
-        int activeKinds=(healNeed>0?1:0)+(speedNeed>0?1:0);
-        int bottleTarget=Math.min(24,Math.max(6,activeKinds*6+(healNeed>18?6:0)));
+        int bottleTarget=Math.min(24,Math.max(6,6+(healNeed>18?6:0)));
         buyBrewerItemToTarget(f,inv,Material.POTION,(short)0,bottleTarget,"glass",1.0);
 
-        int wartTarget=(healNeed>0?4:0)+(speedNeed>0?2:0);
+        int wartTarget=4;
         buyBrewerItemToTarget(f,inv,Material.NETHER_STALK,(short)0,wartTarget,"netherwart",1.0);
-        if(healNeed>0) {
-            buyBrewerItemToTarget(f,inv,Material.SPECKLED_MELON,(short)0,4,"glisteringmelon",1.0);
-            buyBrewerItemToTarget(f,inv,Material.GLOWSTONE_DUST,(short)0,5,"glowstone",1.0);
-            buyBrewerItemToTarget(f,inv,Material.SULPHUR,(short)0,4,"gunpowder",1.0);
+        buyBrewerItemToTarget(f,inv,Material.SPECKLED_MELON,(short)0,4,"glisteringmelon",1.0);
+
+        moveFactionBrewingResourceToTarget(f,inv,Material.GLOWSTONE_DUST,5,true);
+        moveFactionBrewingResourceToTarget(f,inv,Material.SULPHUR,4,false);
+        buyBrewerItemToTarget(f,inv,Material.GLOWSTONE_DUST,(short)0,5,"glowstone",1.0);
+        buyBrewerItemToTarget(f,inv,Material.SULPHUR,(short)0,4,"gunpowder",1.0);
+    }
+
+    private void moveFactionBrewingResourceToTarget(SimFaction f,org.bukkit.inventory.Inventory inv,
+                                                   Material material,int target,boolean glowstone) {
+        int have=countInventoryItem(inv,material,(short)0);
+        int missing=Math.max(0,target-have);
+        if(missing<=0) return;
+        int ledger=glowstone?f.glowstone:f.gunpowder;
+        int move=Math.min(missing,ledger);
+        if(move<=0) return;
+
+        int added=0;
+        for(int i=0;i<move;i++) {
+            if(inv.addItem(new org.bukkit.inventory.ItemStack(material,1)).isEmpty()) added++;
+            else break;
         }
-        if(speedNeed>0) {
-            buyBrewerItemToTarget(f,inv,Material.SUGAR,(short)0,2,"sugar",1.0);
-            buyBrewerItemToTarget(f,inv,Material.GLOWSTONE_DUST,(short)0,5,"glowstone",1.0);
-        }
+        if(glowstone) f.glowstone=Math.max(0,f.glowstone-added);
+        else f.gunpowder=Math.max(0,f.gunpowder-added);
     }
 
     private void buyBrewerItemToTarget(SimFaction f,org.bukkit.inventory.Inventory inv,Material material,
@@ -5989,7 +6108,6 @@ final class SimWorldDirector {
         if(f==null || !f.brewer) return 0;
         int members=Math.max(1,f.members.size());
         if("heal".equalsIgnoreCase(type)) return Math.max(0,members*28-f.healPots);
-        if("speed".equalsIgnoreCase(type)) return Math.max(0,members*3-f.speedPots);
         return 0;
     }
 
@@ -5998,7 +6116,7 @@ final class SimWorldDirector {
         SimFaction f=factions.get(key(faction));
         if(f==null) return;
         if("heal".equalsIgnoreCase(type)) f.healPots+=amount;
-        else if("speed".equalsIgnoreCase(type)) f.speedPots+=amount;
+        f.speedPots=0;
         save();
     }
 
@@ -6080,10 +6198,7 @@ final class SimWorldDirector {
         int gear=Math.max(0,Math.min(f.p4Sets,f.sharp4Swords))+
             Math.max(0,f.bardSets)+Math.max(0,f.archerSets)+Math.max(0,f.rogueSets)+
             Math.max(0,f.iron/24);
-        int consumables=Math.min(
-            Math.min(Math.max(0,f.healPots/24),Math.max(0,f.pearls/8)),
-            Math.max(0,f.speedPots/2)
-        );
+        int consumables=Math.min(Math.max(0,f.healPots/24),Math.max(0,f.pearls/8));
         return Math.max(0,personal+Math.min(gear,consumables));
     }
 
@@ -6091,7 +6206,7 @@ final class SimWorldDirector {
         if(f==null || p==null) return false;
         if(hasPersonalPhysicalCombatKit(p)) return true;
         if(combatStockSlots(f)<=0) return false;
-        if(f.healPots<24 || f.pearls<8 || f.speedPots<2) return false;
+        if(f.healPots<24 || f.pearls<8) return false;
         if(p.combatClass==CombatClass.DIAMOND) return f.p4Sets>0 && f.sharp4Swords>0;
         if(p.combatClass==CombatClass.BARD) return f.bardSets>0;
         if(p.combatClass==CombatClass.ARCHER) return f.archerSets>0;
@@ -6416,8 +6531,6 @@ final class SimWorldDirector {
 
     private String pretty(String key) {
         if ("healthpot".equals(key)) return "heal pots";
-        if ("speedpot".equals(key)) return "speed pots";
-        if ("fireres".equals(key)) return "fire res";
         if ("pearl".equals(key)) return "pearls";
         if ("cane".equals(key)) return "cane";
         return key;
@@ -6511,6 +6624,8 @@ final class SimWorldDirector {
             p.farmReady = s.getBoolean("farm-ready", false);
             ConfigurationSection st = s.getConfigurationSection("stock");
             if (st != null) for (String item : st.getKeys(false)) p.stock.put(item, st.getInt(item));
+            p.stock.remove("speedpot");
+            p.stock.remove("fireres");
             economy.initializePlayer(p);
 
             // Old builds seeded Stimpy, Stimpypvp and Marcel as separate people.
@@ -6641,7 +6756,7 @@ final class SimWorldDirector {
                 f.rogueSets = s.getInt("rogue-sets");
                 f.healPots = s.getInt("heal-pots");
                 f.pearls = s.getInt("pearls");
-                f.speedPots = s.getInt("speed-pots");
+                f.speedPots = 0;
                 f.firePots = 0;
                 f.xp = s.getInt("xp");
                 f.books = s.getInt("books");
@@ -6653,6 +6768,8 @@ final class SimWorldDirector {
                 f.obsidian = s.getInt("obsidian");
                 f.glass = s.getInt("glass");
                 f.cane = s.getInt("cane");
+                f.glowstone = s.getInt("glowstone",0);
+                f.gunpowder = s.getInt("gunpowder",0);
                 f.treasury = s.getDouble("treasury");
                 f.actionCounter = s.getLong("actions");
                 for(String member:s.getStringList("members")) {
@@ -6849,6 +6966,12 @@ final class SimWorldDirector {
     void resetForSotw() {
         plugin.resetSimFactionAuthority(new ArrayList<String>(players.keySet()));
         seed();
+        save();
+    }
+
+    void restartSotwProtectionClock() {
+        sotwStartedAt=System.currentTimeMillis();
+        sotwTicks=0L;
         save();
     }
 
@@ -7381,7 +7504,12 @@ final class SimWorldDirector {
             else if ("leader".equals(p.role)) contribution += 2;
             work += contribution;
         }
-        return Math.max(1, Math.min(20, work));
+        int cap=20;
+        if(sotwProtectionActive() && !f.storage) {
+            long total=Math.max(1L,plugin.getConfig().getLong("sotw.protection-minutes",20L))*60000L;
+            if(sotwMillisLeft()<=total/3L) cap=24;
+        }
+        return Math.max(1, Math.min(cap, work));
     }
 
     private int[] baseMaterialCost(SimFaction f) {
@@ -8298,7 +8426,7 @@ final class SimWorldDirector {
             data.set(b + ".rogue-sets", f.rogueSets);
             data.set(b + ".heal-pots", f.healPots);
             data.set(b + ".pearls", f.pearls);
-            data.set(b + ".speed-pots", f.speedPots);
+            data.set(b + ".speed-pots", 0);
             data.set(b + ".fire-pots", 0);
             data.set(b + ".xp", f.xp);
             data.set(b + ".books", f.books);
@@ -8310,6 +8438,8 @@ final class SimWorldDirector {
             data.set(b + ".obsidian", f.obsidian);
             data.set(b + ".glass", f.glass);
             data.set(b + ".cane", f.cane);
+            data.set(b + ".glowstone", f.glowstone);
+            data.set(b + ".gunpowder", f.gunpowder);
             data.set(b + ".treasury", f.treasury);
             data.set(b + ".actions", f.actionCounter);
             data.set(b + ".members", new ArrayList<String>(f.members));

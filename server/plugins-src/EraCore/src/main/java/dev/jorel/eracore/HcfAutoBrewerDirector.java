@@ -27,7 +27,7 @@ import java.util.*;
  */
 @SuppressWarnings("deprecation")
 final class HcfAutoBrewerDirector {
-    private enum Kind { HEAL, SPEED }
+    private enum Kind { HEAL }
 
     private static final class Lane {
         final Kind kind;
@@ -84,14 +84,14 @@ final class HcfAutoBrewerDirector {
         if(s==null) {
             s=new Site();
             s.faction=faction;
-            // Four healing lanes are deliberate: a 5-man HCF faction needs
-            // dozens of heals, while speed demand is much lower.
+            // Permanent Speed II makes speed brewing dead inventory. Every
+            // physical lane is now dedicated to splash Healing II.
             s.lanes.add(new Lane(Kind.HEAL,0));
             s.lanes.add(new Lane(Kind.HEAL,1));
             s.lanes.add(new Lane(Kind.HEAL,2));
             s.lanes.add(new Lane(Kind.HEAL,3));
-            s.lanes.add(new Lane(Kind.SPEED,4));
-            s.lanes.add(new Lane(Kind.SPEED,5));
+            s.lanes.add(new Lane(Kind.HEAL,4));
+            s.lanes.add(new Lane(Kind.HEAL,5));
             sites.put(key,s);
         }
         s.centerX=centerX;
@@ -211,39 +211,22 @@ final class HcfAutoBrewerDirector {
     }
 
     private Material ingredientFor(Kind kind,int stage) {
-        if(kind==Kind.HEAL) {
-            if(stage==0) return Material.NETHER_STALK;
-            if(stage==1) return Material.SPECKLED_MELON;
-            if(stage==2) return Material.GLOWSTONE_DUST;
-            if(stage==3) return Material.SULPHUR;
-            return null;
-        }
-        if(kind==Kind.SPEED) {
-            if(stage==0) return Material.NETHER_STALK;
-            if(stage==1) return Material.SUGAR;
-            if(stage==2) return Material.GLOWSTONE_DUST;
-            return null;
-        }
+        if(stage==0) return Material.NETHER_STALK;
+        if(stage==1) return Material.SPECKLED_MELON;
+        if(stage==2) return Material.GLOWSTONE_DUST;
+        if(stage==3) return Material.SULPHUR;
         return null;
     }
 
     private short durabilityAfter(Kind kind,int stage) {
-        if(stage==0) return (short)16; // awkward
-        if(kind==Kind.HEAL) {
-            if(stage==1) return (short)8197;  // healing I
-            if(stage==2) return (short)8229;  // healing II
-            return (short)16421;              // splash healing II
-        }
-        if(kind==Kind.SPEED) {
-            if(stage==1) return (short)8194;  // speed I
-            return (short)8226;               // speed II
-        }
-        return (short)0;
+        if(stage==0) return (short)16;    // awkward
+        if(stage==1) return (short)8197;  // healing I
+        if(stage==2) return (short)8229;  // healing II
+        return (short)16421;              // splash healing II
     }
 
     private String kindName(Kind kind) {
-        if(kind==Kind.HEAL) return "heal";
-        return "speed";
+        return "heal";
     }
 
     private List<ItemStack> takePotions(Inventory inv,short data,int amount) {

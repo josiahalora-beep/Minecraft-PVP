@@ -12,7 +12,7 @@ const simulationFile = process.env.SIMULATION_FILE || path.join(root, 'server', 
 const configFile = process.env.ERACORE_CONFIG || path.join(root, 'server', 'plugins', 'EraCore', 'config.yml')
 const combatFile = process.env.COMBAT_HOT_FILE || path.join(root, 'server', 'plugins', 'EraCore', 'combat-hot.yml')
 
-const FALLBACK_CREATORS = ['Stimpypvp', 'Marcel', 'PainfulPvP', 'lolitsalex', 'Skimpy']
+const FALLBACK_CREATORS = ['Stimpy', 'PainfulPvP', 'lolitsalex', 'Skimpy']
 
 const COORDINATOR_URL = String(process.env.WORKER_COORDINATOR_URL || '').replace(/\/$/, '')
 const COORDINATOR_TOKEN = String(process.env.WORKER_COORDINATOR_TOKEN || '')
@@ -456,6 +456,131 @@ function dimensionZone(bot) {
   return 'spawn'
 }
 
+function boolToken(v) {
+  return String(v ?? '').toLowerCase()==='true' || String(v ?? '')==='1'
+}
+
+function factionPortalPoint(state, zone) {
+  const j=state?.job || {}
+  const prefix=zone==='end'?'endPortal':'netherPortal'
+  if(!boolToken(j[prefix])) return null
+  const x=Number(j[prefix+'X']), y=Number(j[prefix+'Y']), z=Number(j[prefix+'Z'])
+  if(![x,y,z].every(Number.isFinite)) return null
+  return {x,y,z}
+}
+
+function spawnPoint() {
+  return {
+    x:Number(HCF_MAP.overworld.spawn.x)||0,
+    y:Number(HCF_MAP.overworld.spawn.y)||66,
+    z:Number(HCF_MAP.overworld.spawn.z)||0
+  }
+}
+
+async function walkTowardPoint(state, point, radius=4, timeoutMs=6500) {
+  if(!state?.bot?.entity || !point) return false
+  return await smartGoto(
+    state,
+    Number(point.x),
+    Number(point.y || state.bot.entity.position.y),
+    Number(point.z),
+    radius,
+    timeoutMs,
+    false
+  )
+}
+
+async function waitForDimension(state, wanted, timeoutMs=7000) {
+  const end=Date.now()+timeoutMs
+  while(Date.now()<end && state?.bot?.entity) {
+    if(dimensionZone(state.bot)===wanted) return true
+    await sleep(200)
+  }
+  return dimensionZone(state?.bot)===wanted
+}
+
+async function enterFactionPortal(state, zone) {
+  const bot=state?.bot
+  if(!bot?.entity || state.combat || commandTagged(state)) return false
+  if(zone!=='nether' && zone!=='end') return false
+  if(dimensionZone(bot)===zone) return true
+
+  const faction=String(state.job?.faction || state.faction || 'none')
+  if(faction==='none') return false
+
+  // Returning from a resource dimension uses the normal HCF /f home return.
+  // Outbound dimension travel is always through the actual portal in the base.
+  if(dimensionZone(bot)!=='spawn') {
+    await tryFactionHome(state,900)
+    return false
+  }
+
+  const point=factionPortalPoint(state,zone)
+  if(!point) return false
+
+  if(!nearAssignedHome(state,90)) {
+    await tryFactionHome(state,900)
+    return false
+  }
+
+  const dist=Math.hypot(bot.entity.position.x-point.x,bot.entity.position.z-point.z)
+  if(dist>5.5) {
+    await walkTowardPoint(state,point,2,7500)
+    return false
+  }
+
+  // Locate the actual portal material around the declared base anchor so the
+  // body visibly steps into the structure instead of stopping beside it.
+  let portal=null
+  try {
+    const names=zone==='end'?new Set(['end_portal']):new Set(['portal','nether_portal'])
+    portal=bot.findBlock({
+      matching:block=>block && names.has(String(block.name||'').toLowerCase()),
+      maxDistance:9
+    })
+  } catch {}
+
+  const target=portal?.position || point
+  try {
+    const look=target?.offset
+      ? target.offset(0.5,0.2,0.5)
+      : worldVec(bot,Number(target.x)+0.5,Number(target.y)+0.2,Number(target.z)+0.5)
+    await bot.lookAt(look,false)
+  } catch {}
+
+  stopMovement(bot)
+  bot.setControlState('forward',true)
+  bot.setControlState('sprint',false)
+  await sleep(zone==='nether'?1700:900)
+  stopMovement(bot)
+  return await waitForDimension(state,zone,6500)
+}
+
+async function walkTowardSpawn(state) {
+  const bot=state?.bot
+  if(!bot?.entity || state.combat) return false
+  if(dimensionZone(bot)!=='spawn') {
+    const faction=String(state.job?.faction || state.faction || 'none')
+    if(faction!=='none' && !commandTagged(state)) await tryFactionHome(state,900)
+    return false
+  }
+  return await walkTowardPoint(state,spawnPoint(),10,7000)
+}
+
+async function ensurePhysicalZone(state, zone) {
+  const current=dimensionZone(state?.bot)
+  if(zone==='nether' || zone==='end') {
+    if(current===zone) return true
+    return await enterFactionPortal(state,zone)
+  }
+  if(current!=='spawn') {
+    const faction=String(state.job?.faction || state.faction || 'none')
+    if(faction!=='none' && !commandTagged(state)) await tryFactionHome(state,900)
+    return false
+  }
+  return true
+}
+
 function nearAssignedHome(state, radius=55) {
   const bot=state.bot
   if(!bot?.entity || dimensionZone(bot)!=='spawn') return false
@@ -542,6 +667,31 @@ async function tryCommand(state, command, cooldownMs = 5000) {
   return await queueBotCommand(state,command,BOT_COMMAND_GAP_MS,10)
 }
 
+async function tryFactionHome(state, cooldownMs=900) {
+  if(!state?.bot?.entity || state.combat || commandTagged(state)) return false
+  const now=Date.now()
+  if(now < (state.homeWarmupUntil || 0)) return true
+  const sent=await tryCommand(state,'/f home',cooldownMs)
+  if(sent) {
+    // Classic HCF /f home has a movement/damage-cancellable warmup. Freeze
+    // normal worker behavior until it finishes so Mineflayer does not cancel
+    // its own teleport by immediately walking away.
+    state.homeWarmupUntil=Date.now()+11000
+    stopMovement(state.bot)
+  }
+  return sent
+}
+
+function inventoryCountByName(bot, names=[]) {
+  if(!bot?.inventory) return 0
+  const wanted=new Set(names.map(x=>String(x).toLowerCase()))
+  let n=0
+  for(const item of bot.inventory.items()) {
+    if(wanted.has(String(item?.name || '').toLowerCase())) n+=Number(item.count || 0)
+  }
+  return n
+}
+
 function inventoryFreeSlots(bot) {
   try {
     if(typeof bot?.inventory?.emptySlotCount === 'function') return bot.inventory.emptySlotCount()
@@ -576,7 +726,7 @@ async function finishCrateRun(state, force = false) {
     state.lastTeleportAttempt=now
     state.cratePhase='posthome'
     state.cratePhaseAt=now
-    await tryCommand(state,'/f home',700)
+    await tryFactionHome(state,700)
     return true
   }
 
@@ -690,7 +840,7 @@ async function enforceCombatReadiness(state,action) {
     if(!nearAssignedHome(state,62) && !commandTagged(state) &&
        now-(state.lastTeleportAttempt||0)>4500) {
       state.lastTeleportAttempt=now
-      await tryCommand(state,'/f home',900)
+      await tryFactionHome(state,900)
       return false
     }
     if(nearAssignedHome(state,62) && now-(state.lastGearRequestAt||0)>1800) {
@@ -701,8 +851,9 @@ async function enforceCombatReadiness(state,action) {
       await equipBestWeapon(state)
     }
   } else if(!commandTagged(state) && now-(state.lastTeleportAttempt||0)>7000) {
+    // Solos do not have a teleport escape. They retreat toward spawn physically.
     state.lastTeleportAttempt=now
-    await tryCommand(state,'/spawn',900)
+    await walkTowardSpawn(state)
   }
   return roleArmorComplete(bot,cls)
 }
@@ -796,6 +947,8 @@ async function commandBrain(state) {
   const faction = String(state.job?.faction || state.faction || 'none')
   const tagged = commandTagged(state)
   const now=Date.now()
+  const targetZone=String(state.job?.zone || 'spawn').toLowerCase()
+  const resourceSupply=String(action)==='supply' && (targetZone==='nether' || targetZone==='end')
 
   // A crate trip that was interrupted by combat/faction duty resumes cleanup
   // first. Keys remain server-persistent, so abandoning the trip never loses one.
@@ -824,7 +977,7 @@ async function commandBrain(state) {
   if (action !== 'crate' && donorKits.length && !tagged && faction !== 'none' && now >= (state.nextKitSweepAt || 0)) {
     if (!nearAssignedHome(state) && now - (state.lastTeleportAttempt || 0) > 12000) {
       state.lastTeleportAttempt=now
-      await tryCommand(state,'/f home',900)
+      await tryFactionHome(state,900)
       return
     }
 
@@ -853,11 +1006,53 @@ async function commandBrain(state) {
     return
   }
 
-  const baseBoundAction=['build','farm','brew','gear','safe','supply','gather'].includes(String(action))
+  // Resource runners carry their haul home before the next trip. This keeps
+  // the visible inventory, /f home warmup and faction economy synchronized.
+  if(resourceSupply && !tagged) {
+    const currentZone=dimensionZone(bot)
+
+    if(state.resourceBankPending) {
+      if(currentZone==='spawn' && nearAssignedHome(state,80)) {
+        await deposit(state)
+        await queueBotCommand(state,'/simworker stash',BOT_COMMAND_GAP_MS,50)
+        state.resourceBankPending=false
+        state.resourceTripStartedAt=0
+        state.physicalOps=0
+        return
+      }
+      if(now >= (state.homeWarmupUntil || 0)) await tryFactionHome(state,900)
+      return
+    }
+
+    if(currentZone===targetZone) {
+      if(!state.resourceTripStartedAt) state.resourceTripStartedAt=now
+      const gathered=targetZone==='nether'
+        ? inventoryCountByName(bot,['glowstone_dust'])
+        : inventoryCountByName(bot,['gunpowder'])
+      const targetQty=targetZone==='nether'?24:16
+      const tripOld=now-(state.resourceTripStartedAt || now)>=45000
+      if(gathered>=targetQty || inventoryFreeSlots(bot)<=8 || tripOld) {
+        state.resourceBankPending=true
+        await tryFactionHome(state,900)
+        return
+      }
+    }
+  }
+
+  // Dimension-bound supply/patrol work must reach the actual faction portal
+  // before ordinary base-return logic runs.
+  if(!tagged && ['supply','patrol','solo','solo_loot'].includes(String(action)) &&
+     ['spawn','nether','end'].includes(targetZone) && dimensionZone(bot)!==targetZone) {
+    const arrived=await ensurePhysicalZone(state,targetZone)
+    if(!arrived) return
+  }
+
+  const baseBoundAction=['build','farm','brew','gear','safe','gather'].includes(String(action)) ||
+    (String(action)==='supply' && targetZone==='spawn')
   if(baseBoundAction && faction!=='none' && !tagged && !nearAssignedHome(state,72) &&
      now-(state.lastTeleportAttempt||0)>5000) {
     state.lastTeleportAttempt=now
-    await tryCommand(state,'/f home',900)
+    await tryFactionHome(state,900)
     return
   }
 
@@ -865,7 +1060,7 @@ async function commandBrain(state) {
   if (action === 'safe' && !tagged && faction !== 'none' &&
       now - (state.lastTeleportAttempt || 0) > 20000) {
     state.lastTeleportAttempt = now
-    await tryCommand(state, '/f home', 900)
+    await tryFactionHome(state,900)
     return
   }
 
@@ -884,7 +1079,7 @@ async function commandBrain(state) {
       state.cratePhase='home'
       state.cratePhaseAt=now
       state.lastTeleportAttempt=now
-      await tryCommand(state,'/f home',700)
+      await tryFactionHome(state,700)
       return
     }
 
@@ -911,26 +1106,30 @@ async function commandBrain(state) {
       state.cratePhase='travel'
       state.cratePhaseAt=now
       state.lastTeleportAttempt=now
-      await tryCommand(state,'/spawn',700)
+      const tx=Number(state.job?.x),ty=Number(state.job?.y),tz=Number(state.job?.z)
+      const target=[tx,ty,tz].every(Number.isFinite)?{x:tx,y:ty,z:tz}:spawnPoint()
+      await walkTowardPoint(state,target,10,7000)
       return
     }
 
     if(faction==='none' && !state.cratePhase) {
       state.cratePhase='travel'
       state.cratePhaseAt=now
-      if(dimensionZone(bot)!=='spawn') {
-        state.lastTeleportAttempt=now
-        await tryCommand(state,'/spawn',700)
-        return
-      }
     }
 
     if(state.cratePhase==='travel') {
       if(dimensionZone(bot)!=='spawn') {
-        if(now-(state.lastTeleportAttempt || 0)>3500) {
+        if(faction!=='none' && now-(state.lastTeleportAttempt || 0)>3500) {
           state.lastTeleportAttempt=now
-          await tryCommand(state,'/spawn',700)
+          await tryFactionHome(state,700)
         }
+        return
+      }
+      const tx=Number(state.job?.x),ty=Number(state.job?.y),tz=Number(state.job?.z)
+      const target=[tx,ty,tz].every(Number.isFinite)?{x:tx,y:ty,z:tz}:spawnPoint()
+      const dist=Math.hypot(bot.entity.position.x-target.x,bot.entity.position.z-target.z)
+      if(dist>12) {
+        await walkTowardPoint(state,target,8,7000)
         return
       }
       state.cratePhase='redeem'
@@ -952,9 +1151,7 @@ async function commandBrain(state) {
     const kind=String(mapGoal.kind || '')
     const command=String(mapGoal.command || '')
     const shouldCommand=
-      (kind==='ore-mountain') ||
-      (kind==='home'||kind==='home-build'||kind==='home-economy') ||
-      (kind==='community' && action==='recruit')
+      (kind==='home'||kind==='home-build'||kind==='home-economy')
     if(command && shouldCommand) {
       state.lastMapGoalCommandAt=now
       await tryCommand(state,command,900)
@@ -962,52 +1159,21 @@ async function commandBrain(state) {
     }
   }
 
-  // Recruitment happens at spawn.
+  // Recruitment happens at spawn, but reaching spawn is a real road trip.
   if (action === 'recruit' && !tagged &&
-      now - (state.lastTeleportAttempt || 0) > 60000) {
+      now - (state.lastTeleportAttempt || 0) > 6500) {
     state.lastTeleportAttempt = now
-    await tryCommand(state, '/spawn', 900)
+    await walkTowardSpawn(state)
     return
   }
 
-  // Solos use the same real HCF destinations. Loot rats/chill roamers
-  // physically travel to spawn warzone, End or Nether rather than teleporting
-  // between arbitrary coordinates.
-  if ((action==='solo' || action==='solo_loot') && !tagged) {
-    const zone=String(state.job?.zone || 'spawn').toLowerCase()
-    const current=dimensionZone(bot)
-    const changed=state.lastPatrolZone!==zone
-    const wrongDimension=(zone==='nether' && current!=='nether') ||
-      (zone==='end' && current!=='end') ||
-      (zone==='spawn' && current!=='spawn')
-
-    if((changed || wrongDimension) && now-(state.lastTeleportAttempt || 0)>8000) {
-      const warp=zone==='nether'?'nether':(zone==='end'?'end':'pvp')
-      state.lastTeleportAttempt=now
-      state.lastPatrolZone=zone
+  // Destination changes are tracked for realistic arrival/formation behavior.
+  // Dimension crossing itself was already handled above through the faction's
+  // physical portal, never through /warp.
+  if ((action==='solo' || action==='solo_loot' || action==='patrol') && !tagged) {
+    if(state.lastPatrolZone!==targetZone) {
+      state.lastPatrolZone=targetZone
       state.zoneArrivalAt=now
-      await tryCommand(state,'/warp '+warp,900)
-      return
-    }
-  }
-
-  // PvP-ready bodies move between real HCF hot spots rather than orbiting base.
-  // pvp = outside the Overworld Safezone; nether/end are their world hubs.
-  if (action === 'patrol' && !tagged) {
-    const zone=String(state.job?.zone || 'spawn').toLowerCase()
-    const current=dimensionZone(bot)
-    const changed=state.lastPatrolZone!==zone
-    const wrongDimension=(zone==='nether' && current!=='nether') ||
-      (zone==='end' && current!=='end') ||
-      (zone==='spawn' && current!=='spawn')
-
-    if ((changed || wrongDimension) && now-(state.lastTeleportAttempt || 0)>8000) {
-      const warp=zone==='nether'?'nether':(zone==='end'?'end':'pvp')
-      state.lastTeleportAttempt=now
-      state.lastPatrolZone=zone
-      state.zoneArrivalAt=now
-      await tryCommand(state,'/warp '+warp,900)
-      return
     }
   }
 
@@ -1022,7 +1188,7 @@ async function commandBrain(state) {
           now - (state.lastTeleportAttempt || 0) > 45000) {
         state.lastTeleportAttempt = now
         state.lastPatrolZone=''
-        await tryCommand(state, '/f home', 900)
+        await tryFactionHome(state,900)
       }
     }
   }
@@ -1045,8 +1211,8 @@ async function emergencyRetreat(state) {
   }
 
   const faction = String(state.job?.faction || state.faction || 'none')
-  if (faction !== 'none') await tryCommand(state, '/f home', 800)
-  else await tryCommand(state, '/spawn', 800)
+  if (faction !== 'none') await tryFactionHome(state,800)
+  else await walkTowardSpawn(state)
 }
 
 async function sync(state) {
@@ -1444,6 +1610,64 @@ function nearestHostileMob(state, radius=14) {
   return best
 }
 
+function nearestNamedMob(state, wanted, radius=24) {
+  const bot=state.bot
+  if(!bot?.entity) return null
+  let best=null,bestDist=Infinity
+  for(const entity of Object.values(bot.entities || {})) {
+    if(!entity || entity===bot.entity || entity.type!=='mob') continue
+    if(entityMobName(entity)!==wanted) continue
+    const d=bot.entity.position.distanceTo(entity.position)
+    if(d<=radius && d<bestDist){best=entity;bestDist=d}
+  }
+  return best
+}
+
+async function huntResourceMob(state, wanted='creeper') {
+  const bot=state.bot
+  if(!bot?.entity || state.combat) return false
+  const mob=nearestNamedMob(state,wanted,28)
+  if(!mob?.position) return false
+
+  await equipBestWeapon(state)
+  for(let hit=0;hit<6 && mob.isValid!==false && bot.entity;hit++) {
+    let dist=bot.entity.position.distanceTo(mob.position)
+    if(dist>3.5) {
+      const reached=await smartGoto(state,mob.position.x,mob.position.y,mob.position.z,3,3500,false)
+      if(!reached) return false
+      dist=bot.entity.position.distanceTo(mob.position)
+    }
+
+    // Creeper farming is deliberate hit-and-reset movement, not face-tanking.
+    if(wanted==='creeper' && dist<2.4) {
+      stopMovement(bot)
+      bot.setControlState('back',true)
+      bot.setControlState('sprint',true)
+      await sleep(500)
+      stopMovement(bot)
+    }
+
+    try {
+      await bot.lookAt(mob.position.offset(0,Math.min(1.1,mob.height || 1),0),false)
+      bot.attack(mob)
+      state.physicalOps++
+    } catch { return false }
+
+    if(wanted==='creeper') {
+      bot.setControlState('back',true)
+      bot.setControlState('sprint',true)
+      await sleep(Math.round(rand(620,820)))
+      stopMovement(bot)
+    } else {
+      await sleep(Math.round(rand(380,520)))
+    }
+  }
+
+  await sleep(180)
+  await lootNearbyDrop(state)
+  return true
+}
+
 function waterBlock(block) {
   const n=String(block?.name || '').toLowerCase()
   return n==='water' || n==='flowing_water' || n==='stationary_water'
@@ -1522,10 +1746,9 @@ async function recoverFromWater(state) {
   await sleep(950)
   stopMovement(bot)
 
-  if(now-state.waterSince>7000 && !commandTagged(state) &&
-     now-(state.lastStuckCommandAt || 0)>65000) {
-    state.lastStuckCommandAt=now
-    await queueBotCommand(state,'/stuck',BOT_COMMAND_GAP_MS,90)
+  if(now-state.waterSince>7000) {
+    const wider=dryEscapeTarget(bot,12)
+    if(wider) await smartGoto(state,wider.x,wider.y,wider.z,1,5000,false)
   }
   return true
 }
@@ -1536,6 +1759,11 @@ async function defendAgainstHostileMob(state) {
   if(Date.now()-(state.lastMobDefenseAt || 0)<450) return false
   const mob=nearestHostileMob(state,14)
   if(!mob) return false
+
+  // A protected SOTW gunpowder runner intentionally hunts creepers; do not let
+  // the generic survival layer endlessly kite its assigned resource target.
+  if(String(state.job?.targetBlock || '').toLowerCase()==='gunpowder' &&
+     entityMobName(mob)==='creeper') return false
 
   state.mobDefenseBusy=true
   state.lastMobDefenseAt=Date.now()
@@ -1645,10 +1873,12 @@ async function recoverIfStalled(state, action) {
   await sleep(650)
   stopMovement(bot)
 
-  if(Date.now()-(state.lastMovedAt||0)>15000 && !commandTagged(state) &&
-     Date.now()-(state.lastStuckCommandAt||0)>22000) {
-    state.lastStuckCommandAt=Date.now()
-    await queueBotCommand(state,'/stuck',BOT_COMMAND_GAP_MS,100)
+  // No generic /stuck teleport fallback: normal HCF players solve ordinary
+  // terrain problems physically. /f stuck remains a deliberate long-warmup
+  // faction escape command, not an AI anti-pathfinding shortcut.
+  if(Date.now()-(state.lastMovedAt||0)>15000) {
+    const wider=nearbySafeStand(state,12,10)
+    if(wider) await rawGoto(state,wider.x,wider.y,wider.z,1,5000,false)
   }
   return true
 }
@@ -1860,7 +2090,24 @@ async function doPhysicalWork(state, action) {
     return await digBest(state, ['diamond_ore', 'iron_ore', 'coal_ore', 'stone', 'cobblestone'])
   }
 
-  if (action === 'gather' || action === 'supply') {
+  if (action === 'supply') {
+    const target=String(state.job?.targetBlock || '').toLowerCase()
+    const zone=dimensionZone(bot)
+    if(target==='glowstone' || zone==='nether') {
+      const mined=await digBest(state,['glowstone'])
+      if(mined) return true
+    }
+    if(target==='gunpowder' || zone==='end') {
+      const hunted=await huntResourceMob(state,'creeper')
+      if(hunted) return true
+      return await lootNearbyDrop(state)
+    }
+    const gotLog = await digBest(state,['log','log2'])
+    if(gotLog) return true
+    return await digBest(state,['stone','cobblestone','iron_ore'])
+  }
+
+  if (action === 'gather') {
     const gotLog = await digBest(state, ['log', 'log2'])
     if (gotLog) return true
     return await digBest(state, ['stone', 'cobblestone', 'iron_ore'])
@@ -2366,6 +2613,12 @@ function startWorkLoop(state, settings) {
         continue
       }
 
+      if(Date.now() < (state.homeWarmupUntil || 0)) {
+        stopMovement(bot)
+        await sleep(250)
+        continue
+      }
+
       if (Date.now() - state.lastSyncAt >= settings.syncMs) await sync(state)
 
       if (await recoverFromWater(state)) {
@@ -2432,7 +2685,10 @@ function startWorkLoop(state, settings) {
         }
       }
 
-      if (state.physicalOps > 0 && (
+      const remoteResourceRun=
+        action==='supply' && ['nether','end'].includes(String(state.job?.zone || '').toLowerCase()) &&
+        dimensionZone(bot)!=='spawn'
+      if (!remoteResourceRun && state.physicalOps > 0 && (
         state.physicalOps % 3 === 0 ||
         Date.now() - state.lastDepositAt >= 15000
       )) {

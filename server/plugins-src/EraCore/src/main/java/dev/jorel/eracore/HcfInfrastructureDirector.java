@@ -227,8 +227,15 @@ final class HcfInfrastructureDirector {
                 }
             }
         }
-        // Last-resort minimal safety tile only if the schematic provides no
-        // walkable arrival anywhere around its anchor.
+        // In production schematic mode, never fabricate a generic hub/pad.
+        // A missing walkable arrival means the production build is wrong and
+        // should remain visibly failed for the owner to diagnose.
+        if(plugin.getConfig().getBoolean("infrastructure.external-dimension-schematics",true)) {
+            plugin.getLogger().severe("Production dimension schematic has no walkable arrival near 0,0 at Y="+preferredY+
+                " in "+world.getName()+". Generic fallback construction is disabled.");
+            return null;
+        }
+
         Location fallback=new Location(world,0.5,preferredY,0.5,0f,0f);
         ensureSafePad(fallback,1,world.getEnvironment()==World.Environment.NETHER?
             Material.NETHER_BRICK:Material.ENDER_STONE);

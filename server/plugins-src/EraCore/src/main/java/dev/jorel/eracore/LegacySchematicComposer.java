@@ -108,9 +108,15 @@ final class LegacySchematicComposer {
             this.tileVolume=tileWidth*tileLength*s.height;
         }
         boolean step(int budget) {
-            int total=tileVolume*repeats,done=0;
-            while(cursor<total && done<budget) {
+            int total=tileVolume*repeats,done=0,scanned=0;
+            // Road source slices are mostly air because they inherit Kraken's
+            // full vertical schematic height. Air does not need to be written
+            // into the fresh flat SOTW world. Scan it cheaply while preserving
+            // the same bounded number of real block writes per tick.
+            int scanCap=Math.max(4096,Math.min(20000,budget*32));
+            while(cursor<total && done<budget && scanned<scanCap) {
                 int global=cursor++;
+                scanned++;
                 int repeat=global/tileVolume;
                 int local=global-repeat*tileVolume;
                 int plane=tileWidth*tileLength;
@@ -121,19 +127,22 @@ final class LegacySchematicComposer {
                 int sx=x1+xx,sz=z1+zz;
                 int source=y*s.width*s.length+sz*s.width+sx;
                 int id=s.blockId(source);
+                processed++;
+                if(id==0) continue;
+
                 int wx=ax+sx+s.offX+shiftX*(repeat+1);
                 int wy=ay+y+s.offY;
                 int wz=az+sz+s.offZ+shiftZ*(repeat+1);
                 if(wy>0 && wy<world.getMaxHeight()) {
                     int cx=wx>>4,cz=wz>>4;
                     if(!world.isChunkLoaded(cx,cz)) {
-                        if(done>0) { cursor--; break; }
+                        if(done>0) { cursor--; processed--; break; }
                         world.loadChunk(cx,cz,true);
                     }
                     world.getBlockAt(wx,wy,wz).setTypeIdAndData(id,s.blockData(source),false);
-                    if(id!=0) changed++;
+                    changed++;
+                    done++;
                 }
-                processed++;done++;
             }
             return cursor>=total;
         }

@@ -199,6 +199,7 @@ spawn-presence:
     - Vexing
 
 hcf-classes:
+  permanent-speed-2: true
   enabled: true
   bard-radius: 30.0
   bard-click-seconds: 5
@@ -239,9 +240,9 @@ terrain:
   custom-decoration: true
 
 base-builder:
-  blocks-per-tick: 80
-  visible-blocks-per-tick: 12
-  rebuild-blocks-per-tick: 32
+  blocks-per-tick: 96
+  visible-blocks-per-tick: 16
+  rebuild-blocks-per-tick: 40
   interval-ticks: 2
   gate-auto-close-ticks: 30
   repair-existing-on-start: false
@@ -310,7 +311,7 @@ infrastructure:
   duel-world: duel_arena
   duel-world-border: 192
   external-dimension-schematics: true
-  blocks-per-tick: 120
+  blocks-per-tick: 150
   duel-center-x: 0
   duel-center-z: 0
   duel-floor-y: 64
@@ -329,7 +330,10 @@ spawn-build-protection:
   corner-pad: 10
 
 travel:
-  # /spawn and /warp are HCF escape-sensitive commands, never instant.
+  faction-home-warmup-seconds: 10
+  faction-stuck-warmup-seconds: 180
+  # Owner diagnostics use the generic warmup; normal HCF players use the
+  # faction-home and faction-stuck timings below.
   warmup-seconds: 10
 
 stuck:
@@ -371,7 +375,7 @@ events:
 resources:
   # Construction is staged by HcfWorldBuildDirector; this legacy flag stays off.
   bootstrap-spawners: false
-  blocks-per-tick: 90
+  blocks-per-tick: 110
   mob-stack-merge-radius: 10.0
   glowstone:
     x: 0
@@ -437,7 +441,7 @@ world-build:
 
 world-composer:
   enabled: true
-  blocks-per-tick: 120
+  blocks-per-tick: 160
   spawn-anchor-y: 66
   conquest-anchor-y: 63
   nether-anchor-y: 70

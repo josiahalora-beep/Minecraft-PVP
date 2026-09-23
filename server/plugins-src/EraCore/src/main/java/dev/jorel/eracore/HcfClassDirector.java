@@ -43,6 +43,11 @@ final class HcfClassDirector implements Listener {
 
     private void tick() {
         for (Player p : plugin.getServer().getOnlinePlayers()) {
+            // Server-wide movement baseline. Speed II is permanent on this HCF
+            // map, so carrying/brewing Speed II potions is redundant.
+            if(plugin.getConfig().getBoolean("hcf-classes.permanent-speed-2",true))
+                effect(p, PotionEffectType.SPEED, 60, 1);
+
             if (isBard(p)) {
                 effect(p, PotionEffectType.SPEED, 60, 1);
                 effect(p, PotionEffectType.WEAKNESS, 60, 3);

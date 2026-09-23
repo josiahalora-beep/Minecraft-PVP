@@ -1102,6 +1102,12 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         return !active || getConfig().getBoolean("world-build.complete",false);
     }
 
+    String activeHcfEventSummary() {
+        if(eventDirector==null) return "";
+        String s=eventDirector.publicSummary();
+        return s==null?"":s;
+    }
+
 
     boolean isOwnerPlayer(Player p) {
         return p != null && (getRank(p.getName()) == Rank.OWNER || p.hasPermission("eracore.owner"));

@@ -733,7 +733,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (!hasHumanOnline()) return;
         Rank rank = simRankFor(name);
         String marker = joining ? "&8[&a+&8] " : "&8[&c-&8] ";
-        Bukkit.broadcastMessage(color(marker + identityPrefix(name,rank) + factionPrefix(name) + rankNameColor(rank) + name));
+        Bukkit.broadcastMessage(color(marker + factionPrefix(name) + identityPrefix(name,rank) + rankNameColor(rank) + name));
     }
 
     @EventHandler(priority=EventPriority.MONITOR, ignoreCancelled=true)
@@ -759,7 +759,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             return;
         }
         Rank r = isBotIdentity(p.getName()) ? simRankFor(p.getName()) : getRank(p.getName());
-        e.setFormat(color(identityPrefix(p.getName(), r) + factionPrefix(p.getName()) + rankNameColor(r) + p.getName() + "&7: &f") + "%2$s");
+        e.setFormat(color(factionPrefix(p.getName()) + identityPrefix(p.getName(), r) + rankNameColor(r) + p.getName() + "&7: &f") + "%2$s");
         final String chatText = e.getMessage();
         if (simChat != null) {
             Bukkit.getScheduler().runTask(this, new Runnable() {
@@ -1093,12 +1093,12 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     void broadcastSimulatedChat(String name, String message) {
         Rank rank = simRankFor(name);
-        Bukkit.broadcastMessage(color(identityPrefix(name, rank) + factionPrefix(name) + rankNameColor(rank) + name + "&7: &f" + message));
+        Bukkit.broadcastMessage(color(factionPrefix(name) + identityPrefix(name, rank) + rankNameColor(rank) + name + "&7: &f" + message));
     }
 
     void sendSimulatedPrivate(Player target, String from, String message) {
         Rank rank = simRankFor(from);
-        target.sendMessage(color("&8[&7From &r" + identityPrefix(from, rank) + factionPrefix(from) + rankNameColor(rank) + from + "&8] &f" + message));
+        target.sendMessage(color("&8[&7From &r" + factionPrefix(from) + identityPrefix(from, rank) + rankNameColor(rank) + from + "&8] &f" + message));
     }
 
     void broadcastKillCounter(String name,int kills,int deaths) {

@@ -108,6 +108,7 @@ final class SimWorldDirector {
         long communityJoinedTick;
         int pendingVoteKeys;
         int pendingDonorKeys;
+        int pendingKothKeys;
         long lastVoteAt;
         long lastDonorKeyAt;
         long nextDuelRequestAt;
@@ -1916,8 +1917,8 @@ final class SimWorldDirector {
 
         if (p.faction.isEmpty()) {
             if(p.logicalOnline && p.bannedUntil<=System.currentTimeMillis() &&
-               (p.pendingDonorKeys>0 || p.pendingVoteKeys>0)) {
-                String type=p.pendingDonorKeys>0?"donor":"vote";
+               (p.pendingKothKeys>0 || p.pendingDonorKeys>0 || p.pendingVoteKeys>0)) {
+                String type=p.pendingKothKeys>0?"koth":(p.pendingDonorKeys>0?"donor":"vote");
                 Location crate=plugin.crateLocation(type);
                 if(crate!=null) {
                     t.action="crate";
@@ -2030,10 +2031,10 @@ final class SimWorldDirector {
             return t;
         }
 
-        if(p.pendingDonorKeys>0 || p.pendingVoteKeys>0) {
-            int cratePriority=cratePriority(p,true);
+        if(p.pendingKothKeys>0 || p.pendingDonorKeys>0 || p.pendingVoteKeys>0) {
+            int cratePriority=cratePriority(p,true)+(p.pendingKothKeys>0?12:0);
             if(!factionFight || cratePriority>helpPriority) {
-                String type=p.pendingDonorKeys>0?"donor":"vote";
+                String type=p.pendingKothKeys>0?"koth":(p.pendingDonorKeys>0?"donor":"vote");
                 Location crate=plugin.crateLocation(type);
                 if(crate!=null) {
                     t.action="crate";
@@ -4949,7 +4950,9 @@ final class SimWorldDirector {
     int pendingKeyCount(String name,String type) {
         SimPlayer p=players.get(key(name));
         if(p==null) return 0;
-        return "donor".equalsIgnoreCase(type)?p.pendingDonorKeys:p.pendingVoteKeys;
+        if("donor".equalsIgnoreCase(type)) return p.pendingDonorKeys;
+        if("koth".equalsIgnoreCase(type)) return p.pendingKothKeys;
+        return p.pendingVoteKeys;
     }
 
     void addPendingKey(String name,String type,int amount) {
@@ -4957,6 +4960,7 @@ final class SimWorldDirector {
         SimPlayer p=players.get(key(name));
         if(p==null) return;
         if("donor".equalsIgnoreCase(type)) p.pendingDonorKeys=Math.min(64,p.pendingDonorKeys+amount);
+        else if("koth".equalsIgnoreCase(type)) p.pendingKothKeys=Math.min(64,p.pendingKothKeys+amount);
         else p.pendingVoteKeys=Math.min(64,p.pendingVoteKeys+amount);
         save();
     }
@@ -4966,6 +4970,7 @@ final class SimWorldDirector {
         SimPlayer p=players.get(key(name));
         if(p==null) return;
         if("donor".equalsIgnoreCase(type)) p.pendingDonorKeys=Math.max(0,p.pendingDonorKeys-amount);
+        else if("koth".equalsIgnoreCase(type)) p.pendingKothKeys=Math.max(0,p.pendingKothKeys-amount);
         else p.pendingVoteKeys=Math.max(0,p.pendingVoteKeys-amount);
         save();
     }
@@ -6610,6 +6615,7 @@ final class SimWorldDirector {
             p.communityJoinedTick = s.getLong("community-joined-tick", 0L);
             p.pendingVoteKeys = s.getInt("pending-vote-keys",0);
             p.pendingDonorKeys = s.getInt("pending-donor-keys",p.donorLevel>0?1:0);
+            p.pendingKothKeys = s.getInt("pending-koth-keys",0);
             p.lastVoteAt = s.getLong("last-vote-at",0L);
             p.lastDonorKeyAt = s.getLong("last-donor-key-at",0L);
             p.nextDuelRequestAt = s.getLong("next-duel-request-at",0L);
@@ -6648,6 +6654,7 @@ final class SimWorldDirector {
                 existing.logicalOnline=existing.logicalOnline||p.logicalOnline;
                 existing.pendingVoteKeys=Math.max(existing.pendingVoteKeys,p.pendingVoteKeys);
                 existing.pendingDonorKeys=Math.max(existing.pendingDonorKeys,p.pendingDonorKeys);
+                existing.pendingKothKeys=Math.max(existing.pendingKothKeys,p.pendingKothKeys);
                 if((existing.faction==null||existing.faction.isEmpty()) && p.faction!=null)
                     existing.faction=p.faction;
             }
@@ -6914,6 +6921,7 @@ final class SimWorldDirector {
             p.communityJoinedTick = sotwTicks;
             p.pendingVoteKeys = 0;
             p.pendingDonorKeys = p.donorLevel>0?1:0;
+            p.pendingKothKeys = 0;
             p.lastVoteAt = 0L;
             p.lastDonorKeyAt = 0L;
             p.nextDuelRequestAt = 0L;
@@ -8378,6 +8386,7 @@ final class SimWorldDirector {
             data.set(b + ".community-joined-tick", p.communityJoinedTick);
             data.set(b + ".pending-vote-keys",p.pendingVoteKeys);
             data.set(b + ".pending-donor-keys",p.pendingDonorKeys);
+            data.set(b + ".pending-koth-keys",p.pendingKothKeys);
             data.set(b + ".last-vote-at",p.lastVoteAt);
             data.set(b + ".last-donor-key-at",p.lastDonorKeyAt);
             data.set(b + ".next-duel-request-at",p.nextDuelRequestAt);

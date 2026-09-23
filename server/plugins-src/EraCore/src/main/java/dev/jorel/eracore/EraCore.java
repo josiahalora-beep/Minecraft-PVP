@@ -2908,172 +2908,143 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     private boolean cmdKit(Player p, String[] a) {
-        if (a.length >= 1 && a[0].equalsIgnoreCase("starter")) {
-            String archetype=a.length>=2?a[1]:"diamond";
-            return claimStarterKit(p,archetype);
-        }
-
-        if (a.length != 1) {
-            p.sendMessage("/kit <starter [diamond|bard|archer|miner|rogue]|member|basic|silver|gold|platinum>");
-            return true;
-        }
-        Rank requested = Rank.parse(a[0]);
-        if (requested == null || requested == Rank.OWNER) {
-            p.sendMessage(color("&cUnknown kit."));
-            return true;
-        }
-        Rank own = effectiveRank(p.getName());
-        if (own != Rank.OWNER && own.level < requested.level) {
-            p.sendMessage(color("&cYour rank cannot use that kit."));
-            return true;
-        }
-        String key = p.getName().toLowerCase(Locale.ENGLISH) + "." + requested.name().toLowerCase(Locale.ENGLISH);
-        long now = System.currentTimeMillis();
-        long next = kitsData.getLong(key, 0L);
-        if (own != Rank.OWNER && now < next) {
-            long mins = Math.max(1, (next-now)/60000L);
-            p.sendMessage(color("&cThat kit is on cooldown for ~" + mins + " minutes."));
-            return true;
-        }
-        grantKit(p, requested);
-        if (simWorld != null && simWorld.contains(p.getName())) simWorld.applyDonorKitClaim(p.getName(), requested.level);
-        if (own != Rank.OWNER) kitsData.set(key, now + requested.cooldownHours * 3600000L);
-        saveYaml(kitsData, kitsFile);
-        p.sendMessage(color("&aClaimed " + requested.prefix + " &akit. Higher ranks may also claim every lower donor kit."));
-        return true;
-    }
-
-    private boolean claimStarterKit(Player p,String archetype) {
-        String type=archetype==null?"diamond":archetype.toLowerCase(Locale.ENGLISH);
-        if(!Arrays.asList("diamond","bard","archer","miner","rogue").contains(type)) {
-            p.sendMessage(color("&cStarter types: &fdiamond, bard, archer, miner, rogue"));
+        if(a.length!=1) {
+            p.sendMessage(color("&e/kit <diamond|bard|archer|miner|rogue"+(isCreatorIdentity(p.getName())?"|youtube":"")+">"));
             return true;
         }
 
-        String key=p.getName().toLowerCase(Locale.ENGLISH)+".starter";
+        String type=a[0].toLowerCase(Locale.ENGLISH);
+        if(!Arrays.asList("diamond","bard","archer","miner","rogue","youtube").contains(type)) {
+            p.sendMessage(color("&cUnknown kit. &7Use &f/kits&7."));
+            return true;
+        }
+        if("youtube".equals(type) && !isCreatorIdentity(p.getName()) && !isOwnerPlayer(p)) {
+            p.sendMessage(color("&cThat kit is reserved for recognized creators."));
+            return true;
+        }
+
+        int hours="diamond".equals(type)
+            ? Math.max(24,getConfig().getInt("kits.diamond-cooldown-hours",72))
+            : ("youtube".equals(type)
+                ? Math.max(24,getConfig().getInt("kits.youtube-cooldown-hours",48))
+                : Math.max(6,getConfig().getInt("kits.class-cooldown-hours",24)));
+
+        String key=p.getName().toLowerCase(Locale.ENGLISH)+".kit."+type;
         long now=System.currentTimeMillis();
         long next=kitsData.getLong(key,0L);
-        Rank own=effectiveRank(p.getName());
-        if(own!=Rank.OWNER && now<next) {
+        if(!isOwnerPlayer(p) && now<next) {
             long mins=Math.max(1,(next-now)/60000L);
-            p.sendMessage(color("&cStarter kit is on cooldown for ~"+mins+" minutes."));
+            p.sendMessage(color("&c/kit "+type+" is on cooldown for ~"+mins+" minutes."));
             return true;
         }
 
-        grantStarterKit(p,type);
-        int hours=Math.max(1,getConfig().getInt("kits.starter-cooldown-hours",6));
-        if(own!=Rank.OWNER) kitsData.set(key,now+hours*3600000L);
+        grantHcfKit(p,type);
+        if(!isOwnerPlayer(p)) kitsData.set(key,now+hours*3600000L);
         saveYaml(kitsData,kitsFile);
-        p.sendMessage(color("&aClaimed &f"+type+" &astarter kit."));
+        p.sendMessage(color("&aClaimed &f/kit "+type+"&a. &7Cooldown: "+hours+"h."));
         return true;
     }
 
     private boolean cmdKits(Player p) {
-        Rank own = effectiveRank(p.getName());
-        p.sendMessage(color("&6--- Kit Cooldowns ---"));
-        long starterNext=kitsData.getLong(p.getName().toLowerCase(Locale.ENGLISH)+".starter",0L);
-        String starterStatus=own==Rank.OWNER || System.currentTimeMillis()>=starterNext ? "&aReady" :
-            "&e"+Math.max(1,(starterNext-System.currentTimeMillis())/60000L)+"m";
-        p.sendMessage(color("&fStarter &7- "+Math.max(1,getConfig().getInt("kits.starter-cooldown-hours",6))+"h - "+starterStatus));
-        for (Rank r : new Rank[]{Rank.MEMBER,Rank.BASIC,Rank.SILVER,Rank.GOLD,Rank.PLATINUM}) {
-            boolean eligible = own == Rank.OWNER || own.level >= r.level;
-            String key = p.getName().toLowerCase(Locale.ENGLISH) + "." + r.name().toLowerCase(Locale.ENGLISH);
-            long next = kitsData.getLong(key,0L);
-            String status = !eligible ? "&cLocked" : (System.currentTimeMillis()>=next ? "&aReady" : "&e" + Math.max(1,(next-System.currentTimeMillis())/60000L) + "m");
-            p.sendMessage(color(r.prefix + " &7- " + r.cooldownHours + "h - " + status));
-        }
+        p.sendMessage(color("&6--- HCF Kits ---"));
+        showKitCooldown(p,"diamond",Math.max(24,getConfig().getInt("kits.diamond-cooldown-hours",72)));
+        showKitCooldown(p,"bard",Math.max(6,getConfig().getInt("kits.class-cooldown-hours",24)));
+        showKitCooldown(p,"archer",Math.max(6,getConfig().getInt("kits.class-cooldown-hours",24)));
+        showKitCooldown(p,"miner",Math.max(6,getConfig().getInt("kits.class-cooldown-hours",24)));
+        showKitCooldown(p,"rogue",Math.max(6,getConfig().getInt("kits.class-cooldown-hours",24)));
+        if(isCreatorIdentity(p.getName()) || isOwnerPlayer(p))
+            showKitCooldown(p,"youtube",Math.max(24,getConfig().getInt("kits.youtube-cooldown-hours",48)));
+        p.sendMessage(color("&7Normal combat ceiling: &fProtection I / Sharpness I&7."));
+        p.sendMessage(color("&7P2 / Sharp II / Fire I is prestige event/creator gear, not a donor kit."));
         return true;
     }
 
-    private void grantKit(Player p, Rank r) {
-        int pearls=1,heals=2,steak=16;
-        switch(r) {
-            case MEMBER:
-                pearls=1; heals=2; steak=16;
-                break;
-            case BASIC:
-                pearls=2; heals=3; steak=16;
-                break;
-            case SILVER:
-                pearls=3; heals=4; steak=20;
-                break;
-            case GOLD:
-                pearls=4; heals=5; steak=24;
-                break;
-            case PLATINUM:
-                pearls=5; heals=6; steak=32;
-                break;
-            default:
-                break;
-        }
-
-        // Donor value comes from convenience and cumulative kit access, not a
-        // higher combat ceiling. Every donor kit is the same P2/S2 diamond set.
-        add(p,armor(Material.DIAMOND_HELMET,2));
-        add(p,armor(Material.DIAMOND_CHESTPLATE,2));
-        add(p,armor(Material.DIAMOND_LEGGINGS,2));
-        add(p,armor(Material.DIAMOND_BOOTS,2));
-        add(p,sword(Material.DIAMOND_SWORD,2));
-        add(p,new ItemStack(Material.ENDER_PEARL,pearls));
-        add(p,new ItemStack(Material.COOKED_BEEF,steak));
-        for(int i=0;i<heals;i++) add(p,new ItemStack(Material.POTION,1,(short)16421));
-
-        // Small economy utility at the top without adding more combat power.
-        if(r==Rank.GOLD) add(p,new ItemStack(Material.NETHER_STALK,4));
-        else if(r==Rank.PLATINUM) {
-            add(p,new ItemStack(Material.NETHER_STALK,6));
-            add(p,new ItemStack(Material.GLOWSTONE_DUST,3));
-        }
+    private void showKitCooldown(Player p,String type,int hours) {
+        long next=kitsData.getLong(p.getName().toLowerCase(Locale.ENGLISH)+".kit."+type,0L);
+        String status=isOwnerPlayer(p)||System.currentTimeMillis()>=next
+            ? "&aReady"
+            : "&e"+Math.max(1,(next-System.currentTimeMillis())/60000L)+"m";
+        p.sendMessage(color("&f/kit "+type+" &7- "+hours+"h - "+status));
     }
 
-    private void grantStarterKit(Player p,String type) {
+    private void grantHcfKit(Player p,String type) {
+        if("youtube".equals(type)) {
+            add(p,namedArmor(Material.DIAMOND_HELMET,2,"&6Creator Helmet"));
+            add(p,namedArmor(Material.DIAMOND_CHESTPLATE,2,"&6Creator Chestplate"));
+            add(p,namedArmor(Material.DIAMOND_LEGGINGS,2,"&6Creator Leggings"));
+            add(p,namedArmor(Material.DIAMOND_BOOTS,2,"&6Creator Boots"));
+            add(p,namedSword(Material.DIAMOND_SWORD,2,1,"&6Creator Blade"));
+            add(p,new ItemStack(Material.ENDER_PEARL,2));
+            add(p,new ItemStack(Material.COOKED_BEEF,24));
+            for(int i=0;i<9;i++) add(p,new ItemStack(Material.POTION,1,(short)16421));
+            return;
+        }
+
         if("bard".equals(type)) {
-            add(p,armor(Material.GOLD_HELMET,2));
-            add(p,armor(Material.GOLD_CHESTPLATE,2));
-            add(p,armor(Material.GOLD_LEGGINGS,2));
-            add(p,armor(Material.GOLD_BOOTS,2));
-            add(p,sword(Material.IRON_SWORD,2));
+            add(p,armor(Material.GOLD_HELMET,1));
+            add(p,armor(Material.GOLD_CHESTPLATE,1));
+            add(p,armor(Material.GOLD_LEGGINGS,1));
+            add(p,armor(Material.GOLD_BOOTS,1));
+            add(p,sword(Material.IRON_SWORD,1));
             add(p,new ItemStack(Material.BLAZE_ROD,1));
             add(p,new ItemStack(Material.GHAST_TEAR,1));
             add(p,new ItemStack(Material.FEATHER,1));
             add(p,new ItemStack(Material.MAGMA_CREAM,1));
         } else if("archer".equals(type)) {
-            add(p,armor(Material.LEATHER_HELMET,2));
-            add(p,armor(Material.LEATHER_CHESTPLATE,2));
-            add(p,armor(Material.LEATHER_LEGGINGS,2));
-            add(p,armor(Material.LEATHER_BOOTS,2));
+            add(p,armor(Material.LEATHER_HELMET,1));
+            add(p,armor(Material.LEATHER_CHESTPLATE,1));
+            add(p,armor(Material.LEATHER_LEGGINGS,1));
+            add(p,armor(Material.LEATHER_BOOTS,1));
             ItemStack bow=new ItemStack(Material.BOW);
             bow.addUnsafeEnchantment(Enchantment.ARROW_DAMAGE,2);
             add(p,bow);
             add(p,new ItemStack(Material.ARROW,64));
-            add(p,sword(Material.IRON_SWORD,2));
+            add(p,sword(Material.IRON_SWORD,1));
         } else if("miner".equals(type)) {
-            add(p,armor(Material.IRON_HELMET,2));
-            add(p,armor(Material.IRON_CHESTPLATE,2));
-            add(p,armor(Material.IRON_LEGGINGS,2));
-            add(p,armor(Material.IRON_BOOTS,2));
+            add(p,armor(Material.IRON_HELMET,1));
+            add(p,armor(Material.IRON_CHESTPLATE,1));
+            add(p,armor(Material.IRON_LEGGINGS,1));
+            add(p,armor(Material.IRON_BOOTS,1));
             ItemStack pick=new ItemStack(Material.IRON_PICKAXE);
             pick.addUnsafeEnchantment(Enchantment.DIG_SPEED,2);
             add(p,pick);
-            add(p,sword(Material.IRON_SWORD,2));
+            add(p,sword(Material.IRON_SWORD,1));
         } else if("rogue".equals(type)) {
-            add(p,armor(Material.CHAINMAIL_HELMET,2));
-            add(p,armor(Material.CHAINMAIL_CHESTPLATE,2));
-            add(p,armor(Material.CHAINMAIL_LEGGINGS,2));
-            add(p,armor(Material.CHAINMAIL_BOOTS,2));
-            add(p,sword(Material.GOLD_SWORD,2));
+            add(p,armor(Material.CHAINMAIL_HELMET,1));
+            add(p,armor(Material.CHAINMAIL_CHESTPLATE,1));
+            add(p,armor(Material.CHAINMAIL_LEGGINGS,1));
+            add(p,armor(Material.CHAINMAIL_BOOTS,1));
+            add(p,sword(Material.GOLD_SWORD,1));
         } else {
-            add(p,armor(Material.DIAMOND_HELMET,2));
-            add(p,armor(Material.DIAMOND_CHESTPLATE,2));
-            add(p,armor(Material.DIAMOND_LEGGINGS,2));
-            add(p,armor(Material.DIAMOND_BOOTS,2));
-            add(p,sword(Material.DIAMOND_SWORD,2));
+            add(p,armor(Material.DIAMOND_HELMET,1));
+            add(p,armor(Material.DIAMOND_CHESTPLATE,1));
+            add(p,armor(Material.DIAMOND_LEGGINGS,1));
+            add(p,armor(Material.DIAMOND_BOOTS,1));
+            add(p,sword(Material.DIAMOND_SWORD,1));
         }
 
-        add(p,new ItemStack(Material.ENDER_PEARL,"miner".equals(type)?2:4));
-        add(p,new ItemStack(Material.COOKED_BEEF,32));
-        int heals="miner".equals(type)?6:10;
+        int pearls="diamond".equals(type)?3:2;
+        int heals="diamond".equals(type)?9:6;
+        add(p,new ItemStack(Material.ENDER_PEARL,pearls));
+        add(p,new ItemStack(Material.COOKED_BEEF,24));
         for(int i=0;i<heals;i++) add(p,new ItemStack(Material.POTION,1,(short)16421));
+    }
+
+    private ItemStack namedArmor(Material m,int prot,String display) {
+        ItemStack i=armor(m,prot);
+        ItemMeta meta=i.getItemMeta();
+        meta.setDisplayName(color(display));
+        i.setItemMeta(meta);
+        return i;
+    }
+
+    private ItemStack namedSword(Material m,int sharp,int fire,String display) {
+        ItemStack i=sword(m,sharp);
+        if(fire>0) i.addUnsafeEnchantment(Enchantment.FIRE_ASPECT,Math.min(1,fire));
+        ItemMeta meta=i.getItemMeta();
+        meta.setDisplayName(color(display));
+        i.setItemMeta(meta);
+        return i;
     }
 
     private ItemStack armor(Material m,int prot) {
@@ -3089,7 +3060,9 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     private ItemStack pvpSword(Material m,int sharp,int fireAspect) {
-        return sword(m,Math.min(2,sharp));
+        ItemStack i=sword(m,Math.min(2,sharp));
+        if(fireAspect>0) i.addUnsafeEnchantment(Enchantment.FIRE_ASPECT,Math.min(1,fireAspect));
+        return i;
     }
 
     private void add(Player p, ItemStack i) {

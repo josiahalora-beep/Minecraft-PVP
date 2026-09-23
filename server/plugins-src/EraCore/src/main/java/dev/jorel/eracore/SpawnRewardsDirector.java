@@ -396,14 +396,14 @@ final class SpawnRewardsDirector implements Listener {
             ItemStack sword=new ItemStack(Material.DIAMOND_SWORD);
             sword.addUnsafeEnchantment(Enchantment.DAMAGE_ALL,1);
             item(p,sword,"Sharpness I Diamond Sword");
-        } else if(r<9790) {
+        } else if(r<9958) {
             p.getInventory().addItem(keyItem("donor",1));
             finishReward(p,"1 Basic Donor Crate Key",true);
-        } else if(r<9910) {
+        } else if(r<9988) {
             ItemStack piece=randomProt2Piece(r);
             item(p,piece,"Protection II "+piece.getType().name().replace('_',' '));
             plugin.noteSimPremiumReward(p,"vote P2 piece");
-        } else if(r<9980) {
+        } else if(r<9998) {
             ItemStack sword=rareSword();
             item(p,sword,"Sharpness II / Fire I Diamond Sword");
             plugin.noteSimPremiumReward(p,"vote S2F1 sword");
@@ -423,9 +423,9 @@ final class SpawnRewardsDirector implements Listener {
 
         // Premium odds rise by donor tier, but the inherited-rank economy is
         // deliberately capped: even Platinum keys are mostly progression loot.
-        int fullSetChance = tier==4?70:(tier==3?40:(tier==2?25:15));      // 0.70..0.15%
-        int fireSwordChance = tier==4?250:(tier==3?180:(tier==2?120:80)); // 2.50..0.80%
-        int p2PieceChance = tier==4?600:(tier==3?450:(tier==2?300:200));  // 6.00..2.00%
+        int fullSetChance = tier==4?8:(tier==3?5:(tier==2?3:2));          // 0.08..0.02%
+        int fireSwordChance = tier==4?70:(tier==3?45:(tier==2?30:20));    // 0.70..0.20%
+        int p2PieceChance = tier==4?225:(tier==3?150:(tier==2?100:70));   // 2.25..0.70%
         int premiumStart=10000-fullSetChance-fireSwordChance-p2PieceChance;
 
         if(r>=10000-fullSetChance) {
@@ -579,19 +579,22 @@ final class SpawnRewardsDirector implements Listener {
         if("koth".equalsIgnoreCase(type)) {
             p.sendMessage(EraCore.colorText("&6--- KOTH Crate ---"));
             p.sendMessage(EraCore.colorText("&fPearls, Healing II, glowstone, gunpowder, obsidian and diamonds."));
-            p.sendMessage(EraCore.colorText("&eRare: &fP2 diamond pieces and Sharp II / Fire I swords."));
-            p.sendMessage(EraCore.colorText("&6Jackpot: &fa full P2 KOTH set + S2/Fire II sword."));
+            p.sendMessage(EraCore.colorText("&ePremium: &fP2 piece 14% &7| &fSharp II / Fire I sword 5.5%."));
+            p.sendMessage(EraCore.colorText("&6Jackpot: &ffull P2 KOTH set + S2/Fire II sword 1.5%."));
             p.sendMessage(EraCore.colorText("&7Baseline PvP remains Protection I / Sharpness I."));
         } else if("donor".equalsIgnoreCase(type)) {
             p.sendMessage(EraCore.colorText("&6--- Donor Ender Chest ---"));
             p.sendMessage(EraCore.colorText("&aBasic &7< &fSilver &7< &6Gold &7< &bPlatinum"));
-            p.sendMessage(EraCore.colorText("&7Higher tiers improve progression quantities and carefully raise P2/S2F1 jackpot odds."));
+            p.sendMessage(EraCore.colorText("&7Premium odds by tier: Basic P2 0.70% / S2F1 0.20% / full 0.02%."));
+            p.sendMessage(EraCore.colorText("&7Silver 1.00% / 0.30% / 0.03%; Gold 1.50% / 0.45% / 0.05%."));
+            p.sendMessage(EraCore.colorText("&7Platinum 2.25% / 0.70% / 0.08%. Common rolls stay progression-heavy."));
             p.sendMessage(EraCore.colorText("&7No Speed II or Fire Resistance bottles; Speed II is permanent."));
         } else {
             p.sendMessage(EraCore.colorText("&e--- Vote Chest ---"));
-            p.sendMessage(EraCore.colorText("&f$250 &724%  &f8 Pearls &718%  &f16 Iron &715%  &f12 Obsidian &712%"));
-            p.sendMessage(EraCore.colorText("&f4 Diamonds &710%  &f6 Heals &78%  &f16 Wart &75%  &f8 Glowstone &74%"));
-            p.sendMessage(EraCore.colorText("&7Useful progression every roll; P2/S2F1 and a full set are extremely rare jackpots."));
+            p.sendMessage(EraCore.colorText("&f$300 16% &7| &f12 Pearls 15% &7| &f16 Obsidian 12% &7| &f8 Diamonds 10%"));
+            p.sendMessage(EraCore.colorText("&f10 Heals 12% &7| &f16 Wart 8% &7| &f12 Glowstone 8% &7| &f16 Gunpowder 8%"));
+            p.sendMessage(EraCore.colorText("&fSharp I sword 6.5% &7| &fBasic donor key 4.08%"));
+            p.sendMessage(EraCore.colorText("&6Premium: &fP2 piece 0.30% &7| &fS2/Fire I 0.10% &7| &ffull set 0.02%."));
         }
     }
 

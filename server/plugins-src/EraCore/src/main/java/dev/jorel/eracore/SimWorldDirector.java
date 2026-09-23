@@ -4547,6 +4547,13 @@ final class SimWorldDirector {
         return n;
     }
 
+    List<String> logicalOnlineIdentityNames() {
+        List<String> out=new ArrayList<String>();
+        for(SimPlayer p:players.values()) if(p.logicalOnline) out.add(p.name);
+        Collections.sort(out,String.CASE_INSENSITIVE_ORDER);
+        return out;
+    }
+
     private Collection<SimPlayer> logicallyOnlinePlayers() {
         List<SimPlayer> out=new ArrayList<SimPlayer>();
         for(SimPlayer p:players.values()) if(p.logicalOnline) out.add(p);

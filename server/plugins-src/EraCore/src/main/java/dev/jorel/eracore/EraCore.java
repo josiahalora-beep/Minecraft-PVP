@@ -1448,6 +1448,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (c.equals("shop")) return cmdShop(p);
         if (c.equals("vote")) return spawnRewards != null && spawnRewards.commandVote(p,args);
         if (c.equals("keys")) return spawnRewards != null && spawnRewards.commandKeys(p);
+        if (c.equals("redeem")) return spawnRewards != null && spawnRewards.commandRedeem(p,args);
         if (c.equals("crates")) return spawnRewards != null && spawnRewards.commandCrates(p,args);
         if (c.equals("stats")) return cmdStats(p,args);
         if (c.equals("history")) return cmdHistory(p,args);

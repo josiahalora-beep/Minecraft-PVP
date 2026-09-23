@@ -454,24 +454,26 @@ final class SimWorldDirector {
     private static final Pattern MONEY = Pattern.compile("(?:\\$\\s*)?(\\d{2,7})");
 
     private static final String[] PLAYER_NAMES = {
-        "Stimpy","PainfulPvP","lolitsalex","Skimpy","Vexon","Mints","Syrup","Aero","Zyro","Riven","Axion","Sora",
-        "Kairo","Vivid","Swerve","Recoil","Talon","Cinder","Fable","Haze","Nero","Rook","Dusk","Lucid",
-        "Cipher","Drift","Flare","Lunar","Karma","Morrow","Raze","Orbit","Mango","Kiwi","Grape","Quartz",
-        "Mercy","Tempo","Riot","Sage","Jaxon","Viper","Frost","Blade","Pulse","Vapor","Ryder","Axiom",
-        "Mythic","Vandal","Shiver","Scythe","Wraith","Hollow","Crimson","Monarch","Static","Rapture","Finesse","Deceive",
-        "Jettison","Shanked","Reborn","Ghosted","Murked","Beamed","Tagged","Pearled","Chased","Trapped","Vaulted","Quickdrop",
-        "Ruthless","Glitch","Toxxic","Hexed","Jinxed","Lethal","Strafe","Vexing","Nightfall","Frostbite","Venomous","Mason27",
-        "Luke17","Rico42","Noah8","Zach13","Trey99","Jordan12","Benji7","Cody51","Evan23","Logan9","Dylan44","Chris18",
-        "Nick32","Cole11","Tyler26","Brady15","Miles47","Cam19","Ryan63","Nate24","Jax7","Alex52","Seth31","xRico",
-        "xNova","xPulse","xScope","xBlade","xFrost","xSavage","iTzLuke","iTzMason","iTzBen","FrostyHD","BreezyMC","CamPvP",
-        "PandaPvP","DizzyPvP","VibePvP","KiteMC","ClutchKid","StrafeKid","ArcherKid","BardMain","RogueMain","DiamondKid","DTRKing","KOTHKid",
-        "NetherKid","EndRoamer","PearlClip","CaneFarmer","ObbyMiner","BlazeKid","RefillKid","GateKid","BrewMaster","MinerMatt","qTip","SoupCan",
-        "RawrXD","z0mbie","SevenUp","NoChill","PingLord","Laggy","PotatoAim","DoorCamper","RoadRunner","OneTap","NoDebuff","Soup",
-        "Melee","Flick","Refill","Kiter","Debuff","Invis","PurpleDino","Waffle","Redstone","Bamboo","GamerJon","xxTrevor",
-        "PvPKevin","ItsDrew","Tommy2k","JoshDoesMC","BluePanda","GreenTea","MilkMan","Toastyy","BearClaw","LimeWire","Cloudy","Spooky",
-        "Cracked","Blinky","Noodle","Muffin","Scooby","Goose","Shroom","Pigeon","Turtle","Salty","Sketch","Sneaky",
-        "Kyro","Zeno","Arden","Brynn","Cael","Drex","Elio","Iven","Juno","Kova","Lior","Miro",
-        "Navi","Orin","Pavo","Rune"
+        "Stimpy","PainfulPvP","lolitsalex","Skimpy","naxz","zuurk","scars","phora","sway","mints","vexon","nox",
+        "aero","riven","kairo","lucid","drift","haze","fable","orbit","kova","morrow","vivid","recoil",
+        "talon","cinder","mercy","tempo","syrup","venom","frost","blade","pulse","mythic","vandal","cipher",
+        "rune","sora","nero","rook","dusk","flare","lunar","karma","sage","shiver","scythe","wraith",
+        "hollow","static","riot","vapor","axion","finesse","deceive","wcw","P1NG","c0re","Rqn","v7x",
+        "qTip","z0mbie","xRico","xNova","xScope","xFrost","xBlade","iTzLuke","iTzBen","iTzMatt","xxTrevor","xX_Cam_Xx",
+        "PvPKevin","camPvP","BreezyMC","KiteMC","FrostyHD","DizzyPvP","ryanHD","SethPvP","matt217","trevor12","josh19","Noah8",
+        "Rico42","Luke17","Benji7","cody51","evan23","logan9","dylan44","chris18","nick32","cole11","tyler26","brady15",
+        "miles47","cam19","ryan63","nate24","jax7","alex52","seth31","tommy2k","jordan12","mason27","zach13","trey99",
+        "yungcody","yungmatt","yungpuma2","LilTrev","lilnick17","KidWithPots","DiamondKid","KothKid12","BardKid","ArcherKid7","DTRkid","PearlKid",
+        "RefillKid","BlazeKid","EndKid","NetherKid","PotPvPKid","NoChill12","LaggyMatt","PingLord7","DoorCamper","RoadRunner9","OneTapTom","PotatoAim",
+        "SoupCan","RawrXD","MyDogMax","MyCatLuna","CoolJohan","coolkid55","GamerJon","JoshDoesMC","MilkMan","Toastyy","BearClaw","BluePanda",
+        "GreenTea","PurpleDino","Waffle","Bamboo","LimeWire","Spooky","Cloudy","Noodle","Muffin","Scooby","Goose","Pigeon",
+        "Turtle","Salty","Sketch","Sneaky","Blinky","Shroom","basebitch7","CaneFarmer","ObbyMiner","MinerMatt","BrewMaster","PotRefill",
+        "GateCamper","PearlClip","EndRoamer","TrapGod12","BowSpamKid","KiteMeBro","QuickDrop7","CantAim","ImLagging","NotToxic","ChillDude","TryHard69",
+        "rektByPing","momGetCam","iEatPots","NoDebuff","Refill","Kiter","Invis","Debuff","Pattyo321","jackdeath3","HavocPVP","oldcraft",
+        "admiral7","Sweden2","NepalMC","Rossey","Demonn","Communic8","Coldish","Mixyl","Zylite","TurtleShock","SwiftGaia","Lobsterrr",
+        "Smurfinq","Youngling","VitaCola","Megamilk2","FrenchFries","doodlebro","RechargeKid","AlohaPvP","Waterboy7","GreasyGoon","justin_04","mike2001",
+        "dannyboy7","sammy_13","jakeplays","joey1234","anthony9","bobby_22","kevin2000","andrew17","xavier_5","ethanPvP","connorMC","brandon8",
+        "aaron_12","david44","johnnyPvP","steve_09","chase11","tanner32","derek7","dominic5","jason_23","billyMC","maxwell9"
     };
 
     private static final String[] FACTION_NAMES = {
@@ -6792,16 +6794,16 @@ final class SimWorldDirector {
         }
 
         int rosterVersion=data.getInt("meta.identity-roster-version",0);
-        if(rosterVersion<3 && !plugin.productionWorldReady() && factions.isEmpty()) {
+        if(rosterVersion<4 && !plugin.productionWorldReady() && factions.isEmpty()) {
             // This generation is still in pre-READY SOTW setup, so replacing
             // the old synthetic username roster is safe: no claims, faction
             // history or live PvP state exist yet. This makes the curated
             // unique-name pool take effect without another physical world reset.
             plugin.resetSimFactionAuthority(new ArrayList<String>(players.keySet()));
             seed();
-            data.set("meta.identity-roster-version",3);
+            data.set("meta.identity-roster-version",4);
             save();
-            plugin.getLogger().info("Identity roster v3: reseeded pre-READY SOTW population with case-insensitive unique period-style names.");
+            plugin.getLogger().info("Identity roster v4: reseeded pre-READY SOTW population with mixed-case, numeric, kid/casual and rare-OG period-style names.");
             return;
         }
 
@@ -8253,12 +8255,12 @@ final class SimWorldDirector {
             lower.contains("rekt") || lower.contains("itz") || lower.contains("x_") ||
             lower.startsWith("xx") || lower.endsWith("xx");
 
-        // Rare 4-6 letter clean handles were especially valuable in the
-        // 2014-2017 PvP scene. They are a strong social/skill signal, not a
-        // guarantee; 7-10 letter clean names retain a smaller prestige bump.
+        // Rare clean 4-6 character accounts were a strong social signal in
+        // old PvP/HCF communities. Case is irrelevant: "naxz" is deliberately
+        // just as prestigious as "Naxz". Numbers, PvP/MC/HD/kid markers and
+        // noisy prefixes represent the far larger ordinary account population.
         if(letters && !casualMarker && name.length()>=4 && name.length()<=6) return 2;
-        if(letters && !casualMarker && name.length()<=10) return 1;
-        if(!digits && !casualMarker && name.length()<=10) return 1;
+        if(letters && !casualMarker && name.length()>=7 && name.length()<=9) return 1;
         return 0;
     }
 
@@ -8266,26 +8268,28 @@ final class SimWorldDirector {
         int base=skillRoll();
         int tier=namePrestigeTier(name);
         if(tier==2) {
-            // Most genuinely rare 4-6 character accounts were associated with
-            // established/serious players, while preserving occasional bought
-            // names, alts and overrated handles.
-            if(rng.nextInt(100)<82) base=Math.max(base,80+rng.nextInt(16));
-            else base=Math.max(base,58+rng.nextInt(21));
+            // Usually a sweaty/established player, but bought names and alts
+            // preserve uncertainty. The handle is a reputation signal, never a
+            // deterministic skill label.
+            if(rng.nextInt(100)<88) base=Math.max(base,82+rng.nextInt(17));
+            else base=Math.max(base,55+rng.nextInt(25));
         } else if(tier==1) {
-            base+=5;
+            base+=4;
         } else {
-            base-=6;
+            // Ordinary/noisy names span the whole ladder. Great players can
+            // still have awful usernames; they are simply less concentrated.
+            base-=3;
         }
-        int noise=rng.nextInt(13)-6;
+        int noise=rng.nextInt(11)-5;
         return Math.max(18,Math.min(100,base+noise));
     }
 
     private int rebalanceExistingSkillForName(String name,int existing) {
         int tier=namePrestigeTier(name);
         int target=existing;
-        if(tier==2) target=Math.max(target,77+rng.nextInt(16));
-        else if(tier==1) target+=2+rng.nextInt(5);
-        else target-=2+rng.nextInt(5);
+        if(tier==2) target=Math.max(target,80+rng.nextInt(17));
+        else if(tier==1) target+=1+rng.nextInt(5);
+        else target-=1+rng.nextInt(4);
         return Math.max(18,Math.min(100,target));
     }
 

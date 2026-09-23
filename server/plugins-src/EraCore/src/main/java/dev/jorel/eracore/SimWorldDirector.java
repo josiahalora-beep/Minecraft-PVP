@@ -3088,7 +3088,7 @@ final class SimWorldDirector {
             Material m=item.getType();
 
             // The physical key must survive the cleanup trip.
-            if(m==Material.TRIPWIRE_HOOK || m==Material.BLAZE_ROD) continue;
+            if(m==Material.TRIPWIRE_HOOK || m==Material.BLAZE_ROD || m==Material.NETHER_STAR) continue;
 
             boolean keep=false;
             if(m.name().endsWith("_SWORD") && !keptSword) {

@@ -8444,16 +8444,22 @@ final class SimWorldDirector {
 
         if (f.basePreset == null || f.basePreset.isEmpty()) f.basePreset = chooseBasePreset(f);
 
-        int terrainRadius = baseTerrainRadius(f);
-        int maxRelief = Math.max(2, plugin.getConfig().getInt("sim-world.max-base-site-relief", 6));
+        int terrainRadius = baseSiteTerrainRadius(f);
+        int minRelief = Math.max(0, plugin.getConfig().getInt("sim-world.min-base-site-relief", 3));
+        int maxRelief = Math.max(minRelief+2, plugin.getConfig().getInt("sim-world.max-base-site-relief", 10));
         int maxLiquids = Math.max(0, plugin.getConfig().getInt("sim-world.max-base-site-liquid-samples", 1));
+        String siteArch=f.archetype==null?"BALANCED":f.archetype.toUpperCase(Locale.ENGLISH);
+        int targetRelief=("TRAPPER".equals(siteArch)||"UNDERDOG".equals(siteArch))?7:
+            ("ECONOMY".equals(siteArch)?5:6);
 
         int[] bestPoint = null;
         int[] bestEval = null;
         int bestScore = Integer.MAX_VALUE;
 
-        // Evaluate several nearby candidates instead of accepting the first hill/ravine.
-        for (int attempt=0; attempt<14; attempt++) {
+        // Prefer useful natural cover rather than the flattest possible lawn.
+        // Twenty samples are still bounded, but give the faction a realistic
+        // chance to find a shallow ridge/bowl that can conceal its surface entry.
+        for (int attempt=0; attempt<20; attempt++) {
             int[] raw = chooseBasePoint(f);
             int x = alignChunkCenter(raw[0]);
             int z = alignChunkCenter(raw[1]);
@@ -8470,14 +8476,18 @@ final class SimWorldDirector {
             int maxY = Math.min(110, plugin.getConfig().getInt("sim-world.max-base-y", 110));
             if (eval[0] < minY || eval[0] > maxY) continue;
 
-            int score = eval[1] * 20 + eval[2] * 100;
+            int reliefPenalty=Math.abs(eval[1]-targetRelief)*18;
+            if(eval[1]<minRelief) reliefPenalty+=(minRelief-eval[1])*24;
+            if(eval[1]>maxRelief) reliefPenalty+=(eval[1]-maxRelief)*45;
+            int score = reliefPenalty + eval[2] * 120;
             if (score < bestScore) {
                 bestScore = score;
                 bestPoint = new int[]{x,z};
                 bestEval = eval;
             }
 
-            if (eval[1] <= maxRelief && eval[2] <= maxLiquids) break;
+            if (eval[1] >= minRelief && eval[1] <= maxRelief &&
+                Math.abs(eval[1]-targetRelief)<=1 && eval[2] <= maxLiquids) break;
         }
 
         if (bestPoint == null || bestEval == null) return false;
@@ -8504,6 +8514,14 @@ final class SimWorldDirector {
 
     private int alignChunkCenter(int block) {
         return ((block >> 4) << 4) + 8;
+    }
+
+    private int baseSiteTerrainRadius(SimFaction f) {
+        HcfBasePlan.Profile p=baseProfile(f.name);
+        HcfBasePlan plan=HcfBasePlan.of(f.name,f.baseX,f.baseY,f.baseZ,p);
+        int r=plan.terrainCradleRadius();
+        if("fall_trap".equalsIgnoreCase(f.trapPreset)) r=Math.max(r,24);
+        return r;
     }
 
     private int baseTerrainRadius(SimFaction f) {

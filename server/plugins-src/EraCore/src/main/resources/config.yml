@@ -328,10 +328,13 @@ duels:
   random-challenges: true
 
 infrastructure:
-  blocks-per-tick: 500
+  duel-world: duel_arena
+  duel-world-border: 192
+  external-dimension-schematics: true
+  blocks-per-tick: 120
   duel-center-x: 0
-  duel-center-z: -600
-  duel-floor-y: 70
+  duel-center-z: 0
+  duel-floor-y: 64
   nether-y: 70
   end-y: 68
 

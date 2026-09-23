@@ -11,7 +11,7 @@ import java.util.*;
  * Normal restarts do not rebuild completed stages. A fresh SOTW/reset leaves
  * map.complete=false and this director resumes only the missing work:
  *
- *   STRUCTURES -> RESOURCES -> READY
+ *   TERRAIN -> STRUCTURES -> RESOURCES -> READY
  *
  * Every stage is guarded by the shared p95 MSPT probe. Heavy block work lives
  * inside the compositor/resource queues, never in this coordinator tick.
@@ -19,16 +19,18 @@ import java.util.*;
 final class HcfWorldBuildDirector {
     private final EraCore plugin;
     private final HcfMapDirector map;
+    private final HcfTerrainDirector terrain;
     private final HcfResourceDirector resources;
     private final LegacySchematicComposer composer;
     private BukkitTask task;
     private String lastStage="";
     private long lastLog;
 
-    HcfWorldBuildDirector(EraCore plugin,HcfMapDirector map,
+    HcfWorldBuildDirector(EraCore plugin,HcfMapDirector map,HcfTerrainDirector terrain,
                           HcfResourceDirector resources,LegacySchematicComposer composer) {
         this.plugin=plugin;
         this.map=map;
+        this.terrain=terrain;
         this.resources=resources;
         this.composer=composer;
     }
@@ -60,9 +62,15 @@ final class HcfWorldBuildDirector {
             plugin.saveConfig();
         }
 
+        boolean terrainDone=plugin.getConfig().getBoolean("world-build.terrain-complete",false);
         boolean structures=plugin.getConfig().getBoolean("map.structures-complete",
             plugin.getConfig().getBoolean("map.complete",false));
         boolean resourceDone=plugin.getConfig().getBoolean("world-build.resources-complete",false);
+
+        if(!terrainDone && terrain!=null && terrain.busy()) {
+            stage("TERRAIN");
+            return;
+        }
 
         // Active staged jobs own their own MSPT throttling. Keep the visible
         // stage truthful while they run instead of flipping to PAUSED_MSPT even
@@ -80,6 +88,14 @@ final class HcfWorldBuildDirector {
         double ceiling=Math.max(20.0,plugin.getConfig().getDouble("world-build.max-p95-mspt",32.0));
         if(p95>=0.0 && p95>ceiling) {
             stage("PAUSED_MSPT");
+            return;
+        }
+
+        if(!terrainDone) {
+            stage("TERRAIN");
+            if(terrain==null) return;
+            if(!terrain.queueProductionTerrain())
+                log("Production terrain queue could not start; it will retry automatically.");
             return;
         }
 
@@ -132,6 +148,7 @@ final class HcfWorldBuildDirector {
     String status() {
         double p95=plugin.currentP95Mspt();
         return "stage="+currentStage()+
+            " terrain="+plugin.getConfig().getBoolean("world-build.terrain-complete",false)+
             " structures="+plugin.getConfig().getBoolean("map.structures-complete",false)+
             " resources="+plugin.getConfig().getBoolean("world-build.resources-complete",false)+
             " complete="+plugin.getConfig().getBoolean("world-build.complete",false)+
@@ -143,6 +160,8 @@ final class HcfWorldBuildDirector {
     }
 
     private String currentStage() {
+        if(!plugin.getConfig().getBoolean("world-build.terrain-complete",false))
+            return terrain!=null&&terrain.busy()?"TERRAIN":"TERRAIN_WAIT";
         if(!plugin.getConfig().getBoolean("map.structures-complete",
             plugin.getConfig().getBoolean("map.complete",false))) return composer!=null&&composer.busy()?"STRUCTURES":"STRUCTURES_WAIT";
         if(!plugin.getConfig().getBoolean("world-build.resources-complete",false)) return resources!=null&&resources.busy()?"RESOURCES":"RESOURCES_WAIT";

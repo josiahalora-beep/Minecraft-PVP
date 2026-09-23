@@ -37,38 +37,41 @@ rewards:
   # Exact historical Kohi vote/donor crate odds are not reliably documented.
   # These tables are intentionally explicit and early-map balanced.
   vote-odds:
-    money-250: 24.0
-    pearls-8: 18.0
-    iron-16: 15.0
-    obsidian-12: 12.0
-    diamonds-4: 10.0
-    heals-6: 8.0
-    wart-16: 5.0
-    glowstone-8: 4.0
-    sharp1-diamond: 2.5
-    donor-key: 1.2
-    rank-upgrade: 0.3
-  # Donor keys share one physical Ender Chest. Basic/Silver/Gold/Platinum
-  # scale quantities and P2/S2 chances; the live Java table is tier-aware.
+    money-300: 16.0
+    pearls-12: 15.0
+    obsidian-16: 12.0
+    diamonds-8: 10.0
+    heals-10: 12.0
+    wart-16: 8.0
+    glowstone-12: 8.0
+    gunpowder-16: 8.0
+    sharp1-diamond: 6.5
+    basic-donor-key: 2.4
+    p2-piece: 1.2
+    sharp2-fire1: 0.7
+    full-p2-set-sharp2-fire1: 0.2
+  # Donor odds vary by key tier. Premium ranges below are per-key:
+  # Basic 2.00% P2 piece / 0.80% S2F1 / 0.15% full set
+  # Silver 3.00% / 1.20% / 0.25%
+  # Gold 4.50% / 1.80% / 0.40%
+  # Platinum 6.00% / 2.50% / 0.70%
   donor-odds:
-    cash-or-materials: 61.0
-    heals: 12.0
-    gunpowder: 9.0
-    p2-piece: 7.0
-    sharp2-diamond: 5.0
-    higher-tier-key: 4.25
-    rank-upgrade-or-koth-key: 1.75
+    common-progression: tier-scaled
+    p2-piece: 2.0-6.0
+    sharp2-fire1: 0.8-2.5
+    full-p2-set-sharp2-fire1: 0.15-0.70
   koth-odds:
-    pearls: 17.0
-    heals: 16.0
-    glowstone: 14.0
-    gunpowder: 14.0
-    obsidian: 11.0
-    diamonds: 9.0
-    looting4-event-sword: 6.5
-    fortune4-event-pick: 5.5
-    p2-diamond-piece: 4.5
-    sharp2-event-sword: 2.5
+    pearls: 13.0
+    heals: 13.0
+    glowstone: 12.0
+    gunpowder: 12.0
+    obsidian: 10.0
+    diamonds: 8.0
+    looting4-event-sword: 6.0
+    fortune4-event-pick: 5.0
+    p2-diamond-piece: 14.0
+    sharp2-fire1-event-sword: 5.5
+    full-p2-koth-set-sharp2-fire1: 1.5
 
 pvp:
   pearl-cooldown-seconds: 16

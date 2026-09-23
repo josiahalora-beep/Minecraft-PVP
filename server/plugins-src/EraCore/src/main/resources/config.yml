@@ -233,7 +233,7 @@ sotw:
   protection-minutes: 12
 
 terrain:
-  normalize-new-chunks: false
+  normalize-new-chunks: true
   cleanup-height: 46
   road-flat-half-width: 20.0
   road-shoulder-half-width: 72.0
@@ -433,6 +433,7 @@ resources:
 world-build:
   auto-resume: true
   active: false
+  terrain-complete: false
   complete: false
   resources-complete: false
   max-p95-mspt: 32.0

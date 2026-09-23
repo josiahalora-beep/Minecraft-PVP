@@ -1701,10 +1701,9 @@ async function recoverFromWater(state) {
   await sleep(950)
   stopMovement(bot)
 
-  if(now-state.waterSince>7000 && !commandTagged(state) &&
-     now-(state.lastStuckCommandAt || 0)>65000) {
-    state.lastStuckCommandAt=now
-    await queueBotCommand(state,'/stuck',BOT_COMMAND_GAP_MS,90)
+  if(now-state.waterSince>7000) {
+    const wider=dryEscapeTarget(bot,12)
+    if(wider) await smartGoto(state,wider.x,wider.y,wider.z,1,5000,false)
   }
   return true
 }
@@ -1829,10 +1828,12 @@ async function recoverIfStalled(state, action) {
   await sleep(650)
   stopMovement(bot)
 
-  if(Date.now()-(state.lastMovedAt||0)>15000 && !commandTagged(state) &&
-     Date.now()-(state.lastStuckCommandAt||0)>22000) {
-    state.lastStuckCommandAt=Date.now()
-    await queueBotCommand(state,'/stuck',BOT_COMMAND_GAP_MS,100)
+  // No generic /stuck teleport fallback: normal HCF players solve ordinary
+  // terrain problems physically. /f stuck remains a deliberate long-warmup
+  // faction escape command, not an AI anti-pathfinding shortcut.
+  if(Date.now()-(state.lastMovedAt||0)>15000) {
+    const wider=nearbySafeStand(state,12,10)
+    if(wider) await rawGoto(state,wider.x,wider.y,wider.z,1,5000,false)
   }
   return true
 }

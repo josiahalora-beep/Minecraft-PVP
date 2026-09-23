@@ -1,0 +1,93 @@
+name: qa-toolchain
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/qa-toolchain.yml'
+      - 'bots/package.json'
+      - 'bots/src/qa-inspector.js'
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '8'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build EraCore
+        working-directory: server/plugins-src/EraCore
+        run: mvn -B package
+
+      - name: Build Spigot 1.8.8
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .qa-build/buildtools
+          cd .qa-build/buildtools
+          curl -fsSL \
+            https://hub.spigotmc.org/jenkins/job/BuildTools/lastSuccessfulBuild/artifact/target/BuildTools.jar \
+            -o BuildTools.jar
+          java -jar BuildTools.jar --rev 1.8.8
+          SPIGOT="$(find . -maxdepth 2 -type f -name 'spigot-1.8.8*.jar' | head -1)"
+          test -n "$SPIGOT"
+          cp "$SPIGOT" ../spigot-1.8.8.jar
+
+      - name: Install Mineflayer and visual QA dependencies
+        working-directory: bots
+        run: |
+          npm install --no-audit --no-fund
+          npm install --no-save --no-audit --no-fund prismarine-viewer puppeteer-core
+          node --check src/qa-inspector.js
+          node --input-type=module -e "await import('prismarine-viewer'); await import('puppeteer-core'); console.log('visual QA deps OK')"
+
+      - name: Assemble portable QA toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .qa-build/bundle
+          mkdir -p .qa-build/bundle/server/plugins .qa-build/bundle/bots
+
+          rsync -a \
+            --exclude 'plugins/' \
+            --exclude 'world*/' \
+            --exclude 'buildtools/' \
+            server/ .qa-build/bundle/server/
+
+          cp .qa-build/spigot-1.8.8.jar .qa-build/bundle/server/spigot-1.8.8.jar
+          cp server/plugins-src/EraCore/target/EraCore.jar .qa-build/bundle/server/plugins/EraCore.jar
+
+          rsync -a --exclude 'logs/' bots/ .qa-build/bundle/bots/
+
+          if [ -d "$JAVA_HOME/jre" ]; then
+            cp -a "$JAVA_HOME/jre" .qa-build/bundle/java8
+          else
+            cp -a "$JAVA_HOME" .qa-build/bundle/java8
+          fi
+
+          cat > .qa-build/bundle/QA-BUILD.txt <<EOF
+          commit=${GITHUB_SHA}
+          java=$(java -version 2>&1 | head -1)
+          node=$(node --version)
+          built_at=$(date -u +%FT%TZ)
+          EOF
+
+          tar -C .qa-build -czf daegon-qa-toolchain.tar.gz bundle
+          ls -lh daegon-qa-toolchain.tar.gz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: daegon-qa-toolchain
+          path: daegon-qa-toolchain.tar.gz
+          retention-days: 7
+          compression-level: 0

@@ -41,6 +41,7 @@ final class HcfInfrastructureDirector {
     private final YamlConfiguration data;
     private final ArrayDeque<Op> queue=new ArrayDeque<Op>();
     private BukkitTask task;
+    private BukkitTask readinessTask;
     private boolean duelReady;
 
     private Location duelCenter;
@@ -56,6 +57,21 @@ final class HcfInfrastructureDirector {
     }
 
     void start() {
+        if(!plugin.productionWorldReady()) {
+            if(readinessTask==null) {
+                readinessTask=Bukkit.getScheduler().runTaskTimer(plugin,new Runnable(){
+                    public void run(){
+                        if(!plugin.productionWorldReady()) return;
+                        readinessTask.cancel();
+                        readinessTask=null;
+                        start();
+                    }
+                },20L,20L);
+                plugin.getLogger().info("HCF infrastructure deferred until production world is READY.");
+            }
+            return;
+        }
+
         World overworld=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
         if(overworld==null) return;
 
@@ -115,6 +131,8 @@ final class HcfInfrastructureDirector {
     }
 
     void stop() {
+        if(readinessTask!=null) readinessTask.cancel();
+        readinessTask=null;
         if(task!=null) task.cancel();
         task=null;
         save();

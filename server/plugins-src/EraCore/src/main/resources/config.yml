@@ -412,6 +412,8 @@ stuck:
 # Canonical 3k HCF production layout. Safezones and build/claim protection are
 # separate: KOTHs/resources stay PvP-active while remaining unbuildable.
 map-layout:
+  # Canonical cardinal roads are no-claim/no-build but remain PvP-active.
+  road-protection-half-width: 32
   koth-offset: 500
   koth-radius: 165
   portal-offset: 1000

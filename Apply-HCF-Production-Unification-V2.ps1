@@ -16,7 +16,7 @@ $JavaSourceDir = Join-Path $Server 'plugins-src\EraCore\src\main\java\dev\jorel\
 
 # This repository is often installed as a plain folder rather than a Git clone.
 # Always sync the exact coordinated source generation before compiling.
-$SourceCommit = '13dabc1edd11c8ff7382d1c8ce0e963423ff62e1'
+$SourceCommit = 'ebbfb04e19cc9583985f74ae7291420d79a3c0b6'
 $RawBase = 'https://raw.githubusercontent.com/josiahalora-beep/Minecraft-PVP/' + $SourceCommit
 $SourceFiles = @(
     'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/ActorDirectory.java',
@@ -203,6 +203,11 @@ if ($downloadMapAi -match "x:\s*650" -or $downloadMapAi -match "z:\s*-?650") {
 }
 if ($downloadWorld -notmatch 'restartSotwProtectionClock') {
     throw 'Downloaded world builder does not start the SOTW clock at map readiness.'
+}
+$downloadEvents = Get-Content -LiteralPath (Join-Path $tempRoot 'server\plugins-src\EraCore\src\main\java\dev\jorel\eracore\HcfEventDirector.java') -Raw
+if ($downloadEvents -notmatch 'simWorldProtectionMillisLeft' -or
+    $downloadEvents -notmatch 'SOTW is the opening progression race') {
+    throw 'Downloaded event scheduler still has the repeated SOTW 5-minute warning behavior.'
 }
 if ($downloadEra -notmatch 'permanent-speed-2' -or $downloadEra -notmatch 'factionPrefix') {
     throw 'Downloaded EraCore is missing HCF v4 movement/presentation rules.'

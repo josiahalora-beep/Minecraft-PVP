@@ -7,12 +7,12 @@ This document freezes the architectural decisions that came out of the Build Vie
 The Overworld is a movement-first old-HCF map.
 
 - Kraken spawn is authoritative geometry.
-- Spawn and the immediate PvP frontage are exactly flat only through roughly radius 210.
-- Radius 210-345 is a smooth transition into wilderness.
-- Wilderness is visibly rolling but PvP-safe: roughly +/-8 blocks around the canonical Y63 surface, using broad + medium landforms rather than superflat or stair-step noise.
+- Spawn and the immediate PvP frontage are exactly flat only through roughly radius 175.
+- Radius 175-300 is a smooth transition into wilderness.
+- Wilderness uses domain-warped natural relief, bounded to roughly +/-7 blocks around canonical Y63; the shape must not expose periodic sine bands or repeated contour rings.
 - No mountains, cliffs, exposed ravines, floating terrain caps, random surface holes, or one-block noise.
-- Four Kraken roads have narrow exact-flat cores with gravel spines and broken coarse-dirt shoulders; terrain resumes quickly outside the usable PvP lane.
-- KOTH, Conquest and portal fight areas are flat where combat happens and smoothly blended outside their pads.
+- Four Kraken roads have narrow exact-flat cores (about 16 blocks each side) with gravel spines and broken coarse-dirt shoulders; natural terrain resumes by roughly 50 blocks from the axis.
+- KOTH, Conquest and portal fight areas are flat where combat happens and smoothly blended outside their pads. Event terraforming is sized to the actual production asset rather than one universal plateau: KOTH2 / Classic ~52→118, EndStyle ~64→132, Egypt ~38→105, Frost ~108→170; Conquest ~158→222.
 - Trees are sparse, high-canopy landmarks and stay away from roads/event PvP lanes; the northeast can form tiny copses without becoming a forest.
 - Rocks are sparse and low, with restrained coarse-dirt/gravel/stone scars on steeper visible terrain.
 - Ground detail uses sparse tall grass/flowers outside PvP lanes so eye-level screenshots do not read as an empty green plane.

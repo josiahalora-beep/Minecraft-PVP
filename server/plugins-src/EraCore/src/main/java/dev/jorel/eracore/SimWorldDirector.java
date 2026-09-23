@@ -4470,6 +4470,15 @@ final class SimWorldDirector {
     private void tick() {
         sotwTicks++;
         updateLogicalSessionsAndGoals();
+
+        // During a fresh SOTW physical map build, identities may be logically
+        // online and chat, but claims/economy/base/event strategy must wait for
+        // the authoritative geometry to exist.
+        if(!plugin.productionWorldReady()) {
+            if(sotwTicks%4L==0L) save();
+            return;
+        }
+
         communityTick();
         formationTick();
         applyCreatorFactionSpecializations();

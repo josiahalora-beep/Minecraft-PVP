@@ -1,0 +1,41 @@
+name: qa-renderer-deps
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/qa-renderer-deps.yml'
+      - 'bots/src/qa-inspector.js'
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install headless Minecraft renderer
+        working-directory: bots
+        run: |
+          npm install --no-audit --no-fund
+          npm install --no-save --no-audit --no-fund prismarine-viewer canvas PrismarineJS/node-canvas-webgl
+          node --check src/qa-inspector.js
+          node --input-type=module -e "await import('node-canvas-webgl'); const v=await import('prismarine-viewer'); if(!v.default?.headless && !v.headless) throw new Error('headless viewer missing'); console.log('headless renderer OK')"
+
+      - name: Pack renderer dependencies
+        shell: bash
+        run: |
+          tar -C bots -czf qa-renderer-node-modules.tar.gz node_modules
+          ls -lh qa-renderer-node-modules.tar.gz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qa-renderer-deps
+          path: qa-renderer-node-modules.tar.gz
+          retention-days: 7
+          compression-level: 0

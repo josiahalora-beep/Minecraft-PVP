@@ -112,6 +112,36 @@ async function teleport(x,y,z){
 async function aim(x,y,z){
   try{await bot.lookAt(new Vec3(Number(x),Number(y),Number(z)),true)}catch{}
 }
+function ignorableSurface(name){
+  return ['air','tall_grass','grass','dandelion','poppy','oak_leaves','spruce_leaves',
+    'birch_leaves','jungle_leaves','acacia_leaves','dark_oak_leaves',
+    'oak_log','spruce_log','birch_log','jungle_log','acacia_log','dark_oak_log'].includes(name)
+}
+function sampleTerrain(cx,cz,radius=40,step=8){
+  const ys=[],materials={}
+  for(let x=Math.round(cx-radius);x<=Math.round(cx+radius);x+=step){
+    for(let z=Math.round(cz-radius);z<=Math.round(cz+radius);z+=step){
+      let found=null
+      for(let y=100;y>=35;y--){
+        const b=bot.blockAt(new Vec3(x,y,z),false)
+        if(!b) continue
+        if(ignorableSurface(b.name)) continue
+        found={y,name:b.name}; break
+      }
+      if(!found) continue
+      ys.push(found.y)
+      materials[found.name]=(materials[found.name]||0)+1
+    }
+  }
+  if(!ys.length) return {samples:0}
+  const min=Math.min(...ys),max=Math.max(...ys)
+  return {
+    samples:ys.length,minY:min,maxY:max,relief:max-min,
+    meanY:Number((ys.reduce((a,b)=>a+b,0)/ys.length).toFixed(2)),
+    materials
+  }
+}
+
 async function capture(name,position,target,settleMs=3200){
   const id=slug(name)
   await teleport(position.x,position.y,position.z)
@@ -126,7 +156,11 @@ async function capture(name,position,target,settleMs=3200){
     z:Number(bot.entity.position.z.toFixed(2))
   }
 
-  viewer.setFirstPersonCamera(bot.entity.position,bot.entity.yaw,bot.entity.pitch)
+  // Deterministic observer POV. prismarine-viewer's 1.8 yaw/pitch
+  // conversion can point headless captures away from the intended target; for
+  // QA we care about exactly what the inspector was asked to inspect.
+  viewer.camera.position.set(actual.x,actual.y+1.62,actual.z)
+  viewer.camera.lookAt(new THREE.Vector3(target.x,target.y,target.z))
   const fp=id+'-first.jpg'
   await saveFrame(fp)
 
@@ -138,7 +172,8 @@ async function capture(name,position,target,settleMs=3200){
   const ov=id+'-overview.jpg'
   await saveFrame(ov)
 
-  manifest.captures.push({name,id,position,target,actual,files:[fp,ov],at:new Date().toISOString()})
+  const terrainSample=sampleTerrain(actual.x,actual.z)
+  manifest.captures.push({name,id,position,target,actual,terrainSample,files:[fp,ov],at:new Date().toISOString()})
   writeManifest()
 }
 

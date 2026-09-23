@@ -67,6 +67,11 @@ final class LegacySchematicComposer {
                 int x=rem-z*s.width;
                 int wx=ax+x+s.offX, wy=ay+y+s.offY, wz=az+z+s.offZ;
                 if(wy>0 && wy<world.getMaxHeight()) {
+                    int cx=wx>>4,cz=wz>>4;
+                    if(!world.isChunkLoaded(cx,cz)) {
+                        if(done>0) { cursor--; break; }
+                        world.loadChunk(cx,cz,true);
+                    }
                     Block b=world.getBlockAt(wx,wy,wz);
                     b.setTypeIdAndData(id,s.blockData(i),false);
                     changed++;
@@ -120,6 +125,11 @@ final class LegacySchematicComposer {
                 int wy=ay+y+s.offY;
                 int wz=az+sz+s.offZ+shiftZ*(repeat+1);
                 if(wy>0 && wy<world.getMaxHeight()) {
+                    int cx=wx>>4,cz=wz>>4;
+                    if(!world.isChunkLoaded(cx,cz)) {
+                        if(done>0) { cursor--; break; }
+                        world.loadChunk(cx,cz,true);
+                    }
                     world.getBlockAt(wx,wy,wz).setTypeIdAndData(id,s.blockData(source),false);
                     if(id!=0) changed++;
                 }

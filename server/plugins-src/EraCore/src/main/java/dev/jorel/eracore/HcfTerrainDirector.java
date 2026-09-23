@@ -42,6 +42,7 @@ final class HcfTerrainDirector implements Listener {
         World world=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
         if(world==null) return false;
 
+        normalizedThisRun.clear();
         plugin.getConfig().set("world-build.terrain-complete",false);
         plugin.saveConfig();
 

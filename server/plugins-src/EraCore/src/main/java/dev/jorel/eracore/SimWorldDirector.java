@@ -3123,11 +3123,11 @@ final class SimWorldDirector {
 
         // Every donor tier is one capped P2/S2 diamond set. Higher tiers only
         // scale consumables modestly because higher ranks can claim lower kits too.
-        int pearls=1,heals=2,speed=0;
-        if(rankLevel==1){pearls=2;heals=3;speed=1;}
-        else if(rankLevel==2){pearls=3;heals=4;speed=1;}
-        else if(rankLevel==3){pearls=4;heals=5;speed=1;}
-        else if(rankLevel>=4){pearls=5;heals=6;speed=1;}
+        int pearls=1,heals=2;
+        if(rankLevel==1){pearls=2;heals=3;}
+        else if(rankLevel==2){pearls=3;heals=4;}
+        else if(rankLevel==3){pearls=4;heals=5;}
+        else if(rankLevel>=4){pearls=5;heals=6;}
 
         // Legacy field names are retained for save compatibility; their meaning
         // is now capped P2 sets and S2 swords.
@@ -3135,7 +3135,7 @@ final class SimWorldDirector {
         f.sharp4Swords+=1;
         f.pearls+=pearls;
         f.healPots+=heals;
-        f.speedPots+=speed;
+        f.speedPots=0;
         f.firePots=0;
 
         p.reputation=Math.min(999,p.reputation+1);
@@ -3297,7 +3297,6 @@ final class SimWorldDirector {
             case BREWER: {
                 List<String> needs=new ArrayList<String>();
                 if(f.healPots<20) needs.add("heals");
-                if(f.speedPots<10) needs.add("speed");
                 if(f.pearls<12) needs.add("pearls");
                 String need=needs.isEmpty()?"pots":needs.get(rng.nextInt(needs.size()));
                 String[] x={
@@ -4321,10 +4320,8 @@ final class SimWorldDirector {
                 if(!projectedDeath) {
                     int lostHeals=Math.min(vf.healPots,10+rng.nextInt(11));
                     int lostPearls=Math.min(vf.pearls,2+rng.nextInt(5));
-                    int lostSpeed=Math.min(vf.speedPots,1);
                     vf.healPots -= lostHeals;
                     vf.pearls -= lostPearls;
-                    vf.speedPots -= lostSpeed;
 
                     boolean lostMainSet=false;
                     if (victim.combatClass == CombatClass.DIAMOND) {
@@ -4344,7 +4341,6 @@ final class SimWorldDirector {
                             // Simulate what survives on the ground and is actually picked up.
                             kf.healPots += (int)Math.floor(lostHeals*0.70);
                             kf.pearls += (int)Math.floor(lostPearls*0.85);
-                            kf.speedPots += lostSpeed;
                             if(lostMainSet && rng.nextInt(100)<78) {
                                 if(victim.combatClass==CombatClass.DIAMOND){kf.p4Sets++;kf.sharp4Swords++;}
                                 else if(victim.combatClass==CombatClass.BARD) kf.bardSets++;
@@ -4682,6 +4678,48 @@ final class SimWorldDirector {
         }
     }
 
+    private boolean sotwResourceRunner(SimPlayer p) {
+        if(p==null) return false;
+        return "brewer".equals(p.preferredJob) || p.donorLevel>0 ||
+            p.skill>=72 || p.gameSense>=74 || p.economicIq>=72 ||
+            plugin.isCreatorIdentity(p.name);
+    }
+
+    private boolean hasExperiencedOrDonor(SimFaction f) {
+        if(f==null) return false;
+        for(String member:f.members) {
+            SimPlayer p=players.get(key(member));
+            if(p!=null && sotwResourceRunner(p)) return true;
+        }
+        return false;
+    }
+
+    private int sotwRushMultiplier(SimFaction f) {
+        if(!sotwProtectionActive()) return 1;
+        long total=Math.max(1L,plugin.getConfig().getLong("sotw.protection-minutes",20L))*60000L;
+        long left=sotwMillisLeft();
+        if(f!=null && !f.storage && left<=total/4L) return 3;
+        if(f!=null && !f.storage && left<=total/2L) return 2;
+        return 1;
+    }
+
+    private void fundSotwEssentials(SimFaction f,double target) {
+        if(f==null || f.treasury>=target) return;
+        for(String member:f.members) {
+            SimPlayer p=players.get(key(member));
+            if(p==null) continue;
+            double reserve=p.donorLevel>0?80.0:100.0;
+            double available=Math.max(0.0,p.balance-reserve);
+            if(available<=0.0) continue;
+            double need=target-f.treasury;
+            double share=Math.min(available,Math.min(need,Math.max(40.0,p.balance*0.35)));
+            if(share<=0.0) continue;
+            p.balance-=share;
+            f.treasury+=share;
+            if(f.treasury>=target) break;
+        }
+    }
+
     private String chooseGoal(SimPlayer p) {
         if(p.faction.isEmpty()) {
             if(p.leaderCandidate) return p.sociability>=45?"recruit":"gather";
@@ -4694,6 +4732,22 @@ final class SimWorldDirector {
         SimFaction f=factions.get(key(p.faction));
         if(f==null) return "idle";
         if(f.recoveryMode) return p.riskTolerance<80?"safe":"defend";
+
+        // SOTW is a race against protection expiry. Before PvP enables, real
+        // factions prioritize a usable storage/base, then protected resource
+        // runs so glowstone/gunpowder are banked before those locations get camped.
+        if(sotwProtectionActive()) {
+            if(!f.storage) {
+                if("builder".equals(p.preferredJob)) return "build";
+                if("miner".equals(p.preferredJob)) return "mine";
+                return "gather";
+            }
+            if("builder".equals(p.preferredJob) && f.buildProgress<f.buildTarget) return "build";
+            if("farmer".equals(p.preferredJob) && p.economicIq>=60) return "farm";
+            if(sotwResourceRunner(p)) return "supply";
+            if("miner".equals(p.preferredJob)) return "mine";
+            return rng.nextInt(100)<58?"supply":"gather";
+        }
 
         switch(f.stage) {
             case RECRUITING:
@@ -5688,7 +5742,7 @@ final class SimWorldDirector {
             }
 
             if ("mine".equals(p.currentGoal) || "gather".equals(p.currentGoal) || "supply".equals(p.currentGoal)) {
-                int urgency=(!f.surfaceQueued && sotwMillisLeft()<=180000L)?2:1;
+                int urgency=sotwRushMultiplier(f);
                 if("gather".equals(p.currentGoal) || "supply".equals(p.currentGoal)) {
                     // General SOTW gathering must actually produce logs; the old
                     // abstraction only produced stone/iron and could deadlock a
@@ -5759,7 +5813,8 @@ final class SimWorldDirector {
     }
 
     private void buyMissingInfrastructure(SimFaction f) {
-        if (f.treasury < 40) return;
+        if(sotwProtectionActive()) fundSotwEssentials(f,650.0);
+        if (f.treasury < 20) return;
 
         if(!f.surfaceQueued) {
             int need=surfaceMaterialCost(f)[4]-f.glass;
@@ -5796,19 +5851,22 @@ final class SimWorldDirector {
         }
 
         boolean large=f.members.size()>=4 || f.powerFaction;
-        double flintCost=Math.max(1500.0,plugin.buyUnitPrice("flintsteel"));
-        if(large && f.brewer && !f.netherPortal && f.treasury>=Math.max(3500.0,flintCost) && f.obsidian>=14) {
-            // Obsidian is consumed from faction stock; the expensive shop-only
-            // activation tool represents the convenience premium of fast Nether access.
+        boolean fastFaction=large || hasExperiencedOrDonor(f);
+        if(sotwProtectionActive()) fundSotwEssentials(f,900.0);
+
+        // With player warp commands gone, a private Nether portal is normal base
+        // infrastructure rather than an end-game luxury.
+        double flintCost=Math.max(1.0,plugin.buyUnitPrice("flintsteel"));
+        if(!f.netherPortal && f.treasury>=flintCost && f.obsidian>=10) {
             f.treasury-=flintCost;
-            f.obsidian-=14;
+            f.obsidian-=10;
             f.netherPortal=true;
             plugin.queueSimPortalBuild(f.name,f.basePreset,"nether",f.baseX,f.baseY,f.baseZ);
         }
 
-        double endCost=12.0*Math.max(1200.0,plugin.buyUnitPrice("endframe"))+
-            12.0*Math.max(250.0,plugin.buyUnitPrice("eyeofender"));
-        if(large && f.netherPortal && !f.endPortal && f.treasury>=endCost) {
+        double endCost=12.0*Math.max(1.0,plugin.buyUnitPrice("endframe"))+
+            12.0*Math.max(1.0,plugin.buyUnitPrice("eyeofender"));
+        if(fastFaction && f.netherPortal && !f.endPortal && f.treasury>=endCost) {
             f.treasury-=endCost;
             f.endPortal=true;
             plugin.queueSimPortalBuild(f.name,f.basePreset,"end",f.baseX,f.baseY,f.baseZ);
@@ -7355,7 +7413,12 @@ final class SimWorldDirector {
             else if ("leader".equals(p.role)) contribution += 2;
             work += contribution;
         }
-        return Math.max(1, Math.min(20, work));
+        int cap=20;
+        if(sotwProtectionActive() && !f.storage) {
+            long total=Math.max(1L,plugin.getConfig().getLong("sotw.protection-minutes",20L))*60000L;
+            if(sotwMillisLeft()<=total/3L) cap=24;
+        }
+        return Math.max(1, Math.min(cap, work));
     }
 
     private int[] baseMaterialCost(SimFaction f) {

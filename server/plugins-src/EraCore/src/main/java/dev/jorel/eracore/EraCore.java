@@ -579,7 +579,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     private void migrateProductionUnificationConfig() {
         int version=getConfig().getInt("migration.production-unification-version",0);
-        if(version>=6) return;
+        if(version>=7) return;
 
         // Canonical v7 map geometry.
         getConfig().set("map-layout.koth-offset",500);
@@ -622,6 +622,25 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         getConfig().set("base-builder.blocks-per-tick",96);
         getConfig().set("base-builder.visible-blocks-per-tick",16);
         getConfig().set("base-builder.rebuild-blocks-per-tick",40);
+
+        // Critical terrain/base doctrine v7. Existing installations previously
+        // retained Phase-0 road widths and flat-site assumptions because older
+        // migrations ran after config defaults were loaded.
+        getConfig().set("terrain.spawn-flat-radius",175.0);
+        getConfig().set("terrain.spawn-transition-radius",300.0);
+        getConfig().set("terrain.wilderness-amplitude",9.0);
+        getConfig().set("terrain.road-flat-half-width",16.0);
+        getConfig().set("terrain.road-shoulder-half-width",50.0);
+        getConfig().set("terrain.tree-chance-percent",24);
+        getConfig().set("terrain.rock-chance-percent",16);
+        getConfig().set("terrain.ground-detail-chance-percent",24);
+        getConfig().set("map-layout.road-protection-half-width",32);
+        getConfig().set("base-builder.cradle-extra-radius",11);
+        getConfig().set("base-builder.concealment-max-height",5);
+        getConfig().set("base-builder.entrance-approach-length",9);
+        getConfig().set("sim-world.min-base-site-relief",3);
+        getConfig().set("sim-world.max-base-site-relief",10);
+
         getConfig().set("hcf-classes.permanent-speed-2",true);
         getConfig().set("travel.faction-home-warmup-seconds",10);
         getConfig().set("travel.faction-stuck-warmup-seconds",180);
@@ -667,9 +686,9 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         getConfig().set("worker-pool.creator-bodies",Arrays.asList(
             "Stimpy","PainfulPvP","lolitsalex","Skimpy"));
 
-        getConfig().set("migration.production-unification-version",6);
+        getConfig().set("migration.production-unification-version",7);
         saveConfig();
-        getLogger().info("Applied production unification v6: terrain-first production, non-destructive Kraken/KOTH pastes, minimal spawn crates and period-accurate identity weighting.");
+        getLogger().info("Applied production unification v7: natural HCF terrain, protected PvP roads, concealed terrain-integrated bases and period-accurate identity weighting.");
     }
 
     private void bindCommands() {

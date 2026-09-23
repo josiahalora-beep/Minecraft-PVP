@@ -52,6 +52,8 @@ $SourceFiles = @(
     'server/plugins-src/EraCore/src/main/resources/config.yml',
     'server/plugins-src/EraCore/src/main/resources/plugin.yml',
     'server/Prepare-HCF-Season-Reset.ps1',
+    'bots/src/worker-pool.js',
+    'bots/src/hcf-map-intelligence.js',
     'docs/ACTOR_RUNTIME.md'
 )
 
@@ -134,11 +136,22 @@ foreach ($rel in $SourceFiles) {
 $downloadEra = Get-Content -LiteralPath (Join-Path $tempRoot 'server\plugins-src\EraCore\src\main\java\dev\jorel\eracore\EraCore.java') -Raw
 $downloadWorld = Get-Content -LiteralPath (Join-Path $tempRoot 'server\plugins-src\EraCore\src\main\java\dev\jorel\eracore\HcfWorldBuildDirector.java') -Raw
 $downloadReset = Get-Content -LiteralPath (Join-Path $tempRoot 'server\Prepare-HCF-Season-Reset.ps1') -Raw
+$downloadWorker = Get-Content -LiteralPath (Join-Path $tempRoot 'bots\src\worker-pool.js') -Raw
+$downloadMapAi = Get-Content -LiteralPath (Join-Path $tempRoot 'bots\src\hcf-map-intelligence.js') -Raw
 if ($downloadEra -notmatch 'migrateProductionUnificationConfig') { throw 'Downloaded EraCore is not the production-unification generation.' }
 if ($downloadEra -notmatch 'cmdSimTab') { throw 'Downloaded EraCore is missing /simtab diagnostics.' }
 if ($downloadWorld -notmatch 'STRUCTURES' -or $downloadWorld -notmatch 'RESOURCES') { throw 'Downloaded staged world builder is incomplete.' }
+if ($downloadWorker -match "['"]\/warp\s" -or $downloadWorker -match "['"]\/spawn['"]") {
+    throw 'Downloaded Mineflayer runtime still contains player teleport shortcuts.'
+}
+if ($downloadWorker -notmatch 'enterFactionPortal' -or $downloadWorker -notmatch 'tryFactionHome') {
+    throw 'Downloaded Mineflayer runtime is missing physical HCF travel.'
+}
+if ($downloadMapAi -notmatch "factionHome:\s*'/f home'") {
+    throw 'Downloaded HCF map intelligence is missing faction-home routing.'
+}
 [void][ScriptBlock]::Create($downloadReset)
-Write-Host '[OK] Downloaded source/reset validation passed.' -ForegroundColor Green
+Write-Host '[OK] Downloaded source/reset/worker validation passed.' -ForegroundColor Green
 
 Write-Host '[2/6] Creating rollback backup...' -ForegroundColor Cyan
 if (Test-Path $PluginJar) {
@@ -165,6 +178,12 @@ if (Test-Path (Join-Path $Server 'plugins-src\EraCore')) {
 }
 if (Test-Path $ResetScript) {
     Copy-Item -LiteralPath $ResetScript -Destination (Join-Path $backupRoot 'Prepare-HCF-Season-Reset.ps1') -Force
+}
+$botBackup = Join-Path $backupRoot 'bots-src'
+New-Item -ItemType Directory -Path $botBackup -Force | Out-Null
+foreach ($name in @('worker-pool.js','hcf-map-intelligence.js')) {
+    $p = Join-Path $Root ('bots\src\' + $name)
+    if (Test-Path $p) { Copy-Item -LiteralPath $p -Destination (Join-Path $botBackup $name) -Force }
 }
 
 $rollback = @'
@@ -194,7 +213,15 @@ if (Test-Path $Source) {
 if (Test-Path (Join-Path $Here 'Prepare-HCF-Season-Reset.ps1')) {
     Copy-Item -LiteralPath (Join-Path $Here 'Prepare-HCF-Season-Reset.ps1') -Destination (Join-Path $Server 'Prepare-HCF-Season-Reset.ps1') -Force
 }
-Write-Host 'Rollback restored EraCore jar, source and saved state.' -ForegroundColor Green
+$BotSource = Join-Path $Here 'bots-src'
+if (Test-Path $BotSource) {
+    $BotDst = Join-Path $Root 'bots\src'
+    New-Item -ItemType Directory -Path $BotDst -Force | Out-Null
+    Get-ChildItem -LiteralPath $BotSource -File | ForEach-Object {
+        Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $BotDst $_.Name) -Force
+    }
+}
+Write-Host 'Rollback restored EraCore jar/source/state and Mineflayer runtime.' -ForegroundColor Green
 '@
 Set-Content -LiteralPath (Join-Path $backupRoot 'rollback.ps1') -Value $rollback -Encoding UTF8
 Write-Host ('Backup: ' + $backupRoot) -ForegroundColor DarkGray
@@ -262,6 +289,10 @@ Write-Host '  - bounded hot memory + compressed cold history shards'
 Write-Host '  - automatic KOTH/Conquest rotation + classic right-side countdown sidebar'
 Write-Host '  - color-only donor presentation + canonical creator identities'
 Write-Host '  - verified full-world SOTW reset + Kraken spawn-origin alignment'
+Write-Host '  - physical HCF travel: /f home warmup, /f stuck, no player spawn/warp shortcuts'
+Write-Host '  - SOTW base/resource rush with physical Nether/End portal use'
+Write-Host '  - permanent Speed II; no Speed/Fire Resistance economy or kit stock'
+Write-Host '  - synchronized Mineflayer HCF travel/resource runtime'
 Write-Host '  - hardened logical TAB with /simtab diagnostics'
 Write-Host '  - duel arena isolated from the HCF Overworld'
 Write-Host ''

@@ -38,6 +38,7 @@ final class HcfBaseBuilder {
     private final EraCore plugin;
     private final ArrayDeque<Op> queue = new ArrayDeque<Op>();
     private final Set<String> completed = new HashSet<String>();
+    private final Set<String> auditedPlans = new HashSet<String>();
     private BukkitRunnable runner;
     private boolean maintenanceRebuild;
 
@@ -205,7 +206,8 @@ final class HcfBaseBuilder {
         // again. Its operations are already ahead of these in the same FIFO;
         // append the dropdown/core work and continue downward.
         if(!surfaceAlreadyQueued) {
-            prepareTerrainPad(world,cx,y,cz,plan.surfacePadRadius(),plan.surfacePadRadius());
+            prepareTerrainPad(world,plan);
+            auditPlan(plan);
             buildSurfaceShell(world,plan,true);
             completed.add(surfaceKey);
         }
@@ -224,7 +226,8 @@ final class HcfBaseBuilder {
         World world=Bukkit.getWorlds().get(0);
         if(world==null) return;
         HcfBasePlan plan=planFor(faction,cx,y,cz);
-        prepareTerrainPad(world,cx,y,cz,plan.surfacePadRadius(),plan.surfacePadRadius());
+        prepareTerrainPad(world,plan);
+        auditPlan(plan);
         buildSurfaceShell(world,plan,false);
         sealSurfaceEnvelope(world,plan,false);
         ensureRunner();
@@ -354,8 +357,9 @@ final class HcfBaseBuilder {
         World world = Bukkit.getWorlds().get(0);
         if (world == null) return;
 
-        int radius = basePadRadius(preset,trapPreset);
-        prepareTerrainPad(world,cx,y,cz,radius,radius);
+        HcfBasePlan plan=planFor(faction,cx,y,cz);
+        prepareTerrainPad(world,plan);
+        auditPlan(plan);
         ensureRunner();
     }
 
@@ -371,6 +375,55 @@ final class HcfBaseBuilder {
         // must include it or the vault can float off the back of a steep site.
         r=Math.max(r,presetHalf(preset)+8);
         return r;
+    }
+
+    /**
+     * Build Viewer base-site terraforming.
+     *
+     * The actual surface shell receives a flat work apron, but the remainder of
+     * the claim-sized construction envelope blends back into the pre-existing
+     * low-relief terrain. This avoids giant square faction plateaus while still
+     * guaranteeing a safe, hole-free PvP frontage and supported underground
+     * infrastructure.
+     */
+    private void prepareTerrainPad(World w,HcfBasePlan p) {
+        int outer=p.surfacePadRadius();
+        int flatX=Math.min(outer-2,p.surfaceHalfX+6);
+        int flatZ=Math.min(outer-2,p.surfaceHalfZ+6);
+
+        for(int x=p.cx-outer;x<=p.cx+outer;x++) {
+            for(int z=p.cz-outer;z<=p.cz+outer;z++) {
+                int surface=solidSurfaceY(w,x,z);
+                int dx=Math.max(0,Math.abs(x-p.cx)-flatX);
+                int dz=Math.max(0,Math.abs(z-p.cz)-flatZ);
+                double nx=dx/(double)Math.max(1,outer-flatX);
+                double nz=dz/(double)Math.max(1,outer-flatZ);
+                double t=Math.max(nx,nz);
+                t=Math.max(0.0,Math.min(1.0,t));
+                t=t*t*(3.0-2.0*t);
+
+                int naturalDelta=Math.max(-4,Math.min(4,surface-p.surfaceY));
+                int target=(int)Math.round(p.surfaceY+naturalDelta*t);
+
+                // Never allow the blended apron itself to become a cliff. The
+                // global terrain is already low relief, so +/-4 is sufficient
+                // to preserve local character without compromising movement.
+                target=Math.max(p.surfaceY-4,Math.min(p.surfaceY+4,target));
+
+                int clearTop=Math.min(w.getMaxHeight()-1,
+                    Math.max(target+24,w.getHighestBlockYAt(x,z)+8));
+                for(int yy=target+1;yy<=clearTop;yy++)
+                    queue.add(new Op(w,x,yy,z,Material.AIR));
+
+                if(surface<target) {
+                    for(int yy=Math.max(2,surface+1);yy<target;yy++) {
+                        Material fill=(yy>=target-3)?Material.DIRT:Material.STONE;
+                        queue.add(new Op(w,x,yy,z,fill));
+                    }
+                }
+                queue.add(new Op(w,x,target,z,Material.GRASS));
+            }
+        }
     }
 
     /**
@@ -469,6 +522,7 @@ final class HcfBaseBuilder {
         if (runner != null) runner.cancel();
         runner = null;
         queue.clear();
+        auditedPlans.clear();
         maintenanceRebuild=false;
     }
 
@@ -818,6 +872,41 @@ final class HcfBaseBuilder {
     }
 
 
+    private void auditPlan(HcfBasePlan p) {
+        if(p==null) return;
+        String k=p.faction.toLowerCase(java.util.Locale.ENGLISH)+"@"+p.cx+","+p.cz;
+        if(!auditedPlans.add(k)) return;
+
+        int pad=p.surfacePadRadius();
+        int[][] anchors={
+            p.anchor("drop"),p.anchor("elevator"),p.anchor("storage"),
+            p.anchor("brewer"),p.anchor("farm"),p.anchor("portal-nether"),
+            p.anchor("portal-end"),p.anchor("enchant"),p.anchor("war-room")
+        };
+        boolean inside=true;
+        for(int[] a:anchors) {
+            if(Math.abs(a[0]-p.cx)>pad || Math.abs(a[2]-p.cz)>pad) {
+                inside=false;break;
+            }
+        }
+
+        int[] d=p.anchor("drop"),e=p.anchor("elevator");
+        int transitSep=Math.abs(d[0]-e[0])+Math.abs(d[2]-e[2]);
+        if(!inside || transitSep<5) {
+            plugin.getLogger().warning("[base-plan] INVALID faction="+p.faction+
+                " family="+p.primaryFamilyName()+" pad="+pad+
+                " anchorsInside="+inside+" transitSep="+transitSep);
+        } else {
+            plugin.getLogger().info("[base-plan] faction="+p.faction+
+                " family="+p.primaryFamilyName()+"+"+p.secondaryFamilyName()+
+                " surface="+(p.surfaceHalfX*2+1)+"x"+(p.surfaceHalfZ*2+1)+
+                " core="+(p.coreHalfX*2+1)+"x"+(p.coreHalfZ*2+1)+
+                " depth="+(p.surfaceY-p.undergroundY)+
+                " entrances="+p.entrances+" storage="+p.storageVariant+
+                " claimWorkRadius="+pad);
+        }
+    }
+
     private HcfBasePlan planFor(String faction,int cx,int y,int cz) {
         HcfBasePlan.Profile profile=plugin.simBaseProfile(faction);
         return HcfBasePlan.of(faction,cx,y,cz,profile);
@@ -1060,11 +1149,60 @@ final class HcfBaseBuilder {
         buildStorageTier(w,p,1);
         buildFarmLevel(w,p,"cane");
         buildReferenceGrammar(w,p);
+        buildCoreUtilityModules(w,p);
 
         int[] refill=p.anchor("refill");
         queue.add(new Op(w,refill[0],refill[1],refill[2],Material.ENDER_CHEST));
         queue.add(new Op(w,refill[0]+1,refill[1],refill[2],Material.ANVIL));
         queue.add(new Op(w,refill[0]-1,refill[1],refill[2],Material.WORKBENCH));
+    }
+
+    private void buildCoreUtilityModules(World w,HcfBasePlan p) {
+        buildEnchantCorner(w,p);
+        buildWarRoom(w,p);
+        buildUtilityCorner(w,p);
+    }
+
+    private void buildEnchantCorner(World w,HcfBasePlan p) {
+        int[] a=p.anchor("enchant");
+        int y=p.undergroundY;
+        int cx=a[0],cz=a[2];
+
+        // Compact period-correct enchanting nook. Keep two approach cells open
+        // so the module never blocks circulation around the core.
+        for(int dx=-2;dx<=2;dx++) for(int dz=-2;dz<=2;dz++) {
+            if(Math.abs(dx)<=1 && dz==2) continue;
+            boolean edge=Math.abs(dx)==2||Math.abs(dz)==2;
+            if(edge) queue.add(new Op(w,cx+dx,y+1,cz+dz,Material.BOOKSHELF));
+        }
+        queue.add(new Op(w,cx,y+1,cz,Material.ENCHANTMENT_TABLE));
+        queue.add(new Op(w,cx+1,y+1,cz,Material.ANVIL));
+        queue.add(new Op(w,cx,y+5,cz,Material.GLOWSTONE));
+    }
+
+    private void buildWarRoom(World w,HcfBasePlan p) {
+        int[] a=p.anchor("war-room");
+        int y=p.undergroundY;
+        int cx=a[0],cz=a[2];
+
+        // Small faction meeting/refill table rather than decorative furniture
+        // everywhere. This keeps the central room open and gives embodied
+        // players a believable place to pause, coordinate and inspect supplies.
+        for(int x=cx-2;x<=cx+2;x++)
+            queue.add(new Op(w,x,y+1,cz,Material.WOOD));
+        queue.add(new Op(w,cx-2,y+2,cz+1,Material.SIGN_POST,(byte)8,"[Faction]|War Room"));
+        queue.add(new Op(w,cx+2,y+2,cz+1,Material.SIGN_POST,(byte)8,"[KOTH]|Prep"));
+        queue.add(new Op(w,cx,y+5,cz,Material.GLOWSTONE));
+    }
+
+    private void buildUtilityCorner(World w,HcfBasePlan p) {
+        int[] a=p.anchor("utility");
+        int y=p.undergroundY;
+        int x=a[0],z=a[2];
+        queue.add(new Op(w,x,y+1,z,Material.WORKBENCH));
+        queue.add(new Op(w,x+1,y+1,z,Material.FURNACE));
+        queue.add(new Op(w,x-1,y+1,z,Material.FURNACE));
+        queue.add(new Op(w,x,y+1,z+1,Material.ENDER_CHEST));
     }
 
     private void decorateSurfaceGrammar(World w,HcfBasePlan p,int top) {

@@ -435,13 +435,13 @@ world-build:
   active: false
   complete: false
   resources-complete: false
-  max-p95-mspt: 20.0
+  max-p95-mspt: 32.0
   # Optional SSD archive root. Empty keeps world archives under server/world-archives.
   archive-directory: ""
 
 world-composer:
   enabled: true
-  blocks-per-tick: 160
+  blocks-per-tick: 320
   spawn-anchor-y: 66
   conquest-anchor-y: 63
   nether-anchor-y: 70

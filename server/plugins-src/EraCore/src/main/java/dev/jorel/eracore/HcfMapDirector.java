@@ -249,7 +249,7 @@ final class HcfMapDirector implements Listener {
             return true;
         }
         if("resources".equals(sub)) {
-            p.sendMessage(EraCore.colorText("&6Resources &8» &f/oremountain &7(safe mining), &fGlowstone Mountain, Blaze Yard, Wart Valley &7(Nether), &fCreeper Stack &7(End)."));
+            p.sendMessage(EraCore.colorText("&6Resources &8» &fOverworld mining/farms, &fGlowstone Mountain, Blaze Yard, Wart Valley &7(Nether), &fCreeper Stack &7(End)."));
             return true;
         }
         if("zones".equals(sub)) {

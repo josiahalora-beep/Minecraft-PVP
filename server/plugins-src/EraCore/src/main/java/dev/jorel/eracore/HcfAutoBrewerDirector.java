@@ -84,14 +84,14 @@ final class HcfAutoBrewerDirector {
         if(s==null) {
             s=new Site();
             s.faction=faction;
-            // Four healing lanes are deliberate: a 5-man HCF faction needs
-            // dozens of heals, while speed demand is much lower.
+            // Permanent Speed II makes speed brewing dead inventory. Every
+            // physical lane is now dedicated to splash Healing II.
             s.lanes.add(new Lane(Kind.HEAL,0));
             s.lanes.add(new Lane(Kind.HEAL,1));
             s.lanes.add(new Lane(Kind.HEAL,2));
             s.lanes.add(new Lane(Kind.HEAL,3));
-            s.lanes.add(new Lane(Kind.SPEED,4));
-            s.lanes.add(new Lane(Kind.SPEED,5));
+            s.lanes.add(new Lane(Kind.HEAL,4));
+            s.lanes.add(new Lane(Kind.HEAL,5));
             sites.put(key,s);
         }
         s.centerX=centerX;

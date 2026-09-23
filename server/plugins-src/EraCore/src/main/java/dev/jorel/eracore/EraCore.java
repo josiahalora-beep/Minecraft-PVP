@@ -801,6 +801,19 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         }
     }
 
+    @EventHandler(priority=EventPriority.HIGHEST, ignoreCancelled=true) public void onForbiddenPotionUse(PlayerInteractEvent e) {
+        Action action=e.getAction();
+        if(action!=Action.RIGHT_CLICK_AIR && action!=Action.RIGHT_CLICK_BLOCK) return;
+        ItemStack item=e.getItem();
+        if(!isObsoletePotion(item)) return;
+
+        e.setCancelled(true);
+        Player p=e.getPlayer();
+        p.setItemInHand(null);
+        p.updateInventory();
+        p.sendMessage(color("&cThat potion is disabled. &7Speed II is permanent and Fire Resistance is removed from this map."));
+    }
+
     @EventHandler(priority=EventPriority.HIGHEST, ignoreCancelled=true) public void onPearlUse(PlayerInteractEvent e) {
         ItemStack item=e.getItem();
         if(item==null||item.getType()!=Material.ENDER_PEARL) return;

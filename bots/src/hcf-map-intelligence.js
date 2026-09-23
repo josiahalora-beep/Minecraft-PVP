@@ -10,7 +10,7 @@ export const HCF_MAP = Object.freeze({
     world: 'world',
     border: 1500,
     surfaceY: 63,
-    spawn: Object.freeze({ name: 'Spawn', x: 0, y: 64, z: 0, safeRadius: 110, buildRadius: 190, claimRadius: 500 }),
+    spawn: Object.freeze({ name: 'Spawn', x: 0, y: 66, z: 0, safeRadius: 110, buildRadius: 190, claimRadius: 500 }),
     roads: Object.freeze({
       north: Object.freeze({ x: 0, z: -1500 }),
       south: Object.freeze({ x: 0, z: 1500 }),

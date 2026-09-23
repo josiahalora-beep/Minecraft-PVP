@@ -88,6 +88,12 @@ ai-chat:
   timeout-ms: 6500
 
 sim-chat:
+  recent-line-window: 80
+  per-speaker-recent-window: 12
+  semantic-repeat-window-seconds: 1200
+  ai-direct-human-only: true
+  ai-min-seconds-between-requests: 8
+  ai-max-requests-per-minute: 4
   enabled: true
   contextual-chat: true
   max-conversation-memory: 12
@@ -348,7 +354,7 @@ stuck:
 # Canonical 3k HCF production layout. Safezones and build/claim protection are
 # separate: KOTHs/resources stay PvP-active while remaining unbuildable.
 map-layout:
-  koth-offset: 650
+  koth-offset: 500
   koth-radius: 165
   portal-offset: 1000
   portal-radius: 125
@@ -372,7 +378,9 @@ events:
   conquest-score-to-win: 300
 
 resources:
+  # Construction is staged by HcfWorldBuildDirector; this legacy flag stays off.
   bootstrap-spawners: false
+  blocks-per-tick: 90
   mob-stack-merge-radius: 10.0
   glowstone:
     x: 0
@@ -411,6 +419,9 @@ resources:
     z: 0
     safe-radius: 34
   ore-mountain:
+    enabled: true
+    base-y: 63
+    world-border: 320
     coal-regen-min-seconds: 18
     coal-regen-max-seconds: 35
     iron-regen-min-seconds: 28
@@ -424,9 +435,18 @@ resources:
     emerald-regen-min-seconds: 90
     emerald-regen-max-seconds: 150
 
+world-build:
+  auto-resume: true
+  active: false
+  complete: false
+  resources-complete: false
+  max-p95-mspt: 20.0
+  # Optional SSD archive root. Empty keeps world archives under server/world-archives.
+  archive-directory: ""
+
 world-composer:
   enabled: true
-  blocks-per-tick: 350
+  blocks-per-tick: 120
   spawn-anchor-y: 66
   conquest-anchor-y: 63
   nether-anchor-y: 70
@@ -453,10 +473,18 @@ actors:
 
 # Deterministic bounded memory; no recurring LLM summarization.
 memory:
-  relationship-max: 32
-  history-max-events: 2500
-  archive-max-bytes: 8388608
-  duplicate-window-seconds: 900
+  # Hot memory stays bounded and instantly searchable for chat/decisions.
+  relationship-max: 64
+  history-max-events: 10000
+  archive-max-bytes: 134217728
+  duplicate-window-seconds: 1800
+  # Optional absolute path on the spare SSD. Empty = plugins/EraCore/memory-archive.
+  cold-archive-directory: ""
+  cold-shard-max-bytes: 268435456
+  cold-max-shards: 48
+  # Chat retrieves a small relevant slice; larger storage does not enlarge prompts.
+  chat-history-events: 12
+  chat-relationship-memories: 10
 
 # Physical overhead faction/DTR labels are disabled by default. They used
 # persistent ArmorStands and could leave stale floating labels after an

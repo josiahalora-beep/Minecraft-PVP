@@ -451,6 +451,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         getConfig().set("map.auto-bootstrap",false);
         getConfig().set("map.auto-warzone-smoothing",false);
         getConfig().set("map-layout.build-visible-borders",false);
+        getConfig().set("terrain.normalize-new-chunks",false);
+        getConfig().set("logical-tab.packet-batch-size",20);
         getConfig().set("safezones.auto-build-borders",false);
         getConfig().set("resources.bootstrap-spawners",false);
         getConfig().set("base-builder.repair-existing-on-start",false);

@@ -18,6 +18,11 @@ import java.nio.charset.StandardCharsets;
  * every proposal before changing factions, economy, moderation or other state.
  */
 final class AiChatBridge {
+    private long lastRequestAt;
+    private long minuteWindowStart;
+    private int minuteWindowCount;
+    private long acceptedRequests;
+    private long rejectedByBudget;
     interface Handler {
         void complete(AiReply reply);
     }
@@ -57,6 +62,29 @@ final class AiChatBridge {
         this.plugin=plugin;
     }
 
+    synchronized boolean budgetAvailable() {
+        long now=System.currentTimeMillis();
+        long minGap=Math.max(1000L,plugin.getConfig().getLong("sim-chat.ai-min-seconds-between-requests",8L)*1000L);
+        int maxPerMinute=Math.max(1,plugin.getConfig().getInt("sim-chat.ai-max-requests-per-minute",4));
+        if(minuteWindowStart==0L || now-minuteWindowStart>=60000L) {
+            minuteWindowStart=now;
+            minuteWindowCount=0;
+        }
+        if(now-lastRequestAt<minGap || minuteWindowCount>=maxPerMinute) {
+            rejectedByBudget++;
+            return false;
+        }
+        lastRequestAt=now;
+        minuteWindowCount++;
+        acceptedRequests++;
+        return true;
+    }
+
+    synchronized String budgetStatus() {
+        return "accepted="+acceptedRequests+" budgetFallbacks="+rejectedByBudget+
+            " minute="+minuteWindowCount+"/"+Math.max(1,plugin.getConfig().getInt("sim-chat.ai-max-requests-per-minute",4));
+    }
+
     boolean enabled() {
         return plugin.getConfig().getBoolean("ai-chat.enabled",true);
     }
@@ -64,6 +92,7 @@ final class AiChatBridge {
     boolean request(final String channel,final String speaker,final String responder,
                     final String context,final String message,final Handler handler) {
         if(!enabled() || message==null || message.trim().isEmpty()) return false;
+        if(!budgetAvailable()) return false;
 
         final String endpoint=plugin.getConfig().getString("ai-chat.endpoint","http://127.0.0.1:8765/reply");
         final int timeout=Math.max(750,plugin.getConfig().getInt("ai-chat.timeout-ms",6500));

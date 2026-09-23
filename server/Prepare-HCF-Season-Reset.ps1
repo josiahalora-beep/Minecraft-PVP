@@ -150,33 +150,9 @@ foreach ($name in $resetState) {
     Remove-Item -LiteralPath $path -Force
 }
 
-function Set-YamlScalar {
-    param(
-        [string]$Text,
-        [string]$Key,
-        [string]$Value,
-        [int]$Occurrence = 1
-    )
-    $pattern = '(?m)^(\s*' + [regex]::Escape($Key) + ':\s*).+$'
-    $matches = [regex]::Matches($Text,$pattern)
-    if ($matches.Count -lt $Occurrence) { return $Text }
-    $m = $matches[$Occurrence-1]
-    return $Text.Substring(0,$m.Index) + $m.Groups[1].Value + $Value + $Text.Substring($m.Index+$m.Length)
-}
-
-# A full reset requests the staged production pipeline. Structures are built
-# first, resources second, then the map is marked READY.
-$config = Join-Path $era 'config.yml'
-if (Test-Path $config) {
-    $text = Get-Content -LiteralPath $config -Raw
-    $text = Set-YamlScalar $text 'auto-bootstrap' 'true' 1
-    $text = Set-YamlScalar $text 'complete' 'false' 1
-    $text = Set-YamlScalar $text 'structures-complete' 'false' 1
-    $text = Set-YamlScalar $text 'active' 'true' 1
-    $text = Set-YamlScalar $text 'complete' 'false' 2
-    $text = Set-YamlScalar $text 'resources-complete' 'false' 1
-    Set-Content -LiteralPath $config -Value $text -Encoding UTF8
-}
+# EraCore owns config.yml mutation. This reset preflight only handles
+# destructive filesystem work and leaves a receipt for the plugin to consume
+# after Bukkit has parsed a valid configuration.
 
 # Reset only the terrain-rematerialization marker inside the preserved AI state.
 $simulation = Join-Path $era 'simulation.yml'

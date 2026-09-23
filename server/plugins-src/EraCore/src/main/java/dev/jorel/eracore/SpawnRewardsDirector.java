@@ -287,6 +287,12 @@ final class SpawnRewardsDirector implements Listener {
         return true;
     }
 
+    void grantKey(Player p,String type,int amount,int donorTier) {
+        if(p==null || amount<=0) return;
+        p.getInventory().addItem(keyItem(type,amount,donorTier));
+        p.updateInventory();
+    }
+
     void registerSimVote(String name) {
         plugin.addSimPendingKey(name,"vote",1);
         registerVote(name);

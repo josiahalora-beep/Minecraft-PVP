@@ -173,8 +173,8 @@ final class HcfBaseBuilder {
         // Underground: replace the entire generated work volume with stone
         // before carving the corrected connected core/farm/transit layout.
         // This removes old sealed islands and accidental cave/excavation seams.
-        int hx=p.coreHalfX+4;
-        int hz=p.coreHalfZ+4;
+        int hx=p.coreHalfX+14;
+        int hz=p.coreHalfZ+14;
         int low=Math.max(3,p.undergroundY-9);
         int high=Math.min(w.getMaxHeight()-2,p.undergroundY+8);
         for(int x=p.cx-hx;x<=p.cx+hx;x++) for(int z=p.cz-hz;z<=p.cz+hz;z++) {
@@ -870,6 +870,7 @@ final class HcfBaseBuilder {
         for(int x=d[0]-2;x<=d[0]+2;x++) for(int z=d[2]-2;z<=d[2]+2;z++)
             queue.add(new Op(w,x,p.surfaceY,z,(Math.abs(x-d[0])==2||Math.abs(z-d[2])==2)?p.surfaceFrame:Material.GLASS));
 
+        decorateSurfaceGrammar(w,p,top);
         if(openTransit) buildVerticalTransit(w,p);
     }
 
@@ -1058,11 +1059,229 @@ final class HcfBaseBuilder {
         buildVerticalTransit(w,p);
         buildStorageTier(w,p,1);
         buildFarmLevel(w,p,"cane");
+        buildReferenceGrammar(w,p);
 
         int[] refill=p.anchor("refill");
         queue.add(new Op(w,refill[0],refill[1],refill[2],Material.ENDER_CHEST));
         queue.add(new Op(w,refill[0]+1,refill[1],refill[2],Material.ANVIL));
         queue.add(new Op(w,refill[0]-1,refill[1],refill[2],Material.WORKBENCH));
+    }
+
+    private void decorateSurfaceGrammar(World w,HcfBasePlan p,int top) {
+        int minZ=p.cz-p.surfaceHalfZ;
+        int gx=p.cx+p.frontGateOffset;
+
+        // Every base gets a short, player-looking approach instead of ending
+        // abruptly at the fence-gate wall.
+        for(int d=1;d<=8;d++) {
+            int z=minZ-d;
+            for(int x=gx-1;x<=gx+1;x++) queue.add(new Op(w,x,p.surfaceY,z,Material.GRAVEL));
+            if(d%3==0) {
+                queue.add(new Op(w,gx-2,p.surfaceY,z,Material.COBBLESTONE));
+                queue.add(new Op(w,gx+2,p.surfaceY,z,Material.COBBLESTONE));
+            }
+        }
+
+        switch(p.primaryFamily) {
+            case 0: // Redemption: strong vertical corners / compact silhouette.
+                for(int sx:new int[]{-1,1}) for(int sz:new int[]{-1,1}) {
+                    int x=p.cx+sx*(p.surfaceHalfX-1),z=p.cz+sz*(p.surfaceHalfZ-1);
+                    queue.add(new Op(w,x,top+2,z,p.surfaceFrame));
+                    queue.add(new Op(w,x,top+3,z,Material.IRON_FENCE));
+                    queue.add(new Op(w,x,top+4,z,Material.GLOWSTONE));
+                }
+                break;
+            case 1: // Base-HCF: rounded/chamfered trim around the upper shell.
+                for(int x=p.cx-p.surfaceHalfX+2;x<=p.cx+p.surfaceHalfX-2;x+=4) {
+                    queue.add(new Op(w,x,top+2,p.cz-p.surfaceHalfZ+1,p.undergroundTrim));
+                    queue.add(new Op(w,x,top+2,p.cz+p.surfaceHalfZ-1,p.undergroundTrim));
+                }
+                break;
+            case 2: // ModernHCF: restrained roof skylight/light grid.
+                for(int x=p.cx-3;x<=p.cx+3;x++) for(int z=p.cz-3;z<=p.cz+3;z++) {
+                    boolean frame=Math.abs(x-p.cx)==3||Math.abs(z-p.cz)==3;
+                    queue.add(new Op(w,x,top+1,z,frame?p.surfaceFrame:Material.STAINED_GLASS,(byte)0));
+                }
+                queue.add(new Op(w,p.cx,top+2,p.cz,Material.GLOWSTONE));
+                break;
+            case 3: // Tunnel family: low practical side service awning.
+                int tx=p.cx+p.utilitySide*(p.surfaceHalfX+2);
+                for(int z=p.cz-3;z<=p.cz+3;z++) {
+                    queue.add(new Op(w,tx,p.surfaceY+3,z,p.surfaceFrame));
+                    if((z-p.cz)%3==0) queue.add(new Op(w,tx,p.surfaceY+2,z,Material.IRON_FENCE));
+                }
+                break;
+            case 4: // Cave family: deliberately rough but sealed buttresses.
+                for(int sx:new int[]{-1,1}) {
+                    int x=p.cx+sx*p.surfaceHalfX;
+                    for(int z=p.cz-p.surfaceHalfZ+3;z<=p.cz+p.surfaceHalfZ-3;z+=6) {
+                        queue.add(new Op(w,x+sx,p.surfaceY+1,z,Material.MOSSY_COBBLESTONE));
+                        queue.add(new Op(w,x+sx,p.surfaceY+2,z,Material.COBBLESTONE));
+                    }
+                }
+                break;
+        }
+    }
+
+    private void buildReferenceGrammar(World w,HcfBasePlan p) {
+        switch(p.primaryFamily) {
+            case 0: buildRedemptionGrammar(w,p); break;
+            case 1: buildBaseHcfGrammar(w,p); break;
+            case 2: buildModernGrammar(w,p); break;
+            case 3: buildTunnelGrammar(w,p); break;
+            case 4: buildCaveGrammar(w,p); break;
+        }
+        buildSecondaryAccent(w,p,p.secondaryFamily);
+        buildSubclaimMarkers(w,p);
+    }
+
+    private void buildRedemptionGrammar(World w,HcfBasePlan p) {
+        int y=p.undergroundY;
+        int z=p.cz+p.coreHalfZ-4;
+        // Compact mezzanine / vertical organization inspired by Redemption.
+        for(int x=p.cx-7;x<=p.cx+7;x++) {
+            queue.add(new Op(w,x,y+3,z,p.undergroundTrim));
+            if(Math.abs(x-p.cx)>=6) queue.add(new Op(w,x,y+4,z,Material.IRON_FENCE));
+        }
+        for(int step=0;step<4;step++) {
+            int x=p.cx-7+step;
+            queue.add(new Op(w,x,y+step,z-2,p.undergroundTrim));
+            for(int yy=y+step+1;yy<=y+step+2;yy++) queue.add(new Op(w,x,yy,z-2,Material.AIR));
+        }
+        queue.add(new Op(w,p.cx,y+5,z,Material.GLOWSTONE));
+    }
+
+    private void buildBaseHcfGrammar(World w,HcfBasePlan p) {
+        int y=p.undergroundY;
+        int r=7;
+        // Ring-storage visual language: central circulation remains completely open.
+        for(int dx=-r;dx<=r;dx++) for(int dz=-r;dz<=r;dz++) {
+            int edge=Math.max(Math.abs(dx),Math.abs(dz));
+            if(edge!=r) continue;
+            if(Math.abs(dx+3)<=2 && Math.abs(dz+1)<=2) continue; // dropdown traffic
+            Material m=((dx+dz+p.seed)&3)==0?p.undergroundTrim:Material.SMOOTH_BRICK;
+            queue.add(new Op(w,p.cx+dx,y,p.cz+dz,m));
+        }
+        for(int[] d:new int[][]{{-r,-r},{r,-r},{-r,r},{r,r}}) {
+            queue.add(new Op(w,p.cx+d[0],y+1,p.cz+d[1],p.undergroundTrim));
+            queue.add(new Op(w,p.cx+d[0],y+2,p.cz+d[1],Material.GLOWSTONE));
+        }
+    }
+
+    private void buildModernGrammar(World w,HcfBasePlan p) {
+        int y=p.undergroundY;
+        // Clean symmetric ceiling strips and two glass utility separators.
+        for(int x=p.cx-p.coreHalfX+3;x<=p.cx+p.coreHalfX-3;x+=5)
+            queue.add(new Op(w,x,y+5,p.cz,Material.GLOWSTONE));
+        int z1=p.cz-6,z2=p.cz+6;
+        for(int x=p.cx-5;x<=p.cx+5;x++) {
+            if(Math.abs(x-p.cx)<=1) continue;
+            queue.add(new Op(w,x,y+1,z1,Material.STAINED_GLASS,(byte)0));
+            queue.add(new Op(w,x,y+2,z1,Material.STAINED_GLASS,(byte)0));
+            queue.add(new Op(w,x,y+1,z2,Material.STAINED_GLASS,(byte)0));
+            queue.add(new Op(w,x,y+2,z2,Material.STAINED_GLASS,(byte)0));
+        }
+        queue.add(new Op(w,p.cx-6,y+1,p.cz,Material.QUARTZ_BLOCK));
+        queue.add(new Op(w,p.cx+6,y+1,p.cz,Material.QUARTZ_BLOCK));
+    }
+
+    private void buildTunnelGrammar(World w,HcfBasePlan p) {
+        int dir=p.utilitySide;
+        int start=p.cx+dir*(p.coreHalfX-1);
+        int end=p.cx+dir*(p.coreHalfX+11);
+        int lo=Math.min(start,end),hi=Math.max(start,end);
+        int floor=p.undergroundY;
+        for(int x=lo;x<=hi;x++) {
+            for(int z=p.cz-2;z<=p.cz+2;z++) {
+                boolean side=Math.abs(z-p.cz)==2;
+                queue.add(new Op(w,x,floor,z,side?p.undergroundTrim:p.undergroundFloor));
+                for(int yy=floor+1;yy<=floor+3;yy++)
+                    queue.add(new Op(w,x,yy,z,side?p.undergroundTrim:Material.AIR));
+                queue.add(new Op(w,x,floor+4,z,p.undergroundTrim));
+            }
+            if(Math.abs(x-start)%5==0) queue.add(new Op(w,x,floor+3,p.cz,Material.GLOWSTONE));
+        }
+        // Small utility room at the end.
+        int ex=end+dir*3;
+        carveUtilityRoom(w,p,ex,p.cz,4,5,p.undergroundTrim);
+    }
+
+    private void buildCaveGrammar(World w,HcfBasePlan p) {
+        int dir=-p.utilitySide;
+        int centerX=p.cx+dir*(p.coreHalfX+5);
+        int centerZ=p.cz+((p.seed/71)%7)-3;
+        int floor=p.undergroundY;
+        int rx=7,rz=6;
+        for(int dx=-rx;dx<=rx;dx++) for(int dz=-rz;dz<=rz;dz++) {
+            double q=(dx*dx)/(double)(rx*rx)+(dz*dz)/(double)(rz*rz);
+            if(q>1.12) continue;
+            int x=centerX+dx,z=centerZ+dz;
+            boolean shell=q>0.78;
+            queue.add(new Op(w,x,floor,z,shell?Material.COBBLESTONE:p.undergroundFloor));
+            for(int yy=floor+1;yy<=floor+4;yy++) {
+                Material m=shell?(((x+z+yy+p.seed)%5==0)?Material.MOSSY_COBBLESTONE:Material.COBBLESTONE):Material.AIR;
+                queue.add(new Op(w,x,yy,z,m));
+            }
+            queue.add(new Op(w,x,floor+5,z,shell?Material.COBBLESTONE:Material.STONE));
+        }
+        // Three-wide sealed connector from the core.
+        int coreEdge=p.cx+dir*p.coreHalfX;
+        int a=Math.min(coreEdge,centerX),b=Math.max(coreEdge,centerX);
+        for(int x=a;x<=b;x++) for(int z=centerZ-1;z<=centerZ+1;z++)
+            for(int yy=floor+1;yy<=floor+3;yy++) queue.add(new Op(w,x,yy,z,Material.AIR));
+        queue.add(new Op(w,centerX,floor+4,centerZ,Material.GLOWSTONE));
+    }
+
+    private void carveUtilityRoom(World w,HcfBasePlan p,int cx,int cz,int hx,int hz,Material trim) {
+        int floor=p.undergroundY;
+        for(int x=cx-hx;x<=cx+hx;x++) for(int z=cz-hz;z<=cz+hz;z++) {
+            boolean edge=x==cx-hx||x==cx+hx||z==cz-hz||z==cz+hz;
+            queue.add(new Op(w,x,floor,z,p.undergroundFloor));
+            for(int yy=floor+1;yy<=floor+4;yy++)
+                queue.add(new Op(w,x,yy,z,edge?trim:Material.AIR));
+            queue.add(new Op(w,x,floor+5,z,trim));
+        }
+    }
+
+    private void buildSecondaryAccent(World w,HcfBasePlan p,int family) {
+        int y=p.undergroundY;
+        switch(family) {
+            case 0:
+                for(int x=p.cx-4;x<=p.cx+4;x+=2)
+                    queue.add(new Op(w,x,y,p.cz+4,p.undergroundTrim));
+                break;
+            case 1:
+                for(int z=p.cz-8;z<=p.cz+8;z+=4)
+                    queue.add(new Op(w,p.cx,y,z,Material.WOOD));
+                break;
+            case 2:
+                queue.add(new Op(w,p.cx-5,y+5,p.cz-5,Material.GLOWSTONE));
+                queue.add(new Op(w,p.cx+5,y+5,p.cz+5,Material.GLOWSTONE));
+                break;
+            case 3:
+                for(int z=p.cz-p.coreHalfZ+3;z<=p.cz+p.coreHalfZ-3;z+=6)
+                    queue.add(new Op(w,p.cx,y+4,z,p.undergroundTrim));
+                break;
+            case 4:
+                queue.add(new Op(w,p.cx+p.utilitySide*5,y+1,p.cz+5,Material.MOSSY_COBBLESTONE));
+                queue.add(new Op(w,p.cx+p.utilitySide*6,y+1,p.cz+5,Material.COBBLESTONE));
+                break;
+        }
+    }
+
+    private void buildSubclaimMarkers(World w,HcfBasePlan p) {
+        if(p.profile.organization<45) return;
+        int[] storage=p.anchor("storage");
+        int[] refill=p.anchor("refill");
+        queue.add(new Op(w,storage[0],p.undergroundY+1,storage[2]-2,Material.SIGN_POST,(byte)8,
+            "["+shortFaction(p.faction)+"]|[Subclaim]|Storage"));
+        queue.add(new Op(w,refill[0]+2,p.undergroundY+1,refill[2],Material.SIGN_POST,(byte)8,
+            "["+shortFaction(p.faction)+"]|[Subclaim]|Pots"));
+    }
+
+    private String shortFaction(String name) {
+        if(name==null) return "Faction";
+        return name.length()>11?name.substring(0,11):name;
     }
 
     private void buildVerticalTransit(World w,HcfBasePlan p) {

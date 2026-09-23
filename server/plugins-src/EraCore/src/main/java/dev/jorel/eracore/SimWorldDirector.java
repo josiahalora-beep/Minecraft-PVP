@@ -443,6 +443,7 @@ final class SimWorldDirector {
     private final Map<String,String> lastReplyTarget = new HashMap<String,String>();
     private final Deque<ChatEvent> pendingChat = new ArrayDeque<ChatEvent>();
     private final Map<String,Integer> rivalries = new HashMap<String,Integer>();
+    private final Map<String,Long> temporaryTruces = new HashMap<String,Long>();
     private final Deque<String> recentPublicSpeakers = new ArrayDeque<String>();
     private final Deque<String> recentPublicMessages = new ArrayDeque<String>();
     private final Map<String,String> lastPublicLineBySpeaker = new HashMap<String,String>();
@@ -1502,6 +1503,7 @@ final class SimWorldDirector {
 
     private boolean shouldOpenFight(SimFaction a,SimFaction b,int sizeA,int sizeB,boolean atBase) {
         if(a==null || b==null) return false;
+        if(activeTemporaryTruce(a.name,b.name)) return false;
         int rivalry=rivalryScore(a.name,b.name);
         if(atBase || rivalry>=28 ||
            (a.campTarget!=null && a.campTarget.equalsIgnoreCase(b.name)) ||
@@ -1527,6 +1529,31 @@ final class SimWorldDirector {
         return rng.nextInt(100)<chance;
     }
 
+    private boolean activeTemporaryTruce(String a,String b) {
+        String k=rivalryKey(a,b);
+        Long until=temporaryTruces.get(k);
+        if(until==null) return false;
+        if(System.currentTimeMillis()>=until) {
+            temporaryTruces.remove(k);
+            return false;
+        }
+        return true;
+    }
+
+    private void createTemporaryTruce(String a,String b,long millis) {
+        if(a==null || b==null || a.equalsIgnoreCase(b)) return;
+        String k=rivalryKey(a,b);
+        temporaryTruces.put(k,System.currentTimeMillis()+Math.max(30000L,millis));
+        if(temporaryTruces.size()>80) {
+            long now=System.currentTimeMillis();
+            Iterator<Map.Entry<String,Long>> it=temporaryTruces.entrySet().iterator();
+            while(it.hasNext()) {
+                Map.Entry<String,Long> e=it.next();
+                if(e.getValue()<=now) it.remove();
+            }
+        }
+    }
+
     private void rememberPeacefulEncounter(SimFaction a,SimFaction b,int sizeA,int sizeB) {
         SimFaction larger=sizeA>=sizeB?a:b;
         SimFaction smaller=larger==a?b:a;
@@ -1535,7 +1562,9 @@ final class SimWorldDirector {
             summary=larger.name+" let a lone "+smaller.name+" player pass in warzone";
         else
             summary=a.name+" and "+b.name+" crossed paths without committing to a fight";
-        recordHistory("TRUCE",4,summary,"",a.name,b.name);
+        long truceMs=(60L+rng.nextInt(240))*1000L;
+        createTemporaryTruce(a.name,b.name,truceMs);
+        recordHistory("TRUCE",4,summary+"; temporary truce held for the next few minutes","",a.name,b.name);
         SimPlayer leader=players.get(key(larger.leader));
         if(leader!=null && leader.logicalOnline && rng.nextInt(100)<38)
             enqueue(leader.name,oneOf("leave him hes solo","dont chase that","we're not fighting them rn","just let them go"),false);

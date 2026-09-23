@@ -9,24 +9,27 @@ import org.bukkit.scheduler.BukkitTask;
 import java.util.*;
 
 /**
- * HCF movement-first terrain normalization for newly generated Overworld chunks.
+ * HCF movement-first terrain normalization.
  *
- * The surface stays broad and readable like an old HCF map:
- * - a broad exact-flat Kraken/spawn apron
- * - a long 300 -> 500 block transition into low-relief wilderness
- * - exact-flat road cores running to the +/-1500 border
- * - long shoulders instead of abrupt road cliffs
- * - broad, bounded hills/valleys with no mountains/ravines/floating caps
- * - flat/blended KOTH, Conquest and portal fight pads
- * - sparse high-canopy trees and low rocks away from PvP lanes
- *
- * The production world intentionally prioritizes readable HCF movement over
- * vanilla sightseeing terrain. The surface deck is sealed so players and bots
- * do not fall into random holes; mining progression lives in the dedicated
- * resource systems/Ore Mountain rather than surface ravines.
+ * Visual contract:
+ * - Kraken + immediate spawn frontage stay clean and readable
+ * - roads remain obvious PvP/kiting lanes, but no longer flatten half the map
+ * - wilderness has broad + medium rolling relief rather than superflat grass
+ * - event pads stay level only where the actual fight/build needs it
+ * - regional materials/landmarks make the map readable without biome noise
+ * - no ravines, cliffs, floating terrain, accidental holes, or dense forests
  */
 @SuppressWarnings("deprecation")
 final class HcfTerrainDirector implements Listener {
+    private static final class SurfaceSpec {
+        final Material material;
+        final byte data;
+        SurfaceSpec(Material material,int data) {
+            this.material=material;
+            this.data=(byte)data;
+        }
+    }
+
     private final EraCore plugin;
     private final ArrayDeque<Chunk> productionQueue=new ArrayDeque<Chunk>();
     private final Set<Long> queuedChunks=new HashSet<Long>();
@@ -50,10 +53,6 @@ final class HcfTerrainDirector implements Listener {
         plugin.getConfig().set("world-build.terrain-complete",false);
         plugin.saveConfig();
 
-        // Repair every currently loaded Overworld chunk first. This includes
-        // spawn/start-region chunks and any partial composer chunks from an
-        // interrupted build. Later schematic-loaded chunks are normalized
-        // synchronously by onChunkLoad before the composer writes into them.
         for(Chunk chunk:world.getLoadedChunks()) enqueue(chunk);
 
         if(productionQueue.isEmpty()) {
@@ -109,20 +108,14 @@ final class HcfTerrainDirector implements Listener {
     public void onChunkLoad(final ChunkLoadEvent e) {
         if(!plugin.getConfig().getBoolean("terrain.normalize-new-chunks",true)) return;
         if(e.getWorld().getEnvironment()!=World.Environment.NORMAL) return;
-        // Ore Mountain is a separate resource world and keeps its own terrain.
         if(Bukkit.getWorlds().isEmpty() || !e.getWorld().equals(Bukkit.getWorlds().get(0))) return;
 
         final Chunk chunk=e.getChunk();
-
         boolean production=plugin.getConfig().getBoolean("world-build.active",false);
         boolean terrainDone=plugin.getConfig().getBoolean("world-build.terrain-complete",false);
         boolean structuresDone=plugin.getConfig().getBoolean("map.structures-complete",false);
         long key=chunkKey(chunk.getX(),chunk.getZ());
 
-        // Production repair also covers EXISTING chunks from an interrupted
-        // composer pass. Normalize each chunk once per runtime before the
-        // composer writes it; remembering the chunk prevents later reloads
-        // during the same structure pass from erasing already-pasted blocks.
         if(production && !structuresDone) {
             if(!terrainDone || busy()) {
                 enqueue(chunk);
@@ -132,7 +125,6 @@ final class HcfTerrainDirector implements Listener {
             return;
         }
 
-        // Outside production, only newly generated terrain is normalized.
         if(!e.isNewChunk()) return;
         Bukkit.getScheduler().runTaskLater(plugin,new Runnable() {
             public void run() {
@@ -158,7 +150,7 @@ final class HcfTerrainDirector implements Listener {
                 int x=(chunk.getX()<<4)+lx;
                 int z=(chunk.getZ()<<4)+lz;
                 int target=targetY(x,z,base);
-                Material top=surfaceMaterial(x,z);
+                SurfaceSpec top=surfaceSpec(x,z,target,base);
 
                 int highest=Math.min(w.getMaxHeight()-1,
                     Math.max(target+cleanup,w.getHighestBlockYAt(x,z)+3));
@@ -167,13 +159,10 @@ final class HcfTerrainDirector implements Listener {
                     if(b.getType()!=Material.AIR) setNoPhysics(b,Material.AIR);
                 }
 
-                // Seal a stable surface deck without physics. Structure
-                // composition loads chunks synchronously; allowing 1.8 block
-                // physics here can recursively load neighbors and trip the
-                // watchdog before the compositor gets a chance to paste.
-                setNoPhysics(w.getBlockAt(x,target,z),top);
-                Material fill=top==Material.SAND?Material.SAND:
-                    (top==Material.STONE?Material.STONE:Material.DIRT);
+                setNoPhysics(w.getBlockAt(x,target,z),top.material,top.data);
+                Material fill=(top.material==Material.SAND || top.material==Material.SANDSTONE)
+                    ?Material.SAND:(top.material==Material.STONE||top.material==Material.COBBLESTONE
+                        ?Material.STONE:Material.DIRT);
                 for(int y=Math.max(2,target-5);y<target;y++)
                     setNoPhysics(w.getBlockAt(x,y,z),fill);
             }
@@ -184,70 +173,86 @@ final class HcfTerrainDirector implements Listener {
     }
 
     private int targetY(int x,int z,int base) {
-        // Build Viewer terrain contract: old-HCF readable first, natural second.
-        // Long waves are deliberately bounded to a small vertical range so a
-        // player can kite in any direction without cliffs, ravines or staircase
-        // noise appearing between adjacent chunks.
-        double amplitude=Math.max(2.0,Math.min(7.0,
-            plugin.getConfig().getDouble("terrain.wilderness-amplitude",5.0)));
-        double relief=
-            Math.sin(x*0.0042)*amplitude*0.44+
-            Math.cos(z*0.0037)*amplitude*0.34+
-            Math.sin((x+z)*0.0021)*amplitude*0.24+
-            Math.cos((x-z)*0.0017)*amplitude*0.18;
+        double amp=Math.max(4.0,Math.min(10.0,
+            plugin.getConfig().getDouble("terrain.wilderness-amplitude",8.0)));
 
-        // Broad regional identity without creating mountain biomes.
-        if(x<-650 && z>160) relief+=Math.sin(z*0.0022)*0.9; // rocky southwest rise
-        if(x>610 && z>260) relief-=0.8;                     // southeast dry basin
-        if(x>540 && z<-430) relief+=Math.cos(x*0.0020)*0.7;// northeast wooded rise
-        relief=Math.max(-amplitude,Math.min(amplitude,relief));
+        // Broad landform gives each quadrant a recognizable silhouette.
+        double broad=
+            Math.sin(x*0.0031+z*0.0008)*amp*0.30+
+            Math.cos(z*0.0027-x*0.0007)*amp*0.27+
+            Math.sin((x+z)*0.0020)*amp*0.17;
 
-        double natural=base+relief;
-        double y=natural;
+        // Medium waves are what the old v1 terrain was missing. Their wavelength
+        // is short enough to be visible in a normal 8-12 chunk view, but their
+        // amplitude stays small enough for sprinting/pearling and Mineflayer.
+        double medium=
+            Math.sin(x*0.0115+z*0.0031)*amp*0.22+
+            Math.cos(z*0.0101-x*0.0026)*amp*0.20+
+            Math.sin((x-z)*0.0072)*amp*0.14;
 
-        // Kraken + immediate PvP frontage stays completely flat. The 300-500
-        // transition is long enough that the spawn/warzone border never feels
-        // like a giant artificial plateau edge.
+        // Small contour variation prevents huge perfectly planar shelves. It is
+        // deliberately sub-block-scale before rounding, so there is no noisy
+        // checkerboard or repeated one-block staircase pattern.
+        double contour=
+            Math.sin(x*0.021+z*0.013)*0.75+
+            Math.cos(z*0.018-x*0.011)*0.60;
+
+        double relief=broad+medium+contour;
+
+        // Regional identity, still bounded and PvP-safe.
+        if(x<-650 && z>160) relief+=1.2+Math.sin(z*0.0060)*1.1; // rocky southwest rise
+        if(x>610 && z>260) relief-=1.4;                         // southeast dry basin
+        if(x>520 && z<-420) relief+=0.8+Math.cos(x*0.0050)*0.9;// northeast wooded rise
+        if(x<-520 && z<-480) relief-=0.7;                       // northwest shallow bowl
+
+        relief=Math.max(-amp,Math.min(amp,relief));
+        double y=base+relief;
+
+        // Kraken itself is authoritative. Keep only the actual spawn/build
+        // frontage flat; begin natural variation shortly outside it.
         double spawnDist=Math.sqrt((double)x*x+(double)z*z);
-        double flatRadius=Math.max(150.0,
-            plugin.getConfig().getDouble("terrain.spawn-flat-radius",300.0));
+        double flatRadius=Math.max(175.0,
+            plugin.getConfig().getDouble("terrain.spawn-flat-radius",210.0));
         double transitionRadius=Math.max(flatRadius+80.0,
-            plugin.getConfig().getDouble("terrain.spawn-transition-radius",500.0));
+            plugin.getConfig().getDouble("terrain.spawn-transition-radius",345.0));
         y=blend(base,y,smoothstep(flatRadius,transitionRadius,spawnDist));
 
-        // Four Kraken roads remain exact-flat in the center, with very broad
-        // shoulders. This is the main HCF chase/kiting network.
+        // Roads are readable lanes, not 184-block-wide flat strips.
         double axis=Math.min(Math.abs((double)x),Math.abs((double)z));
         double roadBlend=smoothstep(
-            plugin.getConfig().getDouble("terrain.road-flat-half-width",22.0),
-            plugin.getConfig().getDouble("terrain.road-shoulder-half-width",92.0),
+            plugin.getConfig().getDouble("terrain.road-flat-half-width",18.0),
+            plugin.getConfig().getDouble("terrain.road-shoulder-half-width",58.0),
             axis);
         y=blend(base,y,roadBlend);
 
-        // Event/portal pads are level where players actually fight, then merge
-        // back into the low-relief wilderness instead of sitting on square slabs.
+        // Level the structure/fight footprint, then return to terrain quickly.
         int ko=plugin.getConfig().getInt("map-layout.koth-offset",500);
-        y=flattenPad(y,base,x,z, ko,-ko,175,250);
-        y=flattenPad(y,base,x,z,-ko,-ko,175,250);
-        y=flattenPad(y,base,x,z, ko, ko,175,250);
-        y=flattenPad(y,base,x,z,-ko, ko,175,250);
+        double kothFlat=plugin.getConfig().getDouble("terrain.koth-flat-radius",172.0);
+        double kothOuter=plugin.getConfig().getDouble("terrain.koth-blend-radius",225.0);
+        y=flattenPad(y,base,x,z, ko,-ko,kothFlat,kothOuter);
+        y=flattenPad(y,base,x,z,-ko,-ko,kothFlat,kothOuter);
+        y=flattenPad(y,base,x,z, ko, ko,kothFlat,kothOuter);
+        y=flattenPad(y,base,x,z,-ko, ko,kothFlat,kothOuter);
 
         int po=plugin.getConfig().getInt("map-layout.portal-offset",1000);
-        y=flattenPad(y,base,x,z, po,-po,130,205);
-        y=flattenPad(y,base,x,z,-po,-po,130,205);
-        y=flattenPad(y,base,x,z, po, po,130,205);
-        y=flattenPad(y,base,x,z,-po, po,130,205);
+        double portalFlat=plugin.getConfig().getDouble("terrain.portal-flat-radius",128.0);
+        double portalOuter=plugin.getConfig().getDouble("terrain.portal-blend-radius",182.0);
+        y=flattenPad(y,base,x,z, po,-po,portalFlat,portalOuter);
+        y=flattenPad(y,base,x,z,-po,-po,portalFlat,portalOuter);
+        y=flattenPad(y,base,x,z, po, po,portalFlat,portalOuter);
+        y=flattenPad(y,base,x,z,-po, po,portalFlat,portalOuter);
 
         int cx=plugin.getConfig().getInt("map-layout.conquest-x",0);
         int cz=plugin.getConfig().getInt("map-layout.conquest-z",1125);
-        y=flattenPad(y,base,x,z,cx,cz,185,265);
+        y=flattenPad(y,base,x,z,cx,cz,
+            plugin.getConfig().getDouble("terrain.conquest-flat-radius",182.0),
+            plugin.getConfig().getDouble("terrain.conquest-blend-radius",235.0));
 
-        int low=base-(int)Math.ceil(amplitude);
-        int high=base+(int)Math.ceil(amplitude);
+        int low=base-(int)Math.ceil(amp);
+        int high=base+(int)Math.ceil(amp);
         return Math.max(low,Math.min(high,(int)Math.round(y)));
     }
 
-    // Overload kept explicit to make call-sites readable.
     private double flattenPad(double current,int base,int x,int z,int cx,int cz,double flat,double outer) {
         double dx=x-cx,dz=z-cz;
         double d=Math.sqrt(dx*dx+dz*dz);
@@ -267,12 +272,71 @@ final class HcfTerrainDirector implements Listener {
         return t*t*(3.0-2.0*t);
     }
 
-    private Material surfaceMaterial(int x,int z) {
-        // One restrained dry sector adds visual identity without producing the
-        // noisy patchwork that makes PvP terrain hard to read.
-        if(x>610 && z>310) return Material.SAND;
-        if(x<-780 && z>250 && ((Math.abs(x*31+z*17)%29)==0)) return Material.STONE;
-        return Material.GRASS;
+    private long terrainHash(int x,int z) {
+        long h=((long)x*341873128712L)^((long)z*132897987541L)^0x5DEECE66DL;
+        h^=(h>>>21); h*=0x9E3779B97F4A7C15L; h^=(h>>>29);
+        return h&Long.MAX_VALUE;
+    }
+
+    private SurfaceSpec surfaceSpec(int x,int z,int y,int base) {
+        long h=terrainHash(x,z);
+        double spawn=Math.sqrt((double)x*x+(double)z*z);
+        double axis=Math.min(Math.abs((double)x),Math.abs((double)z));
+
+        // Distinct old-HCF road language: narrow gravel spine with broken dirt
+        // shoulders. It visually connects spawn to the map without becoming a
+        // gigantic generated highway.
+        if(spawn>180 && axis<=5) return new SurfaceSpec(Material.GRAVEL,0);
+        if(spawn>185 && axis<=16) {
+            int r=(int)(h%100);
+            if(r<36) return new SurfaceSpec(Material.DIRT,1); // coarse dirt
+            if(r<48) return new SurfaceSpec(Material.GRAVEL,0);
+        }
+
+        // Dry southeast event region.
+        if(x>610 && z>310) {
+            if(h%100<13) return new SurfaceSpec(Material.SANDSTONE,0);
+            return new SurfaceSpec(Material.SAND,0);
+        }
+
+        // Rocky southwest: mostly grass with restrained exposed stone/gravel.
+        if(x<-720 && z>220) {
+            int r=(int)(h%100);
+            if(r<8) return new SurfaceSpec(Material.STONE,0);
+            if(r<15) return new SurfaceSpec(Material.GRAVEL,0);
+            if(r<27) return new SurfaceSpec(Material.DIRT,1);
+        }
+
+        // Outside protected lanes, small organic coarse-dirt scars make slopes
+        // read in screenshots without turning the ground into visual static.
+        if(canSurfaceAccent(x,z)) {
+            int r=(int)(h%1000);
+            if(r<34 && Math.abs(y-base)>=2) return new SurfaceSpec(Material.DIRT,1);
+            if(r>=34 && r<43 && Math.abs(y-base)>=4) return new SurfaceSpec(Material.GRAVEL,0);
+        }
+
+        return new SurfaceSpec(Material.GRASS,0);
+    }
+
+    private boolean canSurfaceAccent(int x,int z) {
+        if(Math.min(Math.abs(x),Math.abs(z))<42) return false;
+        if(Math.sqrt((double)x*x+(double)z*z)<225) return false;
+        return !insideEventCore(x,z,8);
+    }
+
+    private boolean insideEventCore(int x,int z,int extra) {
+        int ko=plugin.getConfig().getInt("map-layout.koth-offset",500);
+        int kr=(int)Math.ceil(plugin.getConfig().getDouble("terrain.koth-flat-radius",172.0))+extra;
+        if(near(x,z,ko,-ko,kr)||near(x,z,-ko,-ko,kr)||
+           near(x,z,ko,ko,kr)||near(x,z,-ko,ko,kr)) return true;
+        int po=plugin.getConfig().getInt("map-layout.portal-offset",1000);
+        int pr=(int)Math.ceil(plugin.getConfig().getDouble("terrain.portal-flat-radius",128.0))+extra;
+        if(near(x,z,po,-po,pr)||near(x,z,-po,-po,pr)||
+           near(x,z,po,po,pr)||near(x,z,-po,po,pr)) return true;
+        int cx=plugin.getConfig().getInt("map-layout.conquest-x",0);
+        int cz=plugin.getConfig().getInt("map-layout.conquest-z",1125);
+        int cr=(int)Math.ceil(plugin.getConfig().getDouble("terrain.conquest-flat-radius",182.0))+extra;
+        return near(x,z,cx,cz,cr);
     }
 
     private void decorate(Chunk chunk) {
@@ -280,21 +344,31 @@ final class HcfTerrainDirector implements Listener {
         Random r=new Random(seed);
         World w=chunk.getWorld();
 
-        // Sparse high-canopy trees: enough landmarks to read terrain, never
-        // enough density to turn a road fight into leaf-block pathfinding.
-        int treeChance=Math.max(0,Math.min(70,plugin.getConfig().getInt("terrain.tree-chance-percent",34)));
+        int treeChance=Math.max(0,Math.min(60,
+            plugin.getConfig().getInt("terrain.tree-chance-percent",28)));
         if(r.nextInt(100)<treeChance) {
             int x=(chunk.getX()<<4)+2+r.nextInt(12);
             int z=(chunk.getZ()<<4)+2+r.nextInt(12);
             if(canDecorate(x,z,8)) {
                 int y=w.getHighestBlockYAt(x,z);
                 Block ground=w.getBlockAt(x,Math.max(1,y-1),z);
-                if(ground.getType()==Material.GRASS) buildHighCanopyTree(w,x,y,z,r);
+                if(ground.getType()==Material.GRASS) {
+                    buildHighCanopyTree(w,x,y,z,r);
+                    // Northeast gets occasional tiny copses, never forests.
+                    if(x>520 && z<-420 && r.nextInt(100)<38) {
+                        int x2=x+(r.nextBoolean()?5:-5)+r.nextInt(4);
+                        int z2=z+(r.nextBoolean()?5:-5)+r.nextInt(4);
+                        int y2=w.getHighestBlockYAt(x2,z2);
+                        if(canDecorate(x2,z2,8) &&
+                           w.getBlockAt(x2,Math.max(1,y2-1),z2).getType()==Material.GRASS)
+                            buildHighCanopyTree(w,x2,y2,z2,r);
+                    }
+                }
             }
         }
 
-        // Very sparse 1–2 block rocks, kept out of roads and fight pads.
-        int rockChance=Math.max(0,Math.min(40,plugin.getConfig().getInt("terrain.rock-chance-percent",14)));
+        int rockChance=Math.max(0,Math.min(45,
+            plugin.getConfig().getInt("terrain.rock-chance-percent",18)));
         if(r.nextInt(100)<rockChance) {
             int x=(chunk.getX()<<4)+2+r.nextInt(12);
             int z=(chunk.getZ()<<4)+2+r.nextInt(12);
@@ -302,35 +376,63 @@ final class HcfTerrainDirector implements Listener {
                 int y=w.getHighestBlockYAt(x,z);
                 if(w.getBlockAt(x,Math.max(1,y-1),z).getType()==Material.GRASS) {
                     setNoPhysics(w.getBlockAt(x,y,z),r.nextBoolean()?Material.COBBLESTONE:Material.MOSSY_COBBLESTONE);
-                    if(r.nextInt(4)==0) setNoPhysics(w.getBlockAt(x,y+1,z),Material.COBBLESTONE);
+                    if(r.nextInt(100)<35) setNoPhysics(w.getBlockAt(x,y+1,z),Material.COBBLESTONE);
+                    if(r.nextInt(100)<28) setNoPhysics(w.getBlockAt(x+1,y,z),Material.STONE);
                 }
+            }
+        }
+
+        // Low, pass-through vegetation gives the landscape depth at eye level.
+        int grassChance=Math.max(0,Math.min(90,
+            plugin.getConfig().getInt("terrain.ground-detail-chance-percent",62)));
+        if(r.nextInt(100)<grassChance) {
+            int count=2+r.nextInt(5);
+            for(int i=0;i<count;i++) {
+                int x=(chunk.getX()<<4)+1+r.nextInt(14);
+                int z=(chunk.getZ()<<4)+1+r.nextInt(14);
+                if(!canDecorate(x,z,1)) continue;
+                int y=w.getHighestBlockYAt(x,z);
+                if(w.getBlockAt(x,Math.max(1,y-1),z).getType()!=Material.GRASS) continue;
+                int roll=r.nextInt(100);
+                if(roll<84) setNoPhysics(w.getBlockAt(x,y,z),Material.LONG_GRASS,(byte)1);
+                else if(roll<93) setNoPhysics(w.getBlockAt(x,y,z),Material.YELLOW_FLOWER,(byte)0);
+                else setNoPhysics(w.getBlockAt(x,y,z),Material.RED_ROSE,(byte)0);
             }
         }
     }
 
     private void setNoPhysics(Block block,Material material) {
+        setNoPhysics(block,material,(byte)0);
+    }
+
+    private void setNoPhysics(Block block,Material material,byte data) {
         if(block==null || material==null) return;
-        block.setTypeIdAndData(material.getId(),(byte)0,false);
+        block.setTypeIdAndData(material.getId(),data,false);
     }
 
     private boolean canDecorate(int x,int z,int margin) {
-        // Keep roads open for strafing and group movement.
-        if(Math.min(Math.abs(x),Math.abs(z))<=95+margin) return false;
+        // Narrower than the old 95-block exclusion. Roads themselves stay open,
+        // while their landscape becomes visible from the road instead of a giant
+        // empty lawn extending far to each side.
+        if(Math.min(Math.abs(x),Math.abs(z))<=58+margin) return false;
 
         double spawn=Math.sqrt((double)x*x+(double)z*z);
-        if(spawn<285+margin) return false;
+        if(spawn<230+margin) return false;
 
         int ko=plugin.getConfig().getInt("map-layout.koth-offset",500);
-        if(near(x,z, ko,-ko,245+margin)||near(x,z,-ko,-ko,245+margin)||
-           near(x,z, ko, ko,245+margin)||near(x,z,-ko, ko,245+margin)) return false;
+        int koth=(int)Math.ceil(plugin.getConfig().getDouble("terrain.koth-blend-radius",225.0));
+        if(near(x,z,ko,-ko,koth+margin)||near(x,z,-ko,-ko,koth+margin)||
+           near(x,z,ko,ko,koth+margin)||near(x,z,-ko,ko,koth+margin)) return false;
 
         int po=plugin.getConfig().getInt("map-layout.portal-offset",1000);
-        if(near(x,z, po,-po,200+margin)||near(x,z,-po,-po,200+margin)||
-           near(x,z, po, po,200+margin)||near(x,z,-po, po,200+margin)) return false;
+        int portal=(int)Math.ceil(plugin.getConfig().getDouble("terrain.portal-blend-radius",182.0));
+        if(near(x,z,po,-po,portal+margin)||near(x,z,-po,-po,portal+margin)||
+           near(x,z,po,po,portal+margin)||near(x,z,-po,po,portal+margin)) return false;
 
         int cx=plugin.getConfig().getInt("map-layout.conquest-x",0);
         int cz=plugin.getConfig().getInt("map-layout.conquest-z",1125);
-        return !near(x,z,cx,cz,260+margin);
+        int conquest=(int)Math.ceil(plugin.getConfig().getDouble("terrain.conquest-blend-radius",235.0));
+        return !near(x,z,cx,cz,conquest+margin);
     }
 
     private boolean near(int x,int z,int cx,int cz,int radius) {

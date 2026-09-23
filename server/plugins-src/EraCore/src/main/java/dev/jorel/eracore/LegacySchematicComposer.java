@@ -99,9 +99,9 @@ final class LegacySchematicComposer {
         int progressPercent(){return Math.min(100,(int)((cursor*100L)/Math.max(1,s.volume())));}
         private void logProgress() {
             int p=progressPercent();
-            if(p/10!=lastLogged/10) {
+            if(p/5!=lastLogged/5) {
                 lastLogged=p;
-                plugin.getLogger().info("[composer] "+label+" "+p+"% blocks="+changed);
+                plugin.getLogger().info("[composer] "+label+" "+p+"% writes="+changed+" scanned="+processed);
             }
         }
     }
@@ -180,6 +180,8 @@ final class LegacySchematicComposer {
 
     boolean busy(){return runner!=null || !jobs.isEmpty();}
     int queuedJobs(){return jobs.size();}
+    String currentJobLabel(){Job j=jobs.peekFirst();return j==null?"":j.label;}
+    int currentJobProgress(){Job j=jobs.peekFirst();return j==null?100:j.progressPercent();}
 
     void stop() {
         if(runner!=null) runner.cancel();

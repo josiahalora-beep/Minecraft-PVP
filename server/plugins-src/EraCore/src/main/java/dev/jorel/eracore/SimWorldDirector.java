@@ -2060,6 +2060,19 @@ final class SimWorldDirector {
                 }
             }
             if(!p.logicalOnline || p.bannedUntil>System.currentTimeMillis()) return t;
+
+            // Make novice confusion visible. Their logical social/recruit/idle
+            // goals keep them in/around spawn instead of the physical worker
+            // silently turning every solo into a competent warzone roamer.
+            if(isHcfNovice(p) &&
+               ("social".equals(p.currentGoal) || "recruit".equals(p.currentGoal) || "idle".equals(p.currentGoal))) {
+                t.action=p.currentGoal;
+                t.zone="spawn";
+                t.pvpIntent="AVOID";
+                t.priority=34+p.sociability/4;
+                return t;
+            }
+
             t.action=soloActionFor(p);
             t.zone=soloZoneFor(p);
             t.priority=26+p.sociability/5+p.aggression/8+p.reputation/10;

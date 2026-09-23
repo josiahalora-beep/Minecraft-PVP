@@ -534,6 +534,12 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         getConfig().set("sim-chat.ai-direct-human-only",true);
         getConfig().set("sim-chat.ai-min-seconds-between-requests",8);
         getConfig().set("sim-chat.ai-max-requests-per-minute",4);
+        getConfig().set("events.auto-schedule.enabled",true);
+        getConfig().set("events.auto-schedule.minimum-logical-online",20);
+        getConfig().set("events.auto-schedule.min-gap-minutes",35);
+        getConfig().set("events.auto-schedule.max-gap-minutes",70);
+        getConfig().set("events.auto-schedule.warning-minutes",5);
+        getConfig().set("events.auto-schedule.max-active-minutes",25);
 
         getConfig().set("migration.production-unification-version",2);
         saveConfig();
@@ -2403,6 +2409,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (!ownerOnly(p)) return true;
         if (a.length == 0 || a[0].equalsIgnoreCase("status")) {
             p.sendMessage(color("&7Sim chat: " + (simChat.enabled() ? "&aenabled" : "&cdisabled")));
+            if(simWorld!=null) p.sendMessage(color("&7AI bridge budget: &f"+simWorld.aiChatBudgetStatus()));
             return true;
         }
         if (a[0].equalsIgnoreCase("on")) {

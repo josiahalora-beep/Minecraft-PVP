@@ -496,7 +496,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     private void migrateProductionUnificationConfig() {
         int version=getConfig().getInt("migration.production-unification-version",0);
-        if(version>=3) return;
+        if(version>=4) return;
 
         // Canonical v7 map geometry.
         getConfig().set("map-layout.koth-offset",500);
@@ -520,8 +520,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             getConfig().getBoolean("map.complete",false));
         getConfig().set("world-build.max-p95-mspt",20.0);
         if(!getConfig().contains("world-build.archive-directory")) getConfig().set("world-build.archive-directory","");
-        getConfig().set("world-composer.blocks-per-tick",120);
-        getConfig().set("resources.blocks-per-tick",90);
+        getConfig().set("world-composer.blocks-per-tick",160);
+        getConfig().set("resources.blocks-per-tick",110);
         getConfig().set("resources.bootstrap-spawners",false);
         getConfig().set("resources.ore-mountain.enabled",true);
         getConfig().set("resources.ore-mountain.base-y",63);
@@ -532,7 +532,11 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         getConfig().set("infrastructure.duel-center-z",0);
         getConfig().set("infrastructure.duel-floor-y",64);
         getConfig().set("infrastructure.external-dimension-schematics",true);
-        getConfig().set("infrastructure.blocks-per-tick",120);
+        getConfig().set("infrastructure.blocks-per-tick",150);
+        getConfig().set("base-builder.blocks-per-tick",96);
+        getConfig().set("base-builder.visible-blocks-per-tick",16);
+        getConfig().set("base-builder.rebuild-blocks-per-tick",40);
+        getConfig().set("hcf-classes.permanent-speed-2",true);
 
         // Large persistent memory with small retrieval windows. This increases
         // continuity without increasing per-chat prompt size or tick work.
@@ -570,9 +574,9 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         getConfig().set("worker-pool.creator-bodies",Arrays.asList(
             "Stimpy","PainfulPvP","lolitsalex","Skimpy"));
 
-        getConfig().set("migration.production-unification-version",3);
+        getConfig().set("migration.production-unification-version",4);
         saveConfig();
-        getLogger().info("Applied production unification v3: verified fresh-map reset, Kraken spawn alignment, classic presentation and canonical creator identities.");
+        getLogger().info("Applied production unification v4: physical HCF travel, faction-prefix chat, permanent Speed II, SOTW economy rush and faster staged production builds.");
     }
 
     private void bindCommands() {

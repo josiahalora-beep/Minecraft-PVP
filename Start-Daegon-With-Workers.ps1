@@ -13,6 +13,16 @@ $bots = Join-Path $root 'bots'
 if (!(Test-Path $serverBat)) { throw "Missing $serverBat" }
 if (!(Test-Path (Join-Path $bots 'package.json'))) { throw "Missing bots\package.json" }
 
+$nodeCmd = Get-Command node.exe -ErrorAction SilentlyContinue
+$npmCmd = Get-Command npm.cmd -ErrorAction SilentlyContinue
+if ($null -eq $nodeCmd) { throw 'Node.js is not available in PATH.' }
+if ($null -eq $npmCmd) { throw 'npm.cmd is not available in PATH.' }
+
+$logs = Join-Path $root 'logs'
+New-Item -ItemType Directory -Path $logs -Force | Out-Null
+$coordOut = Join-Path $logs 'coordinator.out.log'
+$coordErr = Join-Path $logs 'coordinator.err.log'
+
 function Port-IsOpen([int]$Port) {
     try {
         $client = New-Object System.Net.Sockets.TcpClient
@@ -45,18 +55,32 @@ while (!(Port-IsOpen 25565) -and $tries -lt 120) {
 }
 if (!(Port-IsOpen 25565)) { throw 'Minecraft server did not open port 25565.' }
 
+if (!(Test-Path (Join-Path $bots 'node_modules\yaml'))) {
+    Write-Host 'Installing Mineflayer runtime dependencies...' -ForegroundColor Cyan
+    Push-Location $bots
+    try { & $npmCmd.Source install --no-audit --no-fund }
+    finally { Pop-Location }
+    if ($LASTEXITCODE -ne 0) { throw 'npm install failed for bots runtime.' }
+}
+
 if (!(Node-ProcessRunning 'worker-coordinator\.js')) {
     Write-Host 'Starting HCF worker coordinator on 127.0.0.1:8770...' -ForegroundColor Cyan
-    $coord='cd /d "'+$bots+'" && npm run coordinator'
-    Start-Process -FilePath 'cmd.exe' -ArgumentList '/k',$coord -WorkingDirectory $bots
+    Remove-Item $coordOut,$coordErr -Force -ErrorAction SilentlyContinue
+    Start-Process -FilePath $nodeCmd.Source -ArgumentList '.\src\worker-coordinator.js' -WorkingDirectory $bots -RedirectStandardOutput $coordOut -RedirectStandardError $coordErr | Out-Null
 }
 
 $tries=0
-while (!(Port-IsOpen 8770) -and $tries -lt 30) {
+while (!(Port-IsOpen 8770) -and $tries -lt 60) {
     Start-Sleep -Milliseconds 500
     $tries++
 }
-if (!(Port-IsOpen 8770)) { throw 'Worker coordinator did not open port 8770.' }
+if (!(Port-IsOpen 8770)) {
+    Write-Host ''
+    Write-Host 'Coordinator failed to open 8770. Last output:' -ForegroundColor Red
+    if (Test-Path $coordOut) { Get-Content $coordOut -Tail 30 | ForEach-Object { Write-Host $_ } }
+    if (Test-Path $coordErr) { Get-Content $coordErr -Tail 30 | ForEach-Object { Write-Host $_ -ForegroundColor Red } }
+    throw "Worker coordinator did not open port 8770. Logs: $coordOut / $coordErr"
+}
 
 if (!(Node-ProcessRunning 'worker-pool\.js')) {
     Write-Host "Starting adaptive home worker '$NodeId' (hard capacity $Bodies)..." -ForegroundColor Cyan

@@ -49,6 +49,17 @@ final class HcfWorldBuildDirector {
     private void tick() {
         if(!plugin.getConfig().getBoolean("world-build.auto-resume",true)) return;
 
+        boolean requested=plugin.getConfig().getBoolean("map.auto-bootstrap",false) ||
+            plugin.getConfig().getBoolean("world-build.active",false);
+        if(!requested) {
+            stage(plugin.getConfig().getBoolean("world-build.complete",false)?"READY":"IDLE");
+            return;
+        }
+        if(!plugin.getConfig().getBoolean("world-build.active",false)) {
+            plugin.getConfig().set("world-build.active",true);
+            plugin.saveConfig();
+        }
+
         double p95=plugin.currentP95Mspt();
         double ceiling=Math.max(15.0,plugin.getConfig().getDouble("world-build.max-p95-mspt",20.0));
         if(p95>=0.0 && p95>ceiling) {
@@ -91,6 +102,7 @@ final class HcfWorldBuildDirector {
             plugin.getConfig().set("map.complete",true);
             plugin.getConfig().set("map.auto-bootstrap",false);
             plugin.getConfig().set("world-build.complete",true);
+            plugin.getConfig().set("world-build.active",false);
             plugin.saveConfig();
             plugin.getLogger().info("[world-build] READY: production structures/resources are materialized.");
             if(plugin.hasHumanOnline())

@@ -276,7 +276,7 @@ terrain:
   custom-decoration: true
   tree-chance-percent: 28
   rock-chance-percent: 18
-  ground-detail-chance-percent: 48
+  ground-detail-chance-percent: 30
 
 atmosphere:
   # HCF presentation is intentionally consistent: bright daytime PvP with no

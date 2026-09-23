@@ -165,6 +165,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         migrateDistributedWorkerConfig();
         migrateLivingWorldConfig();
         migrateStartupPerformanceConfig();
+        migrateProductionUnificationConfig();
         initFiles();
         initShops();
         loadFactions();
@@ -470,6 +471,62 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         getConfig().set("migration.startup-performance-version",1);
         saveConfig();
         getLogger().info("Applied startup performance v1: disabled automatic world rewrites, paced simulation 30s/4 factions.");
+    }
+
+    private void migrateProductionUnificationConfig() {
+        int version=getConfig().getInt("migration.production-unification-version",0);
+        if(version>=2) return;
+
+        // Canonical v7 map geometry.
+        getConfig().set("map-layout.koth-offset",500);
+        getConfig().set("map-layout.portal-offset",1000);
+        getConfig().set("map-layout.conquest-x",0);
+        getConfig().set("map-layout.conquest-z",1125);
+        getConfig().set("map-layout.spawn-build-radius",190);
+        getConfig().set("map-layout.spawn-claim-radius",500);
+        getConfig().set("map.auto-warzone-smoothing",false);
+        getConfig().set("map-layout.build-visible-borders",false);
+
+        // Staged world construction. Do not turn auto-bootstrap on here; only a
+        // deliberate /sotw reset marker may request a full physical rebuild.
+        getConfig().set("world-build.auto-resume",true);
+        if(!getConfig().contains("world-build.active")) getConfig().set("world-build.active",false);
+        if(!getConfig().contains("world-build.complete")) getConfig().set("world-build.complete",
+            getConfig().getBoolean("map.complete",false));
+        if(!getConfig().contains("world-build.resources-complete")) getConfig().set("world-build.resources-complete",
+            getConfig().getBoolean("map.complete",false));
+        getConfig().set("world-build.max-p95-mspt",20.0);
+        if(!getConfig().contains("world-build.archive-directory")) getConfig().set("world-build.archive-directory","");
+        getConfig().set("world-composer.blocks-per-tick",120);
+        getConfig().set("resources.blocks-per-tick",90);
+        getConfig().set("resources.bootstrap-spawners",false);
+        getConfig().set("resources.ore-mountain.enabled",true);
+        getConfig().set("resources.ore-mountain.base-y",63);
+        getConfig().set("resources.ore-mountain.world-border",320);
+
+        // Large persistent memory with small retrieval windows. This increases
+        // continuity without increasing per-chat prompt size or tick work.
+        getConfig().set("memory.relationship-max",64);
+        getConfig().set("memory.history-max-events",10000);
+        getConfig().set("memory.archive-max-bytes",134217728L);
+        getConfig().set("memory.duplicate-window-seconds",1800);
+        if(!getConfig().contains("memory.cold-archive-directory")) getConfig().set("memory.cold-archive-directory","");
+        getConfig().set("memory.cold-shard-max-bytes",268435456L);
+        getConfig().set("memory.cold-max-shards",48);
+        getConfig().set("memory.chat-history-events",12);
+        getConfig().set("memory.chat-relationship-memories",10);
+
+        // Local/contextual chat is primary. AI is an exception path.
+        getConfig().set("sim-chat.recent-line-window",80);
+        getConfig().set("sim-chat.per-speaker-recent-window",12);
+        getConfig().set("sim-chat.semantic-repeat-window-seconds",1200);
+        getConfig().set("sim-chat.ai-direct-human-only",true);
+        getConfig().set("sim-chat.ai-min-seconds-between-requests",8);
+        getConfig().set("sim-chat.ai-max-requests-per-minute",4);
+
+        getConfig().set("migration.production-unification-version",2);
+        saveConfig();
+        getLogger().info("Applied production unification v2: canonical v7 map, staged builders, expanded bounded memory and local-first chat.");
     }
 
     private void bindCommands() {

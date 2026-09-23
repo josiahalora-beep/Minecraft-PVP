@@ -542,9 +542,10 @@ async function enterFactionPortal(state, zone) {
 
   const target=portal?.position || point
   try {
-    await bot.lookAt(target.offset ? target.offset(0.5,0.2,0.5) : {
-      x:target.x+0.5,y:target.y+0.2,z:target.z+0.5
-    },false)
+    const look=target?.offset
+      ? target.offset(0.5,0.2,0.5)
+      : worldVec(bot,Number(target.x)+0.5,Number(target.y)+0.2,Number(target.z)+0.5)
+    await bot.lookAt(look,false)
   } catch {}
 
   stopMovement(bot)

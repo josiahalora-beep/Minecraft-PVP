@@ -372,74 +372,97 @@ final class SpawnRewardsDirector implements Listener {
     }
 
     private void giveVoteReward(Player p,int r) {
-        if(r<2400) {
-            money(p,250,"$250");
-        } else if(r<4200) {
-            item(p,new ItemStack(Material.ENDER_PEARL,8),"8 Ender Pearls");
-        } else if(r<5700) {
-            item(p,new ItemStack(Material.IRON_INGOT,16),"16 Iron");
-        } else if(r<6900) {
-            item(p,new ItemStack(Material.OBSIDIAN,12),"12 Obsidian");
-        } else if(r<7900) {
-            item(p,new ItemStack(Material.DIAMOND,4),"4 Diamonds");
-        } else if(r<8700) {
-            for(int i=0;i<6;i++) p.getInventory().addItem(new ItemStack(Material.POTION,1,(short)16421));
-            finishReward(p,"6 Splash Health II",false);
-        } else if(r<9200) {
+        // Vote keys should always move early-map progression forward. Premium
+        // combat gear exists here only as a lottery-level exception so voting
+        // cannot become the main source of P2 / Sharp II.
+        if(r<1600) {
+            money(p,300,"$300");
+        } else if(r<3100) {
+            item(p,new ItemStack(Material.ENDER_PEARL,12),"12 Ender Pearls");
+        } else if(r<4300) {
+            item(p,new ItemStack(Material.OBSIDIAN,16),"16 Obsidian");
+        } else if(r<5300) {
+            item(p,new ItemStack(Material.DIAMOND,8),"8 Diamonds");
+        } else if(r<6500) {
+            for(int i=0;i<10;i++) p.getInventory().addItem(new ItemStack(Material.POTION,1,(short)16421));
+            finishReward(p,"10 Splash Health II",false);
+        } else if(r<7300) {
             item(p,new ItemStack(Material.NETHER_STALK,16),"16 Nether Wart");
-        } else if(r<9600) {
-            item(p,new ItemStack(Material.GLOWSTONE_DUST,8),"8 Glowstone Dust");
-        } else if(r<9850) {
+        } else if(r<8100) {
+            item(p,new ItemStack(Material.GLOWSTONE_DUST,12),"12 Glowstone Dust");
+        } else if(r<8900) {
+            item(p,new ItemStack(Material.SULPHUR,16),"16 Gunpowder");
+        } else if(r<9550) {
             ItemStack sword=new ItemStack(Material.DIAMOND_SWORD);
             sword.addUnsafeEnchantment(Enchantment.DAMAGE_ALL,1);
             item(p,sword,"Sharpness I Diamond Sword");
-        } else if(r<9970) {
+        } else if(r<9790) {
             p.getInventory().addItem(keyItem("donor",1));
-            finishReward(p,"1 Donor Crate Key",true);
+            finishReward(p,"1 Basic Donor Crate Key",true);
+        } else if(r<9910) {
+            ItemStack piece=randomProt2Piece(r);
+            item(p,piece,"Protection II "+piece.getType().name().replace('_',' '));
+            plugin.noteSimPremiumReward(p,"vote P2 piece");
+        } else if(r<9980) {
+            ItemStack sword=rareSword();
+            item(p,sword,"Sharpness II / Fire I Diamond Sword");
+            plugin.noteSimPremiumReward(p,"vote S2F1 sword");
         } else {
-            if(plugin.upgradeRankFromReward(p,"Vote Crate")) finishReward(p,"DONOR RANK UPGRADE",true);
-            else {
-                p.getInventory().addItem(keyItem("donor",2));
-                finishReward(p,"2 Donor Crate Keys",true);
-            }
+            giveFullRareCombatSet(p,"Vote");
         }
     }
 
     private void giveDonorReward(Player p,int r,int tier) {
         tier=Math.max(1,Math.min(4,tier));
-        int pearls=8+tier*4;
-        int diamonds=2+tier*2;
-        int obsidian=8+tier*4;
-        int heals=4+tier*3;
-        int gunpowder=8+tier*4;
-        double cash=250.0+tier*250.0;
+        int pearls=12+tier*4;
+        int diamonds=4+tier*2;
+        int obsidian=12+tier*4;
+        int heals=7+tier*3;
+        int gunpowder=12+tier*4;
+        double cash=350.0+tier*250.0;
 
-        if(r<1800) {
+        // Premium odds rise by donor tier, but the inherited-rank economy is
+        // deliberately capped: even Platinum keys are mostly progression loot.
+        int fullSetChance = tier==4?70:(tier==3?40:(tier==2?25:15));      // 0.70..0.15%
+        int fireSwordChance = tier==4?250:(tier==3?180:(tier==2?120:80)); // 2.50..0.80%
+        int p2PieceChance = tier==4?600:(tier==3?450:(tier==2?300:200));  // 6.00..2.00%
+        int premiumStart=10000-fullSetChance-fireSwordChance-p2PieceChance;
+
+        if(r>=10000-fullSetChance) {
+            giveFullRareCombatSet(p,donorTierName(tier)+" Donor");
+            return;
+        }
+        if(r>=10000-fullSetChance-fireSwordChance) {
+            item(p,rareSword(),"Sharpness II / Fire I Diamond Sword");
+            plugin.noteSimPremiumReward(p,donorTierName(tier)+" donor S2F1 sword");
+            return;
+        }
+        if(r>=premiumStart) {
+            ItemStack piece=randomProt2Piece(r+tier);
+            item(p,piece,"Protection II "+piece.getType().name().replace('_',' '));
+            plugin.noteSimPremiumReward(p,donorTierName(tier)+" donor P2 piece");
+            return;
+        }
+
+        // Normalize the common roll into the non-premium portion so the common
+        // table stays useful at every donor tier without silently changing odds.
+        int common=(int)Math.floor((r/(double)Math.max(1,premiumStart))*10000.0);
+        if(common<1700) {
             money(p,cash,"$"+((int)cash));
-        } else if(r<3400) {
+        } else if(common<3300) {
             item(p,new ItemStack(Material.ENDER_PEARL,pearls),pearls+" Ender Pearls");
-        } else if(r<4800) {
+        } else if(common<4700) {
             item(p,new ItemStack(Material.DIAMOND,diamonds),diamonds+" Diamonds");
-        } else if(r<6100) {
+        } else if(common<6100) {
             item(p,new ItemStack(Material.OBSIDIAN,obsidian),obsidian+" Obsidian");
-        } else if(r<7300) {
+        } else if(common<7500) {
             for(int i=0;i<heals;i++) p.getInventory().addItem(new ItemStack(Material.POTION,1,(short)16421));
             finishReward(p,heals+" Splash Health II",false);
-        } else if(r<8200) {
+        } else if(common<8600) {
             item(p,new ItemStack(Material.SULPHUR,gunpowder),gunpowder+" Gunpowder");
-        } else if(r<8900) {
-            Material piece=tier>=3?Material.DIAMOND_CHESTPLATE:Material.IRON_CHESTPLATE;
-            item(p,enchanted(piece,2),"Protection II "+piece.name().replace('_',' '));
-        } else if(r<9400) {
-            ItemStack sword=new ItemStack(Material.DIAMOND_SWORD);
-            sword.addUnsafeEnchantment(Enchantment.DAMAGE_ALL,2);
-            sword.addUnsafeEnchantment(Enchantment.DURABILITY,2);
-            item(p,sword,"Sharpness II Diamond Sword");
-        } else if(r<9750 && tier>=3) {
-            Material[] armor={Material.DIAMOND_HELMET,Material.DIAMOND_CHESTPLATE,Material.DIAMOND_LEGGINGS,Material.DIAMOND_BOOTS};
-            ItemStack piece=enchanted(armor[r%armor.length],2);
-            item(p,piece,"Protection II "+piece.getType().name().replace('_',' '));
-        } else if(r<9925) {
+        } else if(common<9300) {
+            item(p,new ItemStack(Material.GLOWSTONE_DUST,8+tier*4),(8+tier*4)+" Glowstone Dust");
+        } else if(common<9750) {
             int next=Math.min(4,tier+1);
             p.getInventory().addItem(keyItem("donor",1,next));
             finishReward(p,donorTierName(next)+" Donor Crate Key",true);
@@ -454,39 +477,65 @@ final class SpawnRewardsDirector implements Listener {
     }
 
     private void giveKothReward(Player p,int r) {
-        if(r<1700) {
+        // KOTH is the primary renewable premium-gear source. Most rolls still
+        // pay progression resources; winning events is what makes P2/S2 gear
+        // meaningfully cluster on successful factions.
+        if(r<1300) {
             item(p,new ItemStack(Material.ENDER_PEARL,16),"16 Ender Pearls");
-        } else if(r<3300) {
+        } else if(r<2600) {
             for(int i=0;i<12;i++) p.getInventory().addItem(new ItemStack(Material.POTION,1,(short)16421));
             finishReward(p,"12 Splash Health II",false);
-        } else if(r<4700) {
-            item(p,new ItemStack(Material.GLOWSTONE_DUST,16),"16 Glowstone Dust");
-        } else if(r<6100) {
-            item(p,new ItemStack(Material.SULPHUR,24),"24 Gunpowder");
-        } else if(r<7200) {
-            item(p,new ItemStack(Material.OBSIDIAN,24),"24 Obsidian");
-        } else if(r<8100) {
-            item(p,new ItemStack(Material.DIAMOND,8),"8 Diamonds");
-        } else if(r<8750) {
+        } else if(r<3800) {
+            item(p,new ItemStack(Material.GLOWSTONE_DUST,20),"20 Glowstone Dust");
+        } else if(r<5000) {
+            item(p,new ItemStack(Material.SULPHUR,28),"28 Gunpowder");
+        } else if(r<6000) {
+            item(p,new ItemStack(Material.OBSIDIAN,32),"32 Obsidian");
+        } else if(r<6800) {
+            item(p,new ItemStack(Material.DIAMOND,12),"12 Diamonds");
+        } else if(r<7400) {
             ItemStack looting=new ItemStack(Material.DIAMOND_SWORD);
             looting.addUnsafeEnchantment(Enchantment.LOOT_BONUS_MOBS,4);
             looting.addUnsafeEnchantment(Enchantment.DURABILITY,3);
             item(p,looting,"Looting IV Event Sword");
-        } else if(r<9300) {
+        } else if(r<7900) {
             ItemStack fortune=new ItemStack(Material.DIAMOND_PICKAXE);
             fortune.addUnsafeEnchantment(Enchantment.LOOT_BONUS_BLOCKS,4);
             fortune.addUnsafeEnchantment(Enchantment.DURABILITY,3);
             item(p,fortune,"Fortune IV Event Pickaxe");
-        } else if(r<9750) {
-            Material[] armor={Material.DIAMOND_HELMET,Material.DIAMOND_CHESTPLATE,Material.DIAMOND_LEGGINGS,Material.DIAMOND_BOOTS};
-            ItemStack piece=enchanted(armor[r%armor.length],2);
+        } else if(r<9300) {
+            ItemStack piece=randomProt2Piece(r);
             item(p,piece,"Protection II "+piece.getType().name().replace('_',' '));
+            plugin.noteSimPremiumReward(p,"KOTH P2 piece");
+        } else if(r<9850) {
+            item(p,rareSword(),"Sharpness II / Fire I KOTH Sword");
+            plugin.noteSimPremiumReward(p,"KOTH S2F1 sword");
         } else {
-            ItemStack sword=new ItemStack(Material.DIAMOND_SWORD);
-            sword.addUnsafeEnchantment(Enchantment.DAMAGE_ALL,2);
-            sword.addUnsafeEnchantment(Enchantment.DURABILITY,3);
-            item(p,sword,"Sharpness II Event Sword");
+            giveFullRareCombatSet(p,"KOTH");
         }
+    }
+
+    private ItemStack randomProt2Piece(int seed) {
+        Material[] armor={Material.DIAMOND_HELMET,Material.DIAMOND_CHESTPLATE,Material.DIAMOND_LEGGINGS,Material.DIAMOND_BOOTS};
+        return enchanted(armor[Math.abs(seed)%armor.length],2);
+    }
+
+    private ItemStack rareSword() {
+        ItemStack sword=new ItemStack(Material.DIAMOND_SWORD);
+        sword.addUnsafeEnchantment(Enchantment.DAMAGE_ALL,2);
+        sword.addUnsafeEnchantment(Enchantment.FIRE_ASPECT,1);
+        sword.addUnsafeEnchantment(Enchantment.DURABILITY,3);
+        return sword;
+    }
+
+    private void giveFullRareCombatSet(Player p,String source) {
+        p.getInventory().addItem(enchanted(Material.DIAMOND_HELMET,2));
+        p.getInventory().addItem(enchanted(Material.DIAMOND_CHESTPLATE,2));
+        p.getInventory().addItem(enchanted(Material.DIAMOND_LEGGINGS,2));
+        p.getInventory().addItem(enchanted(Material.DIAMOND_BOOTS,2));
+        p.getInventory().addItem(rareSword());
+        finishReward(p,"FULL "+source+" P2 SET + S2/FIRE I SWORD",true);
+        plugin.noteSimPremiumReward(p,source+" full P2/S2F1 set");
     }
 
     private ItemStack enchanted(Material m,int prot) {
@@ -520,18 +569,19 @@ final class SpawnRewardsDirector implements Listener {
         if("koth".equalsIgnoreCase(type)) {
             p.sendMessage(EraCore.colorText("&6--- KOTH Crate ---"));
             p.sendMessage(EraCore.colorText("&fPearls, Healing II, glowstone, gunpowder, obsidian and diamonds."));
-            p.sendMessage(EraCore.colorText("&eRare: &fLooting IV / Fortune IV event tools, P2 diamond pieces, Sharp II event sword."));
-            p.sendMessage(EraCore.colorText("&7Event rewards never exceed the P2 / Sharp II PvP ceiling."));
+            p.sendMessage(EraCore.colorText("&eRare: &fP2 diamond pieces and Sharp II / Fire I swords."));
+            p.sendMessage(EraCore.colorText("&6Jackpot: &fa full P2 KOTH set + S2/Fire I sword."));
+            p.sendMessage(EraCore.colorText("&7Baseline PvP remains Protection I / Sharpness I."));
         } else if("donor".equalsIgnoreCase(type)) {
             p.sendMessage(EraCore.colorText("&6--- Donor Ender Chest ---"));
             p.sendMessage(EraCore.colorText("&aBasic &7< &fSilver &7< &6Gold &7< &bPlatinum"));
-            p.sendMessage(EraCore.colorText("&7Higher-tier keys increase quantities and improve P2/S2 reward chances."));
+            p.sendMessage(EraCore.colorText("&7Higher tiers improve progression quantities and carefully raise P2/S2F1 jackpot odds."));
             p.sendMessage(EraCore.colorText("&7No Speed II or Fire Resistance bottles; Speed II is permanent."));
         } else {
             p.sendMessage(EraCore.colorText("&e--- Vote Chest ---"));
             p.sendMessage(EraCore.colorText("&f$250 &724%  &f8 Pearls &718%  &f16 Iron &715%  &f12 Obsidian &712%"));
             p.sendMessage(EraCore.colorText("&f4 Diamonds &710%  &f6 Heals &78%  &f16 Wart &75%  &f8 Glowstone &74%"));
-            p.sendMessage(EraCore.colorText("&fSharp I Diamond &72.5%  &fVIP donor key/rank upgrade &7rare"));
+            p.sendMessage(EraCore.colorText("&7Useful progression every roll; P2/S2F1 and a full set are extremely rare jackpots."));
         }
     }
 

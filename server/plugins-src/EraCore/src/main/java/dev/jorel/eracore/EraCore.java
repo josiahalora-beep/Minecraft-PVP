@@ -164,12 +164,14 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     @Override public void onEnable() {
         saveDefaultConfig();
+        ensureRuntimeConfigReadable();
 
         migrateDirectorIntelligenceConfig();
         migrateDistributedWorkerConfig();
         migrateLivingWorldConfig();
         migrateStartupPerformanceConfig();
         migrateProductionUnificationConfig();
+        consumeSeasonResetReceipt();
         initFiles();
         initShops();
         loadFactions();
@@ -293,6 +295,78 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (simWorld != null) simWorld.stop();
         saveAll();
         if (metricsTask != -1) Bukkit.getScheduler().cancelTask(metricsTask);
+    }
+
+    private void ensureRuntimeConfigReadable() {
+        File configFile=new File(getDataFolder(),"config.yml");
+        if(!configFile.isFile()) return;
+
+        try {
+            YamlConfiguration probe=new YamlConfiguration();
+            probe.load(configFile);
+            reloadConfig();
+            return;
+        } catch(Throwable bad) {
+            File backup=new File(getDataFolder(),
+                "config.yml.corrupt-"+System.currentTimeMillis());
+            boolean moved=configFile.renameTo(backup);
+            if(!moved) {
+                try {
+                    copyFileBytes(configFile,backup);
+                    if(!configFile.delete())
+                        getLogger().warning("Could not delete unreadable runtime config after backup.");
+                } catch(IOException io) {
+                    throw new RuntimeException("Could not back up unreadable config.yml",io);
+                }
+            }
+
+            saveResource("config.yml",true);
+            reloadConfig();
+            getLogger().warning("Recovered unreadable config.yml from the canonical plugin default.");
+            getLogger().warning("Corrupt copy preserved at "+backup.getAbsolutePath());
+        }
+    }
+
+    private void copyFileBytes(File source,File destination) throws IOException {
+        InputStream in=null;
+        OutputStream out=null;
+        try {
+            in=new FileInputStream(source);
+            out=new FileOutputStream(destination);
+            byte[] buffer=new byte[8192];
+            int read;
+            while((read=in.read(buffer))>=0) {
+                if(read>0) out.write(buffer,0,read);
+            }
+        } finally {
+            if(in!=null) try { in.close(); } catch(IOException ignored) {}
+            if(out!=null) try { out.close(); } catch(IOException ignored) {}
+        }
+    }
+
+    private void consumeSeasonResetReceipt() {
+        File receipt=new File(getDataFolder(),"season-reset.applied");
+        if(!receipt.isFile()) return;
+
+        // PowerShell owns destructive filesystem reset work. EraCore owns YAML.
+        // Consuming the receipt here avoids brittle text/regex editing of
+        // config.yml before Bukkit has parsed it.
+        getConfig().set("map.auto-bootstrap",true);
+        getConfig().set("map.complete",false);
+        getConfig().set("map.structures-complete",false);
+        getConfig().set("world-build.active",true);
+        getConfig().set("world-build.complete",false);
+        getConfig().set("world-build.resources-complete",false);
+        getConfig().set("world-build.last-stage","RESET_REQUESTED");
+        saveConfig();
+
+        File consumed=new File(getDataFolder(),
+            "season-reset.consumed-"+System.currentTimeMillis());
+        if(!receipt.renameTo(consumed)) {
+            if(!receipt.delete())
+                getLogger().warning("Could not retire season-reset.applied; build flags were still persisted.");
+        }
+        getLogger().info("[SOTW] Consumed reset receipt; staged production build requested.");
     }
 
     private void migrateDirectorIntelligenceConfig() {

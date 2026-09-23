@@ -117,14 +117,15 @@ final class HcfBaseBuilder {
         completed.remove("surface:"+k);
         maintenanceRebuild=true;
 
-        // Queue-only recovery path: never scan remote terrain synchronously.
-        // Original base-site selection already required low relief, so a fixed
-        // six-block support slab is enough to seal shallow holes without
-        // getHighestBlockYAt() sweeps.
+        // Queue-only recovery path: never scan/generate the full remote claim.
+        // Only the visible upper base receives the guaranteed flat support apron.
+        // The outer work/claim radius is deliberately left on the global low-relief
+        // HCF terrain so lazy materialization cannot create giant square plateaus.
         clearBrokenBaseVolumes(world,plan);
-        int pad=plan.surfacePadRadius();
-        for(int x=plan.cx-pad;x<=plan.cx+pad;x++) {
-            for(int z=plan.cz-pad;z<=plan.cz+pad;z++) {
+        int flatX=plan.surfaceHalfX+6;
+        int flatZ=plan.surfaceHalfZ+6;
+        for(int x=plan.cx-flatX;x<=plan.cx+flatX;x++) {
+            for(int z=plan.cz-flatZ;z<=plan.cz+flatZ;z++) {
                 for(int yy=Math.max(2,plan.surfaceY-6);yy<plan.surfaceY;yy++) {
                     Material m=yy>=plan.surfaceY-3?Material.DIRT:Material.STONE;
                     queue.add(new Op(world,x,yy,z,m));
@@ -132,6 +133,7 @@ final class HcfBaseBuilder {
                 queue.add(new Op(world,x,plan.surfaceY,z,Material.GRASS));
             }
         }
+        auditPlan(plan);
 
         buildSurfaceShell(world,plan,true);
         buildUndergroundCore(world,plan);
@@ -1600,8 +1602,8 @@ final class HcfBaseBuilder {
 
         // Exact lane coordinates intentionally match HcfAutoBrewerDirector:
         // stand=(centerX, floorY+2, centerZ-5+lane*2).
-        // Four HEAL lanes dominate; the final two are lower-demand speed lanes.
-        String[] labels={"Heal II 1","Heal II 2","Heal II 3","Heal II 4","Speed II 1","Speed II 2"};
+        // Permanent Speed II means every physical lane is useful Heal II capacity.
+        String[] labels={"Heal II 1","Heal II 2","Heal II 3","Heal II 4","Heal II 5","Heal II 6"};
         int lanes=6;
         for(int i=0;i<lanes;i++) {
             int z=cz-5+i*2;
@@ -2112,7 +2114,7 @@ final class HcfBaseBuilder {
 
         doorwayX(w,rx-halfX,y,rz);
 
-        String[] labels={"Heal A","Heal B","Heal C","Heal D","Speed II","Fire Res"};
+        String[] labels={"Heal II A","Heal II B","Heal II C","Heal II D","Heal II E","Heal II F"};
         for(int i=0;i<6;i++) {
             int x=rx;
             int z=rz-5+i*2;

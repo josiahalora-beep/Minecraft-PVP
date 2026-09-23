@@ -10,6 +10,7 @@ import org.bukkit.event.*;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.scheduler.BukkitTask;
 
 import java.io.File;
 import java.io.IOException;
@@ -32,6 +33,8 @@ final class SpawnRewardsDirector implements Listener {
 
     private Location voteCrate;
     private Location donorCrate;
+    private Location kothCrate;
+    private BukkitTask readinessTask;
 
     SpawnRewardsDirector(EraCore plugin,WarpManager warps) {
         this.plugin=plugin;
@@ -44,37 +47,73 @@ final class SpawnRewardsDirector implements Listener {
         if(!plugin.getConfig().getBoolean("rewards.enabled",true)) return;
 
         if(plugin.getConfig().getBoolean("spawn.external-schematic",false)) {
-            // Never carve a crate court into a purchased/pasted schematic.
-            // The owner marks the two real blocks once after paste.
-            voteCrate=readExternalCrate("vote");
-            donorCrate=readExternalCrate("donor");
-            plugin.getLogger().info("External spawn mode: crate marks vote="+locText(voteCrate)+
-                " donor="+locText(donorCrate));
+            // Kraken is authoritative. Wait for the production build and then
+            // place only the three functional interaction blocks—no court,
+            // frames, beacon, signs or other geometry.
+            if(!plugin.productionWorldReady()) {
+                if(readinessTask==null) {
+                    readinessTask=Bukkit.getScheduler().runTaskTimer(plugin,new Runnable() {
+                        public void run() {
+                            if(!plugin.productionWorldReady()) return;
+                            readinessTask.cancel();
+                            readinessTask=null;
+                            configureKrakenCrates();
+                        }
+                    },20L,20L);
+                }
+                return;
+            }
+            configureKrakenCrates();
             return;
         }
 
         buildSpawnCrates();
-
-        Bukkit.getScheduler().runTaskLater(plugin,new Runnable() {
-            public void run(){ buildSpawnCrates(); }
-        },420L);
-        Bukkit.getScheduler().runTaskLater(plugin,new Runnable() {
-            public void run(){ buildSpawnCrates(); }
-        },760L);
     }
 
     void stop() {
+        if(readinessTask!=null) readinessTask.cancel();
+        readinessTask=null;
+        save();
+    }
+
+    private void configureKrakenCrates() {
+        World w=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
+        if(w==null) return;
+        int y=plugin.getConfig().getInt("spawn.crates.y",67);
+        int z=plugin.getConfig().getInt("spawn.crates.z",36);
+        voteCrate=new Location(w,plugin.getConfig().getInt("spawn.crates.vote-x",-8),y,z);
+        donorCrate=new Location(w,plugin.getConfig().getInt("spawn.crates.donor-x",0),y,z);
+        kothCrate=new Location(w,plugin.getConfig().getInt("spawn.crates.koth-x",8),y,z);
+
+        voteCrate.getBlock().setType(Material.CHEST);
+        donorCrate.getBlock().setType(Material.ENDER_CHEST);
+        kothCrate.getBlock().setType(Material.CHEST);
+
+        rememberCrate("vote",voteCrate);
+        rememberCrate("donor",donorCrate);
+        rememberCrate("koth",kothCrate);
+        plugin.getLogger().info("Kraken crate blocks ready: vote="+locText(voteCrate)+
+            " donor="+locText(donorCrate)+" koth="+locText(kothCrate));
+    }
+
+    private void rememberCrate(String type,Location l) {
+        String b="external-crates."+type;
+        data.set(b+".world",l.getWorld().getName());
+        data.set(b+".x",l.getBlockX());
+        data.set(b+".y",l.getBlockY());
+        data.set(b+".z",l.getBlockZ());
         save();
     }
 
     Location crateLocation(String type) {
         if("donor".equalsIgnoreCase(type)) return donorCrate==null?null:donorCrate.clone();
+        if("koth".equalsIgnoreCase(type)) return kothCrate==null?null:kothCrate.clone();
         return voteCrate==null?null:voteCrate.clone();
     }
 
     boolean setExternalCrate(String type,Location location) {
         if(location==null || location.getWorld()==null) return false;
-        String t="donor".equalsIgnoreCase(type)?"donor":"vote";
+        String t="donor".equalsIgnoreCase(type)?"donor":("koth".equalsIgnoreCase(type)?"koth":"vote");
         Location blockLoc=location.getBlock().getLocation();
         String b="external-crates."+t;
         data.set(b+".world",blockLoc.getWorld().getName());
@@ -86,6 +125,9 @@ final class SpawnRewardsDirector implements Listener {
         if("donor".equals(t)) {
             donorCrate=blockLoc;
             donorCrate.getBlock().setType(Material.ENDER_CHEST);
+        } else if("koth".equals(t)) {
+            kothCrate=blockLoc;
+            kothCrate.getBlock().setType(Material.CHEST);
         } else {
             voteCrate=blockLoc;
             voteCrate.getBlock().setType(Material.CHEST);
@@ -106,6 +148,7 @@ final class SpawnRewardsDirector implements Listener {
     }
 
     String keyTypeForPending(String name) {
+        if(plugin.simPendingKeyCount(name,"koth")>0) return "koth";
         if(plugin.simPendingKeyCount(name,"donor")>0) return "donor";
         if(plugin.simPendingKeyCount(name,"vote")>0) return "vote";
         return "";
@@ -118,7 +161,8 @@ final class SpawnRewardsDirector implements Listener {
         org.bukkit.inventory.PlayerInventory inv=p.getInventory();
         int keySlot=findKeySlot(p,type);
         if(keySlot<0) {
-            ItemStack key=keyItem(type,1);
+            int tier="donor".equalsIgnoreCase(type)?Math.max(1,Math.min(4,plugin.publicRankLevel(p.getName()))):0;
+            ItemStack key=keyItem(type,1,tier);
             int hotbar=-1;
             for(int i=0;i<9;i++) {
                 ItemStack item=inv.getItem(i);
@@ -180,7 +224,7 @@ final class SpawnRewardsDirector implements Listener {
         if(now-last<cooldown) return;
 
         int amount=donor>=4?3:(donor==3?2:1);
-        p.getInventory().addItem(keyItem("donor",amount));
+        p.getInventory().addItem(keyItem("donor",amount,donor));
         data.set(k,now);
         save();
         p.sendMessage(EraCore.colorText("&6Donor perk: &f+"+amount+" Donor Crate Key"+(amount==1?"":"s")+"&7. Visit the crates at spawn."));
@@ -203,7 +247,7 @@ final class SpawnRewardsDirector implements Listener {
             return true;
         }
 
-        p.getInventory().addItem(keyItem("vote",1));
+        p.getInventory().addItem(keyItem("vote",1,0));
         data.set(k,now);
         save();
         registerVote(p.getName());
@@ -254,7 +298,7 @@ final class SpawnRewardsDirector implements Listener {
             plugin.rewardVoteParty();
             for(Player online:Bukkit.getOnlinePlayers()) {
                 if(plugin.isBotIdentity(online.getName())) continue;
-                online.getInventory().addItem(keyItem("vote",1));
+                online.getInventory().addItem(keyItem("vote",1,0));
                 try { online.sendTitle(EraCore.colorText("&dVOTE PARTY"),EraCore.colorText("&e+1 Vote Key")); } catch(Throwable ignored) {}
             }
         } else {

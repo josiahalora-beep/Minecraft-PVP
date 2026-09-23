@@ -161,6 +161,21 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     @Override public void onEnable() {
         saveDefaultConfig();
+
+        // A full SOTW reset must be applied before Spigot loads the replacement
+        // worlds. If a custom launcher bypasses server/start-server.bat, refuse
+        // to initialize EraCore instead of silently pasting production builds
+        // over the old map.
+        File pendingReset = new File(getDataFolder(), "season-reset.pending");
+        if (pendingReset.isFile()) {
+            getLogger().severe("SOTW RESET PENDING: the server was started without running Prepare-HCF-Season-Reset.ps1.");
+            getLogger().severe("EraCore will not build over the existing world. Start with server\\start-server.bat.");
+            Bukkit.getScheduler().runTask(this,new Runnable() {
+                public void run(){ Bukkit.shutdown(); }
+            });
+            return;
+        }
+
         migrateDirectorIntelligenceConfig();
         migrateDistributedWorkerConfig();
         migrateLivingWorldConfig();
@@ -642,7 +657,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         ensurePlayerData(p);
         Rank r = bot ? simRankFor(p.getName()) : getRank(p.getName());
         applyCreatorTag(p);
-        p.setPlayerListName(color(identityPrefix(p.getName(), r) + rankNameColor(r) + p.getName()));
+        p.setPlayerListName(color(identityPrefix(p.getName(), r) + rankNameColor(r) + p.getName() + factionSuffix(p.getName())));
         if (bot && logicalTab != null) logicalTab.onPhysicalJoin(p);
         if (!bot && spawnRewards != null) spawnRewards.onHumanJoin(p);
 
@@ -977,7 +992,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (p != null) {
             applyCreatorTag(p);
             p.setPlayerListName(color(identityPrefix(p.getName(), rank) +
-                (rank==Rank.OWNER?"&c":"&f") + p.getName()));
+                rankNameColor(rank) + p.getName() + factionSuffix(p.getName())));
         }
     }
 
@@ -989,15 +1004,16 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     private String identityPrefix(String name, Rank rank) {
-        String creator = isCreatorIdentity(name) ? getConfig().getString("creator-tag.chat-prefix", "&c[Yt]&r ") : "";
+        // Classic HCF presentation: donor entitlement is communicated by the
+        // player's name color, not a loud [Rank] prefix on every chat line.
+        String creator = isCreatorIdentity(name) ? getConfig().getString("creator-tag.chat-prefix", "&c[YT] &r") : "";
         String staff="";
         if(simWorld!=null && simWorld.contains(name)) {
             String role=simWorld.simulatedStaffRole(name);
-            if("ADMIN".equalsIgnoreCase(role)) staff="&c[Admin] ";
-            else if("MOD".equalsIgnoreCase(role)) staff="&2[Mod] ";
+            if("ADMIN".equalsIgnoreCase(role)) staff="&c[Admin] &r";
+            else if("MOD".equalsIgnoreCase(role)) staff="&2[Mod] &r";
         }
-        String rankPrefix = rank.prefix;
-        return staff + creator + rankPrefix + " ";
+        return staff + creator;
     }
 
     boolean isBotIdentity(String name) {
@@ -1069,6 +1085,21 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     void broadcastCommunityEvent(String message) {
         if (!hasHumanOnline()) return;
         Bukkit.broadcastMessage(color(message));
+    }
+
+    void finalizeProductionSpawn() {
+        if(warpManager==null || Bukkit.getWorlds().isEmpty()) return;
+        World world=Bukkit.getWorlds().get(0);
+        int y=getConfig().getInt("world-composer.spawn-anchor-y",66);
+        Location center=new Location(world,0.5,y,0.5,0f,0f);
+
+        // The Kraken schematic's WorldEdit origin is its intended standing
+        // location. Reassert it after the paste so stale/default Y=64 warps can
+        // never strand players below the actual build.
+        warpManager.applyKrakenPreset(center);
+        world.setSpawnLocation(0,y,0);
+        if(hcfZones!=null) hcfZones.syncMainSpawn(center);
+        getLogger().info("[world-build] Kraken spawn finalized at 0.5,"+y+",0.5.");
     }
 
     void sendSimulatedStaffChat(String from,String message) {

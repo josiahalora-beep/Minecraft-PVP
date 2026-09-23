@@ -162,18 +162,20 @@ final class HcfTerrainDirector implements Listener {
 
                 int highest=Math.min(w.getMaxHeight()-1,
                     Math.max(target+cleanup,w.getHighestBlockYAt(x,z)+3));
-                for(int y=target+1;y<=highest;y++)
-                    if(w.getBlockAt(x,y,z).getType()!=Material.AIR)
-                        w.getBlockAt(x,y,z).setType(Material.AIR);
+                for(int y=target+1;y<=highest;y++) {
+                    Block b=w.getBlockAt(x,y,z);
+                    if(b.getType()!=Material.AIR) setNoPhysics(b,Material.AIR);
+                }
 
-                // Seal a stable surface deck. This is intentionally stronger
-                // than vanilla terrain near the top so walkers never step into
-                // exposed cave lips or tiny water holes.
-                w.getBlockAt(x,target,z).setType(top);
+                // Seal a stable surface deck without physics. Structure
+                // composition loads chunks synchronously; allowing 1.8 block
+                // physics here can recursively load neighbors and trip the
+                // watchdog before the compositor gets a chance to paste.
+                setNoPhysics(w.getBlockAt(x,target,z),top);
                 Material fill=top==Material.SAND?Material.SAND:
                     (top==Material.STONE?Material.STONE:Material.DIRT);
                 for(int y=Math.max(2,target-5);y<target;y++)
-                    w.getBlockAt(x,y,z).setType(fill);
+                    setNoPhysics(w.getBlockAt(x,y,z),fill);
             }
         }
 
@@ -299,11 +301,16 @@ final class HcfTerrainDirector implements Listener {
             if(canDecorate(x,z,5)) {
                 int y=w.getHighestBlockYAt(x,z);
                 if(w.getBlockAt(x,Math.max(1,y-1),z).getType()==Material.GRASS) {
-                    w.getBlockAt(x,y,z).setType(r.nextBoolean()?Material.COBBLESTONE:Material.MOSSY_COBBLESTONE);
-                    if(r.nextInt(4)==0) w.getBlockAt(x,y+1,z).setType(Material.COBBLESTONE);
+                    setNoPhysics(w.getBlockAt(x,y,z),r.nextBoolean()?Material.COBBLESTONE:Material.MOSSY_COBBLESTONE);
+                    if(r.nextInt(4)==0) setNoPhysics(w.getBlockAt(x,y+1,z),Material.COBBLESTONE);
                 }
             }
         }
+    }
+
+    private void setNoPhysics(Block block,Material material) {
+        if(block==null || material==null) return;
+        block.setTypeIdAndData(material.getId(),(byte)0,false);
     }
 
     private boolean canDecorate(int x,int z,int margin) {
@@ -333,7 +340,7 @@ final class HcfTerrainDirector implements Listener {
 
     private void buildHighCanopyTree(World w,int x,int y,int z,Random r) {
         int trunk=5+r.nextInt(3);
-        for(int i=0;i<trunk;i++) w.getBlockAt(x,y+i,z).setType(Material.LOG);
+        for(int i=0;i<trunk;i++) setNoPhysics(w.getBlockAt(x,y+i,z),Material.LOG);
 
         int cy=y+trunk-1;
         for(int dy=-1;dy<=2;dy++) {
@@ -343,7 +350,7 @@ final class HcfTerrainDirector implements Listener {
                     if(dx==0 && dz==0 && dy<=0) continue;
                     if(Math.abs(dx)==radius && Math.abs(dz)==radius && r.nextBoolean()) continue;
                     Block b=w.getBlockAt(x+dx,cy+dy,z+dz);
-                    if(b.getType()==Material.AIR) b.setType(Material.LEAVES);
+                    if(b.getType()==Material.AIR) setNoPhysics(b,Material.LEAVES);
                 }
             }
         }

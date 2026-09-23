@@ -58,9 +58,12 @@ final class HcfMapDirector implements Listener {
 
     void start() {
         plugin.getServer().getPluginManager().registerEvents(this,plugin);
-        ensureOreMountainWorld();
         rebuildRegistry();
-        bootstrapWarps();
+        if(plugin.getConfig().getBoolean("world-build.complete",false) ||
+           plugin.getConfig().getBoolean("map.complete",false)) {
+            ensureOreMountainWorldNow();
+            bootstrapWarps();
+        }
         if(plugin.getConfig().getBoolean("map-layout.build-visible-borders",false)) {
             new BukkitRunnable() {
                 public void run(){ buildVisibleBorders(); }
@@ -74,7 +77,7 @@ final class HcfMapDirector implements Listener {
 
     void rebuildRegistry() {
         regions.clear();
-        int kothOffset=plugin.getConfig().getInt("map-layout.koth-offset",650);
+        int kothOffset=plugin.getConfig().getInt("map-layout.koth-offset",500);
         int kothRadius=plugin.getConfig().getInt("map-layout.koth-radius",165);
         int portalOffset=plugin.getConfig().getInt("map-layout.portal-offset",1000);
         int portalRadius=plugin.getConfig().getInt("map-layout.portal-radius",125);
@@ -280,14 +283,15 @@ final class HcfMapDirector implements Listener {
         return true;
     }
 
-    private void ensureOreMountainWorld() {
-        if(!plugin.getConfig().getBoolean("resources.ore-mountain.enabled",true)) return;
+    World ensureOreMountainWorldNow() {
+        if(!plugin.getConfig().getBoolean("resources.ore-mountain.enabled",true)) return null;
         String name=plugin.getConfig().getString("map-layout.ore-world","ore_mountain");
         World w=Bukkit.getWorld(name);
         if(w==null) {
             try {
                 WorldCreator creator=new WorldCreator(name);
                 creator.environment(World.Environment.NORMAL);
+                creator.type(WorldType.FLAT);
                 creator.generateStructures(false);
                 w=creator.createWorld();
             } catch(Throwable t) {
@@ -301,6 +305,7 @@ final class HcfMapDirector implements Listener {
                 w.getWorldBorder().setSize(size);
             } catch(Throwable ignored){}
         }
+        return w;
     }
 
     void bootstrapWarps() {

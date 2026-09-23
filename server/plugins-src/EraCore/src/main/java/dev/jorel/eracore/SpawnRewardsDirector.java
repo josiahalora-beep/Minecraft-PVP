@@ -506,20 +506,49 @@ final class SpawnRewardsDirector implements Listener {
     }
 
     private ItemStack keyItem(String type,int amount) {
+        return keyItem(type,amount,"donor".equalsIgnoreCase(type)?1:0);
+    }
+
+    private ItemStack keyItem(String type,int amount,int donorTier) {
         boolean donor="donor".equalsIgnoreCase(type);
-        ItemStack item=new ItemStack(donor?Material.BLAZE_ROD:Material.TRIPWIRE_HOOK,amount);
+        boolean koth="koth".equalsIgnoreCase(type);
+        Material material=donor?Material.BLAZE_ROD:(koth?Material.NETHER_STAR:Material.TRIPWIRE_HOOK);
+        ItemStack item=new ItemStack(material,amount);
         ItemMeta meta=item.getItemMeta();
-        meta.setDisplayName(EraCore.colorText(donor?"&6Donor Crate Key":"&eVote Crate Key"));
+
+        if(donor) {
+            int tier=Math.max(1,Math.min(4,donorTier));
+            String color=tier==4?"&b":(tier==3?"&6":(tier==2?"&f":"&a"));
+            meta.setDisplayName(EraCore.colorText(color+donorTierName(tier)+" Donor Crate Key"));
+        } else if(koth) {
+            meta.setDisplayName(EraCore.colorText("&6KOTH Crate Key"));
+        } else {
+            meta.setDisplayName(EraCore.colorText("&eVote Crate Key"));
+        }
+
         List<String> lore=new ArrayList<String>();
-        lore.add(EraCore.colorText("&7Redeem at the spawn "+(donor?"Donor":"Vote")+" Crate."));
-        lore.add(EraCore.colorText("&8Era HCF reward key"));
+        lore.add(EraCore.colorText("&7Redeem at the spawn "+prettyType(type)+" block."));
+        lore.add(EraCore.colorText("&8Daegon HCF reward key"));
         meta.setLore(lore);
         item.setItemMeta(meta);
         return item;
     }
 
+    private String donorTierName(int tier) {
+        if(tier>=4) return "Platinum";
+        if(tier==3) return "Pro";
+        if(tier==2) return "MVP";
+        return "VIP";
+    }
+
+    private Material keyMaterial(String type) {
+        if("donor".equalsIgnoreCase(type)) return Material.BLAZE_ROD;
+        if("koth".equalsIgnoreCase(type)) return Material.NETHER_STAR;
+        return Material.TRIPWIRE_HOOK;
+    }
+
     private boolean hasKey(Player p,String type) {
-        Material mat="donor".equalsIgnoreCase(type)?Material.BLAZE_ROD:Material.TRIPWIRE_HOOK;
+        Material mat=keyMaterial(type);
         for(ItemStack item:p.getInventory().getContents()) {
             if(item!=null && item.getType()==mat && isKeyItem(item,type)) return true;
         }
@@ -528,35 +557,73 @@ final class SpawnRewardsDirector implements Listener {
 
     private int countKeys(Player p,String type) {
         int total=0;
-        Material mat="donor".equalsIgnoreCase(type)?Material.BLAZE_ROD:Material.TRIPWIRE_HOOK;
+        Material mat=keyMaterial(type);
         for(ItemStack item:p.getInventory().getContents()) {
             if(item!=null && item.getType()==mat && isKeyItem(item,type)) total+=item.getAmount();
         }
         return total;
     }
 
+    private int countDonorTierKeys(Player p,int tier) {
+        int total=0;
+        for(ItemStack item:p.getInventory().getContents()) {
+            if(item!=null && item.getType()==Material.BLAZE_ROD && donorKeyTier(item)==tier)
+                total+=item.getAmount();
+        }
+        return total;
+    }
+
+    private int highestDonorKeyTier(Player p) {
+        int best=0;
+        for(ItemStack item:p.getInventory().getContents()) {
+            if(item==null || item.getType()!=Material.BLAZE_ROD) continue;
+            best=Math.max(best,donorKeyTier(item));
+        }
+        return best;
+    }
+
+    private int donorKeyTier(ItemStack item) {
+        if(item==null || !item.hasItemMeta() || !item.getItemMeta().hasDisplayName()) return 0;
+        String name=ChatColor.stripColor(item.getItemMeta().getDisplayName()).toLowerCase(Locale.ENGLISH);
+        if(!name.contains("donor crate key")) return 0;
+        if(name.contains("platinum")) return 4;
+        if(name.contains("pro")) return 3;
+        if(name.contains("mvp")) return 2;
+        return 1;
+    }
+
     private boolean consumeKey(Player p,String type) {
-        Material mat="donor".equalsIgnoreCase(type)?Material.BLAZE_ROD:Material.TRIPWIRE_HOOK;
+        Material mat=keyMaterial(type);
         ItemStack[] contents=p.getInventory().getContents();
+        int selected=-1;
+        int bestTier=-1;
         for(int i=0;i<contents.length;i++) {
             ItemStack item=contents[i];
             if(item==null || item.getType()!=mat || !isKeyItem(item,type)) continue;
-            if(item.getAmount()<=1) p.getInventory().setItem(i,null);
-            else { item.setAmount(item.getAmount()-1); p.getInventory().setItem(i,item); }
-            p.updateInventory();
-            return true;
+            int tier="donor".equalsIgnoreCase(type)?donorKeyTier(item):0;
+            if(selected<0 || tier>bestTier) {selected=i;bestTier=tier;}
         }
-        return false;
+        if(selected<0) return false;
+
+        ItemStack item=contents[selected];
+        if(item.getAmount()<=1) p.getInventory().setItem(selected,null);
+        else { item.setAmount(item.getAmount()-1); p.getInventory().setItem(selected,item); }
+        p.updateInventory();
+        return true;
     }
 
     private boolean isKeyItem(ItemStack item,String type) {
         if(item==null || !item.hasItemMeta() || !item.getItemMeta().hasDisplayName()) return false;
         String name=ChatColor.stripColor(item.getItemMeta().getDisplayName()).toLowerCase(Locale.ENGLISH);
-        return "donor".equalsIgnoreCase(type)?name.contains("donor crate key"):name.contains("vote crate key");
+        if("donor".equalsIgnoreCase(type)) return name.contains("donor crate key");
+        if("koth".equalsIgnoreCase(type)) return name.contains("koth crate key");
+        return name.contains("vote crate key");
     }
 
     private String prettyType(String type) {
-        return "donor".equalsIgnoreCase(type)?"Donor":"Vote";
+        if("donor".equalsIgnoreCase(type)) return "Donor Ender Chest";
+        if("koth".equalsIgnoreCase(type)) return "KOTH Chest";
+        return "Vote Chest";
     }
 
     private boolean sameBlock(Location a,Location b) {

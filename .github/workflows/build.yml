@@ -26,7 +26,9 @@ jobs:
         run: |
           foreach ($script in @(
             './Apply-HCF-Community-Intelligence.ps1',
-            './Apply-HCF-Base-Intelligence-V1.ps1'
+            './Apply-HCF-Base-Intelligence-V1.ps1',
+            './Apply-HCF-Production-Unification-V2.ps1',
+            './server/Prepare-HCF-Season-Reset.ps1'
           )) {
             $tokens = $null
             $errors = $null

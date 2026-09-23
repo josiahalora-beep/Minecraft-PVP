@@ -375,6 +375,13 @@ map-layout:
   show-claim-border: true
 
 events:
+  auto-schedule:
+    enabled: true
+    minimum-logical-online: 20
+    min-gap-minutes: 35
+    max-gap-minutes: 70
+    warning-minutes: 5
+    max-active-minutes: 25
   koth-capture-seconds: 180
   koth-capture-radius: 8.0
   koth-announce-every-seconds: 30

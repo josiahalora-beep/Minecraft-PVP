@@ -572,7 +572,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     private void migrateProductionUnificationConfig() {
         int version=getConfig().getInt("migration.production-unification-version",0);
-        if(version>=4) return;
+        if(version>=5) return;
 
         // Canonical v7 map geometry.
         getConfig().set("map-layout.koth-offset",500);
@@ -594,9 +594,9 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             getConfig().getBoolean("map.complete",false));
         if(!getConfig().contains("world-build.resources-complete")) getConfig().set("world-build.resources-complete",
             getConfig().getBoolean("map.complete",false));
-        getConfig().set("world-build.max-p95-mspt",20.0);
+        getConfig().set("world-build.max-p95-mspt",32.0);
         if(!getConfig().contains("world-build.archive-directory")) getConfig().set("world-build.archive-directory","");
-        getConfig().set("world-composer.blocks-per-tick",160);
+        getConfig().set("world-composer.blocks-per-tick",320);
         getConfig().set("resources.blocks-per-tick",110);
         getConfig().set("resources.bootstrap-spawners",false);
         getConfig().set("resources.ore-mountain.enabled",true);
@@ -652,9 +652,9 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         getConfig().set("worker-pool.creator-bodies",Arrays.asList(
             "Stimpy","PainfulPvP","lolitsalex","Skimpy"));
 
-        getConfig().set("migration.production-unification-version",4);
+        getConfig().set("migration.production-unification-version",5);
         saveConfig();
-        getLogger().info("Applied production unification v4: physical HCF travel, faction-prefix chat, permanent Speed II, SOTW economy rush and faster staged production builds.");
+        getLogger().info("Applied production unification v5: physical HCF travel, permanent Speed II, SOTW economy rush and scan/write-aware staged production builds.");
     }
 
     private void bindCommands() {

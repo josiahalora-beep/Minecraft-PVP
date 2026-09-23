@@ -5897,7 +5897,7 @@ final class SimWorldDirector {
 
         boolean large=f.members.size()>=4 || f.powerFaction;
         boolean fastFaction=large || hasExperiencedOrDonor(f);
-        if(sotwProtectionActive()) fundSotwEssentials(f,900.0);
+        if(sotwProtectionActive()) fundSotwEssentials(f,1200.0);
 
         // With player warp commands gone, a private Nether portal is normal base
         // infrastructure rather than an end-game luxury.

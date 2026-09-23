@@ -48,19 +48,27 @@ rewards:
     sharp1-diamond: 2.5
     donor-key: 1.2
     rank-upgrade: 0.3
+  # Donor keys share one physical Ender Chest. Basic/Silver/Gold/Platinum
+  # scale quantities and P2/S2 chances; the live Java table is tier-aware.
   donor-odds:
-    money-750: 20.0
-    pearls-16: 18.0
-    diamonds-8: 15.0
-    obsidian-16: 12.0
-    heals-12: 12.0
-    speed-4: 8.0
-    p2-iron-set: 6.0
-    sharp2-diamond: 4.0
-    vote-keys-2: 3.0
-    p2-diamond-chest: 1.0
-    bonus-donor-key: 0.5
-    rank-upgrade: 0.5
+    cash-or-materials: 61.0
+    heals: 12.0
+    gunpowder: 9.0
+    p2-piece: 7.0
+    sharp2-diamond: 5.0
+    higher-tier-key: 4.25
+    rank-upgrade-or-koth-key: 1.75
+  koth-odds:
+    pearls: 17.0
+    heals: 16.0
+    glowstone: 14.0
+    gunpowder: 14.0
+    obsidian: 11.0
+    diamonds: 9.0
+    looting4-event-sword: 6.5
+    fortune4-event-pick: 5.5
+    p2-diamond-piece: 4.5
+    sharp2-event-sword: 2.5
 
 pvp:
   pearl-cooldown-seconds: 16

@@ -265,8 +265,8 @@ final class SpawnRewardsDirector implements Listener {
         p.sendMessage(EraCore.colorText("&6--- Crate Keys ---"));
         p.sendMessage(EraCore.colorText("&eVote: &f"+vote+(simVote>0?" &7("+simVote+" pending)":"")));
         p.sendMessage(EraCore.colorText("&6KOTH: &f"+koth+(simKoth>0?" &7("+simKoth+" pending)":"")));
-        p.sendMessage(EraCore.colorText("&aVIP: &f"+countDonorTierKeys(p,1)+"  &fMVP: &f"+countDonorTierKeys(p,2)+
-            "  &6Pro: &f"+countDonorTierKeys(p,3)+"  &bPlatinum: &f"+countDonorTierKeys(p,4)+
+        p.sendMessage(EraCore.colorText("&aBasic: &f"+countDonorTierKeys(p,1)+"  &7Silver: &f"+countDonorTierKeys(p,2)+
+            "  &6Gold: &f"+countDonorTierKeys(p,3)+"  &bPlatinum: &f"+countDonorTierKeys(p,4)+
             (simDonor>0?" &7("+simDonor+" donor pending)":"")));
         p.sendMessage(EraCore.colorText("&7/vote odds &8| &7/crates"));
         return true;
@@ -282,7 +282,7 @@ final class SpawnRewardsDirector implements Listener {
         p.sendMessage(EraCore.colorText("&6Spawn Crates"));
         p.sendMessage(EraCore.colorText("&eVote Chest &7- voting and vote parties"));
         p.sendMessage(EraCore.colorText("&6KOTH Chest &7- event capture keys"));
-        p.sendMessage(EraCore.colorText("&bDonor Ender Chest &7- VIP / MVP / Pro / Platinum keys"));
+        p.sendMessage(EraCore.colorText("&bDonor Ender Chest &7- Basic / Silver / Gold / Platinum keys"));
         p.sendMessage(EraCore.colorText("&7All three are plain interaction blocks built into Kraken spawn."));
         return true;
     }
@@ -504,7 +504,7 @@ final class SpawnRewardsDirector implements Listener {
             p.sendMessage(EraCore.colorText("&7Event rewards never exceed the P2 / Sharp II PvP ceiling."));
         } else if("donor".equalsIgnoreCase(type)) {
             p.sendMessage(EraCore.colorText("&6--- Donor Ender Chest ---"));
-            p.sendMessage(EraCore.colorText("&aVIP &7< &fMVP &7< &6Pro &7< &bPlatinum"));
+            p.sendMessage(EraCore.colorText("&aBasic &7< &fSilver &7< &6Gold &7< &bPlatinum"));
             p.sendMessage(EraCore.colorText("&7Higher-tier keys increase quantities and improve P2/S2 reward chances."));
             p.sendMessage(EraCore.colorText("&7No Speed II or Fire Resistance bottles; Speed II is permanent."));
         } else {
@@ -546,9 +546,9 @@ final class SpawnRewardsDirector implements Listener {
 
     private String donorTierName(int tier) {
         if(tier>=4) return "Platinum";
-        if(tier==3) return "Pro";
-        if(tier==2) return "MVP";
-        return "VIP";
+        if(tier==3) return "Gold";
+        if(tier==2) return "Silver";
+        return "Basic";
     }
 
     private Material keyMaterial(String type) {
@@ -597,8 +597,8 @@ final class SpawnRewardsDirector implements Listener {
         String name=ChatColor.stripColor(item.getItemMeta().getDisplayName()).toLowerCase(Locale.ENGLISH);
         if(!name.contains("donor crate key")) return 0;
         if(name.contains("platinum")) return 4;
-        if(name.contains("pro")) return 3;
-        if(name.contains("mvp")) return 2;
+        if(name.contains("gold")) return 3;
+        if(name.contains("silver")) return 2;
         return 1;
     }
 

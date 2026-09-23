@@ -2498,8 +2498,8 @@ final class SimWorldDirector {
 
     private String depositSoloLoot(Player body,SimPlayer p) {
         org.bukkit.inventory.PlayerInventory inv=body.getInventory();
-        int pearls=0,heals=0,speeds=0,fires=0,iron=0,obby=0,diamonds=0,cane=0,cactus=0;
-        int keptPearls=0,keptHeals=0,keptSpeeds=0,keptFires=0;
+        int pearls=0,heals=0,iron=0,obby=0,diamonds=0,cane=0,cactus=0;
+        int keptPearls=0,keptHeals=0;
 
         for(int slot=0;slot<36;slot++) {
             org.bukkit.inventory.ItemStack item=inv.getItem(slot);
@@ -2521,18 +2521,12 @@ final class SimWorldDirector {
                 keptHeals+=retained;
                 take=amount-retained;
                 stockKey="healthpot";
-            } else if(m==Material.POTION && item.getDurability()==(short)8226) {
-                int keep=Math.max(0,1-keptSpeeds);
-                int retained=Math.min(keep,amount);
-                keptSpeeds+=retained;
-                take=amount-retained;
-                stockKey="speedpot";
-            } else if(m==Material.POTION && item.getDurability()==(short)8259) {
-                int keep=Math.max(0,1-keptFires);
-                int retained=Math.min(keep,amount);
-                keptFires+=retained;
-                take=amount-retained;
-                stockKey="fireres";
+            } else if(m==Material.POTION &&
+                     (item.getDurability()==(short)8226 || item.getDurability()==(short)8259)) {
+                // Legacy Speed II / Fire Resistance bottles are invalid on this
+                // map generation. Remove them instead of banking or valuing them.
+                inv.setItem(slot,null);
+                continue;
             } else if(m==Material.IRON_INGOT || m==Material.IRON_ORE) {
                 take=amount; stockKey="iron";
             } else if(m==Material.OBSIDIAN) {
@@ -2557,8 +2551,6 @@ final class SimWorldDirector {
 
             if("pearl".equals(stockKey)) pearls+=take;
             else if("healthpot".equals(stockKey)) heals+=take;
-            else if("speedpot".equals(stockKey)) speeds+=take;
-            else if("fireres".equals(stockKey)) fires+=take;
             else if("iron".equals(stockKey)) iron+=take;
             else if("obsidian".equals(stockKey)) obby+=take;
             else if("diamond".equals(stockKey)) diamonds+=take;
@@ -2567,12 +2559,12 @@ final class SimWorldDirector {
         }
 
         body.updateInventory();
-        int value=pearls*150+heals*90+speeds*70+fires*80+iron*10+obby*22+diamonds*55+cane*3+cactus*2;
+        int value=pearls*150+heals*90+iron*10+obby*22+diamonds*55+cane*3+cactus*2;
         if(value>0) {
             p.reputation=Math.min(999,p.reputation+Math.min(3,1+value/1200));
             save();
         }
-        return "solo-bank pearls="+pearls+" heals="+heals+" speed="+speeds+" fire="+fires+
+        return "solo-bank pearls="+pearls+" heals="+heals+
             " iron="+iron+" obby="+obby+" diamond="+diamonds+" cane="+cane+" cactus="+cactus;
     }
 
@@ -2638,8 +2630,13 @@ final class SimWorldDirector {
                     continue;
                 }
                 stash=true;
+            } else if(m==Material.POTION &&
+                     (item.getDurability()==(short)8226 || item.getDurability()==(short)8259)) {
+                // Purge obsolete Speed II / Fire Resistance bottles from old
+                // inventories instead of preserving them in shared storage.
+                inv.setItem(slot,null);
+                continue;
             } else if(m==Material.POTION) {
-                // Spare speed/fire/utility pots are faction stock after the first few slots.
                 stash=true;
             } else if(m==Material.DIAMOND || m==Material.DIAMOND_ORE ||
                       m==Material.IRON_INGOT || m==Material.IRON_ORE ||
@@ -6488,8 +6485,6 @@ final class SimWorldDirector {
 
     private String pretty(String key) {
         if ("healthpot".equals(key)) return "heal pots";
-        if ("speedpot".equals(key)) return "speed pots";
-        if ("fireres".equals(key)) return "fire res";
         if ("pearl".equals(key)) return "pearls";
         if ("cane".equals(key)) return "cane";
         return key;
@@ -6583,6 +6578,8 @@ final class SimWorldDirector {
             p.farmReady = s.getBoolean("farm-ready", false);
             ConfigurationSection st = s.getConfigurationSection("stock");
             if (st != null) for (String item : st.getKeys(false)) p.stock.put(item, st.getInt(item));
+            p.stock.remove("speedpot");
+            p.stock.remove("fireres");
             economy.initializePlayer(p);
 
             // Old builds seeded Stimpy, Stimpypvp and Marcel as separate people.

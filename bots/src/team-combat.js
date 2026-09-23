@@ -334,6 +334,8 @@ export function createTeamCombatController(bot, assignmentProvider, eventReporte
   let mistakeType = ''
   let mistakeUntil = 0
   let lastTrapGateToggleAt = 0
+  let defendUntil = 0
+  let defendTargetName = ''
 
   function ensureProfile(a) {
     const mechanics=Number(a?.mechanics ?? a?.skill ?? 50)
@@ -503,33 +505,40 @@ export function createTeamCombatController(bot, assignmentProvider, eventReporte
   function thirdPartyReady(a) {
     const mode=String(a?.engagementMode || 'ENGAGE').toUpperCase()
     if(mode==='ENGAGE') return true
-    // Any faction that gets hit is allowed to defend itself immediately.
-    if(Date.now()-lastDamageAt<1800) return true
-    if(mode==='WATCH') return false
 
-    const delay=Math.max(5000,Number(a?.engageDelayMs || 12000))
-    if(Date.now()-fightStartedAt>=delay) return true
-
-    // Cleanup factions are watching for a death/separation. If fewer members of
-    // the original fight remain visible, they may opportunistically collapse.
-    const listed=Array.isArray(a?.enemies)?a.enemies.length:0
-    const visible=countNearby(bot,a?.enemies || [],34)
-    return listed>=2 && visible<=Math.max(1,listed-1)
+    // Observation time is only a minimum. WATCH/SHADOW/CLEANUP never convert
+    // themselves into combat just because a timer expired; the authoritative
+    // server flips them to ENGAGE after a death/weak-player opportunity.
+    if(Date.now()<defendUntil) return true
+    return false
   }
 
   async function thirdPartyWatchTick(a,target) {
     if(!bot.entity) return true
-    const watch=Math.max(10,Math.min(28,Number(a?.watchDistance || 16)))
+    const mode=String(a?.engagementMode || 'WATCH').toUpperCase()
+    let watch=Math.max(10,Math.min(32,Number(a?.watchDistance || 18)))
+    if(mode==='WATCH') watch=Math.max(22,watch)
+    else if(mode==='SHADOW') watch=Math.max(16,watch)
+    else if(mode==='CLEANUP') watch=Math.max(12,watch)
+
     if(!target) {
       stop(bot)
       return true
     }
 
     const dist=target.dist
-    if(dist<watch-3) moveAway(bot,target.entity)
-    else if(dist>watch+7) moveToward(bot,target.entity.position.x,target.entity.position.z,false)
-    else {
+    if(dist<watch-3) {
+      moveAway(bot,target.entity)
+    } else if(dist>watch+8) {
+      moveToward(bot,target.entity.position.x,target.entity.position.z,mode!=='WATCH')
+    } else {
       stop(bot)
+      // Shadow/cleanup groups subtly reposition rather than standing like NPCs.
+      if((mode==='SHADOW' || mode==='CLEANUP') && Math.random()<0.20) {
+        const side=(stableHash(bot.username+String(Math.floor(Date.now()/3000)))%2===0)?'left':'right'
+        bot.setControlState(side,true)
+        bot.setControlState('sprint',false)
+      }
       try { await bot.lookAt(target.entity.position.offset(0,1.25,0),false) } catch {}
     }
     return true
@@ -1145,6 +1154,8 @@ export function createTeamCombatController(bot, assignmentProvider, eventReporte
         previousHealth = bot.health
         mistakeType=''
         mistakeUntil=0
+        defendUntil=0
+        defendTargetName=''
         nextMistakeCheckAt=Date.now()+Math.round(rand(2500,5500))
       }
 
@@ -1167,10 +1178,37 @@ export function createTeamCombatController(bot, assignmentProvider, eventReporte
       }
       if (!target) target = nearestNamedEntity(bot, a.enemies || [])
 
-      // Main-fight assignments keep spectators neutral. If a neutral third party
-      // actually hits this bot, defend against the closest one instead of
-      // pretending the attack did not happen.
-      if(Date.now()-lastDamageAt<1800 && Array.isArray(a?.neutrals) && a.neutrals.length) {
+      const mode=String(a?.engagementMode || 'ENGAGE').toUpperCase()
+
+      // Spectators/opportunists are allowed to defend themselves. Since protocol
+      // damage packets do not identify the attacker reliably here, choose the
+      // nearest plausible non-ally when damage lands and remember that target for
+      // a short human-like retaliation window. If pressure stops, they return to
+      // watching instead of turning the entire encounter into a permanent brawl.
+      if(mode!=='ENGAGE' && Date.now()-lastDamageAt<1800) {
+        const plausible=[...(a?.enemies || []),...(a?.neutrals || [])]
+        const attacker=nearestNamedEntity(bot,plausible)
+        if(attacker && attacker.dist<=10) {
+          defendTargetName=attacker.name
+          defendUntil=Date.now()+Math.round(rand(8000,12000))
+          target=attacker
+        }
+      }
+      if(Date.now()<defendUntil && defendTargetName) {
+        const defender=bot.players?.[defendTargetName]?.entity
+        if(defender && bot.entity) {
+          const d=bot.entity.position.distanceTo(defender.position)
+          if(d<=24) target={name:defendTargetName,entity:defender,dist:d}
+        }
+      } else if(defendUntil && Date.now()>=defendUntil) {
+        defendUntil=0
+        defendTargetName=''
+      }
+
+      // Main-fight assignments also keep neutral third parties non-targetable
+      // unless those spectators actually hit them.
+      if(mode==='ENGAGE' && Date.now()-lastDamageAt<1800 &&
+         Array.isArray(a?.neutrals) && a.neutrals.length) {
         const neutral=nearestNamedEntity(bot,a.neutrals)
         if(neutral && neutral.dist<=9) target=neutral
       }

@@ -1,21 +1,19 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import YAML from 'yaml'
-import puppeteer from 'puppeteer-core'
+import net from 'node:net'
 import viewerPkg from 'prismarine-viewer'
 import { Vec3 } from 'vec3'
 import { createBot, sleep, waitForSpawn } from './common.js'
 
-const { mineflayer: mineflayerViewer } = viewerPkg
+const { headless: headlessViewer } = viewerPkg
 
 const root=path.resolve('..')
 const outDir=path.resolve(process.env.QA_OUTPUT_DIR || path.join(root,'qa-output'))
 const simFile=process.env.SIMULATION_FILE || path.join(root,'server','plugins','EraCore','simulation.yml')
 const runtimeConfig=process.env.ERACORE_CONFIG || path.join(root,'server','plugins','EraCore','config.yml')
-const chromium=process.env.CHROMIUM_PATH || '/usr/bin/chromium'
 const username=process.env.QA_USERNAME || 'QAInspector'
-const firstPort=Number(process.env.QA_FIRST_PORT || 3007)
-const overviewPort=Number(process.env.QA_OVERVIEW_PORT || 3008)
+const framePort=Number(process.env.QA_FRAME_PORT || 3999)
 
 fs.mkdirSync(outDir,{recursive:true})
 const manifest={startedAt:new Date().toISOString(),captures:[],messages:[],errors:[]}
@@ -73,22 +71,42 @@ bot.on('error',e=>manifest.errors.push('bot error: '+String(e?.stack||e)))
 await waitForSpawn(bot,30000)
 await sleep(1500)
 
-mineflayerViewer(bot,{port:firstPort,firstPerson:true,viewDistance:8})
-mineflayerViewer(bot,{port:overviewPort,firstPerson:false,viewDistance:10})
-await sleep(2500)
+let latestFrame=null
+let frameSeq=0
+let frameBuffer=Buffer.alloc(0)
+let expectedFrame=-1
 
-const browser=await puppeteer.launch({
-  executablePath:chromium,
-  headless:true,
-  args:['--no-sandbox','--disable-dev-shm-usage','--use-gl=swiftshader','--enable-webgl','--ignore-gpu-blocklist']
+const frameServer=net.createServer(socket=>{
+  socket.on('data',chunk=>{
+    frameBuffer=Buffer.concat([frameBuffer,chunk])
+    while(true){
+      if(expectedFrame<0){
+        if(frameBuffer.length<4) break
+        expectedFrame=frameBuffer.readUInt32LE(0)
+        frameBuffer=frameBuffer.subarray(4)
+      }
+      if(frameBuffer.length<expectedFrame) break
+      latestFrame=Buffer.from(frameBuffer.subarray(0,expectedFrame))
+      frameBuffer=frameBuffer.subarray(expectedFrame)
+      expectedFrame=-1
+      frameSeq++
+    }
+  })
 })
-const firstPage=await browser.newPage()
-const overviewPage=await browser.newPage()
-await firstPage.setViewport({width:1280,height:720,deviceScaleFactor:1})
-await overviewPage.setViewport({width:1280,height:720,deviceScaleFactor:1})
-await firstPage.goto('http://127.0.0.1:'+firstPort,{waitUntil:'domcontentloaded',timeout:30000})
-await overviewPage.goto('http://127.0.0.1:'+overviewPort,{waitUntil:'domcontentloaded',timeout:30000})
-await sleep(3000)
+await new Promise((resolve,reject)=>{
+  frameServer.once('error',reject)
+  frameServer.listen(framePort,'127.0.0.1',resolve)
+})
+const viewerClient=headlessViewer(bot,{
+  viewDistance:10,
+  output:'127.0.0.1:'+framePort,
+  frames:-1,
+  width:1280,
+  height:720,
+  jpegOptions:{quality:0.95}
+})
+if(!viewerClient) throw new Error('prismarine-viewer headless renderer could not initialize for '+bot.version)
+await waitUntil(()=>latestFrame && frameSeq>2,30000,100)
 
 async function teleport(x,y,z){
   bot.chat('/tp '+username+' '+Math.round(x)+' '+Math.round(y)+' '+Math.round(z))
@@ -107,11 +125,12 @@ async function capture(name,position,target,settleMs=3500){
     y:Number(bot.entity.position.y.toFixed(2)),
     z:Number(bot.entity.position.z.toFixed(2))
   }:null
-  const fp=id+'-first.png'
-  const ov=id+'-overview.png'
-  await firstPage.screenshot({path:path.join(outDir,fp),fullPage:true})
-  await overviewPage.screenshot({path:path.join(outDir,ov),fullPage:true})
-  manifest.captures.push({name,id,position,target,actual,files:[fp,ov],at:new Date().toISOString()})
+  const startSeq=frameSeq
+  await waitUntil(()=>latestFrame && frameSeq>=startSeq+5,12000,80)
+  if(!latestFrame) throw new Error('No headless viewer frame available for '+name)
+  const file=id+'.jpg'
+  fs.writeFileSync(path.join(outDir,file),latestFrame)
+  manifest.captures.push({name,id,position,target,actual,files:[file],frameSeq,at:new Date().toISOString()})
   writeManifest()
 }
 
@@ -169,7 +188,7 @@ if(bases.length){
 
 manifest.finishedAt=new Date().toISOString()
 writeManifest()
-try{bot.viewer?.close?.()}catch{}
-try{await browser.close()}catch{}
+try{viewerClient?.destroy?.()}catch{}
+try{frameServer.close()}catch{}
 try{bot.quit('QA complete')}catch{}
 process.exit(0)

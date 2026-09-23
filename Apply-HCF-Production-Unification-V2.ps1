@@ -16,7 +16,7 @@ $JavaSourceDir = Join-Path $Server 'plugins-src\EraCore\src\main\java\dev\jorel\
 
 # This repository is often installed as a plain folder rather than a Git clone.
 # Always sync the exact coordinated source generation before compiling.
-$SourceCommit = 'b7d5c7303bf61ca90f45925cb6006eb63dfcbc90'
+$SourceCommit = 'd05ced437d8523fba24b39b97e90178ceeaa13a4'
 $RawBase = 'https://raw.githubusercontent.com/josiahalora-beep/Minecraft-PVP/' + $SourceCommit
 $SourceFiles = @(
     'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/ActorDirectory.java',
@@ -184,8 +184,10 @@ if ($downloadTeamCombat -notmatch 'defendUntil' -or
 if ($downloadSimWorld -notmatch 'updateThirdPartyOpportunities' -or
     $downloadSimWorld -notmatch 'maybeActivateThirdPartyAfterDeath' -or
     $downloadSimWorld -notmatch 'premiumGearAce' -or
+    $downloadSimWorld -notmatch 'takeBestSword\(inv,f,requiredSword,premiumHolder\)' -or
+    $downloadSimWorld -notmatch 'ca\.enemies\.contains\(thirdName\)' -or
     $downloadSimWorld -notmatch 'FIRE_ASPECT,2') {
-    throw 'Downloaded simulation is missing third-party opportunism or premium-gear preservation.'
+    throw 'Downloaded simulation is missing third-party opportunism, persistent retaliation or ace-safe premium gear allocation.'
 }
 if ($downloadMapAi -notmatch "factionHome:\s*'/f home'") {
     throw 'Downloaded HCF map intelligence is missing faction-home routing.'

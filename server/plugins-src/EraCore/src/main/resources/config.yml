@@ -254,9 +254,16 @@ sotw:
 terrain:
   normalize-new-chunks: true
   cleanup-height: 46
-  road-flat-half-width: 20.0
-  road-shoulder-half-width: 72.0
+  # Build Viewer terrain contract: broad flat spawn frontage, then a very long
+  # transition into bounded old-HCF wilderness. No mountains/ravines.
+  spawn-flat-radius: 300.0
+  spawn-transition-radius: 500.0
+  wilderness-amplitude: 5.0
+  road-flat-half-width: 22.0
+  road-shoulder-half-width: 92.0
   custom-decoration: true
+  tree-chance-percent: 34
+  rock-chance-percent: 14
 
 base-builder:
   blocks-per-tick: 96

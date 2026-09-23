@@ -196,7 +196,8 @@ sim-world:
   base-y: 64
   min-base-y: 50
   max-base-y: 110
-  max-base-site-relief: 4
+  min-base-site-relief: 3
+  max-base-site-relief: 10
   max-base-site-liquid-samples: 1
   logical-online-min: 88
   logical-online-peak: 132
@@ -258,7 +259,7 @@ terrain:
   # event-specific terraforming sized to each real production schematic.
   spawn-flat-radius: 175.0
   spawn-transition-radius: 300.0
-  wilderness-amplitude: 7.0
+  wilderness-amplitude: 9.0
   road-flat-half-width: 16.0
   road-shoulder-half-width: 50.0
   road-protection-half-width: 32
@@ -275,9 +276,9 @@ terrain:
   conquest-flat-radius: 158.0
   conquest-blend-radius: 222.0
   custom-decoration: true
-  tree-chance-percent: 28
-  rock-chance-percent: 18
-  ground-detail-chance-percent: 30
+  tree-chance-percent: 24
+  rock-chance-percent: 16
+  ground-detail-chance-percent: 24
 
 atmosphere:
   # HCF presentation is intentionally consistent: bright daytime PvP with no

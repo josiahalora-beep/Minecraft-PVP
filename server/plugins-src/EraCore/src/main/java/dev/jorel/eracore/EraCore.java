@@ -574,7 +574,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     private void migrateProductionUnificationConfig() {
         int version=getConfig().getInt("migration.production-unification-version",0);
-        if(version>=5) return;
+        if(version>=6) return;
 
         // Canonical v7 map geometry.
         getConfig().set("map-layout.koth-offset",500);
@@ -589,6 +589,9 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         // Staged world construction. Do not turn auto-bootstrap on here; only a
         // deliberate /sotw reset marker may request a full physical rebuild.
         getConfig().set("world-build.auto-resume",true);
+        getConfig().set("terrain.normalize-new-chunks",true);
+        getConfig().set("world-build.terrain-complete",
+            getConfig().getBoolean("world-build.complete",false));
         if(!getConfig().contains("map.structures-complete")) getConfig().set("map.structures-complete",
             getConfig().getBoolean("map.complete",false));
         if(!getConfig().contains("world-build.active")) getConfig().set("world-build.active",false);
@@ -617,6 +620,11 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         getConfig().set("hcf-classes.permanent-speed-2",true);
         getConfig().set("travel.faction-home-warmup-seconds",10);
         getConfig().set("travel.faction-stuck-warmup-seconds",180);
+        getConfig().set("spawn.crates.y",67);
+        getConfig().set("spawn.crates.z",36);
+        getConfig().set("spawn.crates.vote-x",-8);
+        getConfig().set("spawn.crates.donor-x",0);
+        getConfig().set("spawn.crates.koth-x",8);
 
         // Large persistent memory with small retrieval windows. This increases
         // continuity without increasing per-chat prompt size or tick work.
@@ -654,9 +662,9 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         getConfig().set("worker-pool.creator-bodies",Arrays.asList(
             "Stimpy","PainfulPvP","lolitsalex","Skimpy"));
 
-        getConfig().set("migration.production-unification-version",5);
+        getConfig().set("migration.production-unification-version",6);
         saveConfig();
-        getLogger().info("Applied production unification v5: physical HCF travel, permanent Speed II, SOTW economy rush and scan/write-aware staged production builds.");
+        getLogger().info("Applied production unification v6: terrain-first production, non-destructive Kraken/KOTH pastes, minimal spawn crates and period-accurate identity weighting.");
     }
 
     private void bindCommands() {

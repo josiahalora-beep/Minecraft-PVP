@@ -223,7 +223,7 @@ final class LegacySchematicComposer {
             if(over==null) return false;
             Schematic spawn=load(name);
             jobs.add(new PasteJob("Kraken Spawn",over,spawn,0,
-                plugin.getConfig().getInt("world-composer.spawn-anchor-y",66),0,true));
+                plugin.getConfig().getInt("world-composer.spawn-anchor-y",66),0,false));
             productionRun=false;
             ensureRunner();
             plugin.getLogger().info("[composer] queued spawn-only reset asset="+name+
@@ -259,15 +259,15 @@ final class LegacySchematicComposer {
 
             int ko=plugin.getConfig().getInt("map-layout.koth-offset",500);
             int ky=plugin.getConfig().getInt("map.surface-y",63);
-            jobs.add(new PasteJob("Classic KOTH",over,load(asset("koth-classic","KOTH2-production-1.8.schematic")), ko,ky,-ko,true));
-            jobs.add(new PasteJob("EndStyle KOTH",over,load(asset("koth-endstyle","EndStyleKOTH-production-1.8.schematic")),-ko,ky,-ko,true));
-            jobs.add(new PasteJob("Egypt KOTH",over,load(asset("koth-egypt","EgyptKOTH-production-1.8.schematic")), ko,ky,ko,true));
-            jobs.add(new PasteJob("Frost KOTH",over,load(asset("koth-frost","KOTH-Forty-1.8-converted.schematic")),-ko,ky,ko,true));
+            jobs.add(new PasteJob("Classic KOTH",over,load(asset("koth-classic","KOTH2-production-1.8.schematic")), ko,ky,-ko,false));
+            jobs.add(new PasteJob("EndStyle KOTH",over,load(asset("koth-endstyle","EndStyleKOTH-production-1.8.schematic")),-ko,ky,-ko,false));
+            jobs.add(new PasteJob("Egypt KOTH",over,load(asset("koth-egypt","EgyptKOTH-production-1.8.schematic")), ko,ky,ko,false));
+            jobs.add(new PasteJob("Frost KOTH",over,load(asset("koth-frost","KOTH-Forty-1.8-converted.schematic")),-ko,ky,ko,false));
 
             jobs.add(new PasteJob("Conquest",over,load(asset("conquest","conquest.schematic")),
                 plugin.getConfig().getInt("map-layout.conquest-x",0),
                 plugin.getConfig().getInt("world-composer.conquest-anchor-y",63),
-                plugin.getConfig().getInt("map-layout.conquest-z",1125),true));
+                plugin.getConfig().getInt("map-layout.conquest-z",1125),false));
 
             jobs.add(new PasteJob("Nether Spawn",nether,load(asset("nether-spawn","NetherSpawnWillzaTeam.schematic")),
                 0,plugin.getConfig().getInt("world-composer.nether-anchor-y",70),0,true));

@@ -20,6 +20,7 @@ import java.io.FilenameFilter;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.util.zip.GZIPOutputStream;
 import java.text.DecimalFormat;

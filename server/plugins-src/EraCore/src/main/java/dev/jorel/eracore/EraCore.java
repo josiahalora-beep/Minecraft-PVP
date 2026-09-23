@@ -3581,7 +3581,27 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
                 p.sendMessage(color("&cNo faction home."));
                 return true;
             }
-            p.teleport(f.home);
+            if(travelDirector!=null) {
+                int seconds=Math.max(1,getConfig().getInt("travel.faction-home-warmup-seconds",
+                    getConfig().getInt("travel.warmup-seconds",10)));
+                travelDirector.request(p,f.home,"faction home",seconds);
+            } else p.teleport(f.home);
+            return true;
+        }
+
+        if(sub.equals("stuck")) {
+            if(hcfZones!=null && hcfZones.isTagged(p) && !isOwnerPlayer(p)) {
+                p.sendMessage(color("&cYou cannot /f stuck while combat tagged. &7"+hcfZones.tagSeconds(p)+"s remaining."));
+                return true;
+            }
+            Location target=findFactionStuckDestination(p);
+            if(target==null) {
+                p.sendMessage(color("&cCould not find nearby unclaimed wilderness for /f stuck."));
+                return true;
+            }
+            int seconds=Math.max(30,getConfig().getInt("travel.faction-stuck-warmup-seconds",180));
+            if(travelDirector!=null) travelDirector.request(p,target,"nearby wilderness",seconds);
+            else p.teleport(target);
             return true;
         }
 
@@ -3625,8 +3645,43 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         viewer.sendMessage(color("&8&m--------------------------------"));
     }
 
+    private Location findFactionStuckDestination(Player p) {
+        if(p==null || p.getWorld()==null || p.getWorld().getEnvironment()!=World.Environment.NORMAL) return null;
+        World w=p.getWorld();
+        Location from=p.getLocation();
+        int ox=from.getBlockX(),oz=from.getBlockZ();
+
+        // Search concentric square rings. Eight-block sampling is fine-grained
+        // enough to exit a rectangular HCF claim without synchronously loading a
+        // huge area. Protected spawn/KOTH/portal regions are never destinations.
+        for(int radius=16;radius<=256;radius+=8) {
+            for(int d=-radius;d<=radius;d+=8) {
+                int[][] points={{ox+d,oz-radius},{ox+d,oz+radius},{ox-radius,oz+d},{ox+radius,oz+d}};
+                for(int[] point:points) {
+                    int x=point[0],z=point[1];
+                    int y=Math.max(2,w.getHighestBlockYAt(x,z)+1);
+                    if(y>=w.getMaxHeight()-2) continue;
+                    Location at=new Location(w,x+0.5,y,z+0.5,from.getYaw(),from.getPitch());
+
+                    String owner=claimDirector==null?"":claimDirector.ownerAt(at);
+                    if(owner!=null && !owner.isEmpty()) continue;
+                    if(mapDirector!=null && mapDirector.protectsBuild(at)) continue;
+                    if(isHcfSafezone(at)) continue;
+
+                    Material floor=w.getBlockAt(x,y-1,z).getType();
+                    Material feet=w.getBlockAt(x,y,z).getType();
+                    Material head=w.getBlockAt(x,y+1,z).getType();
+                    if(!floor.isSolid() || isWarzoneLiquid(floor)) continue;
+                    if(feet.isSolid() || head.isSolid() || isWarzoneLiquid(feet) || isWarzoneLiquid(head)) continue;
+                    return at;
+                }
+            }
+        }
+        return null;
+    }
+
     private void sendFactionHelp(Player p) {
-        p.sendMessage(color("&6/f create, invite, join, leave, kick, disband, claim, unclaim, map, sethome, home, show, who, list, c"));
+        p.sendMessage(color("&6/f create, invite, join, leave, kick, disband, claim, unclaim, map, sethome, home, stuck, show, who, list, c"));
     }
 
     private void removeFaction(Faction f) {

@@ -170,6 +170,8 @@ final class SimWorldDirector {
         int obsidian;
         int glass;
         int cane;
+        int glowstone;
+        int gunpowder;
         double treasury;
         long actionCounter;
         final List<String> members = new ArrayList<String>();
@@ -2432,7 +2434,7 @@ final class SimWorldDirector {
         if (f == null) return "no-faction";
 
         int stone=0, wood=0, iron=0, diamond=0, obsidian=0;
-        int cane=0, cactus=0, pumpkin=0, melon=0;
+        int cane=0, cactus=0, pumpkin=0, melon=0, glowstone=0, gunpowder=0;
 
         org.bukkit.inventory.ItemStack[] contents = body.getInventory().getContents();
         for (int slot=0; slot<contents.length; slot++) {
@@ -2466,6 +2468,10 @@ final class SimWorldDirector {
                     pumpkin += n; break;
                 case MELON:
                     melon += n; break;
+                case GLOWSTONE_DUST:
+                    glowstone += n; break;
+                case SULPHUR:
+                    gunpowder += n; break;
                 default:
                     take = false;
             }
@@ -2478,6 +2484,8 @@ final class SimWorldDirector {
         f.iron += iron;
         f.diamonds += diamond;
         f.obsidian += obsidian;
+        f.glowstone += glowstone;
+        f.gunpowder += gunpowder;
         if(f.storage) {
             mirrorDepositToStorage(f,Material.COBBLESTONE,stone);
             mirrorDepositToStorage(f,Material.LOG,wood);
@@ -2492,8 +2500,8 @@ final class SimWorldDirector {
 
         save();
         return "stone="+stone+" wood="+wood+" iron="+iron+" diamond="+diamond+
-            " obsidian="+obsidian+" cane="+cane+" cactus="+cactus+
-            " pumpkin="+pumpkin+" melon="+melon;
+            " obsidian="+obsidian+" glowstone="+glowstone+" gunpowder="+gunpowder+
+            " cane="+cane+" cactus="+cactus+" pumpkin="+pumpkin+" melon="+melon;
     }
 
     private String depositSoloLoot(Player body,SimPlayer p) {
@@ -5988,15 +5996,32 @@ final class SimWorldDirector {
             // COLD path: preserve 24/7 progression without loading remote chunks.
             // Costs are ingredient-batch costs; one ingredient set brews 3 pots.
             double waterCost=Math.max(1.0,plugin.buyUnitPrice("glass"));
-            double healBatchCost=waterCost*3.0+plugin.buyUnitPrice("netherwart")+
-                plugin.buyUnitPrice("glisteringmelon")+plugin.buyUnitPrice("glowstone")+
+            double baseBatchCost=waterCost*3.0+plugin.buyUnitPrice("netherwart")+
+                plugin.buyUnitPrice("glisteringmelon");
+            double boughtBatchCost=baseBatchCost+plugin.buyUnitPrice("glowstone")+
                 plugin.buyUnitPrice("gunpowder");
 
             int healNeed=Math.max(0,members*28-f.healPots);
-            if(healNeed>0 && f.treasury>=healBatchCost) {
-                int batches=Math.min(4,Math.min((healNeed+2)/3,(int)Math.floor(f.treasury/healBatchCost)));
+            int wanted=Math.min(4,(healNeed+2)/3);
+
+            // Protected resource runs are economically meaningful: every
+            // banked glowstone+gunpowder pair replaces those two shop inputs for
+            // one three-potion Healing II batch.
+            int stocked=Math.min(wanted,Math.min(f.glowstone,f.gunpowder));
+            int affordableStocked=baseBatchCost<=0.0?stocked:
+                Math.min(stocked,(int)Math.floor(f.treasury/baseBatchCost));
+            if(affordableStocked>0) {
+                f.glowstone-=affordableStocked;
+                f.gunpowder-=affordableStocked;
+                f.healPots+=affordableStocked*3;
+                f.treasury-=affordableStocked*baseBatchCost;
+                wanted-=affordableStocked;
+            }
+
+            if(wanted>0 && f.treasury>=boughtBatchCost) {
+                int batches=Math.min(wanted,(int)Math.floor(f.treasury/boughtBatchCost));
                 f.healPots+=batches*3;
-                f.treasury-=batches*healBatchCost;
+                f.treasury-=batches*boughtBatchCost;
             }
 
         }
@@ -6023,8 +6048,29 @@ final class SimWorldDirector {
         int wartTarget=4;
         buyBrewerItemToTarget(f,inv,Material.NETHER_STALK,(short)0,wartTarget,"netherwart",1.0);
         buyBrewerItemToTarget(f,inv,Material.SPECKLED_MELON,(short)0,4,"glisteringmelon",1.0);
+
+        moveFactionBrewingResourceToTarget(f,inv,Material.GLOWSTONE_DUST,5,true);
+        moveFactionBrewingResourceToTarget(f,inv,Material.SULPHUR,4,false);
         buyBrewerItemToTarget(f,inv,Material.GLOWSTONE_DUST,(short)0,5,"glowstone",1.0);
         buyBrewerItemToTarget(f,inv,Material.SULPHUR,(short)0,4,"gunpowder",1.0);
+    }
+
+    private void moveFactionBrewingResourceToTarget(SimFaction f,org.bukkit.inventory.Inventory inv,
+                                                   Material material,int target,boolean glowstone) {
+        int have=countInventoryItem(inv,material,(short)0);
+        int missing=Math.max(0,target-have);
+        if(missing<=0) return;
+        int ledger=glowstone?f.glowstone:f.gunpowder;
+        int move=Math.min(missing,ledger);
+        if(move<=0) return;
+
+        int added=0;
+        for(int i=0;i<move;i++) {
+            if(inv.addItem(new org.bukkit.inventory.ItemStack(material,1)).isEmpty()) added++;
+            else break;
+        }
+        if(glowstone) f.glowstone=Math.max(0,f.glowstone-added);
+        else f.gunpowder=Math.max(0,f.gunpowder-added);
     }
 
     private void buyBrewerItemToTarget(SimFaction f,org.bukkit.inventory.Inventory inv,Material material,
@@ -6722,6 +6768,8 @@ final class SimWorldDirector {
                 f.obsidian = s.getInt("obsidian");
                 f.glass = s.getInt("glass");
                 f.cane = s.getInt("cane");
+                f.glowstone = s.getInt("glowstone",0);
+                f.gunpowder = s.getInt("gunpowder",0);
                 f.treasury = s.getDouble("treasury");
                 f.actionCounter = s.getLong("actions");
                 for(String member:s.getStringList("members")) {
@@ -8384,6 +8432,8 @@ final class SimWorldDirector {
             data.set(b + ".obsidian", f.obsidian);
             data.set(b + ".glass", f.glass);
             data.set(b + ".cane", f.cane);
+            data.set(b + ".glowstone", f.glowstone);
+            data.set(b + ".gunpowder", f.gunpowder);
             data.set(b + ".treasury", f.treasury);
             data.set(b + ".actions", f.actionCounter);
             data.set(b + ".members", new ArrayList<String>(f.members));

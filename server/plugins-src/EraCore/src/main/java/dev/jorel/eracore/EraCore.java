@@ -657,7 +657,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         ensurePlayerData(p);
         Rank r = bot ? simRankFor(p.getName()) : getRank(p.getName());
         applyCreatorTag(p);
-        p.setPlayerListName(color(identityPrefix(p.getName(), r) + rankNameColor(r) + p.getName() + factionSuffix(p.getName())));
+        p.setPlayerListName(color(identityPrefix(p.getName(), r) + rankNameColor(r) + p.getName()));
         if (bot && logicalTab != null) logicalTab.onPhysicalJoin(p);
         if (!bot && spawnRewards != null) spawnRewards.onHumanJoin(p);
 
@@ -992,7 +992,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (p != null) {
             applyCreatorTag(p);
             p.setPlayerListName(color(identityPrefix(p.getName(), rank) +
-                rankNameColor(rank) + p.getName() + factionSuffix(p.getName())));
+                rankNameColor(rank) + p.getName()));
         }
     }
 

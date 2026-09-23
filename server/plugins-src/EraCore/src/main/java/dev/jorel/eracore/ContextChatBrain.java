@@ -36,6 +36,12 @@ final class ContextChatBrain {
         int responderSkill;
         int responderAggression;
         int responderBargaining;
+        int affinity;
+        int trust = 50;
+        int respect = 50;
+        int grudge;
+        boolean hasHistory;
+        String rememberedFact = "";
     }
 
     private final Random rng = new Random(640144L);
@@ -84,6 +90,12 @@ final class ContextChatBrain {
     }
 
     private String directReply(Snapshot s, String m) {
+        if (m.contains("remember") || m.contains("last time") || m.contains("before")) {
+            if(s.rememberedFact!=null && !s.rememberedFact.isEmpty())
+                return oneOf("yeah "+shortMemory(s.rememberedFact),"i remember "+shortMemory(s.rememberedFact),
+                    "yeah i remember that");
+            return oneOf("not really","i dont remember much","maybe");
+        }
         if (m.contains("where")) return locationState(s);
         if (m.contains("what are you") || m.contains("what you doing") || m.contains("wyd")) return activityState(s);
         if (m.contains("faction")) return factionReply(s,m);
@@ -95,8 +107,10 @@ final class ContextChatBrain {
     }
 
     private String greeting(Snapshot s) {
+        if(s.grudge>=55) return oneOf("what","lol what","you again");
+        if(s.affinity>=45 || s.trust>=75) return oneOf("yo bro","whats good","sup man","yo");
         if (s.responderCreator && rng.nextBoolean()) return oneOf("yo","sup","whats good");
-        return oneOf("yo","sup","hey","whats up");
+        return oneOf("yo","sup","hey","whats up","wassup");
     }
 
     private String recruitmentReply(Snapshot s, String m) {
@@ -177,6 +191,11 @@ final class ContextChatBrain {
     }
 
     private String argumentReply(Snapshot s, String m) {
+        if(s.grudge>=55) {
+            if(s.rememberedFact!=null && !s.rememberedFact.isEmpty() && rng.nextBoolean())
+                return oneOf("you were saying that last time too","i remember what happened last time","come prove it again");
+            return oneOf("come fight then","same talk every time","we can run it again","you know where we are");
+        }
         if (s.rivalFaction != null && !s.rivalFaction.isEmpty() && s.rivalry >= 20) {
             if (s.responderAggression >= 65) return oneOf("tell " + s.rivalFaction + " to come out","they started it lol","we will see them again");
             return oneOf("im not arguing in chat","ggs either way","they keep coming to our base");
@@ -294,6 +313,14 @@ final class ContextChatBrain {
     private boolean isQuestion(String m) {
         return m.endsWith("?") || m.startsWith("who ") || m.startsWith("what ") || m.startsWith("where ") ||
             m.startsWith("when ") || m.startsWith("how ") || m.contains(" anyone ");
+    }
+
+    private String shortMemory(String memory) {
+        if(memory==null) return "";
+        String m=memory.trim();
+        if(m.length()>72) m=m.substring(0,72).trim();
+        if(m.endsWith(".")) m=m.substring(0,m.length()-1);
+        return m;
     }
 
     private String norm(String s) {

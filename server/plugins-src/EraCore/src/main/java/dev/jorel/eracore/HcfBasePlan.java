@@ -63,32 +63,10 @@ final class HcfBasePlan {
         this.profile=profile==null?new Profile():profile;
         this.seed=positiveHash(this.faction+"|"+cx+"|"+cz);
 
-        int members=Math.max(1,Math.min(8,this.profile.members));
-        this.surfaceHalfX=8+members+((seed/7)%2);       // 19..35 wide for 1..8
-        this.surfaceHalfZ=7+members+((seed/13)%3);      // slightly less regular
-        this.surfaceHeight=5+Math.min(2,Math.max(0,this.profile.builderQuality-45)/22);
-
-        int access=2;
-        if(this.profile.gameSense>=58 || this.profile.pvpIq>=68) access++;
-        if((this.profile.gameSense>=78 && this.profile.decisiveness>=62) ||
-           (this.profile.riskTolerance>=72 && this.profile.pvpIq>=72)) access++;
-        this.entrances=Math.max(2,Math.min(4,access));
-
-        int depth=18+(seed%6);
-        this.undergroundY=Math.max(10,y-depth);
-
-        // Underground space is intentionally generous without becoming a giant
-        // empty hall. Farms are separate wings and therefore do not force the
-        // central room to scale linearly with every system.
-        this.coreHalfX=12+members+((seed/19)%3);
-        this.coreHalfZ=10+members+((seed/23)%3);
-        this.storageVariant=(seed/31)%3;
-        // Shape is seed-stable for the lifetime of the claim. Builder skill affects
-        // finishing quality, not coordinates, so recruiting later cannot morph walls.
-        this.surfaceShape=(seed/37)%3;
-        this.frontGateOffset=((seed/41)%5)-2;
-        this.utilitySide=((seed/47)&1)==0?-1:1;
-
+        // Family selection happens BEFORE dimensions. In the original viewer
+        // POC the five references were different architectural grammars, not
+        // merely trim palettes; footprint and room topology therefore depend on
+        // the selected family while remaining deterministic for the faction.
         int family=seed%5;
         String arch=this.profile.archetype==null?"BALANCED":this.profile.archetype.toUpperCase(Locale.ENGLISH);
         if("TRAPPER".equals(arch)) family=((seed/5)&1)==0?4:3;
@@ -99,6 +77,57 @@ final class HcfBasePlan {
         int secondary=(family+1+((seed/59)%4))%5;
         if(secondary==family) secondary=(secondary+1)%5;
         this.secondaryFamily=secondary;
+        this.utilitySide=((seed/47)&1)==0?-1:1;
+
+        int members=Math.max(1,Math.min(8,this.profile.members));
+        int sx=8+members+((seed/7)%2);
+        int sz=7+members+((seed/13)%3);
+        int sh=5+Math.min(2,Math.max(0,this.profile.builderQuality-45)/22);
+
+        // Redemption = compact/vertical; Base-HCF = broad ring; Modern = richer
+        // open footprint; Tunnel = long practical rectangle; Cave = wider rough
+        // footprint. These remain normal-player scale, not schematic castles.
+        if(family==0) { sx=Math.max(9,sx-1); sz=Math.max(8,sz-1); sh++; }
+        else if(family==1) { sx+=1; sz+=1; }
+        else if(family==2) { sx+=2; sz+=1; sh++; }
+        else if(family==3) { sx+=3; sz=Math.max(8,sz-1); }
+        else if(family==4) { sx+=1; sz+=2; }
+
+        this.surfaceHalfX=sx;
+        this.surfaceHalfZ=sz;
+        this.surfaceHeight=Math.min(8,sh);
+
+        int access=2;
+        if(this.profile.gameSense>=58 || this.profile.pvpIq>=68) access++;
+        if((this.profile.gameSense>=78 && this.profile.decisiveness>=62) ||
+           (this.profile.riskTolerance>=72 && this.profile.pvpIq>=72)) access++;
+        this.entrances=Math.max(2,Math.min(4,access));
+
+        int depth=(family==0?17:(family==3?20:18))+(seed%5);
+        this.undergroundY=Math.max(10,y-depth);
+
+        int hx=12+members+((seed/19)%3);
+        int hz=10+members+((seed/23)%3);
+        if(family==0) { hx=Math.max(13,hx-1); hz=Math.max(12,hz-1); }
+        else if(family==1) { hx+=1; hz+=2; }
+        else if(family==2) { hx+=3; hz+=2; }
+        else if(family==3) { hx+=4; hz=Math.max(11,hz-1); }
+        else if(family==4) { hx+=2; hz+=2; }
+        this.coreHalfX=hx;
+        this.coreHalfZ=hz;
+
+        // Storage topology follows the reference grammar instead of randomizing
+        // independently from the rest of the base.
+        if(family==0) this.storageVariant=0;          // compact central/double sided
+        else if(family==1) this.storageVariant=1;     // perimeter/ring
+        else if(family==2) this.storageVariant=2;     // organized split aisles
+        else if(family==3) this.storageVariant=2;     // corridor-friendly banks
+        else this.storageVariant=((seed/31)&1)==0?1:2;// irregular cave annex
+
+        if(family==1 || family==4) this.surfaceShape=1;
+        else if(family==2) this.surfaceShape=2;
+        else this.surfaceShape=(seed/37)%2;
+        this.frontGateOffset=((seed/41)%5)-2;
 
         int finish=this.profile.builderQuality>=76?2:(this.profile.builderQuality>=48?1:0);
         if(this.profile.wealthTier>=2 && finish<2) finish++;
@@ -144,6 +173,12 @@ final class HcfBasePlan {
             return new int[]{cx+utilitySide*(coreHalfX-3),undergroundY+1,cz-coreHalfZ+5};
         if("portal-end".equals(k))
             return new int[]{cx+utilitySide*(coreHalfX-3),undergroundY+1,cz-coreHalfZ+12};
+        if("enchant".equals(k))
+            return new int[]{cx-utilitySide*(coreHalfX-6),undergroundY+1,cz-coreHalfZ+5};
+        if("war-room".equals(k) || "warroom".equals(k))
+            return new int[]{cx,undergroundY+1,cz+coreHalfZ-5};
+        if("utility".equals(k))
+            return new int[]{cx+utilitySide*(coreHalfX-5),undergroundY+1,cz+coreHalfZ-5};
         return new int[]{cx,undergroundY+1,cz};
     }
 
@@ -180,10 +215,16 @@ final class HcfBasePlan {
     }
 
     int surfacePadRadius() {
-        // Include underground utility wings/tunnels in the claim/build pad, not
-        // just the visible upper shell.
-        return Math.max(Math.max(surfaceHalfX,surfaceHalfZ)+8,
-            Math.max(coreHalfX,coreHalfZ)+14);
+        // Include EVERY architectural module in the terraform/claim envelope.
+        // Tunnel grammar reaches farther than the central box; Cave and Modern
+        // families also reserve more breathing room for annexes. The claim
+        // director adds its outside buffer on top of this value.
+        int surfaceReach=Math.max(surfaceHalfX,surfaceHalfZ)+9;
+        int undergroundReach=Math.max(coreHalfX,coreHalfZ)+14;
+        if(primaryFamily==3) undergroundReach=Math.max(undergroundReach,coreHalfX+20);
+        else if(primaryFamily==4) undergroundReach=Math.max(undergroundReach,coreHalfX+15);
+        else if(primaryFamily==2) undergroundReach=Math.max(undergroundReach,Math.max(coreHalfX,coreHalfZ)+16);
+        return Math.max(surfaceReach,undergroundReach);
     }
 
     String primaryFamilyName() { return familyName(primaryFamily); }

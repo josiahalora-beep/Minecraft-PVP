@@ -312,14 +312,18 @@ final class LegacySchematicComposer {
         if(runner!=null) return;
         runner=Bukkit.getScheduler().runTaskTimer(plugin,new Runnable() {
             public void run() {
-                int configured=Math.max(20,Math.min(500,plugin.getConfig().getInt("world-composer.blocks-per-tick",120)));
+                int configured=Math.max(20,Math.min(500,plugin.getConfig().getInt("world-composer.blocks-per-tick",320)));
                 int budget=configured;
                 double p95=plugin.currentP95Mspt();
-                if(p95>=45.0) budget=0;
-                else if(p95>=32.0) budget=Math.min(budget,10);
-                else if(p95>=26.0) budget=Math.min(budget,20);
-                else if(p95>=22.0) budget=Math.min(budget,40);
-                else if(p95>=18.0) budget=Math.min(budget,70);
+                // Actual world writes are now budgeted separately from cheap
+                // schematic scans. Let healthy servers use more of the available
+                // headroom while retaining aggressive backoff before 50ms/tick.
+                if(p95>=48.0) budget=0;
+                else if(p95>=40.0) budget=Math.min(budget,20);
+                else if(p95>=34.0) budget=Math.min(budget,50);
+                else if(p95>=28.0) budget=Math.min(budget,100);
+                else if(p95>=24.0) budget=Math.min(budget,160);
+                else if(p95>=20.0) budget=Math.min(budget,240);
                 if(budget<=0) return;
 
                 while(budget>0 && !jobs.isEmpty()) {

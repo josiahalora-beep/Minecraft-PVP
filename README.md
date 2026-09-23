@@ -46,19 +46,29 @@ Mineflayer is pinned to 4.39.0 for reproducibility.
 
 Read [`docs/TESTING.md`](docs/TESTING.md) and follow it exactly.
 
-## Map v0
+## Production HCF world
 
-On first server boot EraCore creates:
+The current production map is no longer the old flat Phase-0 benchmark. It uses:
 
-- protected spawn at 0,0
-- 9-wide north/south/east/west roads
-- PotPvP lab near 200,0
-- KoTH pad near 500,500
-- a large sugar-cane test farm west of spawn
-- eight faction anchor sites
-- obvious trap/chokepoint geometry for later AI work
+- authoritative Kraken / KOTH / Conquest / Nether / End production assets
+- staged TERRAIN -> STRUCTURES -> RESOURCES -> READY generation
+- rolling HCF-safe wilderness with protected cardinal road corridors
+- road policy: no-claim + no-build, PvP enabled outside Safezone
+- terrain-integrated deterministic faction bases with underground functional cores
+- permanent clear daytime presentation
 
-The terrain is intentionally deterministic and flat during Phase 0. We do **not** spend time on a final WorldPainter-style artistic map until the PotPvP and client-density measurements prove the core loop works.
+### Critical design doctrines
+
+Before terrain/environment work, read:
+- `docs/TERRAIN_PERSONA_AND_WORKFLOW.md`
+
+Before faction-base architecture/integration work, read:
+- `docs/HCF_BASE_PERSONA_AND_WORKFLOW.md`
+
+All production design doctrine is indexed in:
+- `docs/CRITICAL_DESIGN_DOCTRINES.md`
+
+The deprecated flat-map/generic-box assumptions must not be reintroduced.
 
 ## Important licensing note
 

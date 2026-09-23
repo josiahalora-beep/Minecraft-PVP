@@ -21,7 +21,7 @@ import java.util.*;
  */
 @SuppressWarnings("deprecation")
 final class HcfInfrastructureDirector {
-    private static final int VERSION=3;
+    private static final int VERSION=4;
 
     private static final class Op {
         final World world;
@@ -75,41 +75,42 @@ final class HcfInfrastructureDirector {
         World overworld=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
         if(overworld==null) return;
 
+        // Duels are intentionally isolated from the HCF production geography.
+        // The old 0,-600 Overworld arena sat directly on the north PvP road.
+        World duelWorld=ensureDuelWorld();
+        if(duelWorld==null) return;
         int dcx=plugin.getConfig().getInt("infrastructure.duel-center-x",0);
-        int dcz=plugin.getConfig().getInt("infrastructure.duel-center-z",-600);
-        int dfloor=plugin.getConfig().getInt("infrastructure.duel-floor-y",70);
-        duelCenter=new Location(overworld,dcx+0.5,dfloor+1,dcz+0.5);
-        duelHuman=new Location(overworld,dcx-18+0.5,dfloor+1,dcz+0.5,-90f,0f);
-        duelSim=new Location(overworld,dcx+18+0.5,dfloor+1,dcz+0.5,90f,0f);
+        int dcz=plugin.getConfig().getInt("infrastructure.duel-center-z",0);
+        int dfloor=plugin.getConfig().getInt("infrastructure.duel-floor-y",64);
+        duelCenter=new Location(duelWorld,dcx+0.5,dfloor+1,dcz+0.5);
+        duelHuman=new Location(duelWorld,dcx-18+0.5,dfloor+1,dcz+0.5,-90f,0f);
+        duelSim=new Location(duelWorld,dcx+18+0.5,dfloor+1,dcz+0.5,90f,0f);
 
-        // These exact columns are repaired immediately before anything can duel.
-        ensureSafePad(duelHuman,3,Material.SMOOTH_BRICK);
-        ensureSafePad(duelSim,3,Material.SMOOTH_BRICK);
-        duelReady=true;
+        if(!validateSpawn(duelHuman)) ensureSafePad(duelHuman,3,Material.SMOOTH_BRICK);
+        if(!validateSpawn(duelSim)) ensureSafePad(duelSim,3,Material.SMOOTH_BRICK);
+        duelReady=validateSpawn(duelHuman)&&validateSpawn(duelSim);
 
         World nether=firstWorld(World.Environment.NETHER);
         World end=firstWorld(World.Environment.THE_END);
 
-        Location netherHub=nether==null?null:hubCenter(nether,
-            plugin.getConfig().getInt("infrastructure.nether-y",70));
-        Location endHub=end==null?null:hubCenter(end,
-            plugin.getConfig().getInt("infrastructure.end-y",68));
+        Location netherHub=nether==null?null:findSchematicArrival(nether,
+            plugin.getConfig().getInt("world-composer.nether-anchor-y",70)+1);
+        Location endHub=end==null?null:findSchematicArrival(end,
+            plugin.getConfig().getInt("world-composer.end-anchor-y",68)+1);
 
         if(netherHub!=null) {
-            ensureSafePad(netherHub,4,Material.NETHER_BRICK);
             warps.setWarp("nether",netherHub);
             nether.setSpawnLocation(netherHub.getBlockX(),netherHub.getBlockY(),netherHub.getBlockZ());
             zones.syncDimensionZone(netherHub);
         }
         if(endHub!=null) {
-            ensureSafePad(endHub,4,Material.ENDER_STONE);
             warps.setWarp("end",endHub);
             end.setSpawnLocation(endHub.getBlockX(),endHub.getBlockY(),endHub.getBlockZ());
             zones.syncDimensionZone(endHub);
         }
 
-        Location duelLobby=new Location(overworld,dcx+0.5,dfloor+2,dcz-27+0.5,0f,0f);
-        ensureSafePad(duelLobby,2,Material.QUARTZ_BLOCK);
+        Location duelLobby=new Location(duelWorld,dcx+0.5,dfloor+2,dcz-27+0.5,0f,0f);
+        if(!validateSpawn(duelLobby)) ensureSafePad(duelLobby,2,Material.QUARTZ_BLOCK);
         warps.setWarp("duels",duelLobby);
 
         if(data.getInt("version",0)<VERSION) {
@@ -120,9 +121,14 @@ final class HcfInfrastructureDirector {
             } else {
                 plugin.getLogger().info("External spawn schematic mode: preserving pasted spawn blocks.");
             }
-            queueDuelArena(overworld,dcx,dfloor,dcz);
-            if(netherHub!=null) queueDimensionHub(netherHub,Material.NETHER_BRICK,Material.NETHER_FENCE,Material.GLOWSTONE);
-            if(endHub!=null) queueDimensionHub(endHub,Material.ENDER_STONE,Material.IRON_FENCE,Material.GLOWSTONE);
+            queueDuelArena(duelWorld,dcx,dfloor,dcz);
+            boolean externalDimensions=plugin.getConfig().getBoolean("infrastructure.external-dimension-schematics",true);
+            if(!externalDimensions) {
+                if(netherHub!=null) queueDimensionHub(netherHub,Material.NETHER_BRICK,Material.NETHER_FENCE,Material.GLOWSTONE);
+                if(endHub!=null) queueDimensionHub(endHub,Material.ENDER_STONE,Material.IRON_FENCE,Material.GLOWSTONE);
+            } else {
+                plugin.getLogger().info("External Nether/End schematic mode: preserving production dimension builds.");
+            }
             runQueue();
         } else {
             // Version already built: still repair critical spawn columns and warps.
@@ -183,6 +189,51 @@ final class HcfInfrastructureDirector {
     Location duelCenter(){return duelCenter==null?null:duelCenter.clone();}
     Location duelHumanSpawn(){return duelHuman==null?null:duelHuman.clone();}
     Location duelSimSpawn(){return duelSim==null?null:duelSim.clone();}
+
+    private World ensureDuelWorld() {
+        String name=plugin.getConfig().getString("infrastructure.duel-world","duel_arena");
+        World w=Bukkit.getWorld(name);
+        if(w==null) {
+            try {
+                WorldCreator c=new WorldCreator(name);
+                c.environment(World.Environment.NORMAL);
+                c.type(WorldType.FLAT);
+                c.generateStructures(false);
+                w=c.createWorld();
+            } catch(Throwable t) {
+                plugin.getLogger().warning("Could not create duel arena world: "+t.getMessage());
+                return null;
+            }
+        }
+        try {
+            w.getWorldBorder().setCenter(0.0,0.0);
+            w.getWorldBorder().setSize(Math.max(96.0,plugin.getConfig().getDouble("infrastructure.duel-world-border",192.0)));
+        } catch(Throwable ignored){}
+        return w;
+    }
+
+    private Location findSchematicArrival(World world,int preferredY) {
+        if(world==null) return null;
+        for(int radius=0;radius<=32;radius++) {
+            for(int dx=-radius;dx<=radius;dx++) {
+                for(int dz=-radius;dz<=radius;dz++) {
+                    if(radius>0 && Math.abs(dx)!=radius && Math.abs(dz)!=radius) continue;
+                    for(int dy=-12;dy<=20;dy++) {
+                        int y=preferredY+dy;
+                        if(y<3 || y>=world.getMaxHeight()-3) continue;
+                        Location l=new Location(world,dx+0.5,y,dz+0.5,0f,0f);
+                        if(validateSpawn(l)) return l;
+                    }
+                }
+            }
+        }
+        // Last-resort minimal safety tile only if the schematic provides no
+        // walkable arrival anywhere around its anchor.
+        Location fallback=new Location(world,0.5,preferredY,0.5,0f,0f);
+        ensureSafePad(fallback,1,world.getEnvironment()==World.Environment.NETHER?
+            Material.NETHER_BRICK:Material.ENDER_STONE);
+        return fallback;
+    }
 
     private World firstWorld(World.Environment env) {
         for(World w:Bukkit.getWorlds()) if(w.getEnvironment()==env) return w;
@@ -490,12 +541,24 @@ final class HcfInfrastructureDirector {
 
     private void runQueue() {
         if(task!=null) return;
-        final int perTick=Math.max(150,plugin.getConfig().getInt("infrastructure.blocks-per-tick",500));
+        final int configured=Math.max(20,plugin.getConfig().getInt("infrastructure.blocks-per-tick",120));
         task=Bukkit.getScheduler().runTaskTimer(plugin,new Runnable() {
             public void run() {
+                int perTick=configured;
+                double p95=plugin.currentP95Mspt();
+                if(p95>=45.0) return;
+                if(p95>=32.0) perTick=Math.min(perTick,8);
+                else if(p95>=26.0) perTick=Math.min(perTick,16);
+                else if(p95>=22.0) perTick=Math.min(perTick,32);
+                else if(p95>=18.0) perTick=Math.min(perTick,60);
+
                 int n=0;
                 while(!queue.isEmpty() && n++<perTick) {
                     Op op=queue.removeFirst();
+                    if(!op.world.isChunkLoaded(op.x>>4,op.z>>4)) {
+                        queue.addFirst(op);
+                        break;
+                    }
                     Block b=op.world.getBlockAt(op.x,op.y,op.z);
                     b.setType(op.material);
                     if(op.data!=0) b.setData(op.data);

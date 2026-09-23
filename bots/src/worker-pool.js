@@ -763,7 +763,7 @@ function currentMapContext(state) {
 }
 
 function warzoneIntentAction(action) {
-  return ['patrol','scout','solo','solo_loot','event','koth','conquest'].includes(String(action||'').toLowerCase())
+  return ['patrol','scout','solo','solo_loot','event','koth','conquest','spectate'].includes(String(action||'').toLowerCase())
 }
 
 function standableAt(bot,x,y,z) {
@@ -2420,14 +2420,61 @@ async function localMotion(state, action) {
   if (!bot?.entity) return
 
   bot.physicsEnabled = true
-  const mobile = ['patrol', 'scout', 'mine', 'gather', 'supply', 'farm', 'build', 'crate', 'solo', 'solo_loot', 'solo_build'].includes(action)
+  const mobile = ['patrol', 'scout', 'mine', 'gather', 'supply', 'farm', 'build', 'crate', 'solo', 'solo_loot', 'solo_build', 'spectate'].includes(action)
   const totalMs = action==='patrol' ? rand(4500, 8500) : (mobile ? rand(1800, 4200) : rand(900, 2200))
   const endAt = Date.now() + totalMs
 
   while (Date.now() < endAt && state.bot?.entity && !state.combat) {
     stopMovement(bot)
 
-    const stranger=(action==='patrol' || action==='solo_loot') ? nearestRoamStranger(state,48) : null
+    const stranger=(action==='patrol' || action==='solo_loot' || action==='spectate') ? nearestRoamStranger(state,48) : null
+
+    if(action==='spectate') {
+      const tx=Number(state.job?.x),ty=Number(state.job?.y),tz=Number(state.job?.z)
+      if([tx,ty,tz].every(Number.isFinite)) {
+        const dx=bot.entity.position.x-tx,dz=bot.entity.position.z-tz
+        const d=Math.sqrt(dx*dx+dz*dz)
+        if(d>7) {
+          await smartGoto(state,tx,ty,tz,5,3200,false)
+          continue
+        }
+      }
+
+      // Spectators do not start fights just because another faction is nearby.
+      // If someone damages them, however, they defend themselves briefly.
+      if((state.provokedUntil||0)>Date.now() && stranger) {
+        const dist=bot.entity.position.distanceTo(stranger.position)
+        await equipBestWeapon(state)
+        try { await bot.lookAt(stranger.position.offset(0,1.2,0),false) } catch {}
+        if(dist<=3.4) {
+          try { bot.attack(stranger,true) } catch {}
+          bot.setControlState('back',true)
+          bot.setControlState('sprint',true)
+          await sleep(Math.round(rand(240,420)))
+          continue
+        }
+      }
+
+      stopMovement(bot)
+      if(stranger) {
+        const dist=bot.entity.position.distanceTo(stranger.position)
+        if(dist<7) {
+          const yaw=Math.atan2(
+            -(bot.entity.position.x-stranger.position.x),
+            -(bot.entity.position.z-stranger.position.z))
+          await bot.look(yaw,0,false).catch(()=>{})
+          bot.setControlState('back',true)
+          await sleep(Math.round(rand(250,500)))
+          continue
+        }
+        try { await bot.lookAt(stranger.position.offset(0,1.2,0),false) } catch {}
+      } else {
+        try { await bot.look(bot.entity.yaw+rand(-0.22,0.22),rand(-0.05,0.10),false) } catch {}
+      }
+      await sleep(Math.round(rand(500,1100)))
+      continue
+    }
+
     const leavingHub=(action==='patrol' || action==='solo' || action==='solo_loot') &&
       Date.now()-(state.zoneArrivalAt || 0)<10000
     const intent=String(state.job?.pvpIntent || 'AVOID').toUpperCase()
@@ -2789,7 +2836,9 @@ async function connectIdentity(candidate, settings) {
     mapGoal: candidate.mapGoal || null,
     anchorReason: candidate.anchorReason || '',
     afkUntil: 0,
-    lastAfkLookAt: 0
+    lastAfkLookAt: 0,
+    passiveHealth: 20,
+    provokedUntil: 0
   }
   live.set(name, state)
 
@@ -2853,6 +2902,11 @@ async function connectIdentity(candidate, settings) {
     })
 
     bot.on('health', () => {
+      const previous=Number(state.passiveHealth ?? 20)
+      if(!state.combat && String(state.job?.action||'')==='spectate' && bot.health<previous-0.01) {
+        state.provokedUntil=Date.now()+12000
+      }
+      state.passiveHealth=bot.health
       if (bot.health > 0 && bot.health <= 13.5 && !state.combat) {
         maintainSurvival(state,true).then(healed => {
           if (!healed && bot.health <= 7 && state.job?.action !== 'safe') {

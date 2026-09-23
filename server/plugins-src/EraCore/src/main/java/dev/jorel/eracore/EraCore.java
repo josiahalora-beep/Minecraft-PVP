@@ -496,7 +496,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     private void migrateProductionUnificationConfig() {
         int version=getConfig().getInt("migration.production-unification-version",0);
-        if(version>=2) return;
+        if(version>=3) return;
 
         // Canonical v7 map geometry.
         getConfig().set("map-layout.koth-offset",500);
@@ -560,9 +560,19 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         getConfig().set("events.auto-schedule.warning-minutes",5);
         getConfig().set("events.auto-schedule.max-active-minutes",25);
 
-        getConfig().set("migration.production-unification-version",2);
+        // Presentation/identity v3. Donor ranks are color-only, creators are
+        // canonical identities, and the classic right-side HCF timer is enabled.
+        getConfig().set("presentation.sidebar",true);
+        getConfig().set("creator-tag.head-prefix","&c[YT] &f");
+        getConfig().set("creator-tag.chat-prefix","&c[YT] &r");
+        getConfig().set("creator-tag.creators",Arrays.asList(
+            "Stimpy","PainfulPvP","lolitsalex","Skimpy"));
+        getConfig().set("worker-pool.creator-bodies",Arrays.asList(
+            "Stimpy","PainfulPvP","lolitsalex","Skimpy"));
+
+        getConfig().set("migration.production-unification-version",3);
         saveConfig();
-        getLogger().info("Applied production unification v2: canonical v7 map, staged builders, expanded bounded memory and local-first chat.");
+        getLogger().info("Applied production unification v3: verified fresh-map reset, Kraken spawn alignment, classic presentation and canonical creator identities.");
     }
 
     private void bindCommands() {

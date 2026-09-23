@@ -1268,6 +1268,10 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         return simWorld != null && simWorld.sotwProtectionActive();
     }
 
+    long simWorldProtectionMillisLeft() {
+        return simWorld==null?0L:simWorld.sotwMillisLeft();
+    }
+
     void restartSotwProtectionClock() {
         if(simWorld!=null) simWorld.restartSotwProtectionClock();
     }

@@ -497,17 +497,21 @@ final class SpawnRewardsDirector implements Listener {
     }
 
     private void showOdds(Player p,String type) {
-        if("donor".equalsIgnoreCase(type)) {
-            p.sendMessage(EraCore.colorText("&6--- Donor Crate Odds ---"));
-            p.sendMessage(EraCore.colorText("&f$750 &720%  &f16 Pearls &718%  &f8 Diamonds &715%"));
-            p.sendMessage(EraCore.colorText("&f16 Obsidian &712%  &f12 Heals &712%  &f16 Gunpowder &78%"));
-            p.sendMessage(EraCore.colorText("&fP2 Iron Set &76%  &fSharp II Diamond &74%  &f2 Vote Keys &73%"));
-            p.sendMessage(EraCore.colorText("&fP2 Diamond Chest &71%  &fBonus Donor Key &70.5%  &dRank Upgrade &70.5%"));
+        if("koth".equalsIgnoreCase(type)) {
+            p.sendMessage(EraCore.colorText("&6--- KOTH Crate ---"));
+            p.sendMessage(EraCore.colorText("&fPearls, Healing II, glowstone, gunpowder, obsidian and diamonds."));
+            p.sendMessage(EraCore.colorText("&eRare: &fLooting IV / Fortune IV event tools, P2 diamond pieces, Sharp II event sword."));
+            p.sendMessage(EraCore.colorText("&7Event rewards never exceed the P2 / Sharp II PvP ceiling."));
+        } else if("donor".equalsIgnoreCase(type)) {
+            p.sendMessage(EraCore.colorText("&6--- Donor Ender Chest ---"));
+            p.sendMessage(EraCore.colorText("&aVIP &7< &fMVP &7< &6Pro &7< &bPlatinum"));
+            p.sendMessage(EraCore.colorText("&7Higher-tier keys increase quantities and improve P2/S2 reward chances."));
+            p.sendMessage(EraCore.colorText("&7No Speed II or Fire Resistance bottles; Speed II is permanent."));
         } else {
-            p.sendMessage(EraCore.colorText("&e--- Vote Crate Odds ---"));
+            p.sendMessage(EraCore.colorText("&e--- Vote Chest ---"));
             p.sendMessage(EraCore.colorText("&f$250 &724%  &f8 Pearls &718%  &f16 Iron &715%  &f12 Obsidian &712%"));
             p.sendMessage(EraCore.colorText("&f4 Diamonds &710%  &f6 Heals &78%  &f16 Wart &75%  &f8 Glowstone &74%"));
-            p.sendMessage(EraCore.colorText("&fSharp I Diamond &72.5%  &fDonor Key &71.2%  &dRank Upgrade &70.3%"));
+            p.sendMessage(EraCore.colorText("&fSharp I Diamond &72.5%  &fVIP donor key/rank upgrade &7rare"));
         }
     }
 

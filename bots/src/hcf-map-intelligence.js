@@ -12,18 +12,18 @@ export const HCF_MAP = Object.freeze({
     surfaceY: 63,
     spawn: Object.freeze({ name: 'Spawn', x: 0, y: 66, z: 0, safeRadius: 110, buildRadius: 190, claimRadius: 500 }),
     terrain: Object.freeze({
-      profile: 'ROLLING_HCF_V2',
+      profile: 'NATURAL_HCF_V3',
       surfaceY: 63,
-      spawnFlatRadius: 210,
-      spawnTransitionRadius: 345,
-      wildernessAmplitude: 8,
-      roadFlatHalfWidth: 18,
-      roadShoulderHalfWidth: 58,
+      spawnFlatRadius: 175,
+      spawnTransitionRadius: 300,
+      wildernessAmplitude: 7,
+      roadFlatHalfWidth: 16,
+      roadShoulderHalfWidth: 50,
       surfaceHolesAllowed: false,
       mountainsAllowed: false,
       ravinesAllowed: false,
       roadSurface: 'gravel-spine-with-broken-dirt-shoulders',
-      navigationRule: 'prefer-road-for-distance; accept-rolling-wilderness-for-claims-pvp-and-events'
+      navigationRule: 'prefer-road-for-distance; use-gentle-natural-contours-for-claims-pvp-and-events'
     }),
     roads: Object.freeze({
       north: Object.freeze({ x: 0, z: -1500 }),

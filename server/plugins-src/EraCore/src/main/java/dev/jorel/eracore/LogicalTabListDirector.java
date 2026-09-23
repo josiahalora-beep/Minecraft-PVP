@@ -182,6 +182,10 @@ final class LogicalTabListDirector {
 
     private void ensureTeams() {
         Scoreboard b=Bukkit.getScoreboardManager().getMainScoreboard();
+        Team legacy=b.getTeam("simtabyt");
+        if(legacy!=null) {
+            try { legacy.unregister(); } catch(Throwable ignored){}
+        }
 
         // Donor ranks are intentionally name colors only. Old HCF tab/chat
         // presentation was much cleaner than prefixing every player with a

@@ -27,7 +27,7 @@ import java.util.*;
  */
 @SuppressWarnings("deprecation")
 final class HcfAutoBrewerDirector {
-    private enum Kind { HEAL, SPEED }
+    private enum Kind { HEAL }
 
     private static final class Lane {
         final Kind kind;
@@ -211,39 +211,22 @@ final class HcfAutoBrewerDirector {
     }
 
     private Material ingredientFor(Kind kind,int stage) {
-        if(kind==Kind.HEAL) {
-            if(stage==0) return Material.NETHER_STALK;
-            if(stage==1) return Material.SPECKLED_MELON;
-            if(stage==2) return Material.GLOWSTONE_DUST;
-            if(stage==3) return Material.SULPHUR;
-            return null;
-        }
-        if(kind==Kind.SPEED) {
-            if(stage==0) return Material.NETHER_STALK;
-            if(stage==1) return Material.SUGAR;
-            if(stage==2) return Material.GLOWSTONE_DUST;
-            return null;
-        }
+        if(stage==0) return Material.NETHER_STALK;
+        if(stage==1) return Material.SPECKLED_MELON;
+        if(stage==2) return Material.GLOWSTONE_DUST;
+        if(stage==3) return Material.SULPHUR;
         return null;
     }
 
     private short durabilityAfter(Kind kind,int stage) {
-        if(stage==0) return (short)16; // awkward
-        if(kind==Kind.HEAL) {
-            if(stage==1) return (short)8197;  // healing I
-            if(stage==2) return (short)8229;  // healing II
-            return (short)16421;              // splash healing II
-        }
-        if(kind==Kind.SPEED) {
-            if(stage==1) return (short)8194;  // speed I
-            return (short)8226;               // speed II
-        }
-        return (short)0;
+        if(stage==0) return (short)16;    // awkward
+        if(stage==1) return (short)8197;  // healing I
+        if(stage==2) return (short)8229;  // healing II
+        return (short)16421;              // splash healing II
     }
 
     private String kindName(Kind kind) {
-        if(kind==Kind.HEAL) return "heal";
-        return "speed";
+        return "heal";
     }
 
     private List<ItemStack> takePotions(Inventory inv,short data,int amount) {

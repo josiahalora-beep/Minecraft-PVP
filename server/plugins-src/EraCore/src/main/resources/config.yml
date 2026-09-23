@@ -261,6 +261,7 @@ terrain:
   wilderness-amplitude: 7.0
   road-flat-half-width: 16.0
   road-shoulder-half-width: 50.0
+  road-protection-half-width: 32
   koth-classic-flat-radius: 52.0
   koth-classic-blend-radius: 118.0
   koth-endstyle-flat-radius: 64.0
@@ -287,6 +288,11 @@ atmosphere:
   enforce-every-ticks: 100
 
 base-builder:
+  # Surface terrain integration is intentionally much smaller than the claim/
+  # underground envelope. This prevents claim-shaped lawns around hidden bases.
+  cradle-extra-radius: 11
+  concealment-max-height: 5
+  entrance-approach-length: 9
   blocks-per-tick: 96
   visible-blocks-per-tick: 16
   rebuild-blocks-per-tick: 40

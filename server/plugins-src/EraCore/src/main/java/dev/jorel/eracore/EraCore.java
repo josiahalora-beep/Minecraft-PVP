@@ -78,6 +78,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     private HcfEventDirector eventDirector;
     private HcfResourceDirector resourceDirector;
     private LegacySchematicComposer schematicComposer;
+    private HcfWorldBuildDirector worldBuildDirector;
 
     enum Rank {
         MEMBER(0, "&7[Member]", 24),
@@ -191,6 +192,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         eventDirector = new HcfEventDirector(this,mapDirector);
         resourceDirector = new HcfResourceDirector(this,mapDirector);
         schematicComposer = new LegacySchematicComposer(this);
+        worldBuildDirector = new HcfWorldBuildDirector(this,mapDirector,resourceDirector,schematicComposer);
         infrastructure = new HcfInfrastructureDirector(this,warpManager,hcfZones);
         logicalTab = new LogicalTabListDirector(this, simWorld);
         spawnRewards = new SpawnRewardsDirector(this, warpManager);
@@ -219,6 +221,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         mapDirector.start();
         eventDirector.start();
         resourceDirector.start();
+        worldBuildDirector.start();
         infrastructure.start();
         spawnPresence.start();
         spawnRewards.start();
@@ -233,20 +236,9 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             }.runTaskLater(this, 120L);
         }
 
-        if (getConfig().getBoolean("map.auto-bootstrap", true) && !getConfig().getBoolean("map.complete", false)) {
-            new BukkitRunnable() {
-                public void run() {
-                    if(getConfig().getBoolean("world-composer.enabled",true) && schematicComposer!=null) {
-                        List<String> missing=schematicComposer.missingProductionAssets();
-                        if(missing.isEmpty()) schematicComposer.queueProductionMap(mapDirector);
-                        else getLogger().warning("Production map assets missing; run Install-HCF-World-Assets.ps1. Missing: "+join(missing,", "));
-                    } else {
-                        World world = Bukkit.getWorlds().get(0);
-                        bootstrapMap(world, false);
-                    }
-                }
-            }.runTaskLater(this, 80L);
-        }
+        // Production-map orchestration is owned by HcfWorldBuildDirector.
+        // It stages schematic composition and resource materialization instead
+        // of launching competing startup builders.
 
         if(getConfig().getBoolean("map.auto-warzone-smoothing",false)) {
             new BukkitRunnable() {
@@ -261,6 +253,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     @Override public void onDisable() {
         if (fakePlayers != null) fakePlayers.shutdown();
+        if (worldBuildDirector != null) worldBuildDirector.stop();
         if (schematicComposer != null) schematicComposer.stop();
         if (eventDirector != null) eventDirector.stop();
         if (resourceDirector != null) resourceDirector.stop();
@@ -2213,6 +2206,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if("status".equals(sub)) {
             List<String> missing=schematicComposer.missingProductionAssets();
             p.sendMessage(color("&6Composer &8» &7busy=&f"+schematicComposer.busy()+" &7queuedJobs=&f"+schematicComposer.queuedJobs()));
+            if(worldBuildDirector!=null) p.sendMessage(color("&6World build &8» &f"+worldBuildDirector.status()));
             p.sendMessage(color(missing.isEmpty()?"&aAll production assets installed.":"&cMissing: &f"+join(missing,", ")));
             return true;
         }

@@ -72,9 +72,11 @@ final class HcfBaseBuilder {
         maintenanceRebuild=true;
         clearBrokenBaseVolumes(world,plan);
 
-        // Existing faction sites are already terrain-normalized. Repair support
-        // underneath grade without re-running the huge full terrain-prep pass.
-        fillFoundationOnly(world,cx,y,cz,plan.surfacePadRadius(),plan.surfacePadRadius());
+        // Operator/QA rebuilds must reproduce the same blended terrain contract
+        // as normal SOTW construction. The old foundation-only path could leave
+        // a finished base sitting on a square shelf and made visual QA misleading.
+        prepareTerrainPad(world,plan);
+        auditPlan(plan);
         buildSurfaceShell(world,plan,true);
         buildUndergroundCore(world,plan);
         sealCriticalEnvelope(world,plan,true);

@@ -7606,9 +7606,9 @@ final class SimWorldDirector {
 
     private int baseTerrainRadius(SimFaction f) {
         HcfBasePlan.Profile p=baseProfile(f.name);
-        int members=Math.max(1,p.members);
-        int r=18+members;
-        if("fall_trap".equalsIgnoreCase(f.trapPreset)) r=Math.max(r,22);
+        HcfBasePlan plan=HcfBasePlan.of(f.name,f.baseX,f.baseY,f.baseZ,p);
+        int r=plan.surfacePadRadius();
+        if("fall_trap".equalsIgnoreCase(f.trapPreset)) r=Math.max(r,24);
         return r;
     }
 

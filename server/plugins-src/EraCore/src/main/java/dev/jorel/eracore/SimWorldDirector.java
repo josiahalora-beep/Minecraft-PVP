@@ -439,22 +439,26 @@ final class SimWorldDirector {
     private static final Pattern MONEY = Pattern.compile("(?:\\$\\s*)?(\\d{2,7})");
 
     private static final String[] PLAYER_NAMES = {
-        "xRico","SethPvP","iTzMason","FrostyHD","NateMC","PurpleDino","xNova","CamPvP","iHackLite","Jettison",
-        "MasonHD","ClutchKid","xRekt","RyanPvP","HoaxMC","Kinq","Axion","PandaPvP","Toxxic","BreezyMC",
-        "RektByPing","Cxdy","LlamaPvP","Beamed","RedstoneKid","CreeperHD","iTzJordan","NightPvP","Vexing","AeroPvP",
-        "HollowMC","MangoPvP","iTzChris","xSavage","KiwiMC","Vaporized","NoMercy","Finesse","xPulse","TreyHD",
-        "OrbitPvP","Zyro","iTzLuke","Shanked","CrimsonMC","xScope","DizzyPvP","Reborn","JaxMC","VibePvP",
-        "RavenHD","Ghosted","xBlade","KarmaMC","Roasted","Venomous","iTzNick","LethalPvP","QuartzMC","Murked",
-        "DuskPvP","SpookyMC","xViper","TundraPvP","Jinxed","VividMC","Ripped","AuraPvP","Hexed","WafflePvP",
-        "Stimpy","Stimpypvp","Marcel","PainfulPvP","lolitsalex","Skimpy","KairoPvP","Melted","xFrost","Kryptic",
-        "JordanHD","Deceive","GrapePvP","SoraMC","BambooPvP","StrafeKid","Comboed","PearlGod","CaneKing","MinerMatt",
-        "BrewMaster","Vaulted","ObbyKing","Farmed","xVelocity","iTzBen","CobraPvP","RivalMC","DemonHD","LunarKid",
-        "RazePvP","DriftMC","KiloPvP","NovaHD","HexPvP","SwayMC","Avenge","BoltPvP","MercyMC","Shiver",
-        "Ruthless","FluxMC","TempoPvP","EonMC","FablePvP","HazeMC","ScythePvP","NeroMC","WraithPvP","GlitchMC",
-        "KeenPvP","RookMC","Knockback","Pearled","RefillKid","Quickdrop","Spleefed","Potting","KiteMC","ArcherKid",
-        "BardMain","RogueMain","DiamondKid","CappedPvP","Tagged","DTRKing","KOTHKid","RoadPvP","NetherKid","EndRoamer",
-        "Claimed","FacFocus","DebuffMC","InvisKid","PearlClip","StrafeMC","ComboMC","Chased","Trapped","GateKid",
-        "VaultMC","BrewerKid","CaneFarmer","SilkTouch","ObbyMiner","Glowstone","BlazeKid","RegenPvP","Speeded","FireRes"
+        "Stimpy","PainfulPvP","lolitsalex","Skimpy","Vexon","Mints","Syrup","Tew","Kinq","Aero"
+        "Zyro","Nox","Riven","Sora","Axion","Kryptic","Finesse","Deceive","Jettison","Vaporized"
+        "Shanked","Reborn","Ghosted","Murked","Beamed","Tagged","Claimed","Pearled","Chased","Trapped"
+        "Vaulted","Quickdrop","Spleefed","Knockback","Ruthless","Shiver","Mercy","Tempo","Haze","Fable"
+        "Nero","Scythe","Wraith","Glitch","Rook","Dusk","Vivid","Toxxic","Melted","Roasted"
+        "Hexed","Jinxed","Ripped","Lethal","Strafe","Comboed","Vexing","Hollow","Avenge","Crimson"
+        "Quartz","Orbit","Mango","Kiwi","Grape","Bamboo","Waffle","PurpleDino","Redstone","Nightfall"
+        "Monarch","Drowsy","Static","Frostbite","Lucid","Rapture","Cipher","Swerve","Recoil","Sentry"
+        "Talon","Riot","Cinder","Axiom","Mythic","Vandal","Sage","Rift","Daze","Morrow"
+        "Flare","Drift","Sway","Flux","Eon","Lunar","Karma","Venomous","Jax","Kairo"
+        "Zane","Trey","Jordan","Mason","Nate","Chris","Luke","Nick","Ben","Rico"
+        "Cody","Dylan","Evan","Noah","Miles","Cole","Cameron","Tyler","Brady","Logan"
+        "xRico","xSavage","xNova","xPulse","xScope","xBlade","xViper","xFrost","xVelocity","xRekt"
+        "iTzMason","iTzJordan","iTzLuke","iTzBen","iTzChris","FrostyHD","MasonHD","JordanHD","TreyHD","DemonHD"
+        "SethPvP","CamPvP","RyanPvP","PandaPvP","BreezyMC","CreeperHD","AeroPvP","DizzyPvP","VibePvP","LethalPvP"
+        "DuskPvP","AuraPvP","WafflePvP","KairoPvP","CobraPvP","RazePvP","TempoPvP","KiteMC","ClutchKid","StrafeKid"
+        "ArcherKid","BardMain","RogueMain","DiamondKid","DTRKing","KOTHKid","NetherKid","EndRoamer","PearlClip","CaneFarmer"
+        "ObbyMiner","BlazeKid","RefillKid","GateKid","BrewMaster","MinerMatt","qTip","SoupCan","RawrXD","z0mbie"
+        "SevenUp","NoChill","PingLord","Laggy","PotatoAim","DoorCamper","RoadRunner","OneTap","NoDebuff","Soup"
+        "Melee","Flick","Refill","Kiter","Debuff","Invis"
     };
 
     private static final String[] FACTION_NAMES = {
@@ -6829,7 +6833,7 @@ final class SimWorldDirector {
         return System.currentTimeMillis() - sotwStartedAt < mins * 60L * 1000L;
     }
 
-    private long sotwMillisLeft() {
+    long sotwMillisLeft() {
         long total=plugin.getConfig().getLong("sotw.protection-minutes",60L)*60L*1000L;
         return Math.max(0L,total-(System.currentTimeMillis()-sotwStartedAt));
     }
@@ -8052,19 +8056,19 @@ final class SimWorldDirector {
     private int skillRollForName(String name) {
         int base=skillRoll();
         int tier=namePrestigeTier(name);
-        int bias=tier==2?10:(tier==1?3:-6);
-        // Keep sleepers and overrated names. The handle predicts skill; it does
-        // not reveal it.
-        int noise=rng.nextInt(13)-6;
+        int bias=tier==2?16:(tier==1?6:-8);
+        // Clean/rare-looking handles are a meaningful old-HCF reputation signal,
+        // but not destiny: sleepers and overrated names still exist.
+        int noise=rng.nextInt(15)-7;
         return Math.max(18,Math.min(100,base+bias+noise));
     }
 
     private int rebalanceExistingSkillForName(String name,int existing) {
         int tier=namePrestigeTier(name);
         int target=existing;
-        if(tier==2) target+=6+rng.nextInt(5);
-        else if(tier==1) target+=rng.nextInt(5)-1;
-        else target-=2+rng.nextInt(5);
+        if(tier==2) target+=9+rng.nextInt(6);
+        else if(tier==1) target+=2+rng.nextInt(5);
+        else target-=3+rng.nextInt(6);
         return Math.max(18,Math.min(100,target));
     }
 

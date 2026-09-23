@@ -63,6 +63,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     private HcfBaseBuilder hcfBaseBuilder;
     private HcfZoneDisplayDirector hcfZones;
     private LogicalTabListDirector logicalTab;
+    private HcfSidebarDirector sidebar;
     private SpawnRewardsDirector spawnRewards;
     private HcfAutoBrewerDirector autoBrewer;
     private HcfInfrastructureDirector infrastructure;
@@ -161,6 +162,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     @Override public void onEnable() {
         saveDefaultConfig();
+
         migrateDirectorIntelligenceConfig();
         migrateDistributedWorkerConfig();
         migrateLivingWorldConfig();
@@ -169,6 +171,20 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         initFiles();
         initShops();
         loadFactions();
+
+        // All persistent YAML handles are initialized before this guard so the
+        // normal disable path is safe even when a bad launcher bypassed reset
+        // preflight.
+        final File pendingReset = new File(getDataFolder(), "season-reset.pending");
+        if (pendingReset.isFile()) {
+            getLogger().severe("SOTW RESET PENDING: the server was started without running Prepare-HCF-Season-Reset.ps1.");
+            getLogger().severe("EraCore will not build over the existing world. Start with server\\start-server.bat.");
+            Bukkit.getScheduler().runTask(this,new Runnable() {
+                public void run(){ Bukkit.shutdown(); }
+            });
+            return;
+        }
+
         warpManager = new WarpManager(this);
         warpManager.bootstrapDefaults();
         configureWorldBorders();
@@ -196,6 +212,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         worldBuildDirector = new HcfWorldBuildDirector(this,mapDirector,resourceDirector,schematicComposer);
         infrastructure = new HcfInfrastructureDirector(this,warpManager,hcfZones);
         logicalTab = new LogicalTabListDirector(this, simWorld);
+        sidebar = new HcfSidebarDirector(this,simWorld,eventDirector);
         spawnRewards = new SpawnRewardsDirector(this, warpManager);
         bindCommands();
         getServer().getPluginManager().registerEvents(this, this);
@@ -211,6 +228,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         startDtrRegen();
         simWorld.start();
         logicalTab.start();
+        sidebar.start();
         new BukkitRunnable() {
             public void run() {
                 if (simWorld != null) simWorld.refreshVisibleCombat();
@@ -264,6 +282,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (autoBrewer != null) autoBrewer.stop();
         if (spawnRewards != null) spawnRewards.stop();
         if (spawnPresence != null) spawnPresence.stop();
+        if (sidebar != null) sidebar.stop();
         if (logicalTab != null) logicalTab.stop();
         if (hcfZones != null) hcfZones.stop();
         if (hcfClasses != null) hcfClasses.stop();
@@ -477,7 +496,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     private void migrateProductionUnificationConfig() {
         int version=getConfig().getInt("migration.production-unification-version",0);
-        if(version>=2) return;
+        if(version>=3) return;
 
         // Canonical v7 map geometry.
         getConfig().set("map-layout.koth-offset",500);
@@ -541,9 +560,19 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         getConfig().set("events.auto-schedule.warning-minutes",5);
         getConfig().set("events.auto-schedule.max-active-minutes",25);
 
-        getConfig().set("migration.production-unification-version",2);
+        // Presentation/identity v3. Donor ranks are color-only, creators are
+        // canonical identities, and the classic right-side HCF timer is enabled.
+        getConfig().set("presentation.sidebar",true);
+        getConfig().set("creator-tag.head-prefix","&c[YT] &f");
+        getConfig().set("creator-tag.chat-prefix","&c[YT] &r");
+        getConfig().set("creator-tag.creators",Arrays.asList(
+            "Stimpy","PainfulPvP","lolitsalex","Skimpy"));
+        getConfig().set("worker-pool.creator-bodies",Arrays.asList(
+            "Stimpy","PainfulPvP","lolitsalex","Skimpy"));
+
+        getConfig().set("migration.production-unification-version",3);
         saveConfig();
-        getLogger().info("Applied production unification v2: canonical v7 map, staged builders, expanded bounded memory and local-first chat.");
+        getLogger().info("Applied production unification v3: verified fresh-map reset, Kraken spawn alignment, classic presentation and canonical creator identities.");
     }
 
     private void bindCommands() {
@@ -977,7 +1006,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (p != null) {
             applyCreatorTag(p);
             p.setPlayerListName(color(identityPrefix(p.getName(), rank) +
-                (rank==Rank.OWNER?"&c":"&f") + p.getName()));
+                rankNameColor(rank) + p.getName()));
         }
     }
 
@@ -989,15 +1018,16 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     private String identityPrefix(String name, Rank rank) {
-        String creator = isCreatorIdentity(name) ? getConfig().getString("creator-tag.chat-prefix", "&c[Yt]&r ") : "";
+        // Classic HCF presentation: donor entitlement is communicated by the
+        // player's name color, not a loud [Rank] prefix on every chat line.
+        String creator = isCreatorIdentity(name) ? getConfig().getString("creator-tag.chat-prefix", "&c[YT] &r") : "";
         String staff="";
         if(simWorld!=null && simWorld.contains(name)) {
             String role=simWorld.simulatedStaffRole(name);
-            if("ADMIN".equalsIgnoreCase(role)) staff="&c[Admin] ";
-            else if("MOD".equalsIgnoreCase(role)) staff="&2[Mod] ";
+            if("ADMIN".equalsIgnoreCase(role)) staff="&c[Admin] &r";
+            else if("MOD".equalsIgnoreCase(role)) staff="&2[Mod] &r";
         }
-        String rankPrefix = rank.prefix;
-        return staff + creator + rankPrefix + " ";
+        return staff + creator;
     }
 
     boolean isBotIdentity(String name) {
@@ -1069,6 +1099,21 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     void broadcastCommunityEvent(String message) {
         if (!hasHumanOnline()) return;
         Bukkit.broadcastMessage(color(message));
+    }
+
+    void finalizeProductionSpawn() {
+        if(warpManager==null || Bukkit.getWorlds().isEmpty()) return;
+        World world=Bukkit.getWorlds().get(0);
+        int y=getConfig().getInt("world-composer.spawn-anchor-y",66);
+        Location center=new Location(world,0.5,y,0.5,0f,0f);
+
+        // The Kraken schematic's WorldEdit origin is its intended standing
+        // location. Reassert it after the paste so stale/default Y=64 warps can
+        // never strand players below the actual build.
+        warpManager.applyKrakenPreset(center);
+        world.setSpawnLocation(0,y,0);
+        if(hcfZones!=null) hcfZones.syncMainSpawn(center);
+        getLogger().info("[world-build] Kraken spawn finalized at 0.5,"+y+",0.5.");
     }
 
     void sendSimulatedStaffChat(String from,String message) {

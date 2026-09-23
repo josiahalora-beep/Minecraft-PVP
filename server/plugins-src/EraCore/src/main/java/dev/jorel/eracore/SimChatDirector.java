@@ -195,7 +195,7 @@ final class SimChatDirector {
 
     private void scheduleRecruitmentReplies(final Player player) {
         List<String> candidates = new ArrayList<String>();
-        for (String name : plugin.getConfig().getStringList("sim-chat.roster")) {
+        for (String name : world.logicalOnlineIdentityNames()) {
             String faction = world.factionOf(name);
             if (faction.isEmpty()) continue;
             if (world.factionMembers(faction).size() >= SimWorldDirector.MAX_FACTION_MEMBERS) continue;

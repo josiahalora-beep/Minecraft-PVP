@@ -16,7 +16,7 @@ $JavaSourceDir = Join-Path $Server 'plugins-src\EraCore\src\main\java\dev\jorel\
 
 # This repository is often installed as a plain folder rather than a Git clone.
 # Always sync the exact coordinated source generation before compiling.
-$SourceCommit = 'cfa90b641a6247f16d7c482e2510d0011b1cea59'
+$SourceCommit = '7b73ac866e335b4d66b106fdbd4d5205daa1ec32'
 $RawBase = 'https://raw.githubusercontent.com/josiahalora-beep/Minecraft-PVP/' + $SourceCommit
 $SourceFiles = @(
     'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/ActorDirectory.java',
@@ -35,6 +35,7 @@ $SourceFiles = @(
     'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfMapDirector.java',
     'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfPortalDirector.java',
     'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfResourceDirector.java',
+    'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfSidebarDirector.java',
     'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfTerrainDirector.java',
     'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfTravelDirector.java',
     'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfWorldBuildDirector.java',
@@ -150,7 +151,7 @@ if (Test-Path $PluginData) {
     $stateNames = @(
         'config.yml','simulation.yml','factions.yml','claims-v2.yml','events.yml',
         'economy.yml','kits.yml','ranks.yml','stats.yml','infrastructure.yml',
-        'memory-events.log'
+        'warps.yml','safezones.yml','rewards.yml','memory-events.log'
     )
     foreach ($name in $stateNames) {
         $p = Join-Path $PluginData $name
@@ -235,6 +236,7 @@ $mustContain = @(
     'dev/jorel/eracore/HcfWorldBuildDirector.class',
     'dev/jorel/eracore/HcfBaseBuilder.class',
     'dev/jorel/eracore/HcfResourceDirector.class',
+    'dev/jorel/eracore/HcfSidebarDirector.class',
     'dev/jorel/eracore/LogicalTabListDirector.class',
     'dev/jorel/eracore/AiChatBridge.class'
 )
@@ -257,7 +259,9 @@ Write-Host '  - canonical KOTH/portal/conquest geometry'
 Write-Host '  - hybrid five-family faction bases + rectangular claim containment'
 Write-Host '  - local-first contextual chat + semantic anti-repeat + hard AI budget'
 Write-Host '  - bounded hot memory + compressed cold history shards'
-Write-Host '  - automatic KOTH/Conquest rotation'
+Write-Host '  - automatic KOTH/Conquest rotation + classic right-side countdown sidebar'
+Write-Host '  - color-only donor presentation + canonical creator identities'
+Write-Host '  - verified full-world SOTW reset + Kraken spawn-origin alignment'
 Write-Host '  - hardened logical TAB with /simtab diagnostics'
 Write-Host '  - duel arena isolated from the HCF Overworld'
 Write-Host ''

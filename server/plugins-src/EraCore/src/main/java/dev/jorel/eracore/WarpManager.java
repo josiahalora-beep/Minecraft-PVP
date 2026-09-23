@@ -31,7 +31,9 @@ final class WarpManager {
             // A clean/reset HCF world must have one deterministic origin. Using
             // Mojang's randomly selected natural spawn here used to let the
             // infrastructure spawn and the map bootstrap disagree on centers.
-            int y=plugin.getConfig().getInt("map.surface-y",63)+1;
+            int y=plugin.getConfig().getBoolean("spawn.external-schematic",false)
+                ? plugin.getConfig().getInt("world-composer.spawn-anchor-y",66)
+                : plugin.getConfig().getInt("map.surface-y",63)+1;
             int x=plugin.getConfig().getInt("map.spawn-x",0);
             int z=plugin.getConfig().getInt("map.spawn-z",0);
             setSpawn(new Location(world,x+0.5,y,z+0.5,0f,0f),false);

@@ -98,6 +98,7 @@ final class HcfWorldBuildDirector {
         if(!plugin.getConfig().getBoolean("map.complete",false) ||
            !plugin.getConfig().getBoolean("world-build.complete",false)) {
             stage("FINALIZE");
+            plugin.finalizeProductionSpawn();
             map.bootstrapWarps();
             plugin.getConfig().set("map.complete",true);
             plugin.getConfig().set("map.auto-bootstrap",false);

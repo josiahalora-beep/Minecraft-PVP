@@ -591,6 +591,7 @@ final class SimWorldDirector {
     }
 
     private void reconcileVisiblePhysicalBase() {
+        if(!plugin.productionWorldReady()) return;
         if(!plugin.getConfig().getBoolean("base-builder.lazy-materialization",true)) return;
         if(plugin.simBaseQueuedOperations()>0) return;
 
@@ -689,6 +690,9 @@ final class SimWorldDirector {
         data.set(b+".decisiveness",p.decisiveness);
         data.set(b+".wealth-tier",p.wealthTier);
         data.set(b+".archetype",p.archetype);
+        HcfBasePlan plan=HcfBasePlan.of(f.name,f.baseX,f.baseY,f.baseZ,p);
+        data.set(b+".primary-family",plan.primaryFamilyName());
+        data.set(b+".secondary-family",plan.secondaryFamilyName());
         data.set(b+".storage-tier",f.storageTier);
         data.set(b+".nether-portal",f.netherPortal);
         data.set(b+".end-portal",f.endPortal);
@@ -7551,7 +7555,14 @@ final class SimWorldDirector {
             int[] raw = chooseBasePoint(f);
             int x = alignChunkCenter(raw[0]);
             int z = alignChunkCenter(raw[1]);
-            int[] eval = plugin.evaluateSimBaseSite(x,z,terrainRadius); // medianY, relief, liquid samples
+            int[] eval;
+            if(plugin.getConfig().getBoolean("terrain.normalize-new-chunks",false)) {
+                eval=plugin.evaluateSimBaseSite(x,z,terrainRadius); // medianY, relief, liquid samples
+            } else {
+                // Canonical production map is flat. Abstract claim scouting must
+                // not synchronously generate distant chunks just to rediscover Y63.
+                eval=new int[]{plugin.getConfig().getInt("map.surface-y",63),0,0};
+            }
 
             int minY = Math.max(50, plugin.getConfig().getInt("sim-world.min-base-y", 50));
             int maxY = Math.min(110, plugin.getConfig().getInt("sim-world.max-base-y", 110));
@@ -7653,8 +7664,29 @@ final class SimWorldDirector {
             };
         }
 
+        String archetype=f.archetype==null?"BALANCED":f.archetype.toUpperCase(Locale.ENGLISH);
+        boolean roadHungry="PVP".equals(archetype) || f.powerFaction ||
+            ("TRAPPER".equals(archetype) && rng.nextInt(100)<45);
+
+        if(roadHungry && rng.nextInt(100)<72) {
+            // Valuable road-adjacent claim: close enough for fast KOTH/spawn
+            // routes, but offset far enough to keep the road itself open.
+            int road=rng.nextInt(4);
+            int along=420+rng.nextInt(720);
+            int lateral=(rng.nextBoolean()?1:-1)*(105+rng.nextInt(145));
+            int x,z;
+            if(road==0){x=lateral;z=-along;}
+            else if(road==1){x=lateral;z=along;}
+            else if(road==2){x=-along;z=lateral;}
+            else{x=along;z=lateral;}
+            return new int[]{spawn.getBlockX()+x,spawn.getBlockZ()+z};
+        }
+
+        int minRadius="ECONOMY".equals(archetype)||"UNDERDOG".equals(archetype)?850:650;
+        int maxRadius="ECONOMY".equals(archetype)||"UNDERDOG".equals(archetype)?1325:1250;
+        // Creator status itself deliberately does not improve land value.
         double angle = rng.nextDouble() * Math.PI * 2.0;
-        int radius = creatorLed ? 500 + rng.nextInt(350) : 650 + rng.nextInt(650);
+        int radius=minRadius+rng.nextInt(Math.max(1,maxRadius-minRadius+1));
         return new int[]{
             spawn.getBlockX() + (int)Math.round(Math.cos(angle) * radius),
             spawn.getBlockZ() + (int)Math.round(Math.sin(angle) * radius)

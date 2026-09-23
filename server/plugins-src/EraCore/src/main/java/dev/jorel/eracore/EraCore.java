@@ -490,6 +490,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         // Staged world construction. Do not turn auto-bootstrap on here; only a
         // deliberate /sotw reset marker may request a full physical rebuild.
         getConfig().set("world-build.auto-resume",true);
+        if(!getConfig().contains("map.structures-complete")) getConfig().set("map.structures-complete",
+            getConfig().getBoolean("map.complete",false));
         if(!getConfig().contains("world-build.active")) getConfig().set("world-build.active",false);
         if(!getConfig().contains("world-build.complete")) getConfig().set("world-build.complete",
             getConfig().getBoolean("map.complete",false));
@@ -2261,7 +2263,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             PrintWriter out=new PrintWriter(new OutputStreamWriter(new FileOutputStream(marker),"UTF-8"));
             out.println("requested-by="+p.getName());
             out.println("requested-at="+System.currentTimeMillis());
-            out.println("layout-version=1");
+            out.println("layout-version=2");
             out.close();
         } catch(IOException e) {
             p.sendMessage(color("&cCould not write reset marker: "+e.getMessage()));

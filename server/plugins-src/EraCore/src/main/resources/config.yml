@@ -11,6 +11,7 @@ owner:
 map:
   auto-bootstrap: false
   complete: false
+  structures-complete: false
   surface-y: 63
   world-border: 3000
   warzone-smoothing-radius: 520

@@ -60,20 +60,32 @@ final class HcfWorldBuildDirector {
             plugin.saveConfig();
         }
 
+        boolean structures=plugin.getConfig().getBoolean("map.structures-complete",
+            plugin.getConfig().getBoolean("map.complete",false));
+        boolean resourceDone=plugin.getConfig().getBoolean("world-build.resources-complete",false);
+
+        // Active staged jobs own their own MSPT throttling. Keep the visible
+        // stage truthful while they run instead of flipping to PAUSED_MSPT even
+        // though the composer/resource runner is still advancing.
+        if(!structures && composer!=null && composer.busy()) {
+            stage("STRUCTURES");
+            return;
+        }
+        if(structures && !resourceDone && resources!=null && resources.busy()) {
+            stage("RESOURCES");
+            return;
+        }
+
         double p95=plugin.currentP95Mspt();
-        double ceiling=Math.max(15.0,plugin.getConfig().getDouble("world-build.max-p95-mspt",20.0));
+        double ceiling=Math.max(20.0,plugin.getConfig().getDouble("world-build.max-p95-mspt",32.0));
         if(p95>=0.0 && p95>ceiling) {
             stage("PAUSED_MSPT");
             return;
         }
 
-        boolean structures=plugin.getConfig().getBoolean("map.structures-complete",
-            plugin.getConfig().getBoolean("map.complete",false));
-        boolean resourceDone=plugin.getConfig().getBoolean("world-build.resources-complete",false);
-
         if(!structures) {
             stage("STRUCTURES");
-            if(composer==null || composer.busy()) return;
+            if(composer==null) return;
             List<String> missing=composer.missingProductionAssets();
             if(!missing.isEmpty()) {
                 stage("WAITING_ASSETS");

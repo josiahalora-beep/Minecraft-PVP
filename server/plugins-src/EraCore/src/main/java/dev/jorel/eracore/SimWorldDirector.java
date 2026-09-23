@@ -3549,6 +3549,10 @@ final class SimWorldDirector {
         return b.toString();
     }
 
+    String aiChatBudgetStatus() {
+        return aiChat==null?"unavailable":aiChat.budgetStatus();
+    }
+
     boolean requestPrivateAi(final Player human,final String simName,final String text) {
         final SimPlayer sim=players.get(key(simName));
         if(sim==null || text==null || text.trim().isEmpty()) return false;

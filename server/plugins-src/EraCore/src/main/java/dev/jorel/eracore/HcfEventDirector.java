@@ -118,6 +118,20 @@ final class HcfEventDirector {
         }
 
         int warnMinutes=Math.max(1,plugin.getConfig().getInt("events.auto-schedule.warning-minutes",5));
+
+        // SOTW is the opening progression race, not a KOTH warning loop. Keep
+        // the first event at least one warning-window after protection ends,
+        // and do not announce it until SOTW is actually over.
+        if(plugin.simWorldProtectionActive()) {
+            long earliest=now+plugin.simWorldProtectionMillisLeft()+warnMinutes*60000L;
+            if(nextAutoAt<earliest || warnedForAt!=0L) {
+                nextAutoAt=earliest;
+                warnedForAt=0L;
+                save();
+            }
+            return;
+        }
+
         if(warnedForAt!=nextAutoAt && now>=nextAutoAt-warnMinutes*60000L && now<nextAutoAt) {
             String id=scheduledEventId();
             HcfMapDirector.Region r="conquest".equals(id)?map.region("conquest"):map.region(id);
@@ -130,12 +144,6 @@ final class HcfEventDirector {
         }
 
         if(now<nextAutoAt) return;
-        if(plugin.simWorldProtectionActive()) {
-            nextAutoAt=now+5L*60000L;
-            warnedForAt=0L;
-            save();
-            return;
-        }
         if(!plugin.hasHumanOnline()) return;
 
         int minLogical=Math.max(1,plugin.getConfig().getInt("events.auto-schedule.minimum-logical-online",20));

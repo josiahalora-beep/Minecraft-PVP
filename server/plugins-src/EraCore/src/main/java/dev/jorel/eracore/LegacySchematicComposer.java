@@ -221,7 +221,7 @@ final class LegacySchematicComposer {
             jobs.add(new PasteJob("Kraken Spawn",over,spawn,0,
                 plugin.getConfig().getInt("world-composer.spawn-anchor-y",66),0,true));
 
-            int ko=plugin.getConfig().getInt("map-layout.koth-offset",650);
+            int ko=plugin.getConfig().getInt("map-layout.koth-offset",500);
             int ky=plugin.getConfig().getInt("map.surface-y",63);
             jobs.add(new PasteJob("Classic KOTH",over,load(asset("koth-classic","KOTH2-production-1.8.schematic")), ko,ky,-ko,true));
             jobs.add(new PasteJob("EndStyle KOTH",over,load(asset("koth-endstyle","EndStyleKOTH-production-1.8.schematic")),-ko,ky,-ko,true));
@@ -255,7 +255,9 @@ final class LegacySchematicComposer {
                 228,252,114,138,25,0,repeats));
 
             productionRun=true;
+            plugin.getConfig().set("map.structures-complete",false);
             plugin.getConfig().set("map.complete",false);
+            plugin.getConfig().set("world-build.complete",false);
             plugin.saveConfig();
             ensureRunner();
             plugin.getLogger().info("[composer] queued production HCF map jobs="+jobs.size()+" assets="+assetDir.getAbsolutePath());
@@ -299,10 +301,10 @@ final class LegacySchematicComposer {
                 }
                 if(jobs.isEmpty()) {
                     if(productionRun) {
-                        plugin.getConfig().set("map.complete",true);
-                        plugin.getConfig().set("map.production-layout-version",1);
+                        plugin.getConfig().set("map.structures-complete",true);
+                        plugin.getConfig().set("map.production-layout-version",2);
                         plugin.saveConfig();
-                        plugin.getLogger().info("[composer] production HCF map materialization complete.");
+                        plugin.getLogger().info("[composer] production HCF structures complete; resource stage may begin.");
                     }
                     productionRun=false;
                     runner.cancel();runner=null;

@@ -71,6 +71,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     private HcfInfrastructureDirector infrastructure;
     private HcfGateDirector gateDirector;
     private HcfTerrainDirector terrainDirector;
+    private HcfAtmosphereDirector atmosphereDirector;
     private NmsFakePlayerRuntime fakePlayers;
     private ActorDirectory actors;
     private HcfElevatorDirector elevatorDirector;
@@ -202,6 +203,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         autoBrewer = new HcfAutoBrewerDirector(this);
         gateDirector = new HcfGateDirector(this);
         terrainDirector = new HcfTerrainDirector(this);
+        atmosphereDirector = new HcfAtmosphereDirector(this);
         elevatorDirector = new HcfElevatorDirector(this);
         travelDirector = new HcfTravelDirector(this);
         portalDirector = new HcfPortalDirector(warpManager);
@@ -223,6 +225,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         getServer().getPluginManager().registerEvents(spawnRewards, this);
         getServer().getPluginManager().registerEvents(gateDirector, this);
         getServer().getPluginManager().registerEvents(terrainDirector, this);
+        getServer().getPluginManager().registerEvents(atmosphereDirector, this);
         getServer().getPluginManager().registerEvents(elevatorDirector, this);
         getServer().getPluginManager().registerEvents(travelDirector, this);
         getServer().getPluginManager().registerEvents(portalDirector, this);
@@ -245,6 +248,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         eventDirector.start();
         resourceDirector.start();
         worldBuildDirector.start();
+        atmosphereDirector.start();
         infrastructure.start();
         spawnPresence.start();
         spawnRewards.start();
@@ -278,6 +282,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (fakePlayers != null) fakePlayers.shutdown();
         if (worldBuildDirector != null) worldBuildDirector.stop();
         if (terrainDirector != null) terrainDirector.stop();
+        if (atmosphereDirector != null) atmosphereDirector.stop();
         if (schematicComposer != null) schematicComposer.stop();
         if (eventDirector != null) eventDirector.stop();
         if (resourceDirector != null) resourceDirector.stop();

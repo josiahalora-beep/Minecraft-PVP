@@ -946,11 +946,10 @@ final class HcfBaseBuilder {
                 boolean cornerish=surfaceCornerLike(p,x,z);
                 boolean beam=cornerish || yy==p.surfaceY+1 || yy==top ||
                     ((x-minX)%6==0) || ((z-minZ)%6==0);
-                queue.add(new Op(w,x,yy,z,beam?p.surfaceFrame:Material.GLASS));
+                queue.add(new Op(w,x,yy,z,surfaceWallMaterial(p,x,yy,z,top,beam)));
             }
 
-            boolean roofBeam=edge || ((x-p.cx)%6==0)||((z-p.cz)%6==0);
-            queue.add(new Op(w,x,top+1,z,roofBeam?p.surfaceFrame:Material.GLASS));
+            queue.add(new Op(w,x,top+1,z,surfaceRoofMaterial(p,x,z,edge)));
         }
 
         // One restrained asymmetric bay is enough to make some bases look like
@@ -1006,12 +1005,11 @@ final class HcfBaseBuilder {
                         boolean beam=surfaceCornerLike(p,x,z) || yy==p.surfaceY+1 || yy==top ||
                             ((x-(p.cx-p.surfaceHalfX))%6==0) ||
                             ((z-(p.cz-p.surfaceHalfZ))%6==0);
-                        queue.add(new Op(w,x,yy,z,beam?p.surfaceFrame:Material.GLASS));
+                        queue.add(new Op(w,x,yy,z,surfaceWallMaterial(p,x,yy,z,top,beam)));
                     }
                 }
 
-                boolean roofBeam=edge || ((x-p.cx)%6==0)||((z-p.cz)%6==0);
-                queue.add(new Op(w,x,top+1,z,roofBeam?p.surfaceFrame:Material.GLASS));
+                queue.add(new Op(w,x,top+1,z,surfaceRoofMaterial(p,x,z,edge)));
             }
         }
     }
@@ -1038,6 +1036,54 @@ final class HcfBaseBuilder {
             // The integrity pass runs last; re-open/re-line only the one legal
             // vertical connection so envelope sealing cannot accidentally close it.
             buildVerticalTransit(w,p);
+        }
+    }
+
+    private Material surfaceWallMaterial(HcfBasePlan p,int x,int yy,int z,int top,boolean beam) {
+        if(beam) return p.surfaceFrame;
+        int level=yy-p.surfaceY;
+
+        switch(p.primaryFamily) {
+            case 0: // Redemption: compact fortified lower shell, glass lookout above.
+                return level<=2?p.surfaceFrame:Material.GLASS;
+            case 1: // Base-HCF: stone ring base with a broad transparent upper level.
+                if(level==1) return p.surfaceFrame;
+                if(level==3 && ((Math.abs(x-p.cx)+Math.abs(z-p.cz))%5==0))
+                    return p.undergroundTrim;
+                return Material.GLASS;
+            case 2: // ModernHCF: intentionally clean glass-dominant shell.
+                return Material.GLASS;
+            case 3: // Tunnel: practical solid lower walls with narrow upper windows.
+                if(level<=2) return p.surfaceFrame;
+                return ((Math.abs(x-p.cx)+Math.abs(z-p.cz))%4==0)?Material.GLASS:p.surfaceFrame;
+            case 4: // Cave: rough, defensive exterior with spaced windows.
+                if(level>=3 && ((Math.abs(x-p.cx)+Math.abs(z-p.cz)+p.seed)%5==0))
+                    return Material.GLASS;
+                return ((x+z+yy+p.seed)&3)==0?Material.MOSSY_COBBLESTONE:
+                    (p.finishTier==0?Material.COBBLESTONE:p.surfaceFrame);
+            default:
+                return Material.GLASS;
+        }
+    }
+
+    private Material surfaceRoofMaterial(HcfBasePlan p,int x,int z,boolean edge) {
+        int dx=Math.abs(x-p.cx),dz=Math.abs(z-p.cz);
+        switch(p.primaryFamily) {
+            case 0: // compact framed glass lookout roof
+                return edge || dx%5==0 || dz%5==0?p.surfaceFrame:Material.GLASS;
+            case 1: // broad ring roof, lighter center
+                return edge || Math.max(dx,dz)>=Math.min(p.surfaceHalfX,p.surfaceHalfZ)-3
+                    ?p.surfaceFrame:Material.GLASS;
+            case 2: // organized modern grid
+                return edge || dx%6==0 || dz%6==0?p.surfaceFrame:Material.STAINED_GLASS;
+            case 3: // long tunnel roof: solid shoulders, central skylight strip
+                return dz<=2?Material.GLASS:p.surfaceFrame;
+            case 4: // cave family: mostly solid roof with a restrained cross skylight
+                if(dx<=1 || dz<=1) return Material.GLASS;
+                return ((x+z+p.seed)&5)==0?Material.MOSSY_COBBLESTONE:
+                    (p.finishTier==0?Material.COBBLESTONE:p.surfaceFrame);
+            default:
+                return edge?p.surfaceFrame:Material.GLASS;
         }
     }
 

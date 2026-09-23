@@ -54,7 +54,7 @@ function factionBases(){
     .sort((a,b)=>(Number(b.power)-Number(a.power)) || (b.members-a.members) || a.name.localeCompare(b.name))
 }
 
-const bot=createBot(username,{physicsEnabled:true,viewDistance:'far'})
+const bot=createBot(username,{physicsEnabled:false,viewDistance:'far'})
 bot.on('message',m=>{
   const text=m.toString()
   manifest.messages.push({at:new Date().toISOString(),text})
@@ -65,6 +65,8 @@ bot.on('error',e=>manifest.errors.push('bot error: '+String(e?.stack||e)))
 
 await waitForSpawn(bot,30000)
 await sleep(1200)
+bot.chat('/gamemode 3 '+username)
+await sleep(800)
 
 const canvas=createCanvas(width,height)
 const renderer=new THREE.WebGLRenderer({canvas,antialias:false})
@@ -93,8 +95,18 @@ async function saveFrame(file){
   fs.writeFileSync(path.join(outDir,file),buf)
 }
 async function teleport(x,y,z){
+  const tx=Math.round(x)+0.5, ty=Math.round(y), tz=Math.round(z)+0.5
   bot.chat('/tp '+username+' '+Math.round(x)+' '+Math.round(y)+' '+Math.round(z))
-  await sleep(1200)
+  const arrived=await waitUntil(()=>{
+    if(!bot.entity) return false
+    const p=bot.entity.position
+    return Math.abs(p.x-tx)<2 && Math.abs(p.y-ty)<2 && Math.abs(p.z-tz)<2
+  },6000,100)
+  if(!arrived) {
+    const p=bot.entity?.position
+    throw new Error('Teleport verification failed target='+tx+','+ty+','+tz+' actual='+
+      (p?p.x.toFixed(2)+','+p.y.toFixed(2)+','+p.z.toFixed(2):'missing'))
+  }
   worldView.updatePosition(bot.entity.position)
 }
 async function aim(x,y,z){

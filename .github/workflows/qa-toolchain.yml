@@ -47,9 +47,9 @@ jobs:
         working-directory: bots
         run: |
           npm install --no-audit --no-fund
-          npm install --no-save --no-audit --no-fund prismarine-viewer puppeteer-core
+          npm install --no-save --no-audit --no-fund prismarine-viewer puppeteer-core canvas
           node --check src/qa-inspector.js
-          node --input-type=module -e "await import('prismarine-viewer'); await import('puppeteer-core'); console.log('visual QA deps OK')"
+          node --input-type=module -e "await import('canvas'); await import('prismarine-viewer'); await import('puppeteer-core'); console.log('visual QA deps OK')"
 
       - name: Assemble portable QA toolchain
         shell: bash

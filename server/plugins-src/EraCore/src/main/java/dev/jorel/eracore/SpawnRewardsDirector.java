@@ -521,21 +521,31 @@ final class SpawnRewardsDirector implements Listener {
     }
 
     private ItemStack rareSword() {
+        return rareSword(1);
+    }
+
+    private ItemStack rareSword(int fireLevel) {
         ItemStack sword=new ItemStack(Material.DIAMOND_SWORD);
         sword.addUnsafeEnchantment(Enchantment.DAMAGE_ALL,2);
-        sword.addUnsafeEnchantment(Enchantment.FIRE_ASPECT,1);
+        sword.addUnsafeEnchantment(Enchantment.FIRE_ASPECT,Math.max(1,Math.min(2,fireLevel)));
         sword.addUnsafeEnchantment(Enchantment.DURABILITY,3);
         return sword;
     }
 
     private void giveFullRareCombatSet(Player p,String source) {
+        boolean koth=source!=null && source.toLowerCase(Locale.ENGLISH).contains("koth");
+        int fire=koth?2:1;
         p.getInventory().addItem(enchanted(Material.DIAMOND_HELMET,2));
         p.getInventory().addItem(enchanted(Material.DIAMOND_CHESTPLATE,2));
         p.getInventory().addItem(enchanted(Material.DIAMOND_LEGGINGS,2));
         p.getInventory().addItem(enchanted(Material.DIAMOND_BOOTS,2));
-        p.getInventory().addItem(rareSword());
-        finishReward(p,"FULL "+source+" P2 SET + S2/FIRE I SWORD",true);
-        plugin.noteSimPremiumReward(p,source+" full P2/S2F1 set");
+        p.getInventory().addItem(rareSword(fire));
+        finishReward(p,"FULL "+source+" P2 SET + S2/FIRE "+roman(fire)+" SWORD",true);
+        plugin.noteSimPremiumReward(p,source+" full P2/S2F"+fire+" set");
+    }
+
+    private String roman(int level) {
+        return level>=2?"II":"I";
     }
 
     private ItemStack enchanted(Material m,int prot) {
@@ -570,7 +580,7 @@ final class SpawnRewardsDirector implements Listener {
             p.sendMessage(EraCore.colorText("&6--- KOTH Crate ---"));
             p.sendMessage(EraCore.colorText("&fPearls, Healing II, glowstone, gunpowder, obsidian and diamonds."));
             p.sendMessage(EraCore.colorText("&eRare: &fP2 diamond pieces and Sharp II / Fire I swords."));
-            p.sendMessage(EraCore.colorText("&6Jackpot: &fa full P2 KOTH set + S2/Fire I sword."));
+            p.sendMessage(EraCore.colorText("&6Jackpot: &fa full P2 KOTH set + S2/Fire II sword."));
             p.sendMessage(EraCore.colorText("&7Baseline PvP remains Protection I / Sharpness I."));
         } else if("donor".equalsIgnoreCase(type)) {
             p.sendMessage(EraCore.colorText("&6--- Donor Ender Chest ---"));

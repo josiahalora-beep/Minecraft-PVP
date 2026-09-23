@@ -6833,7 +6833,7 @@ final class SimWorldDirector {
         return System.currentTimeMillis() - sotwStartedAt < mins * 60L * 1000L;
     }
 
-    private long sotwMillisLeft() {
+    long sotwMillisLeft() {
         long total=plugin.getConfig().getLong("sotw.protection-minutes",60L)*60L*1000L;
         return Math.max(0L,total-(System.currentTimeMillis()-sotwStartedAt));
     }

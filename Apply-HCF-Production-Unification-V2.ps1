@@ -16,7 +16,7 @@ $JavaSourceDir = Join-Path $Server 'plugins-src\EraCore\src\main\java\dev\jorel\
 
 # This repository is often installed as a plain folder rather than a Git clone.
 # Always sync the exact coordinated source generation before compiling.
-$SourceCommit = '6aaca260606b433ed09ec1f9849381d998d3b5d1'
+$SourceCommit = 'f32bb23992cc9810f194e8b1ff8e1c21222c697c'
 $RawBase = 'https://raw.githubusercontent.com/josiahalora-beep/Minecraft-PVP/' + $SourceCommit
 $SourceFiles = @(
     'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/ActorDirectory.java',
@@ -161,6 +161,15 @@ if ($downloadWorker -notmatch 'enterFactionPortal' -or $downloadWorker -notmatch
 }
 if ($downloadMapAi -notmatch "factionHome:\s*'/f home'") {
     throw 'Downloaded HCF map intelligence is missing faction-home routing.'
+}
+if ($downloadMapAi -match "x:\s*650" -or $downloadMapAi -match "z:\s*-?650") {
+    throw 'Downloaded HCF map intelligence still contains the obsolete +/-650 KOTH layout.'
+}
+if ($downloadWorld -notmatch 'restartSotwProtectionClock') {
+    throw 'Downloaded world builder does not start the SOTW clock at map readiness.'
+}
+if ($downloadEra -notmatch 'permanent-speed-2' -or $downloadEra -notmatch 'factionPrefix') {
+    throw 'Downloaded EraCore is missing HCF v4 movement/presentation rules.'
 }
 [void][ScriptBlock]::Create($downloadReset)
 Write-Host '[OK] Downloaded source/reset/worker validation passed.' -ForegroundColor Green

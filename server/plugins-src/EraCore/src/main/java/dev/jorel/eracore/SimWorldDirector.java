@@ -422,6 +422,8 @@ final class SimWorldDirector {
     private final Set<String> projectedCombatDeaths = new HashSet<String>();
     private final Map<String,org.bukkit.Location> storageChestCache = new HashMap<String,org.bukkit.Location>();
     private BukkitTask task;
+    private BukkitTask physicalBaseTask;
+    private final Set<String> physicalBaseVerified = new HashSet<String>();
     private int factionCursor;
     private int factionNameCursor;
     private long sotwTicks;
@@ -496,6 +498,13 @@ final class SimWorldDirector {
         task = Bukkit.getScheduler().runTaskTimer(plugin, new Runnable() {
             public void run() { tick(); }
         }, 20L * 8L, period);
+
+        if(plugin.getConfig().getBoolean("base-builder.lazy-materialization",true)) {
+            long reconcileTicks=Math.max(60L,plugin.getConfig().getLong("base-builder.lazy-check-ticks",100L));
+            physicalBaseTask=Bukkit.getScheduler().runTaskTimer(plugin,new Runnable() {
+                public void run(){ reconcileVisiblePhysicalBase(); }
+            },100L,reconcileTicks);
+        }
     }
 
     void registerExistingAutoBrewers() {
@@ -569,7 +578,71 @@ final class SimWorldDirector {
     void stop() {
         if (task != null) task.cancel();
         task = null;
+        if(physicalBaseTask!=null) physicalBaseTask.cancel();
+        physicalBaseTask=null;
+        physicalBaseVerified.clear();
         save();
+    }
+
+    private void reconcileVisiblePhysicalBase() {
+        if(!plugin.getConfig().getBoolean("base-builder.lazy-materialization",true)) return;
+        if(plugin.simBaseQueuedOperations()>0) return;
+
+        double p95=plugin.currentP95Mspt();
+        double maxP95=Math.max(10.0,plugin.getConfig().getDouble("base-builder.lazy-max-p95-mspt",18.0));
+        if(p95>=0.0 && p95>maxP95) return;
+
+        World world=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
+        if(world==null) return;
+        double radius=Math.max(64.0,plugin.getConfig().getDouble("base-builder.lazy-radius",144.0));
+        double r2=radius*radius;
+
+        for(Player body:Bukkit.getOnlinePlayers()) {
+            if(body==null || !body.isOnline() || body.getWorld()!=world) continue;
+            Location here=body.getLocation();
+
+            SimFaction best=null;
+            double bestD2=Double.MAX_VALUE;
+            for(SimFaction f:factions.values()) {
+                if(f.baseX==0 && f.baseZ==0) continue;
+                if(!f.surfaceQueued && !f.baseQueued &&
+                   f.stage.ordinal()<Stage.BUILD_STARTER.ordinal()) continue;
+
+                double dx=here.getX()-f.baseX;
+                double dz=here.getZ()-f.baseZ;
+                double d2=dx*dx+dz*dz;
+                if(d2<=r2 && d2<bestD2) { best=f; bestD2=d2; }
+            }
+            if(best==null) continue;
+
+            String key=best.name.toLowerCase(Locale.ENGLISH);
+            if(physicalBaseVerified.contains(key)) continue;
+            if(!plugin.simBaseFootprintLoaded(best.name,best.basePreset,best.baseX,best.baseY,best.baseZ)) continue;
+
+            if(plugin.simBaseLooksMaterialized(best.name,best.basePreset,best.baseX,best.baseY,best.baseZ)) {
+                physicalBaseVerified.add(key);
+                continue;
+            }
+
+            if(best.baseQueued || best.stage.ordinal()>=Stage.BUILD_STARTER.ordinal()) {
+                plugin.lazyMaterializeSimBase(best.name,best.basePreset,best.trapPreset,
+                    best.baseX,best.baseY,best.baseZ,Math.max(1,best.storageTier),
+                    best.brewer,best.netherPortal,best.endPortal);
+            } else if(best.surfaceQueued) {
+                plugin.queueSimSurfaceBuild(best.name,best.basePreset,best.baseX,best.baseY,best.baseZ);
+            } else {
+                continue;
+            }
+
+            int[] rect=baseFootprintRect(best);
+            Location home=new Location(world,best.baseX+0.5,best.baseY+1,best.baseZ+0.5);
+            plugin.setSimFactionHomeAndRectClaim(best.name,home,rect[0],rect[1],rect[2],rect[3]);
+            physicalBaseVerified.add(key);
+            plugin.getLogger().info("Lazy Base Intelligence: materializing visible faction base "+best.name+
+                " near "+body.getName()+" queuedOps="+plugin.simBaseQueuedOperations()+
+                " p95="+String.format(Locale.US,"%.2f",Math.max(0.0,p95)));
+            return; // one faction per reconciliation pass
+        }
     }
 
     boolean contains(String name) {

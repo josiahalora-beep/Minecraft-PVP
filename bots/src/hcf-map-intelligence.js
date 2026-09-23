@@ -26,6 +26,10 @@ export const HCF_MAP = Object.freeze({
       navigationRule: 'prefer-road-for-distance; use-gentle-natural-contours-for-claims-pvp-and-events'
     }),
     roads: Object.freeze({
+      protectedHalfWidth: 32,
+      claimable: false,
+      build: false,
+      pvp: true,
       north: Object.freeze({ x: 0, z: -1500 }),
       south: Object.freeze({ x: 0, z: 1500 }),
       east: Object.freeze({ x: 1500, z: 0 }),
@@ -144,6 +148,9 @@ export function regionForPoint(world,x,z) {
     if(spawnDist<=o.spawn.safeRadius) return {id:'spawn',type:'safezone',safe:true,build:false,pvp:false}
     if(spawnDist<=o.spawn.buildRadius) return {id:'spawn-build',type:'protected',safe:false,build:false,pvp:true}
     for(const k of o.koths) if(distance2d(p,k)<=k.radius) return {id:k.id,type:'koth',safe:false,build:false,pvp:true}
+    const roadHalf=Number(o.roads?.protectedHalfWidth || 32)
+    if(Math.abs(p.x)<=roadHalf || Math.abs(p.z)<=roadHalf)
+      return {id:'road',type:'road',safe:false,build:false,claim:false,pvp:true}
     for(const e of o.endPortals) if(distance2d(p,e)<=e.radius) return {id:e.id,type:'portal',safe:false,build:false,pvp:true}
     if(distance2d(p,o.conquest)<=o.conquest.radius) return {id:'conquest',type:'event',safe:false,build:false,pvp:true}
     return {id:'wilderness',type:'wilderness',safe:false,build:true,pvp:true}

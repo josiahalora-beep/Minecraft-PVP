@@ -7,14 +7,15 @@ This document freezes the architectural decisions that came out of the Build Vie
 The Overworld is a movement-first old-HCF map.
 
 - Kraken spawn is authoritative geometry.
-- Spawn and the immediate PvP frontage are exactly flat through radius 300.
-- Radius 300-500 is a long smooth transition into wilderness.
-- Wilderness is low relief only: about +/-5 blocks around the canonical Y63 surface.
+- Spawn and the immediate PvP frontage are exactly flat only through roughly radius 210.
+- Radius 210-345 is a smooth transition into wilderness.
+- Wilderness is visibly rolling but PvP-safe: roughly +/-8 blocks around the canonical Y63 surface, using broad + medium landforms rather than superflat or stair-step noise.
 - No mountains, cliffs, exposed ravines, floating terrain caps, random surface holes, or one-block noise.
-- Four Kraken roads have exact-flat cores and broad shoulders all the way toward the border.
+- Four Kraken roads have narrow exact-flat cores with gravel spines and broken coarse-dirt shoulders; terrain resumes quickly outside the usable PvP lane.
 - KOTH, Conquest and portal fight areas are flat where combat happens and smoothly blended outside their pads.
-- Trees are sparse, high-canopy landmarks and stay away from roads/event PvP lanes.
-- Rocks are sparse and low.
+- Trees are sparse, high-canopy landmarks and stay away from roads/event PvP lanes; the northeast can form tiny copses without becoming a forest.
+- Rocks are sparse and low, with restrained coarse-dirt/gravel/stone scars on steeper visible terrain.
+- Ground detail uses sparse tall grass/flowers outside PvP lanes so eye-level screenshots do not read as an empty green plane.
 - Ore Mountain/resource systems own mining progression; the Overworld surface is not cut apart by ravines.
 - Production order is TERRAIN -> STRUCTURES -> RESOURCES -> READY.
 - Production schematic AIR must never excavate the terrain under Kraken or Overworld event selections.
@@ -131,3 +132,13 @@ Owner feedback remains available through /baserate and /baserebuild; appearance 
 ## Production reset rule
 
 A fresh SOTW reset is required to repair terrain that an older Kraken AIR paste already erased. The corrected compositor prevents future AIR carving; re-pasting Kraken alone cannot reconstruct terrain that is already missing.
+
+
+## Atmosphere
+
+The production Overworld uses a locked HCF presentation state.
+
+- Time is held at bright noon (6000 ticks).
+- Rain and thunder are rejected at the event level.
+- A lightweight watchdog restores noon/clear weather if another command/plugin changes it.
+- QA deliberately attempts to set night/rain and records whether the server restores the invariant.

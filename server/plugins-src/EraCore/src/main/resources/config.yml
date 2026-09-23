@@ -34,10 +34,11 @@ rewards:
   gold-key-hours: 12
   platinum-key-hours: 8
   vote-party-target: 20
-  # Exact historical Kohi vote/donor crate odds are not reliably documented.
-  # These tables are intentionally explicit and early-map balanced.
+  # These are the live design targets, not claims of exact historical Kohi odds.
+  # Common key outcomes are deliberately useful for SOTW progression; premium
+  # P2/S2 gear remains scarce enough that KOTH success is the main renewable source.
   vote-odds:
-    money-300: 16.0
+    cash-300: 16.0
     pearls-12: 15.0
     obsidian-16: 12.0
     diamonds-8: 10.0
@@ -46,20 +47,27 @@ rewards:
     glowstone-12: 8.0
     gunpowder-16: 8.0
     sharp1-diamond: 6.5
-    basic-donor-key: 2.4
-    p2-piece: 1.2
-    sharp2-fire1: 0.7
-    full-p2-set-sharp2-fire1: 0.2
-  # Donor odds vary by key tier. Premium ranges below are per-key:
-  # Basic 2.00% P2 piece / 0.80% S2F1 / 0.15% full set
-  # Silver 3.00% / 1.20% / 0.25%
-  # Gold 4.50% / 1.80% / 0.40%
-  # Platinum 6.00% / 2.50% / 0.70%
-  donor-odds:
-    common-progression: tier-scaled
-    p2-piece: 2.0-6.0
-    sharp2-fire1: 0.8-2.5
-    full-p2-set-sharp2-fire1: 0.15-0.70
+    basic-donor-key: 4.08
+    p2-piece: 0.30
+    sharp2-fire1: 0.10
+    full-p2-set-sharp2-fire1: 0.02
+  donor-premium-odds:
+    basic:
+      p2-piece: 0.70
+      sharp2-fire1: 0.20
+      full-p2-set-sharp2-fire1: 0.02
+    silver:
+      p2-piece: 1.00
+      sharp2-fire1: 0.30
+      full-p2-set-sharp2-fire1: 0.03
+    gold:
+      p2-piece: 1.50
+      sharp2-fire1: 0.45
+      full-p2-set-sharp2-fire1: 0.05
+    platinum:
+      p2-piece: 2.25
+      sharp2-fire1: 0.70
+      full-p2-set-sharp2-fire1: 0.08
   koth-odds:
     pearls: 13.0
     heals: 13.0
@@ -71,7 +79,7 @@ rewards:
     fortune4-event-pick: 5.0
     p2-diamond-piece: 14.0
     sharp2-fire1-event-sword: 5.5
-    full-p2-koth-set-sharp2-fire2: 1.5
+    full-p2-set-sharp2-fire2: 1.5
 
 pvp:
   pearl-cooldown-seconds: 16

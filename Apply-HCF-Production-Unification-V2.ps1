@@ -16,7 +16,7 @@ $JavaSourceDir = Join-Path $Server 'plugins-src\EraCore\src\main\java\dev\jorel\
 
 # This repository is often installed as a plain folder rather than a Git clone.
 # Always sync the exact coordinated source generation before compiling.
-$SourceCommit = 'dc51eb23a8afe770e7b57285b0bd3fe49a980c9d'
+$SourceCommit = '28d373b6967335dc544782ea56aa78c88404eeed'
 $RawBase = 'https://raw.githubusercontent.com/josiahalora-beep/Minecraft-PVP/' + $SourceCommit
 $SourceFiles = @(
     'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/ActorDirectory.java',
@@ -61,7 +61,8 @@ $SourceFiles = @(
     'bots/src/community-ai.js',
     'Start-Daegon-With-Workers.ps1',
     'Start-Daegon-Adaptive.ps1',
-    'docs/ACTOR_RUNTIME.md'
+    'docs/ACTOR_RUNTIME.md',
+    'docs/BUILD_VIEWER_CONTRACT.md'
 )
 
 Write-Host ''
@@ -151,6 +152,9 @@ $downloadBotPackage = Get-Content -LiteralPath (Join-Path $tempRoot 'bots\packag
 $downloadMapAi = Get-Content -LiteralPath (Join-Path $tempRoot 'bots\src\hcf-map-intelligence.js') -Raw
 $downloadCommunityAi = Get-Content -LiteralPath (Join-Path $tempRoot 'bots\src\community-ai.js') -Raw
 $downloadComposer = Get-Content -LiteralPath (Join-Path $tempRoot 'server\plugins-src\EraCore\src\main\java\dev\jorel\eracore\LegacySchematicComposer.java') -Raw
+$downloadTerrain = Get-Content -LiteralPath (Join-Path $tempRoot 'server\plugins-src\EraCore\src\main\java\dev\jorel\eracore\HcfTerrainDirector.java') -Raw
+$downloadBasePlan = Get-Content -LiteralPath (Join-Path $tempRoot 'server\plugins-src\EraCore\src\main\java\dev\jorel\eracore\HcfBasePlan.java') -Raw
+$downloadBaseBuilder = Get-Content -LiteralPath (Join-Path $tempRoot 'server\plugins-src\EraCore\src\main\java\dev\jorel\eracore\HcfBaseBuilder.java') -Raw
 $downloadSimWorld = Get-Content -LiteralPath (Join-Path $tempRoot 'server\plugins-src\EraCore\src\main\java\dev\jorel\eracore\SimWorldDirector.java') -Raw
 $downloadStackLauncher = Get-Content -LiteralPath (Join-Path $tempRoot 'Start-Daegon-With-Workers.ps1') -Raw
 $downloadAdaptiveLauncher = Get-Content -LiteralPath (Join-Path $tempRoot 'Start-Daegon-Adaptive.ps1') -Raw
@@ -158,6 +162,20 @@ if ($downloadEra -notmatch 'migrateProductionUnificationConfig') { throw 'Downlo
 if ($downloadEra -match 'factionSuffix\s*\(') { throw 'Downloaded EraCore still contains the removed factionSuffix method reference.' }
 if ($downloadEra -notmatch 'cmdSimTab') { throw 'Downloaded EraCore is missing /simtab diagnostics.' }
 if ($downloadWorld -notmatch 'STRUCTURES' -or $downloadWorld -notmatch 'RESOURCES') { throw 'Downloaded staged world builder is incomplete.' }
+if ($downloadTerrain -notmatch 'terrain\.spawn-flat-radius' -or
+    $downloadTerrain -notmatch 'terrain\.spawn-transition-radius' -or
+    $downloadTerrain -notmatch 'terrain\.wilderness-amplitude' -or
+    $downloadTerrain -notmatch 'old-HCF readable first, natural second') {
+    throw 'Downloaded terrain director is missing the Build Viewer low-relief contract.'
+}
+if ($downloadBasePlan -notmatch 'Family selection happens BEFORE dimensions' -or
+    $downloadBasePlan -notmatch 'coreHalfX\+20' -or
+    $downloadBasePlan -notmatch 'war-room' -or
+    $downloadBaseBuilder -notmatch 'prepareTerrainPad\(World w,HcfBasePlan p\)' -or
+    $downloadBaseBuilder -notmatch 'buildCoreUtilityModules' -or
+    $downloadBaseBuilder -notmatch '\[base-plan\]') {
+    throw 'Downloaded base compiler is missing the Build Viewer topology/terraforming contract.'
+}
 $forbiddenWorkerTravel = @(
     "tryCommand(state,'/warp",
     "tryCommand(state, '/warp",
@@ -426,6 +444,11 @@ Write-Host '[6/6] Deployment validation complete.' -ForegroundColor Green
 Write-Host ''
 Write-Host 'Installed capabilities:' -ForegroundColor Cyan
 Write-Host '  - scan/write-aware v7 production-map build with Kraken air-padding preserved as terrain'
+Write-Host '  - Build Viewer terrain contract: 300 flat spawn apron, 300-500 transition, +/-5 low-relief wilderness'
+Write-Host '  - blended faction-site terraforming: flat PvP frontage without giant square plateaus'
+Write-Host '  - five real base topologies: Redemption / Base-HCF / ModernHCF / Tunnel / Cave'
+Write-Host '  - underground compiler modules: dropdown/elevator, 14-dub storage, enchant, war-room, utility, farm, brewer, portals, traps'
+Write-Host '  - claim envelope covers the farthest compiled module plus the configured outside buffer'
 Write-Host '  - minimal Kraken crate row: Vote chest + donor Ender Chest + KOTH chest'
 Write-Host '  - unique period usernames with rare 4-6 letter handles weighted toward elite PvP'
 Write-Host '  - restored Start-Daegon-Adaptive.ps1 -> current 8770 coordinator/worker stack with logs'

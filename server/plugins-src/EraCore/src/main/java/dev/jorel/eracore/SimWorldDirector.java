@@ -6982,12 +6982,16 @@ final class SimWorldDirector {
     }
 
     boolean sotwProtectionActive() {
+        // A full SOTW map build is pre-game setup. Protection remains active
+        // and its clock stays frozen until HcfWorldBuildDirector reaches READY.
+        if(!plugin.productionWorldReady()) return true;
         long mins = plugin.getConfig().getLong("sotw.protection-minutes", 60L);
         return System.currentTimeMillis() - sotwStartedAt < mins * 60L * 1000L;
     }
 
     long sotwMillisLeft() {
         long total=plugin.getConfig().getLong("sotw.protection-minutes",60L)*60L*1000L;
+        if(!plugin.productionWorldReady()) return total;
         return Math.max(0L,total-(System.currentTimeMillis()-sotwStartedAt));
     }
 

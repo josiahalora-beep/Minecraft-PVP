@@ -3,8 +3,18 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$marker = Join-Path $ServerRoot 'plugins\EraCore\season-reset.pending'
-if (-not (Test-Path $marker)) {
+
+# PowerShell -File calls from cmd.exe can preserve quoting/trailing-separator
+# artifacts in explicitly supplied path arguments. The script normally lives
+# directly in the server folder, so normalize once before constructing paths.
+if ([string]::IsNullOrWhiteSpace($ServerRoot)) {
+    $ServerRoot = $PSScriptRoot
+}
+$ServerRoot = $ServerRoot.Trim().Trim('"')
+$ServerRoot = [IO.Path]::GetFullPath($ServerRoot)
+$marker = [IO.Path]::Combine($ServerRoot,'plugins','EraCore','season-reset.pending')
+
+if (-not (Test-Path -LiteralPath $marker)) {
     exit 0
 }
 

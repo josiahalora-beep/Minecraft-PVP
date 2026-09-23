@@ -16,7 +16,7 @@ $JavaSourceDir = Join-Path $Server 'plugins-src\EraCore\src\main\java\dev\jorel\
 
 # This repository is often installed as a plain folder rather than a Git clone.
 # Always sync the exact coordinated source generation before compiling.
-$SourceCommit = '7f266cdcaaf19d53f99058a72da2904db526a6c1'
+$SourceCommit = '3a60f2f7ae0c41c68c2351d26a26de57a156f903'
 $RawBase = 'https://raw.githubusercontent.com/josiahalora-beep/Minecraft-PVP/' + $SourceCommit
 $SourceFiles = @(
     'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/ActorDirectory.java',
@@ -55,6 +55,7 @@ $SourceFiles = @(
     'server/start-server.bat',
     'bots/package.json',
     'bots/src/worker-pool.js',
+    'bots/src/team-combat.js',
     'bots/src/worker-coordinator.js',
     'bots/src/hcf-map-intelligence.js',
     'bots/src/community-ai.js',
@@ -144,6 +145,7 @@ $downloadWorld = Get-Content -LiteralPath (Join-Path $tempRoot 'server\plugins-s
 $downloadReset = Get-Content -LiteralPath (Join-Path $tempRoot 'server\Prepare-HCF-Season-Reset.ps1') -Raw
 $downloadLauncher = Get-Content -LiteralPath (Join-Path $tempRoot 'server\start-server.bat') -Raw
 $downloadWorker = Get-Content -LiteralPath (Join-Path $tempRoot 'bots\src\worker-pool.js') -Raw
+$downloadTeamCombat = Get-Content -LiteralPath (Join-Path $tempRoot 'bots\src\team-combat.js') -Raw
 $downloadCoordinator = Get-Content -LiteralPath (Join-Path $tempRoot 'bots\src\worker-coordinator.js') -Raw
 $downloadBotPackage = Get-Content -LiteralPath (Join-Path $tempRoot 'bots\package.json') -Raw
 $downloadMapAi = Get-Content -LiteralPath (Join-Path $tempRoot 'bots\src\hcf-map-intelligence.js') -Raw
@@ -173,6 +175,17 @@ foreach ($needle in $forbiddenWorkerTravel) {
 }
 if ($downloadWorker -notmatch 'enterFactionPortal' -or $downloadWorker -notmatch 'tryFactionHome') {
     throw 'Downloaded Mineflayer runtime is missing physical HCF travel.'
+}
+if ($downloadTeamCombat -notmatch 'defendUntil' -or
+    $downloadTeamCombat -notmatch 'server flips them to ENGAGE' -or
+    $downloadTeamCombat -match 'Date\.now\(\)-fightStartedAt>=delay\) return true') {
+    throw 'Downloaded team combat runtime is missing the non-automatic watch/shadow/cleanup behavior.'
+}
+if ($downloadSimWorld -notmatch 'updateThirdPartyOpportunities' -or
+    $downloadSimWorld -notmatch 'maybeActivateThirdPartyAfterDeath' -or
+    $downloadSimWorld -notmatch 'premiumGearAce' -or
+    $downloadSimWorld -notmatch 'FIRE_ASPECT,2') {
+    throw 'Downloaded simulation is missing third-party opportunism or premium-gear preservation.'
 }
 if ($downloadMapAi -notmatch "factionHome:\s*'/f home'") {
     throw 'Downloaded HCF map intelligence is missing faction-home routing.'
@@ -228,6 +241,15 @@ if ($downloadEra -notmatch 'ensureRuntimeConfigReadable' -or
 $downloadInfrastructure = Get-Content -LiteralPath (Join-Path $tempRoot 'server\plugins-src\EraCore\src\main\java\dev\jorel\eracore\HcfInfrastructureDirector.java') -Raw
 $downloadRewards = Get-Content -LiteralPath (Join-Path $tempRoot 'server\plugins-src\EraCore\src\main\java\dev\jorel\eracore\SpawnRewardsDirector.java') -Raw
 $downloadSim = Get-Content -LiteralPath (Join-Path $tempRoot 'server\plugins-src\EraCore\src\main\java\dev\jorel\eracore\SimWorldDirector.java') -Raw
+if ($downloadEra -notmatch 'armor\(helmet,1\)' -or
+    $downloadEra -notmatch 'sword\(swordMat,1\)') {
+    throw 'Downloaded EraCore is not using the Protection I / Sharpness I normal combat baseline.'
+}
+if ($downloadRewards -notmatch 'FULL.*P2 SET' -or
+    $downloadRewards -notmatch 'rareSword\(fire\)' -or
+    $downloadRewards -notmatch 'KOTH set \+ S2/Fire II') {
+    throw 'Downloaded reward director is missing the tiered rare P2/S2/Fire jackpot economy.'
+}
 $downloadComposer = Get-Content -LiteralPath (Join-Path $tempRoot 'server\plugins-src\EraCore\src\main\java\dev\jorel\eracore\LegacySchematicComposer.java') -Raw
 if ($downloadInfrastructure -notmatch 'Production schematic mode: preserving Kraken \+ Nether/End geometry exactly') {
     throw 'Downloaded infrastructure director can still fall back to generic production geometry.'
@@ -294,7 +316,7 @@ foreach ($name in @('Start-Daegon-With-Workers.ps1','Start-Daegon-Adaptive.ps1')
 }
 $botBackup = Join-Path $backupRoot 'bots-src'
 New-Item -ItemType Directory -Path $botBackup -Force | Out-Null
-foreach ($name in @('worker-pool.js','hcf-map-intelligence.js','community-ai.js')) {
+foreach ($name in @('worker-pool.js','team-combat.js','hcf-map-intelligence.js','community-ai.js')) {
     $p = Join-Path $Root ('bots\src\' + $name)
     if (Test-Path $p) { Copy-Item -LiteralPath $p -Destination (Join-Path $botBackup $name) -Force }
 }
@@ -408,6 +430,11 @@ Write-Host '  - restored Start-Daegon-Adaptive.ps1 -> current 8770 coordinator/w
 Write-Host '  - canonical KOTH/portal/conquest geometry'
 Write-Host '  - hybrid five-family faction bases + rectangular claim containment'
 Write-Host '  - local-first contextual chat + semantic anti-repeat + hard AI budget'
+Write-Host '  - Protection I / Sharpness I normal PvP; rare P2 + S2/Fire I prestige loot'
+Write-Host '  - ultra-rare full KOTH jackpot carries the exceptional S2/Fire II sword'
+Write-Host '  - warzone etiquette: pass/watch/shadow/cleanup, low-health/death opportunism, self-defense'
+Write-Host '  - novice SOTW guidance + social recruiting/vouch/tryout behavior'
+Write-Host '  - faction premium gear is banked for the roster''s best diamond PvPer'
 Write-Host '  - bounded hot memory + compressed cold history shards'
 Write-Host '  - automatic KOTH/Conquest rotation + classic right-side countdown sidebar'
 Write-Host '  - color-only donor presentation + canonical creator identities'

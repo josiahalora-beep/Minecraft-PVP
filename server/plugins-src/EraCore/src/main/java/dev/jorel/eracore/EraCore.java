@@ -650,8 +650,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         // be obtainable during SOTW; private End access remains a meaningful
         // faction investment while public End portals are still walkable.
         addBuy("flintsteel", Material.FLINT_AND_STEEL, (short)0, 80.0);
-        addBuy("endframe", Material.ENDER_PORTAL_FRAME, (short)0, 175.0);
-        addBuy("eyeofender", Material.EYE_OF_ENDER, (short)0, 35.0);
+        addBuy("endframe", Material.ENDER_PORTAL_FRAME, (short)0, 65.0);
+        addBuy("eyeofender", Material.EYE_OF_ENDER, (short)0, 15.0);
         addBuy("book", Material.BOOK, (short)0, 12.0);
         addBuy("lapis", Material.INK_SACK, (short)4, 5.0);
     }
@@ -2083,7 +2083,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         Material helmet=Material.DIAMOND_HELMET, chest=Material.DIAMOND_CHESTPLATE,
             legs=Material.DIAMOND_LEGGINGS, boots=Material.DIAMOND_BOOTS;
         Material swordMat=Material.DIAMOND_SWORD;
-        int heals=24,pearls=8,speeds=2;
+        int heals=24,pearls=8;
 
         if(type==SimWorldDirector.CombatClass.BARD) {
             helmet=Material.GOLD_HELMET;chest=Material.GOLD_CHESTPLATE;
@@ -2127,24 +2127,20 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             inv.setItem(28,pick);
         }
 
-        // One consistent PvP ceiling: Protection II / Sharpness II, splash heals,
-        // pearls and speed only. No Fire Aspect and no fire-resistance potions.
+        // One consistent PvP ceiling: Protection II / Sharpness II, splash
+        // Healing II and pearls. Speed II is permanent server-wide, so carrying
+        // speed bottles wastes refill slots and creates the wrong HCF economy.
         int hotbarStart=type==SimWorldDirector.CombatClass.ARCHER?3:
             (type==SimWorldDirector.CombatClass.ROGUE?3:1);
         int placed=0;
         for(int slot=hotbarStart;slot<=5 && placed<heals;slot++,placed++)
             if(inv.getItem(slot)==null) inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
-        inv.setItem(7,new ItemStack(Material.POTION,1,(short)8226));
+        inv.setItem(7,new ItemStack(Material.COOKED_BEEF,16));
         inv.setItem(8,new ItemStack(Material.ENDER_PEARL,pearls));
         for(int slot=9;slot<=35 && placed<heals;slot++) {
             if(inv.getItem(slot)!=null) continue;
             inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
             placed++;
-        }
-        if(speeds>1) {
-            for(int slot=35;slot>=9;slot--) {
-                if(inv.getItem(slot)==null) { inv.setItem(slot,new ItemStack(Material.POTION,1,(short)8226)); break; }
-            }
         }
 
         p.setHealth(20.0);
@@ -2273,7 +2269,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         Location target = new Location(world,task.x + 0.5,y,task.z + 0.5);
 
         // Do not teleport ordinary workers to semantic targets. A HOT body is a
-        // visible player and must use /f home, /spawn, /warp or walk there.
+        // visible HCF player: it may /f home, but spawn/KOTH/dimension travel is
+        // physical and Nether/End transitions use the faction's real portals.
         // Combat projection has its own explicit fight-spawn path.
         Material tool = Material.WOOD_PICKAXE;
         if ("mine".equals(task.action) || "gather".equals(task.action) || "supply".equals(task.action)) tool = Material.IRON_PICKAXE;
@@ -2690,7 +2687,6 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         else if ("tnt".equals(key)) m = Material.TNT;
         else if ("pearl".equals(key)) m = Material.ENDER_PEARL;
         else if ("healthpot".equals(key)) { m = Material.POTION; data = (short)16421; }
-        else if ("speedpot".equals(key)) { m = Material.POTION; data = (short)8226; }
         if (m == null) return false;
 
         int left = qty;
@@ -2716,8 +2712,6 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         else if ("tnt".equals(key)) m = Material.TNT;
         else if ("pearl".equals(key)) m = Material.ENDER_PEARL;
         else if ("healthpot".equals(key)) { m = Material.POTION; data = (short)16421; }
-        else if ("speedpot".equals(key)) { m = Material.POTION; data = (short)8226; }
-        else if ("fireres".equals(key)) { m = Material.POTION; data = (short)8259; }
         if (m == null) return false;
 
         int have = 0;
@@ -4252,21 +4246,18 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         inv.setBoots(armor(Material.DIAMOND_BOOTS,2));
         inv.setItem(0,pvpSword(Material.DIAMOND_SWORD,2,2));
 
-        // Hotbar: sword, five Healing II splashes, steak, Speed II, pearls.
+        // Hotbar: sword, six Healing II splashes, steak and pearls. Permanent
+        // Speed II comes from the HCF class director rather than consumables.
         for(int slot=1;slot<=5;slot++) inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
         inv.setItem(6,new ItemStack(Material.COOKED_BEEF,16));
-        inv.setItem(7,new ItemStack(Material.POTION,1,(short)8226));
+        inv.setItem(7,new ItemStack(Material.POTION,1,(short)16421));
         inv.setItem(8,new ItemStack(Material.ENDER_PEARL,16));
 
-        // Reserve inventory: Healing II plus Speed II only.
-        for(int slot=9;slot<=31;slot++) inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
-        inv.setItem(33,new ItemStack(Material.POTION,1,(short)8226));
-        inv.setItem(35,new ItemStack(Material.POTION,1,(short)8226));
+        for(int slot=9;slot<=34;slot++) inv.setItem(slot,new ItemStack(Material.POTION,1,(short)16421));
 
         p.setHealth(20.0);
         p.setFoodLevel(20);
         p.setSaturation(5.0f);
-        p.removePotionEffect(PotionEffectType.SPEED);
         p.removePotionEffect(PotionEffectType.FIRE_RESISTANCE);
     }
 

@@ -9,8 +9,9 @@ import org.bukkit.event.player.PlayerPortalEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
 
 /**
- * Faction-built physical portals are the fast route.  They land at the server's
- * configured Nether/End hubs while command warps retain a warmup.
+ * Faction-built physical portals are the normal dimension route. They land at
+ * internal Nether/End hub anchors; those anchors are server routing data, not
+ * player-accessible warp commands.
  */
 final class HcfPortalDirector implements Listener {
     private final WarpManager warps;

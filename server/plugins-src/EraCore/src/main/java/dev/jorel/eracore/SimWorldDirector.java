@@ -2687,6 +2687,89 @@ final class SimWorldDirector {
         return "equip={"+before+"} stash={"+stashed+"} refill={"+after+"}";
     }
 
+    private boolean premiumPvpItem(org.bukkit.inventory.ItemStack item) {
+        if(item==null || item.getType()==Material.AIR) return false;
+        int prot=item.getEnchantmentLevel(org.bukkit.enchantments.Enchantment.PROTECTION_ENVIRONMENTAL);
+        int sharp=item.getEnchantmentLevel(org.bukkit.enchantments.Enchantment.DAMAGE_ALL);
+        int fire=item.getEnchantmentLevel(org.bukkit.enchantments.Enchantment.FIRE_ASPECT);
+        return prot>=2 || sharp>=2 || fire>=1;
+    }
+
+    private int premiumGearScore(SimPlayer p) {
+        if(p==null) return Integer.MIN_VALUE;
+        // Factions know who their best fighter is from practice, fights and
+        // reputation; this is an internal roster judgment, not public omniscience.
+        return p.mechanics*4+p.pvpIq*3+p.composure*2+p.gameSense+
+            Math.min(180,p.reputation*3)+p.duelWins*12-p.duelLosses*2;
+    }
+
+    private SimPlayer premiumGearAce(SimFaction f) {
+        if(f==null) return null;
+        SimPlayer best=null;
+        for(String member:f.members) {
+            SimPlayer p=players.get(key(member));
+            if(p==null || p.combatClass!=CombatClass.DIAMOND) continue;
+            if(best==null || premiumGearScore(p)>premiumGearScore(best)) best=p;
+        }
+        return best;
+    }
+
+    private boolean isPremiumGearAce(SimFaction f,SimPlayer p) {
+        SimPlayer best=premiumGearAce(f);
+        return best!=null && p!=null && best.name.equalsIgnoreCase(p.name);
+    }
+
+    private String storageCategoryForPremium(org.bukkit.inventory.ItemStack item) {
+        if(item==null) return "kits";
+        String n=item.getType().name();
+        if(n.endsWith("_HELMET")) return "helmets";
+        if(n.endsWith("_CHESTPLATE")) return "chestplates";
+        if(n.endsWith("_LEGGINGS")) return "leggings";
+        if(n.endsWith("_BOOTS")) return "boots";
+        if(n.endsWith("_SWORD")) return "swords";
+        return "kits";
+    }
+
+    private int bankPremiumInventoryForAce(Player body,SimPlayer p,SimFaction f) {
+        if(body==null || p==null || f==null || isPremiumGearAce(f,p)) return 0;
+        int moved=0;
+        org.bukkit.inventory.PlayerInventory inv=body.getInventory();
+        for(int slot=0;slot<36;slot++) {
+            org.bukkit.inventory.ItemStack item=inv.getItem(slot);
+            if(!premiumPvpItem(item)) continue;
+            org.bukkit.inventory.ItemStack copy=item.clone();
+            if(putVisibleStorage(f,copy,storageCategoryForPremium(copy))) {
+                moved+=copy.getAmount();
+                inv.setItem(slot,null);
+            }
+        }
+        if(moved>0) body.updateInventory();
+        return moved;
+    }
+
+    void notePremiumReward(String opener,String label) {
+        SimPlayer p=players.get(key(opener));
+        if(p==null) return;
+        SimFaction f=p.faction==null||p.faction.isEmpty()?null:factions.get(key(p.faction));
+        if(f==null) {
+            recordHistory("PREMIUM_LOOT",6,opener+" won "+label,"",opener);
+            return;
+        }
+        SimPlayer ace=premiumGearAce(f);
+        String holder=ace==null?opener:ace.name;
+        recordHistory("PREMIUM_LOOT",8,opener+" won "+label+"; "+f.name+
+            " reserved the best combat gear for "+holder,f.name,opener,holder);
+        if(ace!=null && !ace.name.equalsIgnoreCase(opener)) {
+            SimPlayer leader=players.get(key(f.leader));
+            if(leader!=null && leader.logicalOnline)
+                enqueue(leader.name,oneOf(
+                    "put that good set in chest for "+ace.name,
+                    ace.name+" gets the p2 we need our best set on him",
+                    "save the rare gear for "+ace.name),false);
+        }
+        save();
+    }
+
     String gearEmbodiedWorker(Player body) {
         SimPlayer p=players.get(key(body.getName()));
         if(p==null || p.faction.isEmpty()) return "no-faction";
@@ -2695,6 +2778,8 @@ final class SimWorldDirector {
 
         org.bukkit.inventory.PlayerInventory inv=body.getInventory();
         normalizePvpInventory(body);
+        int premiumBanked=bankPremiumInventoryForAce(body,p,f);
+        boolean premiumHolder=isPremiumGearAce(f,p);
         int armorChanged=0,weaponAdded=0,supplies=0,classItems=0;
 
         Material[][] armorOptions=armorOptionsFor(p.combatClass);
@@ -2703,6 +2788,10 @@ final class SimWorldDirector {
             org.bukkit.inventory.ItemStack current=getArmorPiece(inv,part);
             org.bukkit.inventory.ItemStack candidate=takeBestArmorCandidate(inv,f,categories[part],armorOptions[part]);
             if(candidate==null) continue;
+            if(premiumPvpItem(candidate) && !premiumHolder) {
+                putVisibleStorage(f,candidate,categories[part]);
+                continue;
+            }
 
             if(current!=null && armorAllowed(current.getType(),armorOptions[part]) &&
                itemCombatValue(current)>=itemCombatValue(candidate)) {
@@ -2721,6 +2810,10 @@ final class SimWorldDirector {
         // bard item, pearl, potion, etc. as the situation requires.
         Material requiredSword=p.combatClass==CombatClass.ROGUE?Material.GOLD_SWORD:null;
         org.bukkit.inventory.ItemStack sword=takeBestSword(inv,f,requiredSword);
+        if(sword!=null && premiumPvpItem(sword) && !premiumHolder) {
+            putVisibleStorage(f,sword,"swords");
+            sword=null;
+        }
         if(sword!=null) {
             java.util.Map<Integer,org.bukkit.inventory.ItemStack> overflow=inv.addItem(sword);
             if(overflow.isEmpty()) weaponAdded++;
@@ -2762,7 +2855,8 @@ final class SimWorldDirector {
 
         body.updateInventory();
         return "class="+p.combatClass.name()+" armor="+armorChanged+
-            " weapon="+weaponAdded+" classItems="+classItems+" supplies="+supplies;
+            " weapon="+weaponAdded+" classItems="+classItems+" supplies="+supplies+
+            " premiumBanked="+premiumBanked+" premiumHolder="+premiumHolder;
     }
 
     private void normalizePvpInventory(Player body) {
@@ -4764,8 +4858,51 @@ final class SimWorldDirector {
         }
     }
 
+    private boolean isHcfNovice(SimPlayer p) {
+        if(p==null) return true;
+        return p.gameSense<42 && p.economicIq<48 && p.pvpIq<48 && p.reputation<8;
+    }
+
+    private String leaderGuidedNoviceGoal(SimPlayer p,SimFaction f) {
+        SimPlayer leader=f==null?null:players.get(key(f.leader));
+        String lead=leader==null?"":leader.currentGoal;
+        if("build".equals(lead) || "gather".equals(lead) || "mine".equals(lead) ||
+           "farm".equals(lead) || "supply".equals(lead) || "brew".equals(lead) ||
+           "gear".equals(lead)) return lead;
+        // New players often hang around the claim until somebody tells them what
+        // to do instead of discovering the optimal SOTW route themselves.
+        return rng.nextInt(100)<62?"social":"gather";
+    }
+
+    private String sotwProgressionGoal(SimPlayer p,SimFaction f) {
+        if(p==null || f==null) return "social";
+        if(isHcfNovice(p) && !"leader".equals(p.role) && rng.nextInt(100)<72)
+            return leaderGuidedNoviceGoal(p,f);
+
+        // Practical SOTW guide: claim/base first, then economy + protected
+        // Nether/End materials, brewer, stock, and only then post-protection PvP.
+        if(!f.storage) {
+            if("builder".equals(p.preferredJob)) return "build";
+            if("miner".equals(p.preferredJob)) return "mine";
+            return "gather";
+        }
+        if("builder".equals(p.preferredJob) && f.buildProgress<f.buildTarget) return "build";
+        if("farmer".equals(p.preferredJob) && (!f.farmBuilt || p.economicIq>=55)) return "farm";
+        if(!f.brewer && ("brewer".equals(p.preferredJob) || sotwResourceRunner(p))) return "supply";
+        if(sotwResourceRunner(p)) return "supply";
+        if("miner".equals(p.preferredJob)) return "mine";
+        return rng.nextInt(100)<62?"gather":"social";
+    }
+
     private String chooseGoal(SimPlayer p) {
         if(p.faction.isEmpty()) {
+            if(isHcfNovice(p)) {
+                int r=rng.nextInt(100);
+                if(r<48) return "social";      // hangs at spawn / asks questions
+                if(r<74) return "recruit";     // repeatedly looks for a faction
+                if(r<88) return "gather";      // copies obvious starter behavior
+                return "idle";                 // genuinely lost / AFK-looking
+            }
             if(p.leaderCandidate) return p.sociability>=45?"recruit":"gather";
             if(p.sociability>=65) return "recruit";
             if("miner".equals(p.preferredJob)) return "mine";
@@ -4777,21 +4914,7 @@ final class SimWorldDirector {
         if(f==null) return "idle";
         if(f.recoveryMode) return p.riskTolerance<80?"safe":"defend";
 
-        // SOTW is a race against protection expiry. Before PvP enables, real
-        // factions prioritize a usable storage/base, then protected resource
-        // runs so glowstone/gunpowder are banked before those locations get camped.
-        if(sotwProtectionActive()) {
-            if(!f.storage) {
-                if("builder".equals(p.preferredJob)) return "build";
-                if("miner".equals(p.preferredJob)) return "mine";
-                return "gather";
-            }
-            if("builder".equals(p.preferredJob) && f.buildProgress<f.buildTarget) return "build";
-            if("farmer".equals(p.preferredJob) && p.economicIq>=60) return "farm";
-            if(sotwResourceRunner(p)) return "supply";
-            if("miner".equals(p.preferredJob)) return "mine";
-            return rng.nextInt(100)<58?"supply":"gather";
-        }
+        if(sotwProtectionActive()) return sotwProgressionGoal(p,f);
 
         switch(f.stage) {
             case RECRUITING:
@@ -5943,10 +6066,12 @@ final class SimWorldDirector {
             f.treasury -= n * plugin.buyUnitPrice("lapis");
         }
 
-        // P2/S2 is the hard map-wide combat ceiling. We still require enough
-        // low-level books/lapis/XP to represent imperfect enchanting outcomes.
-        int protCostBooks = 4;
-        int sharpCostBooks = 4;
+        // Normal faction-crafted combat stock represents Protection I /
+        // Sharpness I. Premium P2 and Sharp II + Fire I are intentionally NOT
+        // created here; they enter through event/key loot and remain scarce.
+        // Legacy field names p4Sets/sharp4Swords are retained for save compatibility.
+        int protCostBooks = 1;
+        int sharpCostBooks = 1;
 
         int neededBard = classCount(f, CombatClass.BARD);
         int neededArcher = classCount(f, CombatClass.ARCHER);
@@ -5967,19 +6092,19 @@ final class SimWorldDirector {
             f.rogueSets++;
         }
 
-        if (f.p4Sets < f.members.size() && f.diamonds >= 24 && f.books >= protCostBooks * 4 && f.lapis >= 16 && f.xp >= 16) {
+        if (f.p4Sets < f.members.size() && f.diamonds >= 24 && f.books >= protCostBooks * 4 && f.lapis >= 8 && f.xp >= 8) {
             f.diamonds -= 24;
             f.books -= protCostBooks * 4;
-            f.lapis -= 16;
-            f.xp -= 16;
+            f.lapis -= 8;
+            f.xp -= 8;
             f.p4Sets++;
         }
 
-        if (f.sharp4Swords < f.members.size() && f.diamonds >= 2 && f.books >= sharpCostBooks && f.lapis >= 4 && f.xp >= 6) {
+        if (f.sharp4Swords < f.members.size() && f.diamonds >= 2 && f.books >= sharpCostBooks && f.lapis >= 2 && f.xp >= 3) {
             f.diamonds -= 2;
             f.books -= sharpCostBooks;
-            f.lapis -= 4;
-            f.xp -= 6;
+            f.lapis -= 2;
+            f.xp -= 3;
             f.sharp4Swords++;
         }
     }
@@ -7305,6 +7430,13 @@ final class SimWorldDirector {
             score += p.teamwork / 3;
         }
 
+        if(isHcfNovice(p)) {
+            // Casual/underdog factions sometimes take a new player and teach
+            // them. High-standard/power factions usually do not.
+            score += f.underdog ? 12 : -18;
+            if(f.powerFaction || (leader!=null && leader.standards>=72)) score-=28;
+        }
+
         return score;
     }
 
@@ -7379,14 +7511,21 @@ final class SimWorldDirector {
     }
 
     private String lffLine(SimPlayer p) {
-        String cls = p.combatClass.name().toLowerCase(Locale.ENGLISH);
-        if ("miner".equals(p.preferredJob) || "builder".equals(p.preferredJob) || "brewer".equals(p.preferredJob)) {
-            return "lff " + p.preferredJob + " can " + cls;
-        }
-        if (plugin.isCreatorIdentity(p.name)) return "lff " + cls + " you know me";
-        if (p.donorLevel>=2) return "lff " + cls + " active donor";
-        if (p.reputation>=35) return "lff " + cls + " been active";
-        return "lff " + cls + " active";
+        String cls=p.combatClass.name().toLowerCase(Locale.ENGLISH);
+        if(isHcfNovice(p)) return oneOf(
+            "any fac inv pls",
+            "new to hcf need a faction",
+            "lff idk what class yet",
+            "can someone inv me ill farm",
+            "anyone taking new players");
+        if ("miner".equals(p.preferredJob) || "builder".equals(p.preferredJob) || "brewer".equals(p.preferredJob))
+            return oneOf("lff "+p.preferredJob+" can "+cls,
+                         "lff can "+p.preferredJob+" / "+cls,
+                         "need fac i can "+p.preferredJob);
+        if(plugin.isCreatorIdentity(p.name)) return oneOf("lff "+cls,"who needs "+cls,"need a fac");
+        if(p.donorLevel>=2) return oneOf("lff "+cls+" active","need fac "+cls,"lff donor "+cls);
+        if(p.reputation>=35) return oneOf("lff "+cls+" active","good "+cls+" lff","need a serious fac "+cls);
+        return oneOf("lff "+cls,"need fac "+cls,"any fac need "+cls,"lff active");
     }
 
     private String recruitingLine(SimFaction f) {
@@ -7397,9 +7536,21 @@ final class SimWorldDirector {
         if (jobCount(f, "brewer") == 0) needs.add("brewer");
         if (classCount(f, CombatClass.DIAMOND) < 2) needs.add("diamond");
 
-        int slots = Math.min(MAX_FACTION_MEMBERS, f.targetSize) - f.members.size();
-        String needText = needs.isEmpty() ? "active players" : joinWords(needs, 2);
-        return f.name + " recruiting " + slots + " need " + needText + " msg me";
+        int slots=Math.min(MAX_FACTION_MEMBERS,f.targetSize)-f.members.size();
+        String needText=needs.isEmpty()?"active":joinWords(needs,2);
+        SimPlayer leader=players.get(key(f.leader));
+        if(leader!=null && leader.standards>=75)
+            return oneOf(f.name+" need "+slots+" good "+needText+" only",
+                         "recruiting "+needText+" for "+f.name+" msg "+leader.name,
+                         f.name+" taking "+slots+" must be active");
+        if(f.underdog)
+            return oneOf(f.name+" recruiting anyone active",
+                         "need "+slots+" for "+f.name+" new players ok",
+                         f.name+" need "+needText+" we can teach");
+        return oneOf(f.name+" recruiting "+slots+" need "+needText,
+                     "need "+needText+" for "+f.name+" msg me",
+                     f.name+" need "+slots+" active players",
+                     "recruiting "+needText+" "+slots+" spots");
     }
 
     private String joinWords(List<String> xs, int limit) {

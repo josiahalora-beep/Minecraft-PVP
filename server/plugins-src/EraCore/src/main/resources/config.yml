@@ -254,23 +254,29 @@ sotw:
 terrain:
   normalize-new-chunks: true
   cleanup-height: 46
-  # Visual HCF terrain v2: Kraken remains clean, then terrain becomes visibly
-  # rolling on the scale a player can actually see while fighting/travelling.
-  spawn-flat-radius: 210.0
-  spawn-transition-radius: 345.0
-  wilderness-amplitude: 8.0
-  road-flat-half-width: 18.0
-  road-shoulder-half-width: 58.0
-  koth-flat-radius: 172.0
-  koth-blend-radius: 225.0
-  portal-flat-radius: 128.0
-  portal-blend-radius: 182.0
-  conquest-flat-radius: 182.0
-  conquest-blend-radius: 235.0
+  # Visual HCF terrain v3: warped natural relief, readable PvP lanes and
+  # event-specific terraforming sized to each real production schematic.
+  spawn-flat-radius: 175.0
+  spawn-transition-radius: 300.0
+  wilderness-amplitude: 7.0
+  road-flat-half-width: 16.0
+  road-shoulder-half-width: 50.0
+  koth-classic-flat-radius: 52.0
+  koth-classic-blend-radius: 118.0
+  koth-endstyle-flat-radius: 64.0
+  koth-endstyle-blend-radius: 132.0
+  koth-egypt-flat-radius: 38.0
+  koth-egypt-blend-radius: 105.0
+  koth-frost-flat-radius: 108.0
+  koth-frost-blend-radius: 170.0
+  portal-flat-radius: 112.0
+  portal-blend-radius: 168.0
+  conquest-flat-radius: 158.0
+  conquest-blend-radius: 222.0
   custom-decoration: true
   tree-chance-percent: 28
   rock-chance-percent: 18
-  ground-detail-chance-percent: 62
+  ground-detail-chance-percent: 48
 
 atmosphere:
   # HCF presentation is intentionally consistent: bright daytime PvP with no
@@ -284,6 +290,9 @@ base-builder:
   blocks-per-tick: 96
   visible-blocks-per-tick: 16
   rebuild-blocks-per-tick: 40
+  # Disposable headless QA only. Production/default remains false.
+  qa-fast-rebuild: false
+  qa-fast-rebuild-blocks-per-run: 1800
   interval-ticks: 2
   gate-auto-close-ticks: 30
   repair-existing-on-start: false

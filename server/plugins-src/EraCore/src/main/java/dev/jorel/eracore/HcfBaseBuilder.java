@@ -597,8 +597,16 @@ final class HcfBaseBuilder {
                         continue;
                     }
                     Block b = op.world.getBlockAt(op.x,op.y,op.z);
-                    b.setType(op.material);
-                    if (op.data != 0) b.setData(op.data);
+                    // 1.8 tile entities can survive a rapid CHEST -> FURNACE
+                    // style replacement long enough for Bukkit to detect a
+                    // mismatched TileEntity. Clear changed block types first,
+                    // then place the deterministic result without physics.
+                    if(b.getType()!=op.material) {
+                        b.setTypeIdAndData(Material.AIR.getId(),(byte)0,false);
+                        b.setTypeIdAndData(op.material.getId(),op.data,false);
+                    } else if(b.getData()!=op.data) {
+                        b.setData(op.data,false);
+                    }
                     if (op.label != null && b.getState() instanceof Sign) {
                         Sign sign=(Sign)b.getState();
                         String[] lines=op.label.split("\\|",-1);

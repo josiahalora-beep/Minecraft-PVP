@@ -489,16 +489,51 @@ final class HcfTerrainDirector implements Listener {
 
     private void buildHighCanopyTree(World w,int x,int y,int z,Random r) {
         int trunk=5+r.nextInt(3);
-        for(int i=0;i<trunk;i++) setNoPhysics(w.getBlockAt(x,y+i,z),Material.LOG);
+        int[][] dirs={{1,0},{-1,0},{0,1},{0,-1}};
 
-        int cy=y+trunk-1;
+        // Root flare seats the tree into the terrain instead of using a stick trunk.
+        int rootCount=2+r.nextInt(2);
+        int start=r.nextInt(dirs.length);
+        for(int i=0;i<rootCount;i++) {
+            int[] d=dirs[(start+i)%dirs.length];
+            setNoPhysics(w.getBlockAt(x+d[0],y-1,z+d[1]),Material.LOG);
+            if(r.nextBoolean()) setNoPhysics(w.getBlockAt(x+d[0],y,z+d[1]),Material.LOG);
+        }
+
+        int bendX=0,bendZ=0;
+        if(r.nextBoolean()) bendX=r.nextBoolean()?1:-1;
+        else bendZ=r.nextBoolean()?1:-1;
+
+        for(int i=0;i<trunk;i++) {
+            int tx=x,tz=z;
+            if(i>=trunk-2) { tx+=bendX; tz+=bendZ; }
+            setNoPhysics(w.getBlockAt(tx,y+i,tz),Material.LOG);
+        }
+
+        int cx=x+bendX,cz=z+bendZ,cy=y+trunk-1;
+        int branchA=r.nextInt(4);
+        int branchB=(branchA+1+r.nextInt(3))%4;
+        for(int bi:new int[]{branchA,branchB}) {
+            int[] d=dirs[bi];
+            setNoPhysics(w.getBlockAt(cx+d[0],cy-1,cz+d[1]),Material.LOG);
+            if(r.nextBoolean()) setNoPhysics(w.getBlockAt(cx+d[0]*2,cy,cz+d[1]*2),Material.LOG);
+        }
+
+        canopyLobe(w,cx,cy,cz,2,r);
+        int[] lobeDir=dirs[r.nextInt(4)];
+        canopyLobe(w,cx+lobeDir[0]*2,cy-1,cz+lobeDir[1]*2,2,r);
+        if(r.nextInt(100)<42) canopyLobe(w,cx-lobeDir[0],cy+1,cz-lobeDir[1],1,r);
+    }
+
+    private void canopyLobe(World w,int cx,int cy,int cz,int radius,Random r) {
         for(int dy=-1;dy<=2;dy++) {
-            int radius=dy==2?1:2;
-            for(int dx=-radius;dx<=radius;dx++) {
-                for(int dz=-radius;dz<=radius;dz++) {
-                    if(dx==0 && dz==0 && dy<=0) continue;
-                    if(Math.abs(dx)==radius && Math.abs(dz)==radius && r.nextBoolean()) continue;
-                    Block b=w.getBlockAt(x+dx,cy+dy,z+dz);
+            int rr=dy==2?Math.max(1,radius-1):radius;
+            for(int dx=-rr;dx<=rr;dx++) {
+                for(int dz=-rr;dz<=rr;dz++) {
+                    double d=(dx*dx+dz*dz)/(double)Math.max(1,rr*rr)+(dy*dy)/6.0;
+                    if(d>1.55) continue;
+                    if(Math.abs(dx)==rr && Math.abs(dz)==rr && r.nextInt(100)<55) continue;
+                    Block b=w.getBlockAt(cx+dx,cy+dy,cz+dz);
                     if(b.getType()==Material.AIR) setNoPhysics(b,Material.LEAVES);
                 }
             }

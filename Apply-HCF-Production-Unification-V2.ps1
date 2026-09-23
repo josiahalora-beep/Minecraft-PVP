@@ -141,8 +141,20 @@ $downloadMapAi = Get-Content -LiteralPath (Join-Path $tempRoot 'bots\src\hcf-map
 if ($downloadEra -notmatch 'migrateProductionUnificationConfig') { throw 'Downloaded EraCore is not the production-unification generation.' }
 if ($downloadEra -notmatch 'cmdSimTab') { throw 'Downloaded EraCore is missing /simtab diagnostics.' }
 if ($downloadWorld -notmatch 'STRUCTURES' -or $downloadWorld -notmatch 'RESOURCES') { throw 'Downloaded staged world builder is incomplete.' }
-if ($downloadWorker -match "['"]\/warp\s" -or $downloadWorker -match "['"]\/spawn['"]") {
-    throw 'Downloaded Mineflayer runtime still contains player teleport shortcuts.'
+$forbiddenWorkerTravel = @(
+    "tryCommand(state,'/warp",
+    "tryCommand(state, '/warp",
+    "tryCommand(state,'/spawn",
+    "tryCommand(state, '/spawn",
+    "tryCommand(state,'/oremountain",
+    "tryCommand(state, '/oremountain",
+    "queueBotCommand(state,'/stuck",
+    "queueBotCommand(state, '/stuck"
+)
+foreach ($needle in $forbiddenWorkerTravel) {
+    if ($downloadWorker.Contains($needle)) {
+        throw ('Downloaded Mineflayer runtime still contains a player teleport shortcut: ' + $needle)
+    }
 }
 if ($downloadWorker -notmatch 'enterFactionPortal' -or $downloadWorker -notmatch 'tryFactionHome') {
     throw 'Downloaded Mineflayer runtime is missing physical HCF travel.'

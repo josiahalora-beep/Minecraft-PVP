@@ -10,6 +10,17 @@ if (-not (Test-Path $marker)) {
 
 Write-Host '[SOTW] Full season-reset marker detected.' -ForegroundColor Yellow
 
+# This script must only run before Spigot starts. If anything is already
+# listening on 25565, abort instead of attempting to move a live world.
+try {
+    $listener = Get-NetTCPConnection -LocalPort 25565 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($listener) {
+        throw 'Port 25565 is already listening. Stop the Minecraft server, then launch through server\start-server.bat.'
+    }
+} catch [System.Management.Automation.CommandNotFoundException] {
+    # Older PowerShell installs may not provide Get-NetTCPConnection.
+}
+
 $assetDir = Join-Path $ServerRoot 'map-assets'
 $requiredAssets = @(
     'krakenhcf.schematic',
@@ -59,11 +70,15 @@ if (Test-Path $coldRootFile) {
 $archiveRoot = Join-Path $archiveBase ('SOTW-' + $stamp)
 New-Item -ItemType Directory -Path $archiveRoot -Force | Out-Null
 
+# Full SOTW means every generated dimension is fresh. The previous reset left
+# the duel world behind and, more importantly, stale location files could point
+# /spawn at terrain from the old map.
 $worlds = @(
     $levelName,
     ($levelName + '_nether'),
     ($levelName + '_the_end'),
-    'ore_mountain'
+    'ore_mountain',
+    'duel_arena'
 ) | Select-Object -Unique
 
 Write-Host ('[SOTW] Archiving active dimensions to ' + $archiveRoot)
@@ -73,14 +88,56 @@ foreach ($worldName in $worlds) {
     $destination = Join-Path $archiveRoot $worldName
     Write-Host ('  moving ' + $worldName)
     Move-Item -LiteralPath $source -Destination $destination
+    if (Test-Path $source) {
+        throw ('World reset verification failed; source still exists after archive move: ' + $source)
+    }
 }
 
-# Remove transient physical/event indices. Long-term identity/rank/history files
-# are intentionally preserved.
+# Force the canonical flat 1.8 HCF terrain on the regenerated Overworld.
+# This prevents a reset from silently coming back as ordinary vanilla terrain.
+if (Test-Path $serverProperties) {
+    $props = Get-Content -LiteralPath $serverProperties
+    $wanted = @{
+        'level-type' = 'FLAT'
+        'generator-settings' = '2;7,59x1,3x3,2;1;'
+        'generate-structures' = 'false'
+        'spawn-protection' = '0'
+    }
+    foreach ($key in $wanted.Keys) {
+        $found = $false
+        for ($i=0; $i -lt $props.Count; $i++) {
+            if ($props[$i] -match ('^' + [regex]::Escape($key) + '=')) {
+                $props[$i] = $key + '=' + $wanted[$key]
+                $found = $true
+                break
+            }
+        }
+        if (-not $found) { $props += ($key + '=' + $wanted[$key]) }
+    }
+    Set-Content -LiteralPath $serverProperties -Value $props -Encoding ASCII
+}
+
 $era = Join-Path $ServerRoot 'plugins\EraCore'
-foreach ($name in @('claims-v2.yml','events.yml','combat-hot.yml')) {
+$stateArchive = Join-Path $archiveRoot 'EraCore-reset-state'
+New-Item -ItemType Directory -Path $stateArchive -Force | Out-Null
+
+# These files contain physical-map locations or transient world state. Preserve
+# copies in the archive, then remove them so a fresh map cannot inherit an old
+# spawn, safezone, claim index, crate mark, event, duel, or combat location.
+$resetState = @(
+    'claims-v2.yml',
+    'events.yml',
+    'combat-hot.yml',
+    'warps.yml',
+    'safezones.yml',
+    'infrastructure.yml',
+    'rewards.yml'
+)
+foreach ($name in $resetState) {
     $path = Join-Path $era $name
-    if (Test-Path $path) { Remove-Item -LiteralPath $path -Force }
+    if (-not (Test-Path $path)) { continue }
+    Copy-Item -LiteralPath $path -Destination (Join-Path $stateArchive $name) -Force
+    Remove-Item -LiteralPath $path -Force
 }
 
 function Set-YamlScalar {
@@ -126,7 +183,26 @@ if (Test-Path $simulation) {
     Set-Content -LiteralPath $simulation -Value $text -Encoding UTF8
 }
 
+# Leave a positive receipt for diagnostics. The pending marker is removed only
+# after every destructive/reset step above has completed successfully.
+$receipt = Join-Path $era 'season-reset.applied'
+Set-Content -LiteralPath $receipt -Value @(
+    ('applied-at=' + [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()),
+    ('archive=' + $archiveRoot),
+    ('level-name=' + $levelName),
+    'layout-version=3'
+) -Encoding ASCII
+
 Remove-Item -LiteralPath $marker -Force
-Write-Host '[SOTW] Physical map reset complete. Staged v2 production build will resume automatically.' -ForegroundColor Green
-Write-Host '[SOTW] Donor ranks and long-term AI memory were preserved; factions/economy were reset before shutdown.'
+
+foreach ($worldName in $worlds) {
+    $source = Join-Path $ServerRoot $worldName
+    if (Test-Path $source) {
+        throw ('SOTW reset verification failed; generated world folder unexpectedly exists before Spigot start: ' + $source)
+    }
+}
+
+Write-Host '[SOTW] VERIFIED fresh physical map reset complete.' -ForegroundColor Green
+Write-Host '[SOTW] Old worlds + stale location state were archived. Spigot will now generate the canonical flat world and EraCore will paste production assets.'
+Write-Host ('[SOTW] Archive: ' + $archiveRoot) -ForegroundColor DarkGray
 exit 0

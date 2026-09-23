@@ -326,19 +326,20 @@ final class HcfTerrainDirector implements Listener {
         // remaining the dominant material between them.
         if(x<-700 && z>200) {
             double rock=valueNoise(x,z,105.0,0x5521L);
-            if(rock>0.62) return new SurfaceSpec(Material.STONE,0);
-            if(rock>0.42) return new SurfaceSpec(Material.GRAVEL,0);
-            if(rock>0.18) return new SurfaceSpec(Material.DIRT,1);
+            int delta=Math.abs(y-base);
+            if(delta>=4 && rock>0.78) return new SurfaceSpec(Material.STONE,0);
+            if(delta>=3 && rock>0.64) return new SurfaceSpec(Material.GRAVEL,0);
+            if(rock>0.50) return new SurfaceSpec(Material.DIRT,1);
         }
 
-        // General slope accents are also coherent patches. They only appear on
-        // meaningful relief and therefore reinforce the landform instead of
-        // visually flattening it with random texture noise.
+        // General slope accents stay restrained. Grass is the dominant HCF
+        // surface; these coherent scars exist to reveal a slope, not recolor a
+        // whole hillside.
         if(canSurfaceAccent(x,z)) {
             double accent=valueNoise(x,z,88.0,0x39A7L);
             int delta=Math.abs(y-base);
-            if(delta>=4 && accent>0.66) return new SurfaceSpec(Material.GRAVEL,0);
-            if(delta>=2 && accent>0.48) return new SurfaceSpec(Material.DIRT,1);
+            if(delta>=5 && accent>0.80) return new SurfaceSpec(Material.GRAVEL,0);
+            if(delta>=3 && accent>0.64) return new SurfaceSpec(Material.DIRT,1);
         }
 
         return new SurfaceSpec(Material.GRASS,0);

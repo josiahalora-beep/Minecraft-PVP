@@ -213,7 +213,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         eventDirector = new HcfEventDirector(this,mapDirector);
         resourceDirector = new HcfResourceDirector(this,mapDirector);
         schematicComposer = new LegacySchematicComposer(this);
-        worldBuildDirector = new HcfWorldBuildDirector(this,mapDirector,resourceDirector,schematicComposer);
+        worldBuildDirector = new HcfWorldBuildDirector(this,mapDirector,terrainDirector,resourceDirector,schematicComposer);
         infrastructure = new HcfInfrastructureDirector(this,warpManager,hcfZones);
         logicalTab = new LogicalTabListDirector(this, simWorld);
         sidebar = new HcfSidebarDirector(this,simWorld,eventDirector);
@@ -277,6 +277,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     @Override public void onDisable() {
         if (fakePlayers != null) fakePlayers.shutdown();
         if (worldBuildDirector != null) worldBuildDirector.stop();
+        if (terrainDirector != null) terrainDirector.stop();
         if (schematicComposer != null) schematicComposer.stop();
         if (eventDirector != null) eventDirector.stop();
         if (resourceDirector != null) resourceDirector.stop();
@@ -355,6 +356,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         getConfig().set("map.complete",false);
         getConfig().set("map.structures-complete",false);
         getConfig().set("world-build.active",true);
+        getConfig().set("world-build.terrain-complete",false);
         getConfig().set("world-build.complete",false);
         getConfig().set("world-build.resources-complete",false);
         getConfig().set("world-build.last-stage","RESET_REQUESTED");

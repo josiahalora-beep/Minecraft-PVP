@@ -102,6 +102,64 @@ final class HcfBaseBuilder {
         ensureRunner();
     }
 
+    void lazyMaterialize(String faction,String preset,String trapPreset,int cx,int y,int cz,
+                         int storageTier,boolean brewer,boolean netherPortal,boolean endPortal) {
+        if(faction==null || faction.trim().isEmpty()) return;
+        World world=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
+        if(world==null) return;
+
+        HcfBasePlan plan=planFor(faction,cx,y,cz);
+        if(!footprintLoaded(faction,preset,cx,y,cz)) return;
+
+        String k=faction.toLowerCase(java.util.Locale.ENGLISH);
+        completed.remove("base:"+k);
+        completed.remove("surface:"+k);
+        maintenanceRebuild=true;
+
+        // Queue-only recovery path: never scan remote terrain synchronously.
+        // Original base-site selection already required low relief, so a fixed
+        // six-block support slab is enough to seal shallow holes without
+        // getHighestBlockYAt() sweeps.
+        clearBrokenBaseVolumes(world,plan);
+        int pad=plan.surfacePadRadius();
+        for(int x=plan.cx-pad;x<=plan.cx+pad;x++) {
+            for(int z=plan.cz-pad;z<=plan.cz+pad;z++) {
+                for(int yy=Math.max(2,plan.surfaceY-6);yy<plan.surfaceY;yy++) {
+                    Material m=yy>=plan.surfaceY-3?Material.DIRT:Material.STONE;
+                    queue.add(new Op(world,x,yy,z,m));
+                }
+                queue.add(new Op(world,x,plan.surfaceY,z,Material.GRASS));
+            }
+        }
+
+        buildSurfaceShell(world,plan,true);
+        buildUndergroundCore(world,plan);
+        sealCriticalEnvelope(world,plan,true);
+
+        int tier=Math.max(1,Math.min(3,storageTier));
+        if(tier>1) buildStorageTier(world,plan,tier);
+        if(brewer) {
+            buildUndergroundBrewer(world,plan);
+            plugin.registerAutoBrewerSite(faction,preset,cx,y,cz);
+        }
+        if(netherPortal) buildFactionPortal(world,plan,"nether");
+        if(endPortal) buildFactionPortal(world,plan,"end");
+
+        if ("fall_trap".equalsIgnoreCase(trapPreset)) buildFallTrap(world,cx,y,cz);
+        else if ("fence_gate_bow".equalsIgnoreCase(trapPreset)) buildFenceGateBowTrap(world,cx,y,cz);
+        else if ("drop_chute".equalsIgnoreCase(trapPreset)) buildDropChute(world,cx,y,cz);
+
+        completed.add("base:"+k);
+        completed.add("surface:"+k);
+        completed.add("farm:"+k);
+        completed.add("storage:"+k+":"+tier);
+        if(brewer) completed.add("brewer:"+k);
+        if(netherPortal) completed.add("portal:"+k+":nether");
+        if(endPortal) completed.add("portal:"+k+":end");
+
+        ensureRunner();
+    }
+
     private void clearBrokenBaseVolumes(World w,HcfBasePlan p) {
         // Surface: remove every previous generated shell/wing/roof in this
         // faction work pad. Grade itself is rebuilt by prepareTerrainPad().

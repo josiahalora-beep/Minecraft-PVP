@@ -255,6 +255,14 @@ final class SimWorldDirector {
         int elevatorX;
         int elevatorY;
         int elevatorZ;
+        int netherPortalX;
+        int netherPortalY;
+        int netherPortalZ;
+        int endPortalX;
+        int endPortalY;
+        int endPortalZ;
+        boolean netherPortal;
+        boolean endPortal;
         int undergroundY;
         int x;
         int y;
@@ -286,6 +294,10 @@ final class SimWorldDirector {
                 " gateX=" + gateX + " gateY=" + gateY + " gateZ=" + gateZ +
                 " dropX=" + dropX + " dropY=" + dropY + " dropZ=" + dropZ +
                 " elevatorX=" + elevatorX + " elevatorY=" + elevatorY + " elevatorZ=" + elevatorZ +
+                " netherPortal=" + netherPortal +
+                " netherPortalX=" + netherPortalX + " netherPortalY=" + netherPortalY + " netherPortalZ=" + netherPortalZ +
+                " endPortal=" + endPortal +
+                " endPortalX=" + endPortalX + " endPortalY=" + endPortalY + " endPortalZ=" + endPortalZ +
                 " undergroundY=" + undergroundY +
                 " x=" + x + " y=" + y + " z=" + z +
                 " priority=" + priority +
@@ -1980,8 +1992,14 @@ final class SimWorldDirector {
         int[] drop=plugin.simBaseAnchor(f.name,f.basePreset,"drop",f.baseX,f.baseY,f.baseZ);
         int[] elevator=plugin.simBaseAnchor(f.name,f.basePreset,"elevator",f.baseX,f.baseY,f.baseZ);
         int[] core=plugin.simBaseAnchor(f.name,f.basePreset,"core",f.baseX,f.baseY,f.baseZ);
+        int[] netherPortal=plugin.simBaseAnchor(f.name,f.basePreset,"portal-nether",f.baseX,f.baseY,f.baseZ);
+        int[] endPortal=plugin.simBaseAnchor(f.name,f.basePreset,"portal-end",f.baseX,f.baseY,f.baseZ);
         t.dropX=drop[0]; t.dropY=drop[1]; t.dropZ=drop[2];
         t.elevatorX=elevator[0]; t.elevatorY=elevator[1]; t.elevatorZ=elevator[2];
+        t.netherPortal=f.netherPortal;
+        t.netherPortalX=netherPortal[0]; t.netherPortalY=netherPortal[1]; t.netherPortalZ=netherPortal[2];
+        t.endPortal=f.endPortal;
+        t.endPortalX=endPortal[0]; t.endPortalY=endPortal[1]; t.endPortalZ=endPortal[2];
         t.undergroundY=core[1];
 
         boolean assignedFight=visibleFight!=null && visibleFight.assignments.containsKey(key(p.name));
@@ -2196,6 +2214,28 @@ final class SimWorldDirector {
                 t.action=g;
                 if("patrol".equals(g)) t.zone=warzoneForFaction(f);
                 t.priority=Math.max(t.priority,goalPriority(p,g));
+            }
+        }
+
+        // Protected SOTW resource run: after a usable base exists, experienced
+        // or donor members rush scarce brewing materials through physical base
+        // portals before the PvP timer expires and those spots become camped.
+        if(sotwProtectionActive() && f.storage && "supply".equals(t.action) && sotwResourceRunner(p)) {
+            boolean preferEnd=f.endPortal && ((p.name.hashCode() & 1)==0);
+            if(preferEnd) {
+                t.zone="end";
+                t.x=plugin.getConfig().getInt("resources.creeper.x",160);
+                t.y=69;
+                t.z=plugin.getConfig().getInt("resources.creeper.z",235);
+                t.targetBlock="gunpowder";
+                t.priority=Math.max(t.priority,112);
+            } else if(f.netherPortal) {
+                t.zone="nether";
+                t.x=plugin.getConfig().getInt("resources.glowstone.x",0);
+                t.y=70;
+                t.z=plugin.getConfig().getInt("resources.glowstone.z",-320);
+                t.targetBlock="glowstone";
+                t.priority=Math.max(t.priority,110);
             }
         }
 

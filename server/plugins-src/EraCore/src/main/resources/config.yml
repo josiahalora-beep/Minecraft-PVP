@@ -481,4 +481,5 @@ memory:
 # persistent ArmorStands and could leave stale floating labels after an
 # unclean shutdown.
 presentation:
+  sidebar: true
   faction-dtr-overhead: false

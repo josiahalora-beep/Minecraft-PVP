@@ -71,6 +71,9 @@ commands:
     usage: /simcombat <sync|release|loot|status|director>
   simactor:
     usage: /simactor <status|tp|spawn|damage|kill|despawn|probe> [player]
+  simtab:
+    description: Diagnose and refresh the logical simulated player tab roster
+    usage: /simtab <status|refresh>
   safezone:
     usage: /safezone <info|set [radius]|build>
   teamfight:

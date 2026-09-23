@@ -2506,31 +2506,18 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     void rewardKothCapture(String faction,Player representative,String kothId) {
         if(representative==null) return;
-        int roll=Math.abs((faction+"|"+kothId+"|"+System.currentTimeMillis()/60000L).hashCode())%100;
-        ItemStack prize;
-        String label;
-        if(roll<15) {
-            prize=new ItemStack(Material.DIAMOND_SWORD);
-            prize.addUnsafeEnchantment(Enchantment.DAMAGE_ALL,2);
-            prize.addUnsafeEnchantment(Enchantment.DURABILITY,2);
-            org.bukkit.inventory.meta.ItemMeta m=prize.getItemMeta();
-            m.setDisplayName(color("&6KOTH Sword &7["+kothId+"]"));
-            prize.setItemMeta(m);
-            label="Sharpness II / Unbreaking II KOTH Sword";
-        } else if(roll<50) {
-            prize=new ItemStack(Material.DIAMOND_SWORD);
-            prize.addUnsafeEnchantment(Enchantment.DAMAGE_ALL,2);
-            label="Sharpness II Diamond Sword";
-        } else {
-            Material[] armor={Material.DIAMOND_HELMET,Material.DIAMOND_CHESTPLATE,Material.DIAMOND_LEGGINGS,Material.DIAMOND_BOOTS};
-            prize=new ItemStack(armor[roll%armor.length]);
-            prize.addUnsafeEnchantment(Enchantment.PROTECTION_ENVIRONMENTAL,2);
-            label="Protection II "+prize.getType().name().replace('_',' ');
+
+        // Event loot is redeemed at the physical KOTH chest in Kraken spawn.
+        // That preserves the old HCF loop: win event -> survive home/spawn trip
+        // -> open event reward, instead of materializing gear on the cap point.
+        if(isBotIdentity(representative.getName())) {
+            addSimPendingKey(representative.getName(),"koth",1);
+            ensurePhysicalPendingKey(representative,"koth");
+        } else if(spawnRewards!=null) {
+            spawnRewards.grantKey(representative,"koth",1,0);
         }
-        add(representative,prize);
-        add(representative,new ItemStack(Material.ENDER_PEARL,8));
-        creditEconomy(representative.getName(),500.0);
-        representative.sendMessage(color("&6KOTH reward &8» &f"+label+" &7+ 8 pearls + $500."));
+        creditEconomy(representative.getName(),250.0);
+        representative.sendMessage(color("&6KOTH reward &8» &f1 KOTH Key &7+ $250. Redeem the key at the KOTH chest in spawn."));
     }
 
     void rewardConquestCapture(String faction) {

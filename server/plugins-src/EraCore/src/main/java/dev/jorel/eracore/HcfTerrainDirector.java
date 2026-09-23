@@ -4,8 +4,9 @@ import org.bukkit.*;
 import org.bukkit.block.Block;
 import org.bukkit.event.*;
 import org.bukkit.event.world.ChunkLoadEvent;
+import org.bukkit.scheduler.BukkitTask;
 
-import java.util.Random;
+import java.util.*;
 
 /**
  * HCF movement-first terrain normalization for newly generated Overworld chunks.
@@ -23,9 +24,78 @@ import java.util.Random;
 @SuppressWarnings("deprecation")
 final class HcfTerrainDirector implements Listener {
     private final EraCore plugin;
+    private final ArrayDeque<Chunk> productionQueue=new ArrayDeque<Chunk>();
+    private final Set<Long> queuedChunks=new HashSet<Long>();
+    private BukkitTask productionTask;
 
     HcfTerrainDirector(EraCore plugin) {
         this.plugin=plugin;
+    }
+
+    boolean busy() {
+        return productionTask!=null || !productionQueue.isEmpty();
+    }
+
+    boolean queueProductionTerrain() {
+        if(busy()) return false;
+        World world=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
+        if(world==null) return false;
+
+        plugin.getConfig().set("world-build.terrain-complete",false);
+        plugin.saveConfig();
+
+        // Repair every currently loaded Overworld chunk first. This includes
+        // spawn/start-region chunks and any partial composer chunks from an
+        // interrupted build. Later schematic-loaded chunks are normalized
+        // synchronously by onChunkLoad before the composer writes into them.
+        for(Chunk chunk:world.getLoadedChunks()) enqueue(chunk);
+
+        if(productionQueue.isEmpty()) {
+            finishProductionTerrain();
+            return true;
+        }
+
+        productionTask=Bukkit.getScheduler().runTaskTimer(plugin,new Runnable() {
+            public void run() {
+                double p95=plugin.currentP95Mspt();
+                int perTick=p95>=32.0?1:(p95>=24.0?2:3);
+                for(int i=0;i<perTick && !productionQueue.isEmpty();i++) {
+                    Chunk chunk=productionQueue.removeFirst();
+                    queuedChunks.remove(chunkKey(chunk.getX(),chunk.getZ()));
+                    if(chunk.isLoaded()) normalize(chunk);
+                }
+                if(productionQueue.isEmpty()) finishProductionTerrain();
+            }
+        },1L,1L);
+        plugin.getLogger().info("[terrain] queued production terrain repair chunks="+productionQueue.size());
+        return true;
+    }
+
+    private void enqueue(Chunk chunk) {
+        if(chunk==null) return;
+        long key=chunkKey(chunk.getX(),chunk.getZ());
+        if(queuedChunks.add(key)) productionQueue.addLast(chunk);
+    }
+
+    private long chunkKey(int x,int z) {
+        return (((long)x)<<32) ^ (z&0xffffffffL);
+    }
+
+    private void finishProductionTerrain() {
+        if(productionTask!=null) productionTask.cancel();
+        productionTask=null;
+        productionQueue.clear();
+        queuedChunks.clear();
+        plugin.getConfig().set("world-build.terrain-complete",true);
+        plugin.saveConfig();
+        plugin.getLogger().info("[terrain] production terrain stage complete; future new chunks normalize on generation.");
+    }
+
+    void stop() {
+        if(productionTask!=null) productionTask.cancel();
+        productionTask=null;
+        productionQueue.clear();
+        queuedChunks.clear();
     }
 
     @EventHandler(priority=EventPriority.MONITOR)
@@ -37,6 +107,23 @@ final class HcfTerrainDirector implements Listener {
         if(Bukkit.getWorlds().isEmpty() || !e.getWorld().equals(Bukkit.getWorlds().get(0))) return;
 
         final Chunk chunk=e.getChunk();
+
+        // During production composition, a newly generated chunk must be
+        // normalized *inside* its ChunkLoad callback. world.loadChunk() then
+        // returns to the composer, which can safely paste the schematic after
+        // terrain has been formed. A delayed task here would race and erase the
+        // pasted structure one tick later.
+        if(plugin.getConfig().getBoolean("world-build.active",false) &&
+           plugin.getConfig().getBoolean("world-build.terrain-complete",false)) {
+            normalize(chunk);
+            return;
+        }
+
+        if(busy()) {
+            enqueue(chunk);
+            return;
+        }
+
         Bukkit.getScheduler().runTaskLater(plugin,new Runnable() {
             public void run() {
                 if(chunk.isLoaded()) normalize(chunk);

@@ -53,7 +53,9 @@ $SourceFiles = @(
     'server/plugins-src/EraCore/src/main/resources/plugin.yml',
     'server/Prepare-HCF-Season-Reset.ps1',
     'server/start-server.bat',
+    'bots/package.json',
     'bots/src/worker-pool.js',
+    'bots/src/worker-coordinator.js',
     'bots/src/hcf-map-intelligence.js',
     'bots/src/community-ai.js',
     'Start-Daegon-With-Workers.ps1',
@@ -142,6 +144,8 @@ $downloadWorld = Get-Content -LiteralPath (Join-Path $tempRoot 'server\plugins-s
 $downloadReset = Get-Content -LiteralPath (Join-Path $tempRoot 'server\Prepare-HCF-Season-Reset.ps1') -Raw
 $downloadLauncher = Get-Content -LiteralPath (Join-Path $tempRoot 'server\start-server.bat') -Raw
 $downloadWorker = Get-Content -LiteralPath (Join-Path $tempRoot 'bots\src\worker-pool.js') -Raw
+$downloadCoordinator = Get-Content -LiteralPath (Join-Path $tempRoot 'bots\src\worker-coordinator.js') -Raw
+$downloadBotPackage = Get-Content -LiteralPath (Join-Path $tempRoot 'bots\package.json') -Raw
 $downloadMapAi = Get-Content -LiteralPath (Join-Path $tempRoot 'bots\src\hcf-map-intelligence.js') -Raw
 $downloadCommunityAi = Get-Content -LiteralPath (Join-Path $tempRoot 'bots\src\community-ai.js') -Raw
 $downloadComposer = Get-Content -LiteralPath (Join-Path $tempRoot 'server\plugins-src\EraCore\src\main\java\dev\jorel\eracore\LegacySchematicComposer.java') -Raw
@@ -176,6 +180,11 @@ if ($downloadMapAi -notmatch "factionHome:\s*'/f home'") {
 if ($downloadStackLauncher -notmatch 'WORKER_COORDINATOR_URL=http://127\.0\.0\.1:8770' -or
     $downloadAdaptiveLauncher -notmatch 'Start-Daegon-With-Workers\.ps1') {
     throw 'Downloaded Daegon launcher chain is incomplete.'
+}
+if ($downloadCoordinator -notmatch 'server\.listen\(PORT,BIND' -or
+    $downloadCoordinator -notmatch 'worker-coordinator' -or
+    $downloadBotPackage -notmatch '"coordinator"\s*:\s*"node src/worker-coordinator\.js"') {
+    throw 'Downloaded worker coordinator runtime is incomplete.'
 }
 if ($downloadEra -notmatch 'production-unification-version",6' -or
     $downloadEra -notmatch 'world-composer\.blocks-per-tick",320') {

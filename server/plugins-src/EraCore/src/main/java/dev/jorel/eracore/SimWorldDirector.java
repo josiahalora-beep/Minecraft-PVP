@@ -3181,12 +3181,8 @@ final class SimWorldDirector {
         SimFaction f = p.faction.isEmpty() ? null : factions.get(key(p.faction));
 
         if (f != null) {
-            if (f.recoveryMode) return new ChatEvent(p.name, rng.nextBoolean() ? "we are regening dtr" : "staying in base till dtr regens");
-            if (f.stage == Stage.SCOUT_CLAIM) return new ChatEvent(p.name, "looking for a spot to claim");
-            if (f.stage == Stage.GATHER_STARTER && "miner".equals(p.role)) return new ChatEvent(p.name, "mining for the base rn");
-            if (f.stage == Stage.BREWER && !f.brewer) return new ChatEvent(p.name, "buying redstone stuff for an auto brewer");
-            if (f.stage == Stage.GEARING && f.p4Sets < Math.min(2, f.members.size())) return new ChatEvent(p.name, "buying prot books msg me");
-            if (f.stage == Stage.PVP_READY && rng.nextBoolean()) return new ChatEvent(p.name, "who is at spawn");
+            ChatEvent contextual=contextualFactionChat(p,f);
+            if(contextual!=null) return contextual;
         } else {
             String solo=soloActionFor(p);
             if("solo_loot".equals(solo)) {
@@ -3203,8 +3199,153 @@ final class SimWorldDirector {
             }
         }
 
-        String[] neutral = {"gg","anyone at spawn","who has pearls","who wants ally","selling stuff msg me","lol","need levels","who is outside","need pots","who has p2"};
+        String[] neutral = {
+            "gg","anyone at spawn","who has pearls","who wants ally","lol","need levels",
+            "who is outside","need pots","anyone end","who is nether","where is everyone",
+            "who is selling glass","any road fights","anyone need a miner","who has wart",
+            "just got out of spawn","that was close lol","who is contesting koth","need a few diamonds",
+            "any factions looking for one","who is selling pearls","spawn is dead rn","spawn is active rn",
+            "might go farm for a bit","need xp","who wants to roam"
+        };
         return new ChatEvent(p.name, neutral[rng.nextInt(neutral.length)]);
+    }
+
+    private ChatEvent contextualFactionChat(SimPlayer p,SimFaction f) {
+        if(p==null || f==null) return null;
+
+        String event=plugin.activeHcfEventSummary();
+        boolean activeEvent=event!=null && !event.isEmpty() && !"No active event".equalsIgnoreCase(event);
+        String rival=strongestRival(f.name);
+        String dir=claimDirection(f.baseX,f.baseZ);
+
+        if(f.recoveryMode) {
+            String[] x={
+                "we are regening dtr dont ask us to roam",
+                "staying in base for a bit",
+                "not leaving till our dtr is back",
+                "we need to stop feeding rn",
+                "just farming and waiting on dtr",
+                "everyone chill we are low dtr"
+            };
+            return new ChatEvent(p.name,x[rng.nextInt(x.length)]);
+        }
+
+        switch(f.stage) {
+            case RECRUITING: {
+                String need=factionNeedText(f);
+                if(need.isEmpty()) {
+                    String[] x={"our roster is almost set","think we are good on members","still sorting roles"};
+                    return new ChatEvent(p.name,x[rng.nextInt(x.length)]);
+                }
+                String[] lead={"need a ","looking for a ","still need a ","who mains "};
+                return new ChatEvent(p.name,lead[rng.nextInt(lead.length)]+need+(rng.nextBoolean()?" msg me":""));
+            }
+            case SCOUT_CLAIM: {
+                String[] x={
+                    "looking for a claim "+dir+" of spawn",
+                    "road claims are going fast",
+                    "trying to get a decent claim before they are all gone",
+                    "checking "+dir+" side for a claim",
+                    "dont take the spot we are looking at lol",
+                    "need a claim that isnt right on top of everyone"
+                };
+                return new ChatEvent(p.name,x[rng.nextInt(x.length)]);
+            }
+            case GATHER_STARTER: {
+                List<String> needs=new ArrayList<String>();
+                if(f.wood<80) needs.add("wood");
+                if(f.stone<300) needs.add("stone");
+                if(f.iron<25) needs.add("iron");
+                if(f.glass<120) needs.add("glass");
+                String need=needs.isEmpty()?"mats":needs.get(rng.nextInt(needs.size()));
+                if("miner".equals(p.preferredJob)) {
+                    String[] x={"still mining for the base","getting "+need+" rn","need a little more "+need,"im underground getting mats"};
+                    return new ChatEvent(p.name,x[rng.nextInt(x.length)]);
+                }
+                String[] x={"need "+need+" for our base","someone bring "+need+" back","we are getting starter mats","claim is down now we need blocks"};
+                return new ChatEvent(p.name,x[rng.nextInt(x.length)]);
+            }
+            case BUILD_STARTER: {
+                String[] x={
+                    "finishing our dropdown rn",
+                    "base shell is going up",
+                    "doing storage after this",
+                    "we are still building dont door camp us yet lol",
+                    "working on the bottom of the base",
+                    "need more glass for the top",
+                    "base is almost usable"
+                };
+                return new ChatEvent(p.name,x[rng.nextInt(x.length)]);
+            }
+            case ECONOMY: {
+                if("farmer".equals(p.preferredJob)) {
+                    String[] x={"cane farm is finally decent","farming cane for money","expanding the farm rn","cane prices better be worth this"};
+                    return new ChatEvent(p.name,x[rng.nextInt(x.length)]);
+                }
+                if("miner".equals(p.preferredJob)) {
+                    String[] x={"going back mining for diamonds","need more iron for sets","might go ore mountain","mining while they finish the base"};
+                    return new ChatEvent(p.name,x[rng.nextInt(x.length)]);
+                }
+                String[] x={"trying to get our balance up","selling extra mats msg me","we need money for pots","getting the economy going"};
+                return new ChatEvent(p.name,x[rng.nextInt(x.length)]);
+            }
+            case BREWER: {
+                List<String> needs=new ArrayList<String>();
+                if(f.healPots<20) needs.add("heals");
+                if(f.speedPots<10) needs.add("speed");
+                if(f.pearls<12) needs.add("pearls");
+                String need=needs.isEmpty()?"pots":needs.get(rng.nextInt(needs.size()));
+                String[] x={
+                    "brewer is running now",
+                    "need "+need+" before we roam",
+                    "who is selling wart",
+                    "need glowstone msg me",
+                    "making pots for everyone rn",
+                    "refill room is finally getting stocked"
+                };
+                return new ChatEvent(p.name,x[rng.nextInt(x.length)]);
+            }
+            case GEARING: {
+                String[] x={
+                    "finishing sets then we are out",
+                    "need pearls before we roam",
+                    "who is selling p1 pieces",
+                    "need a few more heals",
+                    "getting bard and archer sets ready",
+                    "almost geared enough to fight"
+                };
+                return new ChatEvent(p.name,x[rng.nextInt(x.length)]);
+            }
+            case PVP_READY: {
+                if(activeEvent && rng.nextInt(100)<42) {
+                    String[] x={"who is going koth","anyone contesting the event","we might pull up to koth","how many are at koth","who is controlling rn"};
+                    return new ChatEvent(p.name,x[rng.nextInt(x.length)]);
+                }
+                if(!rival.isEmpty() && rivalryScore(f.name,rival)>=25 && rng.nextInt(100)<34) {
+                    String[] x={"where is "+rival,rival+" come spawn","we keep seeing "+rival+" everywhere","if "+rival+" is out we are fighting them"};
+                    return new ChatEvent(p.name,x[rng.nextInt(x.length)]);
+                }
+                if(p.combatClass==CombatClass.ARCHER) {
+                    String[] x={"need a diamond with me then ill go spawn","who is roaming i can archer","going out with bow"};
+                    return new ChatEvent(p.name,x[rng.nextInt(x.length)]);
+                }
+                if(p.combatClass==CombatClass.BARD) {
+                    String[] x={"who needs bard","im refilling bard items","not going out alone on bard lol"};
+                    return new ChatEvent(p.name,x[rng.nextInt(x.length)]);
+                }
+                String[] x={
+                    "who is outside spawn","any factions roaming","might go end","we are heading road",
+                    "who wants to fight","anyone at "+dir+" road","we got sets now come fight","looking for pvp"
+                };
+                return new ChatEvent(p.name,x[rng.nextInt(x.length)]);
+            }
+        }
+        return null;
+    }
+
+    private String claimDirection(int x,int z) {
+        if(Math.abs(x)>=Math.abs(z)) return x>=0?"east":"west";
+        return z>=0?"south":"north";
     }
 
     void onHumanPublicChat(Player human, String message) {

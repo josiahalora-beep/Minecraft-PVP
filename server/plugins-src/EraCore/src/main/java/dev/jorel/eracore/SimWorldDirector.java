@@ -1791,6 +1791,21 @@ final class SimWorldDirector {
         }
         if(!changed) return;
 
+        List<String> thirdNames=new ArrayList<String>();
+        for(CombatAssignment ca:fight.assignments.values())
+            if(thirdFaction.equalsIgnoreCase(ca.faction)) thirdNames.add(ca.name);
+
+        // Once the third party actually commits, the attacked faction stops
+        // treating them as neutral and can fight them persistently—not only in
+        // the instant after taking damage.
+        for(CombatAssignment ca:fight.assignments.values()) {
+            if(!targetFaction.equalsIgnoreCase(ca.faction)) continue;
+            for(String thirdName:thirdNames) {
+                ca.neutrals.remove(thirdName);
+                if(!ca.enemies.contains(thirdName)) ca.enemies.add(thirdName);
+            }
+        }
+
         recordRivalry(thirdFaction,targetFaction,3+rng.nextInt(5));
         SimFaction third=factions.get(key(thirdFaction));
         SimPlayer leader=third==null?null:players.get(key(third.leader));
@@ -3137,6 +3152,18 @@ final class SimWorldDirector {
         if(body==null || p==null || f==null || isPremiumGearAce(f,p)) return 0;
         int moved=0;
         org.bukkit.inventory.PlayerInventory inv=body.getInventory();
+
+        String[] armorCategories={"helmets","chestplates","leggings","boots"};
+        for(int part=0;part<4;part++) {
+            org.bukkit.inventory.ItemStack equipped=getArmorPiece(inv,part);
+            if(!premiumPvpItem(equipped)) continue;
+            org.bukkit.inventory.ItemStack copy=equipped.clone();
+            if(putVisibleStorage(f,copy,armorCategories[part])) {
+                moved+=copy.getAmount();
+                setArmorPiece(inv,part,null);
+            }
+        }
+
         for(int slot=0;slot<36;slot++) {
             org.bukkit.inventory.ItemStack item=inv.getItem(slot);
             if(!premiumPvpItem(item)) continue;
@@ -3189,7 +3216,7 @@ final class SimWorldDirector {
         String[] categories={"helmets","chestplates","leggings","boots"};
         for(int part=0;part<4;part++) {
             org.bukkit.inventory.ItemStack current=getArmorPiece(inv,part);
-            org.bukkit.inventory.ItemStack candidate=takeBestArmorCandidate(inv,f,categories[part],armorOptions[part]);
+            org.bukkit.inventory.ItemStack candidate=takeBestArmorCandidate(inv,f,categories[part],armorOptions[part],premiumHolder);
             if(candidate==null) continue;
             if(premiumPvpItem(candidate) && !premiumHolder) {
                 putVisibleStorage(f,candidate,categories[part]);
@@ -3212,7 +3239,7 @@ final class SimWorldDirector {
         // sword available; the HOT combat controller may later switch to bow,
         // bard item, pearl, potion, etc. as the situation requires.
         Material requiredSword=p.combatClass==CombatClass.ROGUE?Material.GOLD_SWORD:null;
-        org.bukkit.inventory.ItemStack sword=takeBestSword(inv,f,requiredSword);
+        org.bukkit.inventory.ItemStack sword=takeBestSword(inv,f,requiredSword,premiumHolder);
         if(sword!=null && premiumPvpItem(sword) && !premiumHolder) {
             putVisibleStorage(f,sword,"swords");
             sword=null;
@@ -3369,16 +3396,17 @@ final class SimWorldDirector {
     }
 
     private org.bukkit.inventory.ItemStack takeBestArmorCandidate(org.bukkit.inventory.PlayerInventory inv,SimFaction f,
-                                                                  String category,Material[] allowed) {
+                                                                  String category,Material[] allowed,boolean allowPremium) {
         int bestSlot=-1,bestValue=-1;
         for(int i=0;i<36;i++) {
             org.bukkit.inventory.ItemStack item=inv.getItem(i);
             if(item==null || !armorAllowed(item.getType(),allowed)) continue;
+            if(!allowPremium && premiumPvpItem(item)) continue;
             int v=itemCombatValue(item);
             if(v>bestValue){bestValue=v;bestSlot=i;}
         }
 
-        org.bukkit.inventory.ItemStack storageBest=peekBestStorageItem(f,category,allowed,false);
+        org.bukkit.inventory.ItemStack storageBest=peekBestStorageItem(f,category,allowed,false,allowPremium);
         if(storageBest!=null && itemCombatValue(storageBest)>bestValue)
             return takeExactStorageItem(f,category,storageBest);
 
@@ -3391,12 +3419,13 @@ final class SimWorldDirector {
         return one;
     }
 
-    private org.bukkit.inventory.ItemStack peekBestStorageItem(SimFaction f,String category,Material[] allowed,boolean swords) {
+    private org.bukkit.inventory.ItemStack peekBestStorageItem(SimFaction f,String category,Material[] allowed,boolean swords,boolean allowPremium) {
         org.bukkit.inventory.Inventory storage=factionStorageInventory(f,category);
         if(storage==null) return null;
         org.bukkit.inventory.ItemStack best=null;
         for(org.bukkit.inventory.ItemStack item:storage.getContents()) {
             if(item==null || item.getType()==Material.AIR) continue;
+            if(!allowPremium && premiumPvpItem(item)) continue;
             if(swords) {
                 if(!item.getType().name().endsWith("_SWORD")) continue;
                 if(allowed!=null && allowed.length>0 && item.getType()!=allowed[0]) continue;
@@ -3455,23 +3484,25 @@ final class SimWorldDirector {
         return false;
     }
 
-    private org.bukkit.inventory.ItemStack takeBestSword(org.bukkit.inventory.PlayerInventory inv,SimFaction f,Material required) {
+    private org.bukkit.inventory.ItemStack takeBestSword(org.bukkit.inventory.PlayerInventory inv,SimFaction f,Material required,boolean allowPremium) {
         int bestSlot=-1,bestValue=-1;
         for(int i=0;i<36;i++) {
             org.bukkit.inventory.ItemStack item=inv.getItem(i);
             if(item==null || !item.getType().name().endsWith("_SWORD")) continue;
             if(required!=null && item.getType()!=required) continue;
+            if(!allowPremium && premiumPvpItem(item)) continue;
             int v=itemCombatValue(item);
             if(v>bestValue){bestValue=v;bestSlot=i;}
         }
 
         Material[] filter=required==null?null:new Material[]{required};
-        org.bukkit.inventory.ItemStack storageBest=peekBestStorageItem(f,"swords",filter,true);
+        org.bukkit.inventory.ItemStack storageBest=peekBestStorageItem(f,"swords",filter,true,allowPremium);
         if(required==null) {
             org.bukkit.inventory.Inventory storage=factionStorageInventory(f,"swords");
             if(storage!=null) {
                 for(org.bukkit.inventory.ItemStack item:storage.getContents()) {
                     if(item==null || !item.getType().name().endsWith("_SWORD")) continue;
+                    if(!allowPremium && premiumPvpItem(item)) continue;
                     if(storageBest==null || itemCombatValue(item)>itemCombatValue(storageBest)) {
                         storageBest=item.clone(); storageBest.setAmount(1);
                     }

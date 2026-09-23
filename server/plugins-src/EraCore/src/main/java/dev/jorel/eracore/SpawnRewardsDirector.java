@@ -1,8 +1,6 @@
 package dev.jorel.eracore;
 
 import org.bukkit.*;
-import org.bukkit.block.Block;
-import org.bukkit.block.Sign;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Player;
@@ -646,63 +644,16 @@ final class SpawnRewardsDirector implements Listener {
         if(spawn==null || spawn.getWorld()==null) return;
         World w=spawn.getWorld();
         int y=plugin.getConfig().getInt("map.surface-y",63)+1;
-        int cx=spawn.getBlockX();
-        int cz=spawn.getBlockZ()+16;
+        int z=spawn.getBlockZ()+36;
 
-        // Large, unmistakable crate court on the reserved north functional pad.
-        // The actual reward logic remains event-driven: these are not decorative
-        // chests and bots receive their exact coordinates through WorkerTask.
-        for(int x=cx-13;x<=cx+13;x++) for(int z=cz-5;z<=cz+5;z++) {
-            w.getBlockAt(x,y-1,z).setType(((Math.abs(x-cx)+Math.abs(z-cz))%5)==0
-                ? Material.QUARTZ_BLOCK : Material.SMOOTH_BRICK);
-            for(int yy=y;yy<=y+5;yy++) {
-                Material m=w.getBlockAt(x,yy,z).getType();
-                if(m!=Material.CHEST && m!=Material.ENDER_CHEST && m!=Material.SIGN_POST)
-                    w.getBlockAt(x,yy,z).setType(Material.AIR);
-            }
-        }
-
-        // Two framed stations with enough empty approach space for multiple
-        // players/bots. Their block types intentionally differ for simple
-        // Mineflayer discovery as a fallback to semantic coordinates.
-        int[] stations={-6,6};
-        for(int sx:stations) {
-            int px=cx+sx;
-            for(int dx=-2;dx<=2;dx++) {
-                w.getBlockAt(px+dx,y-1,cz).setType(Material.QUARTZ_BLOCK);
-                w.getBlockAt(px+dx,y+4,cz).setType(Material.QUARTZ_BLOCK);
-            }
-            for(int yy=y;yy<=y+4;yy++) {
-                w.getBlockAt(px-2,yy,cz).setType(Material.QUARTZ_BLOCK);
-                w.getBlockAt(px+2,yy,cz).setType(Material.QUARTZ_BLOCK);
-            }
-            w.getBlockAt(px,y+4,cz).setType(Material.GLOWSTONE);
-        }
-
-        voteCrate=new Location(w,cx-6,y,cz);
-        donorCrate=new Location(w,cx+6,y,cz);
+        // Minimal fallback only. Even outside production Kraken mode EraCore
+        // never constructs a crate court, beacon, frame, pad or sign.
+        voteCrate=new Location(w,spawn.getBlockX()-8,y,z);
+        donorCrate=new Location(w,spawn.getBlockX(),y,z);
+        kothCrate=new Location(w,spawn.getBlockX()+8,y,z);
         voteCrate.getBlock().setType(Material.CHEST);
         donorCrate.getBlock().setType(Material.ENDER_CHEST);
-
-        placeLabel(w,cx-6,y+1,cz-2,"VOTE KEYS","Right Click");
-        placeLabel(w,cx+6,y+1,cz-2,"DONOR KEYS","Right Click");
-
-        // A center beacon makes the court visible from the spawn point while
-        // leaving the actual two interaction lanes unobstructed.
-        w.getBlockAt(cx,y,cz+3).setType(Material.BEACON);
-        w.getBlockAt(cx,y-1,cz+3).setType(Material.IRON_BLOCK);
-        w.getBlockAt(cx,y+1,cz+3).setType(Material.GLOWSTONE);
-    }
-
-    private void placeLabel(World w,int x,int y,int z,String line0,String line1) {
-        Block b=w.getBlockAt(x,y,z);
-        b.setType(Material.SIGN_POST);
-        if(b.getState() instanceof Sign) {
-            Sign s=(Sign)b.getState();
-            s.setLine(0,EraCore.colorText(""+line0));
-            s.setLine(1,EraCore.colorText("&7"+line1));
-            s.update(true);
-        }
+        kothCrate.getBlock().setType(Material.CHEST);
     }
 
     private void save() {

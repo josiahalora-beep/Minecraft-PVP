@@ -343,9 +343,10 @@ final class SimWorldDirector {
         int trapZ;
         String trapType = "none";
         String focus = "";
-        String engagementMode = "ENGAGE"; // ENGAGE, WATCH, CLEANUP
-        int engageDelayMs;
+        String engagementMode = "ENGAGE"; // ENGAGE, WATCH, SHADOW, CLEANUP
+        int engageDelayMs; // minimum observation time; never auto-engages by itself
         int watchDistance = 16;
+        int opportunism = 50;
         final List<String> neutrals = new ArrayList<String>();
         int lootHealNeed;
         int lootPearlNeed;
@@ -377,6 +378,7 @@ final class SimWorldDirector {
                 " engagementMode=" + engagementMode +
                 " engageDelayMs=" + engageDelayMs +
                 " watchDistance=" + watchDistance +
+                " opportunism=" + opportunism +
                 " neutrals=" + joinNames(neutrals) +
                 " lootHealNeed=" + lootHealNeed +
                 " lootPearlNeed=" + lootPearlNeed +
@@ -407,6 +409,8 @@ final class SimWorldDirector {
         String anchorFaction="";
         String ownerName="";
         int teamSize=0;
+        long createdAt=System.currentTimeMillis();
+        long nextThirdPartyDecisionAt;
         final Map<String,CombatAssignment> assignments = new LinkedHashMap<String,CombatAssignment>();
     }
 
@@ -1185,6 +1189,7 @@ final class SimWorldDirector {
                 visibleFight=null;
                 writeCombatFile();
             } else {
+                updateThirdPartyOpportunities(visibleFight);
                 writeCombatFile();
                 return;
             }
@@ -1575,22 +1580,47 @@ final class SimWorldDirector {
         return dx*dx+dz*dz;
     }
 
+    private int thirdPartyOpportunism(SimFaction third) {
+        if(third==null) return 50;
+        SimPlayer leader=players.get(key(third.leader));
+        if(leader==null) return 50;
+        int score=leader.politicalIq*3/10+leader.pvpIq/4+leader.gameSense/5+
+            leader.aggression/8+leader.riskTolerance/8;
+        if("PVP".equals(third.archetype)) score+=10;
+        if(third.powerFaction) score+=5;
+        return Math.max(10,Math.min(100,score));
+    }
+
     private String thirdPartyStance(SimFaction third,SimFaction a,SimFaction b) {
         SimPlayer leader=third==null?null:players.get(key(third.leader));
         int aggression=leader==null?50:leader.aggression;
         int patience=leader==null?50:leader.patience;
         int politics=leader==null?50:leader.politicalIq;
+        int risk=leader==null?50:leader.riskTolerance;
         int rivalry=Math.max(rivalryScore(third.name,a.name),rivalryScore(third.name,b.name));
-        int roll=rng.nextInt(100);
+        int mercy=factionMercy(third);
+        boolean socialWatch=(third.watchTarget!=null && (
+            third.watchTarget.equalsIgnoreCase(a.name) || third.watchTarget.equalsIgnoreCase(b.name)));
 
-        int commit=8+aggression/5+Math.min(24,rivalry);
-        int cleanup=24+politics/5+aggression/8;
-        if(patience>=70) { commit-=8; cleanup+=8; }
-        if("PVP".equals(third.archetype)) { commit+=10; cleanup+=8; }
+        // Third factions are usually observers or opportunists, not a guaranteed
+        // third side. Aggression/rivalry shifts weight toward committing; patience,
+        // mercy and a social watch target shift it toward watching or passing.
+        int engageW=Math.max(2,2+aggression/10+rivalry/3+
+            ("PVP".equals(third.archetype)?6:0)-patience/15-(socialWatch?12:0));
+        int cleanupW=Math.max(6,8+aggression/12+politics/8+risk/12+rivalry/5+
+            ("PVP".equals(third.archetype)?4:0)-(socialWatch?6:0));
+        int shadowW=Math.max(8,12+politics/8+patience/10+(socialWatch?8:0));
+        int watchW=Math.max(10,18+patience/7+mercy/10+(socialWatch?14:0));
+        int passW=Math.max(8,20+patience/9+mercy/9-aggression/18-rivalry/10+
+            (socialWatch?10:0));
 
-        if(roll<Math.max(5,Math.min(45,commit))) return "ENGAGE";
-        if(roll<Math.max(35,Math.min(82,commit+cleanup))) return "CLEANUP";
-        return "WATCH";
+        int total=engageW+cleanupW+shadowW+watchW+passW;
+        int roll=rng.nextInt(Math.max(1,total));
+        if((roll-=engageW)<0) return "ENGAGE";
+        if((roll-=cleanupW)<0) return "CLEANUP";
+        if((roll-=shadowW)<0) return "SHADOW";
+        if((roll-=watchW)<0) return "WATCH";
+        return "PASS";
     }
 
     private VisibleFight createThreeWayFight(Player observer,List<SimFaction> ready,SimFaction anchor) {
@@ -1613,6 +1643,11 @@ final class SimWorldDirector {
         SimFaction b=nearby.get(0);
         SimFaction d=nearby.get(1);
         String stance=thirdPartyStance(d,anchor,b);
+        if("PASS".equals(stance)) {
+            recordHistory("WARZONE_SCENE",2,d.name+" passed a "+anchor.name+" vs "+b.name+
+                " fight without getting involved",d.name,d.leader,anchor.leader,b.leader);
+            return null;
+        }
 
         int multiBudget=Math.max(6,Math.min(12,hotCombatBudget()));
         int mainSide=Math.max(1,Math.min(4,(multiBudget-2)/2));
@@ -1671,12 +1706,25 @@ final class SimWorldDirector {
                 if(ca!=null) ca.neutrals.addAll(thirdNames);
             }
         }
+        int opp=thirdPartyOpportunism(d);
         for(SimPlayer p:dd) {
             CombatAssignment ca=fight.assignments.get(key(p.name));
             if(ca==null) continue;
             ca.engagementMode=stance;
-            ca.watchDistance=14+rng.nextInt(9);
-            ca.engageDelayMs="CLEANUP".equals(stance)?(9000+rng.nextInt(15000)):0;
+            ca.opportunism=opp;
+            if("WATCH".equals(stance)) {
+                ca.watchDistance=22+rng.nextInt(9);
+                ca.engageDelayMs=0;
+            } else if("SHADOW".equals(stance)) {
+                ca.watchDistance=17+rng.nextInt(7);
+                ca.engageDelayMs=7000+rng.nextInt(10000);
+            } else if("CLEANUP".equals(stance)) {
+                ca.watchDistance=13+rng.nextInt(7);
+                ca.engageDelayMs=5000+rng.nextInt(9000);
+            } else {
+                ca.watchDistance=10+rng.nextInt(5);
+                ca.engageDelayMs=0;
+            }
         }
 
         recordRivalry(anchor.name,b.name,3+rng.nextInt(4));
@@ -1684,12 +1732,164 @@ final class SimWorldDirector {
             recordRivalry(anchor.name,d.name,2+rng.nextInt(4));
             recordRivalry(b.name,d.name,2+rng.nextInt(4));
         } else {
-            recordHistory("WARZONE_SCENE",4,d.name+" "+("CLEANUP".equals(stance)?
-                "waited outside a "+anchor.name+" vs "+b.name+" fight looking for a cleanup":
-                "watched "+anchor.name+" fight "+b.name+" from a distance"),
+            String behavior="WATCH".equals(stance)
+                ?"watched "+anchor.name+" fight "+b.name+" from a distance"
+                :("SHADOW".equals(stance)
+                    ?"shadowed the "+anchor.name+" vs "+b.name+" fight waiting to see who got weak"
+                    :"held outside the "+anchor.name+" vs "+b.name+" fight looking for a cleanup");
+            recordHistory("WARZONE_SCENE",4,d.name+" "+behavior,
                 d.name,d.leader,anchor.leader,b.leader);
         }
         return fight;
+    }
+
+    private CombatAssignment representativeThirdParty(VisibleFight fight) {
+        if(fight==null) return null;
+        for(CombatAssignment ca:fight.assignments.values()) {
+            String mode=ca.engagementMode==null?"ENGAGE":ca.engagementMode;
+            if("WATCH".equals(mode) || "SHADOW".equals(mode) || "CLEANUP".equals(mode))
+                return ca;
+        }
+        return null;
+    }
+
+    private CombatAssignment weakestLiveAssignment(VisibleFight fight,String faction) {
+        if(fight==null || faction==null || faction.isEmpty()) return null;
+        CombatAssignment best=null;
+        double health=Double.MAX_VALUE;
+        for(CombatAssignment ca:fight.assignments.values()) {
+            if(!faction.equalsIgnoreCase(ca.faction)) continue;
+            Player body=Bukkit.getPlayerExact(ca.name);
+            if(body==null || !body.isOnline() || body.isDead()) continue;
+            if(body.getHealth()<health) { health=body.getHealth(); best=ca; }
+        }
+        return best;
+    }
+
+    private void activateThirdParty(VisibleFight fight,String thirdFaction,String targetFaction,
+                                    String focusName,String reason) {
+        if(fight==null || thirdFaction==null || targetFaction==null ||
+           thirdFaction.equalsIgnoreCase(targetFaction)) return;
+
+        List<String> targets=new ArrayList<String>();
+        for(CombatAssignment ca:fight.assignments.values())
+            if(targetFaction.equalsIgnoreCase(ca.faction)) targets.add(ca.name);
+        if(targets.isEmpty()) return;
+
+        boolean changed=false;
+        for(CombatAssignment ca:fight.assignments.values()) {
+            if(!thirdFaction.equalsIgnoreCase(ca.faction)) continue;
+            String mode=ca.engagementMode==null?"ENGAGE":ca.engagementMode;
+            if(!"WATCH".equals(mode) && !"SHADOW".equals(mode) && !"CLEANUP".equals(mode)) continue;
+            ca.engagementMode="ENGAGE";
+            ca.enemyFaction=targetFaction;
+            ca.enemies.clear();
+            ca.enemies.addAll(targets);
+            ca.neutrals.clear();
+            if(focusName!=null && !focusName.isEmpty()) ca.focus=focusName;
+            changed=true;
+        }
+        if(!changed) return;
+
+        recordRivalry(thirdFaction,targetFaction,3+rng.nextInt(5));
+        SimFaction third=factions.get(key(thirdFaction));
+        SimPlayer leader=third==null?null:players.get(key(third.leader));
+        if(leader!=null && leader.logicalOnline) {
+            if("death".equals(reason))
+                enqueue(leader.name,oneOf("one died go now","clean that fight now","push them they just lost one"),false);
+            else
+                enqueue(leader.name,oneOf("hes low go now","theyre weak push","collapse on the low one"),false);
+        }
+        recordHistory("THIRD_PARTY",6,thirdFaction+" jumped "+targetFaction+
+            ("death".equals(reason)?" after a death":" after spotting a weak player"),
+            thirdFaction,thirdFaction,targetFaction,focusName==null?"":focusName);
+    }
+
+    private void updateThirdPartyOpportunities(VisibleFight fight) {
+        if(fight==null) return;
+        CombatAssignment third=representativeThirdParty(fight);
+        if(third==null) return;
+
+        long now=System.currentTimeMillis();
+        if(now<fight.nextThirdPartyDecisionAt) return;
+        fight.nextThirdPartyDecisionAt=now+
+            Math.max(2,plugin.getConfig().getInt("combat-director.third-party-decision-seconds",3))*1000L;
+        if(now-fight.createdAt<Math.max(0,third.engageDelayMs)) return;
+
+        String mode=third.engagementMode==null?"WATCH":third.engagementMode;
+        if(!"SHADOW".equals(mode) && !"CLEANUP".equals(mode)) return;
+
+        CombatAssignment weak=null;
+        double weakHealth=Double.MAX_VALUE;
+        for(CombatAssignment ca:fight.assignments.values()) {
+            if(ca.faction.equalsIgnoreCase(third.faction)) continue;
+            Player body=Bukkit.getPlayerExact(ca.name);
+            if(body==null || !body.isOnline() || body.isDead()) continue;
+            if(body.getHealth()<weakHealth) { weakHealth=body.getHealth(); weak=ca; }
+        }
+        if(weak==null) return;
+
+        double threshold="CLEANUP".equals(mode)
+            ? plugin.getConfig().getDouble("combat-director.third-party-cleanup-health",8.0)
+            : plugin.getConfig().getDouble("combat-director.third-party-shadow-health",5.0);
+        if(weakHealth>threshold) return;
+
+        SimFaction tf=factions.get(key(third.faction));
+        boolean socialWatch=tf!=null && tf.watchTarget!=null &&
+            tf.watchTarget.equalsIgnoreCase(weak.faction);
+        int chance=("CLEANUP".equals(mode)?34:10)+third.opportunism/3+
+            Math.min(22,rivalryScore(third.faction,weak.faction));
+        if(socialWatch) chance-=28;
+        chance=Math.max(4,Math.min(88,chance));
+        if(rng.nextInt(100)<chance)
+            activateThirdParty(fight,third.faction,weak.faction,weak.name,"low");
+    }
+
+    private void maybeActivateThirdPartyAfterDeath(VisibleFight fight,String victimName,String killerName) {
+        if(fight==null || victimName==null) return;
+        CombatAssignment third=representativeThirdParty(fight);
+        CombatAssignment victim=fight.assignments.get(key(victimName));
+        if(third==null || victim==null || victim.faction.equalsIgnoreCase(third.faction)) return;
+
+        String mode=third.engagementMode==null?"WATCH":third.engagementMode;
+        long age=System.currentTimeMillis()-fight.createdAt;
+        if(age<Math.max(0,third.engageDelayMs)) return;
+
+        CombatAssignment killer=killerName==null?null:fight.assignments.get(key(killerName));
+        String targetFaction=victim.faction;
+        String focusName="";
+
+        // Classic cleanup behavior: if the winner is still standing there hurt,
+        // opportunists often collapse on that side rather than automatically
+        // finishing the faction that just lost somebody.
+        if(killer!=null && !killer.faction.equalsIgnoreCase(third.faction)) {
+            Player kb=Bukkit.getPlayerExact(killer.name);
+            if(kb!=null && kb.isOnline() && !kb.isDead() && kb.getHealth()<=13.0) {
+                targetFaction=killer.faction;
+                focusName=killer.name;
+            }
+        }
+        if(focusName.isEmpty()) {
+            CombatAssignment weak=weakestLiveAssignment(fight,targetFaction);
+            if(weak!=null) focusName=weak.name;
+            else if(killer!=null && !killer.faction.equalsIgnoreCase(third.faction)) {
+                targetFaction=killer.faction;
+                focusName=killer.name;
+            }
+        }
+
+        int rivalry=Math.max(rivalryScore(third.faction,targetFaction),0);
+        int chance;
+        if("CLEANUP".equals(mode)) chance=58+third.opportunism/4+Math.min(18,rivalry);
+        else if("SHADOW".equals(mode)) chance=20+third.opportunism/5+Math.min(14,rivalry);
+        else if("WATCH".equals(mode)) chance=2+Math.min(18,rivalry/2);
+        else return;
+
+        SimFaction tf=factions.get(key(third.faction));
+        if(tf!=null && tf.watchTarget!=null && tf.watchTarget.equalsIgnoreCase(targetFaction)) chance-=30;
+        chance=Math.max(2,Math.min(92,chance));
+        if(rng.nextInt(100)<chance)
+            activateThirdParty(fight,third.faction,targetFaction,focusName,"death");
     }
 
     private void addMultiAssignments(VisibleFight fight,SimFaction own,List<SimPlayer> allies,
@@ -1984,6 +2184,7 @@ final class SimWorldDirector {
                 y.set(b+".engagement-mode",ca.engagementMode);
                 y.set(b+".engage-delay-ms",ca.engageDelayMs);
                 y.set(b+".watch-distance",ca.watchDistance);
+                y.set(b+".opportunism",ca.opportunism);
                 y.set(b+".neutrals",ca.neutrals);
                 y.set(b+".loot-heal-need",ca.lootHealNeed);
                 y.set(b+".loot-pearl-need",ca.lootPearlNeed);
@@ -3090,7 +3291,11 @@ final class SimWorldDirector {
                 item.removeEnchantment(org.bukkit.enchantments.Enchantment.DAMAGE_ALL);
                 item.addUnsafeEnchantment(org.bukkit.enchantments.Enchantment.DAMAGE_ALL,2);
             }
-            item.removeEnchantment(org.bukkit.enchantments.Enchantment.FIRE_ASPECT);
+            int fire=item.getEnchantmentLevel(org.bukkit.enchantments.Enchantment.FIRE_ASPECT);
+            if(fire>2) {
+                item.removeEnchantment(org.bukkit.enchantments.Enchantment.FIRE_ASPECT);
+                item.addUnsafeEnchantment(org.bukkit.enchantments.Enchantment.FIRE_ASPECT,2);
+            }
         }
         if(item.getType()==Material.BOW) {
             int power=item.getEnchantmentLevel(org.bukkit.enchantments.Enchantment.ARROW_DAMAGE);
@@ -4679,6 +4884,7 @@ final class SimWorldDirector {
         recentKiller = killerName == null ? "" : killerName;
         CombatAssignment killerAssignment=visibleFight==null?null:visibleFight.assignments.get(key(killerName));
         if (visibleFight != null && victimName != null) {
+            maybeActivateThirdPartyAfterDeath(visibleFight,victimName,killerName);
             visibleFight.assignments.remove(key(victimName));
             writeCombatFile();
         }

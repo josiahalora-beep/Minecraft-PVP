@@ -12,7 +12,7 @@ const simulationFile = process.env.SIMULATION_FILE || path.join(root, 'server', 
 const configFile = process.env.ERACORE_CONFIG || path.join(root, 'server', 'plugins', 'EraCore', 'config.yml')
 const combatFile = process.env.COMBAT_HOT_FILE || path.join(root, 'server', 'plugins', 'EraCore', 'combat-hot.yml')
 
-const FALLBACK_CREATORS = ['Stimpypvp', 'Marcel', 'PainfulPvP', 'lolitsalex', 'Skimpy']
+const FALLBACK_CREATORS = ['Stimpy', 'PainfulPvP', 'lolitsalex', 'Skimpy']
 
 const COORDINATOR_URL = String(process.env.WORKER_COORDINATOR_URL || '').replace(/\/$/, '')
 const COORDINATOR_TOKEN = String(process.env.WORKER_COORDINATOR_TOKEN || '')
@@ -454,6 +454,130 @@ function dimensionZone(bot) {
   if(d.includes('nether')) return 'nether'
   if(d.includes('end')) return 'end'
   return 'spawn'
+}
+
+function boolToken(v) {
+  return String(v ?? '').toLowerCase()==='true' || String(v ?? '')==='1'
+}
+
+function factionPortalPoint(state, zone) {
+  const j=state?.job || {}
+  const prefix=zone==='end'?'endPortal':'netherPortal'
+  if(!boolToken(j[prefix])) return null
+  const x=Number(j[prefix+'X']), y=Number(j[prefix+'Y']), z=Number(j[prefix+'Z'])
+  if(![x,y,z].every(Number.isFinite)) return null
+  return {x,y,z}
+}
+
+function spawnPoint() {
+  return {
+    x:Number(HCF_MAP.overworld.spawn.x)||0,
+    y:Number(HCF_MAP.overworld.spawn.y)||66,
+    z:Number(HCF_MAP.overworld.spawn.z)||0
+  }
+}
+
+async function walkTowardPoint(state, point, radius=4, timeoutMs=6500) {
+  if(!state?.bot?.entity || !point) return false
+  return await smartGoto(
+    state,
+    Number(point.x),
+    Number(point.y || state.bot.entity.position.y),
+    Number(point.z),
+    radius,
+    timeoutMs,
+    false
+  )
+}
+
+async function waitForDimension(state, wanted, timeoutMs=7000) {
+  const end=Date.now()+timeoutMs
+  while(Date.now()<end && state?.bot?.entity) {
+    if(dimensionZone(state.bot)===wanted) return true
+    await sleep(200)
+  }
+  return dimensionZone(state?.bot)===wanted
+}
+
+async function enterFactionPortal(state, zone) {
+  const bot=state?.bot
+  if(!bot?.entity || state.combat || commandTagged(state)) return false
+  if(zone!=='nether' && zone!=='end') return false
+  if(dimensionZone(bot)===zone) return true
+
+  const faction=String(state.job?.faction || state.faction || 'none')
+  if(faction==='none') return false
+
+  // Returning from a resource dimension uses the normal HCF /f home return.
+  // Outbound dimension travel is always through the actual portal in the base.
+  if(dimensionZone(bot)!=='spawn') {
+    await tryCommand(state,'/f home',900)
+    return false
+  }
+
+  const point=factionPortalPoint(state,zone)
+  if(!point) return false
+
+  if(!nearAssignedHome(state,90)) {
+    await tryCommand(state,'/f home',900)
+    return false
+  }
+
+  const dist=Math.hypot(bot.entity.position.x-point.x,bot.entity.position.z-point.z)
+  if(dist>5.5) {
+    await walkTowardPoint(state,point,2,7500)
+    return false
+  }
+
+  // Locate the actual portal material around the declared base anchor so the
+  // body visibly steps into the structure instead of stopping beside it.
+  let portal=null
+  try {
+    const names=zone==='end'?new Set(['end_portal']):new Set(['portal','nether_portal'])
+    portal=bot.findBlock({
+      matching:block=>block && names.has(String(block.name||'').toLowerCase()),
+      maxDistance:9
+    })
+  } catch {}
+
+  const target=portal?.position || point
+  try {
+    await bot.lookAt(target.offset ? target.offset(0.5,0.2,0.5) : {
+      x:target.x+0.5,y:target.y+0.2,z:target.z+0.5
+    },false)
+  } catch {}
+
+  stopMovement(bot)
+  bot.setControlState('forward',true)
+  bot.setControlState('sprint',false)
+  await sleep(zone==='nether'?1700:900)
+  stopMovement(bot)
+  return await waitForDimension(state,zone,6500)
+}
+
+async function walkTowardSpawn(state) {
+  const bot=state?.bot
+  if(!bot?.entity || state.combat) return false
+  if(dimensionZone(bot)!=='spawn') {
+    const faction=String(state.job?.faction || state.faction || 'none')
+    if(faction!=='none' && !commandTagged(state)) await tryCommand(state,'/f home',900)
+    return false
+  }
+  return await walkTowardPoint(state,spawnPoint(),10,7000)
+}
+
+async function ensurePhysicalZone(state, zone) {
+  const current=dimensionZone(state?.bot)
+  if(zone==='nether' || zone==='end') {
+    if(current===zone) return true
+    return await enterFactionPortal(state,zone)
+  }
+  if(current!=='spawn') {
+    const faction=String(state.job?.faction || state.faction || 'none')
+    if(faction!=='none' && !commandTagged(state)) await tryCommand(state,'/f home',900)
+    return false
+  }
+  return true
 }
 
 function nearAssignedHome(state, radius=55) {

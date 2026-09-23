@@ -165,11 +165,34 @@ final class HcfMapDirector implements Listener {
         return null;
     }
 
+    private int roadProtectionHalfWidth() {
+        return Math.max(18,plugin.getConfig().getInt("map-layout.road-protection-half-width",32));
+    }
+
+    boolean isProtectedRoad(Location l) {
+        if(l==null || l.getWorld()==null || !"overworld".equals(worldKey(l.getWorld()))) return false;
+        int half=roadProtectionHalfWidth();
+        int border=Math.max(256,plugin.getConfig().getInt("map.world-border",3000)/2);
+        int x=l.getBlockX(),z=l.getBlockZ();
+        if(Math.abs(x)>border || Math.abs(z)>border) return false;
+        return Math.abs(x)<=half || Math.abs(z)<=half;
+    }
+
+    private boolean rectIntersectsProtectedRoad(int x1,int x2,int z1,int z2) {
+        int half=roadProtectionHalfWidth();
+        int border=Math.max(256,plugin.getConfig().getInt("map.world-border",3000)/2);
+        if(x2 < -border || x1 > border || z2 < -border || z1 > border) return false;
+        boolean crossesNorthSouth=x1<=half && x2>=-half;
+        boolean crossesEastWest=z1<=half && z2>=-half;
+        return crossesNorthSouth || crossesEastWest;
+    }
+
     boolean protectsBuild(Location l) {
-        return protectedRegion(l)!=null;
+        return protectedRegion(l)!=null || isProtectedRoad(l);
     }
 
     String buildReason(Location l) {
+        if(isProtectedRoad(l)) return "HCF road corridor is protected from building.";
         Region r=protectedRegion(l);
         return r==null?"":r.name+" is protected.";
     }
@@ -184,6 +207,8 @@ final class HcfMapDirector implements Listener {
 
         int x1=Math.min(minX,maxX),x2=Math.max(minX,maxX);
         int z1=Math.min(minZ,maxZ),z2=Math.max(minZ,maxZ);
+        if(rectIntersectsProtectedRoad(x1,x2,z1,z2))
+            return "Canonical HCF roads are no-claim corridors.";
         for(Region r:regions) {
             if(!"overworld".equals(r.worldKey) || !r.claimProtected) continue;
             double cx=Math.max(x1,Math.min(r.x,x2));
@@ -203,6 +228,7 @@ final class HcfMapDirector implements Listener {
     String claimReason(Location l) {
         if(l==null || l.getWorld()==null) return "Invalid claim location.";
         if(!"overworld".equals(worldKey(l.getWorld()))) return "Faction claims are only allowed in the Overworld.";
+        if(isProtectedRoad(l)) return "Canonical HCF roads are no-claim corridors.";
         for(Region r:regions) if("overworld".equals(r.worldKey) && r.claimProtected && r.contains(l))
             return r.name+" has a no-claim radius.";
         return "";
@@ -255,6 +281,7 @@ final class HcfMapDirector implements Listener {
         if("zones".equals(sub)) {
             p.sendMessage(EraCore.colorText("&bCyan &7= Safezone, &cRed &7= KOTH/event protection, &5Purple &7= portal protection, &eGold &7= claim exclusion."));
             p.sendMessage(EraCore.colorText("&7KOTH/resource/portal protection blocks building but &cdoes not disable PvP&7."));
+            p.sendMessage(EraCore.colorText("&7Canonical roads are &eno-claim + no-build &7but remain &cPvP-enabled&7."));
             return true;
         }
         p.sendMessage("/mapinfo <nearest|routes|resources|zones>");

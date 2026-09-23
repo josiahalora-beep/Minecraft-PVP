@@ -87,6 +87,7 @@ final class HcfEventDirector {
     }
 
     private void tick() {
+        if(!plugin.productionWorldReady()) return;
         if(!activeKoth.isEmpty()) tickKoth();
         if(conquestActive) tickConquest();
     }
@@ -282,6 +283,7 @@ final class HcfEventDirector {
     }
 
     void startKoth(String id) {
+        if(!plugin.productionWorldReady()) return;
         HcfMapDirector.Region r=map.region(id);
         if(r==null || !"koth".equals(r.type)) return;
         activeKoth=r.id;kothController="";kothControllerPlayer="";kothProgress=0;kothContested=false;
@@ -296,6 +298,7 @@ final class HcfEventDirector {
     }
 
     void startConquest() {
+        if(!plugin.productionWorldReady()) return;
         conquestActive=true;conquestScores.clear();
         for(CapPoint cp:conquestPoints){cp.owner="";cp.capturing="";cp.progress=0;}
         HcfMapDirector.Region c=map.region("conquest");

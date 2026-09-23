@@ -330,6 +330,8 @@ spawn-build-protection:
   corner-pad: 10
 
 travel:
+  faction-home-warmup-seconds: 10
+  faction-stuck-warmup-seconds: 180
   # /spawn and /warp are HCF escape-sensitive commands, never instant.
   warmup-seconds: 10
 

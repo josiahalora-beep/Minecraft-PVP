@@ -258,25 +258,32 @@ final class SpawnRewardsDirector implements Listener {
 
     boolean commandKeys(Player p) {
         int vote=countKeys(p,"vote");
-        int donor=countKeys(p,"donor");
+        int koth=countKeys(p,"koth");
         int simVote=plugin.simPendingKeyCount(p.getName(),"vote");
         int simDonor=plugin.simPendingKeyCount(p.getName(),"donor");
+        int simKoth=plugin.simPendingKeyCount(p.getName(),"koth");
         p.sendMessage(EraCore.colorText("&6--- Crate Keys ---"));
         p.sendMessage(EraCore.colorText("&eVote: &f"+vote+(simVote>0?" &7("+simVote+" pending)":"")));
-        p.sendMessage(EraCore.colorText("&6Donor: &f"+donor+(simDonor>0?" &7("+simDonor+" pending)":"")));
+        p.sendMessage(EraCore.colorText("&6KOTH: &f"+koth+(simKoth>0?" &7("+simKoth+" pending)":"")));
+        p.sendMessage(EraCore.colorText("&aVIP: &f"+countDonorTierKeys(p,1)+"  &fMVP: &f"+countDonorTierKeys(p,2)+
+            "  &6Pro: &f"+countDonorTierKeys(p,3)+"  &bPlatinum: &f"+countDonorTierKeys(p,4)+
+            (simDonor>0?" &7("+simDonor+" donor pending)":"")));
         p.sendMessage(EraCore.colorText("&7/vote odds &8| &7/crates"));
         return true;
     }
 
     boolean commandCrates(Player p,String[] args) {
-        if(args.length>0 && (args[0].equalsIgnoreCase("vote") || args[0].equalsIgnoreCase("donor"))) {
+        if(args.length>0 && (args[0].equalsIgnoreCase("vote") ||
+                            args[0].equalsIgnoreCase("donor") ||
+                            args[0].equalsIgnoreCase("koth"))) {
             showOdds(p,args[0]);
             return true;
         }
         p.sendMessage(EraCore.colorText("&6Spawn Crates"));
-        p.sendMessage(EraCore.colorText("&eVote Crate &7- voting, vote parties"));
-        p.sendMessage(EraCore.colorText("&6Donor Crate &7- donor perk keys"));
-        p.sendMessage(EraCore.colorText("&7Use &f/crates vote &7or &f/crates donor &7to view odds."));
+        p.sendMessage(EraCore.colorText("&eVote Chest &7- voting and vote parties"));
+        p.sendMessage(EraCore.colorText("&6KOTH Chest &7- event capture keys"));
+        p.sendMessage(EraCore.colorText("&bDonor Ender Chest &7- VIP / MVP / Pro / Platinum keys"));
+        p.sendMessage(EraCore.colorText("&7All three are plain interaction blocks built into Kraken spawn."));
         return true;
     }
 
@@ -316,22 +323,25 @@ final class SpawnRewardsDirector implements Listener {
         String type=null;
         if(sameBlock(l,voteCrate)) type="vote";
         else if(sameBlock(l,donorCrate)) type="donor";
+        else if(sameBlock(l,kothCrate)) type="koth";
         if(type==null) return;
 
         e.setCancelled(true);
         Player p=e.getPlayer();
+        int donorTier="donor".equals(type)?highestDonorKeyTier(p):0;
         if(!consumeKey(p,type)) {
-            p.sendMessage(EraCore.colorText("&cYou need a "+prettyType(type)+" Crate Key. &7Use /crates "+type+" to see rewards."));
+            p.sendMessage(EraCore.colorText("&cYou need a "+prettyType(type)+" key. &7Use /crates "+type+" to see rewards."));
             return;
         }
 
         if(plugin.isBotIdentity(p.getName())) plugin.consumeSimPendingKey(p.getName(),type,1);
-        giveReward(p,type);
+        giveReward(p,type,donorTier);
     }
 
-    private void giveReward(Player p,String type) {
+    private void giveReward(Player p,String type,int donorTier) {
         int roll=rng.nextInt(10000);
-        if("donor".equals(type)) giveDonorReward(p,roll);
+        if("donor".equals(type)) giveDonorReward(p,roll,Math.max(1,donorTier));
+        else if("koth".equals(type)) giveKothReward(p,roll);
         else giveVoteReward(p,roll);
     }
 
@@ -369,46 +379,87 @@ final class SpawnRewardsDirector implements Listener {
         }
     }
 
-    private void giveDonorReward(Player p,int r) {
-        if(r<2000) {
-            money(p,750,"$750");
-        } else if(r<3800) {
-            item(p,new ItemStack(Material.ENDER_PEARL,16),"16 Ender Pearls");
-        } else if(r<5300) {
-            item(p,new ItemStack(Material.DIAMOND,8),"8 Diamonds");
-        } else if(r<6500) {
-            item(p,new ItemStack(Material.OBSIDIAN,16),"16 Obsidian");
-        } else if(r<7700) {
-            for(int i=0;i<12;i++) p.getInventory().addItem(new ItemStack(Material.POTION,1,(short)16421));
-            finishReward(p,"12 Splash Health II",false);
-        } else if(r<8500) {
-            item(p,new ItemStack(Material.SULPHUR,16),"16 Gunpowder");
-        } else if(r<9100) {
-            ItemStack[] set={
-                enchanted(Material.IRON_HELMET,2), enchanted(Material.IRON_CHESTPLATE,2),
-                enchanted(Material.IRON_LEGGINGS,2), enchanted(Material.IRON_BOOTS,2)
-            };
-            p.getInventory().addItem(set);
-            finishReward(p,"Protection II Iron Set",true);
-        } else if(r<9500) {
+    private void giveDonorReward(Player p,int r,int tier) {
+        tier=Math.max(1,Math.min(4,tier));
+        int pearls=8+tier*4;
+        int diamonds=2+tier*2;
+        int obsidian=8+tier*4;
+        int heals=4+tier*3;
+        int gunpowder=8+tier*4;
+        double cash=250.0+tier*250.0;
+
+        if(r<1800) {
+            money(p,cash,"$"+((int)cash));
+        } else if(r<3400) {
+            item(p,new ItemStack(Material.ENDER_PEARL,pearls),pearls+" Ender Pearls");
+        } else if(r<4800) {
+            item(p,new ItemStack(Material.DIAMOND,diamonds),diamonds+" Diamonds");
+        } else if(r<6100) {
+            item(p,new ItemStack(Material.OBSIDIAN,obsidian),obsidian+" Obsidian");
+        } else if(r<7300) {
+            for(int i=0;i<heals;i++) p.getInventory().addItem(new ItemStack(Material.POTION,1,(short)16421));
+            finishReward(p,heals+" Splash Health II",false);
+        } else if(r<8200) {
+            item(p,new ItemStack(Material.SULPHUR,gunpowder),gunpowder+" Gunpowder");
+        } else if(r<8900) {
+            Material piece=tier>=3?Material.DIAMOND_CHESTPLATE:Material.IRON_CHESTPLATE;
+            item(p,enchanted(piece,2),"Protection II "+piece.name().replace('_',' '));
+        } else if(r<9400) {
             ItemStack sword=new ItemStack(Material.DIAMOND_SWORD);
             sword.addUnsafeEnchantment(Enchantment.DAMAGE_ALL,2);
+            sword.addUnsafeEnchantment(Enchantment.DURABILITY,2);
             item(p,sword,"Sharpness II Diamond Sword");
-        } else if(r<9800) {
-            p.getInventory().addItem(keyItem("vote",2));
-            finishReward(p,"2 Vote Crate Keys",true);
-        } else if(r<9900) {
-            ItemStack chest=enchanted(Material.DIAMOND_CHESTPLATE,2);
-            item(p,chest,"Protection II Diamond Chestplate");
-        } else if(r<9950) {
-            p.getInventory().addItem(keyItem("donor",1));
-            finishReward(p,"BONUS Donor Crate Key",true);
+        } else if(r<9750 && tier>=3) {
+            Material[] armor={Material.DIAMOND_HELMET,Material.DIAMOND_CHESTPLATE,Material.DIAMOND_LEGGINGS,Material.DIAMOND_BOOTS};
+            ItemStack piece=enchanted(armor[r%armor.length],2);
+            item(p,piece,"Protection II "+piece.getType().name().replace('_',' '));
+        } else if(r<9925) {
+            int next=Math.min(4,tier+1);
+            p.getInventory().addItem(keyItem("donor",1,next));
+            finishReward(p,donorTierName(next)+" Donor Crate Key",true);
         } else {
-            if(plugin.upgradeRankFromReward(p,"Donor Crate")) finishReward(p,"DONOR RANK UPGRADE",true);
+            if(plugin.upgradeRankFromReward(p,donorTierName(tier)+" Donor Crate"))
+                finishReward(p,"DONOR RANK UPGRADE",true);
             else {
-                p.getInventory().addItem(keyItem("donor",2));
-                finishReward(p,"2 Donor Crate Keys",true);
+                p.getInventory().addItem(keyItem("koth",1,0));
+                finishReward(p,"1 KOTH Key",true);
             }
+        }
+    }
+
+    private void giveKothReward(Player p,int r) {
+        if(r<1700) {
+            item(p,new ItemStack(Material.ENDER_PEARL,16),"16 Ender Pearls");
+        } else if(r<3300) {
+            for(int i=0;i<12;i++) p.getInventory().addItem(new ItemStack(Material.POTION,1,(short)16421));
+            finishReward(p,"12 Splash Health II",false);
+        } else if(r<4700) {
+            item(p,new ItemStack(Material.GLOWSTONE_DUST,16),"16 Glowstone Dust");
+        } else if(r<6100) {
+            item(p,new ItemStack(Material.SULPHUR,24),"24 Gunpowder");
+        } else if(r<7200) {
+            item(p,new ItemStack(Material.OBSIDIAN,24),"24 Obsidian");
+        } else if(r<8100) {
+            item(p,new ItemStack(Material.DIAMOND,8),"8 Diamonds");
+        } else if(r<8750) {
+            ItemStack looting=new ItemStack(Material.DIAMOND_SWORD);
+            looting.addUnsafeEnchantment(Enchantment.LOOT_BONUS_MOBS,4);
+            looting.addUnsafeEnchantment(Enchantment.DURABILITY,3);
+            item(p,looting,"Looting IV Event Sword");
+        } else if(r<9300) {
+            ItemStack fortune=new ItemStack(Material.DIAMOND_PICKAXE);
+            fortune.addUnsafeEnchantment(Enchantment.LOOT_BONUS_BLOCKS,4);
+            fortune.addUnsafeEnchantment(Enchantment.DURABILITY,3);
+            item(p,fortune,"Fortune IV Event Pickaxe");
+        } else if(r<9750) {
+            Material[] armor={Material.DIAMOND_HELMET,Material.DIAMOND_CHESTPLATE,Material.DIAMOND_LEGGINGS,Material.DIAMOND_BOOTS};
+            ItemStack piece=enchanted(armor[r%armor.length],2);
+            item(p,piece,"Protection II "+piece.getType().name().replace('_',' '));
+        } else {
+            ItemStack sword=new ItemStack(Material.DIAMOND_SWORD);
+            sword.addUnsafeEnchantment(Enchantment.DAMAGE_ALL,2);
+            sword.addUnsafeEnchantment(Enchantment.DURABILITY,3);
+            item(p,sword,"Sharpness II Event Sword");
         }
     }
 

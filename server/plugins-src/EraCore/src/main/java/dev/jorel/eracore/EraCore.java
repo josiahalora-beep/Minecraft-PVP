@@ -2226,7 +2226,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
         if(type==SimWorldDirector.CombatClass.ARCHER) {
             ItemStack bow=new ItemStack(Material.BOW,1);
-            bow.addUnsafeEnchantment(Enchantment.ARROW_DAMAGE,2);
+            bow.addUnsafeEnchantment(Enchantment.ARROW_DAMAGE,1);
             inv.setItem(1,bow);
             inv.setItem(2,new ItemStack(Material.ARROW,64));
         } else if(type==SimWorldDirector.CombatClass.ROGUE) {
@@ -3015,13 +3015,14 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
                 break;
         }
 
-        // Donor value comes from convenience and cumulative kit access, not a
-        // higher combat ceiling. Every donor kit is the same P2/S2 diamond set.
-        add(p,armor(Material.DIAMOND_HELMET,2));
-        add(p,armor(Material.DIAMOND_CHESTPLATE,2));
-        add(p,armor(Material.DIAMOND_LEGGINGS,2));
-        add(p,armor(Material.DIAMOND_BOOTS,2));
-        add(p,sword(Material.DIAMOND_SWORD,2));
+        // Donor value comes from convenience, consumables and cumulative lower
+        // kit access—not premium combat enchantments. Every normal kit stays at
+        // the map baseline of Protection I / Sharpness I.
+        add(p,armor(Material.DIAMOND_HELMET,1));
+        add(p,armor(Material.DIAMOND_CHESTPLATE,1));
+        add(p,armor(Material.DIAMOND_LEGGINGS,1));
+        add(p,armor(Material.DIAMOND_BOOTS,1));
+        add(p,sword(Material.DIAMOND_SWORD,1));
         add(p,new ItemStack(Material.ENDER_PEARL,pearls));
         add(p,new ItemStack(Material.COOKED_BEEF,steak));
         for(int i=0;i<heals;i++) add(p,new ItemStack(Material.POTION,1,(short)16421));
@@ -3036,46 +3037,46 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     private void grantStarterKit(Player p,String type) {
         if("bard".equals(type)) {
-            add(p,armor(Material.GOLD_HELMET,2));
-            add(p,armor(Material.GOLD_CHESTPLATE,2));
-            add(p,armor(Material.GOLD_LEGGINGS,2));
-            add(p,armor(Material.GOLD_BOOTS,2));
-            add(p,sword(Material.IRON_SWORD,2));
+            add(p,armor(Material.GOLD_HELMET,1));
+            add(p,armor(Material.GOLD_CHESTPLATE,1));
+            add(p,armor(Material.GOLD_LEGGINGS,1));
+            add(p,armor(Material.GOLD_BOOTS,1));
+            add(p,sword(Material.IRON_SWORD,1));
             add(p,new ItemStack(Material.BLAZE_ROD,1));
             add(p,new ItemStack(Material.GHAST_TEAR,1));
             add(p,new ItemStack(Material.FEATHER,1));
             add(p,new ItemStack(Material.MAGMA_CREAM,1));
         } else if("archer".equals(type)) {
-            add(p,armor(Material.LEATHER_HELMET,2));
-            add(p,armor(Material.LEATHER_CHESTPLATE,2));
-            add(p,armor(Material.LEATHER_LEGGINGS,2));
-            add(p,armor(Material.LEATHER_BOOTS,2));
+            add(p,armor(Material.LEATHER_HELMET,1));
+            add(p,armor(Material.LEATHER_CHESTPLATE,1));
+            add(p,armor(Material.LEATHER_LEGGINGS,1));
+            add(p,armor(Material.LEATHER_BOOTS,1));
             ItemStack bow=new ItemStack(Material.BOW);
-            bow.addUnsafeEnchantment(Enchantment.ARROW_DAMAGE,2);
+            bow.addUnsafeEnchantment(Enchantment.ARROW_DAMAGE,1);
             add(p,bow);
             add(p,new ItemStack(Material.ARROW,64));
-            add(p,sword(Material.IRON_SWORD,2));
+            add(p,sword(Material.IRON_SWORD,1));
         } else if("miner".equals(type)) {
-            add(p,armor(Material.IRON_HELMET,2));
-            add(p,armor(Material.IRON_CHESTPLATE,2));
-            add(p,armor(Material.IRON_LEGGINGS,2));
-            add(p,armor(Material.IRON_BOOTS,2));
+            add(p,armor(Material.IRON_HELMET,1));
+            add(p,armor(Material.IRON_CHESTPLATE,1));
+            add(p,armor(Material.IRON_LEGGINGS,1));
+            add(p,armor(Material.IRON_BOOTS,1));
             ItemStack pick=new ItemStack(Material.IRON_PICKAXE);
             pick.addUnsafeEnchantment(Enchantment.DIG_SPEED,2);
             add(p,pick);
-            add(p,sword(Material.IRON_SWORD,2));
+            add(p,sword(Material.IRON_SWORD,1));
         } else if("rogue".equals(type)) {
-            add(p,armor(Material.CHAINMAIL_HELMET,2));
-            add(p,armor(Material.CHAINMAIL_CHESTPLATE,2));
-            add(p,armor(Material.CHAINMAIL_LEGGINGS,2));
-            add(p,armor(Material.CHAINMAIL_BOOTS,2));
-            add(p,sword(Material.GOLD_SWORD,2));
+            add(p,armor(Material.CHAINMAIL_HELMET,1));
+            add(p,armor(Material.CHAINMAIL_CHESTPLATE,1));
+            add(p,armor(Material.CHAINMAIL_LEGGINGS,1));
+            add(p,armor(Material.CHAINMAIL_BOOTS,1));
+            add(p,sword(Material.GOLD_SWORD,1));
         } else {
-            add(p,armor(Material.DIAMOND_HELMET,2));
-            add(p,armor(Material.DIAMOND_CHESTPLATE,2));
-            add(p,armor(Material.DIAMOND_LEGGINGS,2));
-            add(p,armor(Material.DIAMOND_BOOTS,2));
-            add(p,sword(Material.DIAMOND_SWORD,2));
+            add(p,armor(Material.DIAMOND_HELMET,1));
+            add(p,armor(Material.DIAMOND_CHESTPLATE,1));
+            add(p,armor(Material.DIAMOND_LEGGINGS,1));
+            add(p,armor(Material.DIAMOND_BOOTS,1));
+            add(p,sword(Material.DIAMOND_SWORD,1));
         }
 
         add(p,new ItemStack(Material.ENDER_PEARL,"miner".equals(type)?2:4));
@@ -4372,7 +4373,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             PlayerInventory inv=p.getInventory();
             inv.clear();
             inv.setArmorContents(new ItemStack[4]);
-            inv.setItem(0,sword(Material.DIAMOND_SWORD,2));
+            inv.setItem(0,sword(Material.DIAMOND_SWORD,1));
             for(int i=1;i<=13;i++) inv.setItem(i,new ItemStack(Material.POTION,1,(short)16421));
             inv.setItem(14,new ItemStack(Material.ENDER_PEARL,7));
             p.setHealth(12.0);
@@ -4427,10 +4428,10 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     private void preparePotKit(Player p) {
         PlayerInventory inv=p.getInventory();
         inv.clear();
-        inv.setHelmet(armor(Material.DIAMOND_HELMET,2));
-        inv.setChestplate(armor(Material.DIAMOND_CHESTPLATE,2));
-        inv.setLeggings(armor(Material.DIAMOND_LEGGINGS,2));
-        inv.setBoots(armor(Material.DIAMOND_BOOTS,2));
+        inv.setHelmet(armor(Material.DIAMOND_HELMET,1));
+        inv.setChestplate(armor(Material.DIAMOND_CHESTPLATE,1));
+        inv.setLeggings(armor(Material.DIAMOND_LEGGINGS,1));
+        inv.setBoots(armor(Material.DIAMOND_BOOTS,1));
         inv.setItem(0,pvpSword(Material.DIAMOND_SWORD,2,2));
 
         // Hotbar: sword, six Healing II splashes, steak and pearls. Permanent

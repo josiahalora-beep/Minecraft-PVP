@@ -539,6 +539,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         getConfig().set("base-builder.visible-blocks-per-tick",16);
         getConfig().set("base-builder.rebuild-blocks-per-tick",40);
         getConfig().set("hcf-classes.permanent-speed-2",true);
+        getConfig().set("travel.faction-home-warmup-seconds",10);
+        getConfig().set("travel.faction-stuck-warmup-seconds",180);
 
         // Large persistent memory with small retrieval windows. This increases
         // continuity without increasing per-chat prompt size or tick work.

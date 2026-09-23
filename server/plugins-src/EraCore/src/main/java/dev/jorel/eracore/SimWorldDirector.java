@@ -3967,6 +3967,14 @@ final class SimWorldDirector {
         s.recentKiller = recentKiller;
         s.recentVictim = recentVictim;
 
+        SocialEdge edge=relationship(responder.name,speaker,true);
+        s.affinity=edge.affinity;
+        s.trust=edge.trust;
+        s.respect=edge.respect;
+        s.grudge=edge.grudge;
+        s.rememberedFact=memoryHintFor(responder,speaker);
+        s.hasHistory=!s.rememberedFact.isEmpty() || edge.lastInteraction>0L;
+
         SimPlayer speakerSim = players.get(key(speaker));
         if (speakerSim != null) s.speakerFaction = speakerSim.faction == null ? "" : speakerSim.faction;
 
@@ -3988,6 +3996,27 @@ final class SimWorldDirector {
         }
 
         return s;
+    }
+
+    private String memoryHintFor(SimPlayer responder,String speaker) {
+        if(responder==null) return "";
+        String faction=responder.faction==null?"":responder.faction;
+        Iterator<HistoryEvent> it=communityHistory.descendingIterator();
+        int scanned=0;
+        while(it.hasNext() && scanned++<300) {
+            HistoryEvent e=it.next();
+            boolean responderIn=false,speakerIn=false;
+            for(String p:e.people) {
+                if(p.equalsIgnoreCase(responder.name)) responderIn=true;
+                if(speaker!=null && p.equalsIgnoreCase(speaker)) speakerIn=true;
+            }
+            boolean factionEvent=!faction.isEmpty() && faction.equalsIgnoreCase(e.faction);
+            if((responderIn && speakerIn) || (speakerIn && factionEvent) ||
+               (responderIn && e.importance>=6)) return e.summary;
+        }
+        SocialEdge edge=relationship(responder.name,speaker,false);
+        if(edge!=null && !edge.memories.isEmpty()) return edge.memories.peekLast();
+        return "";
     }
 
     private String factionNeedText(SimFaction f) {

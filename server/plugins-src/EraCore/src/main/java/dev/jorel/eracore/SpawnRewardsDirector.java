@@ -83,15 +83,36 @@ final class SpawnRewardsDirector implements Listener {
         donorCrate=new Location(w,plugin.getConfig().getInt("spawn.crates.donor-x",0),y,z);
         kothCrate=new Location(w,plugin.getConfig().getInt("spawn.crates.koth-x",8),y,z);
 
-        voteCrate.getBlock().setType(Material.CHEST);
-        donorCrate.getBlock().setType(Material.ENDER_CHEST);
-        kothCrate.getBlock().setType(Material.CHEST);
+        if(!placeFunctionalCrate(voteCrate,Material.CHEST,"vote") ||
+           !placeFunctionalCrate(donorCrate,Material.ENDER_CHEST,"donor") ||
+           !placeFunctionalCrate(kothCrate,Material.CHEST,"koth")) {
+            plugin.getLogger().severe("Kraken crate placement refused because a configured crate position contains schematic decoration. No replacement structure was built.");
+            return;
+        }
 
         rememberCrate("vote",voteCrate);
         rememberCrate("donor",donorCrate);
         rememberCrate("koth",kothCrate);
         plugin.getLogger().info("Kraken crate blocks ready: vote="+locText(voteCrate)+
             " donor="+locText(donorCrate)+" koth="+locText(kothCrate));
+    }
+
+    private boolean placeFunctionalCrate(Location location,Material material,String label) {
+        if(location==null || location.getWorld()==null) return false;
+        Block block=location.getBlock();
+        Material current=block.getType();
+        if(current!=Material.AIR && current!=Material.CHEST && current!=Material.ENDER_CHEST) {
+            plugin.getLogger().warning("Refusing to overwrite Kraken block for "+label+" crate at "+locText(location)+
+                " current="+current.name());
+            return false;
+        }
+        Block floor=location.clone().subtract(0,1,0).getBlock();
+        if(!floor.getType().isSolid()) {
+            plugin.getLogger().warning("Refusing Kraken "+label+" crate: no solid schematic floor at "+locText(location));
+            return false;
+        }
+        block.setType(material);
+        return true;
     }
 
     private void rememberCrate(String type,Location l) {

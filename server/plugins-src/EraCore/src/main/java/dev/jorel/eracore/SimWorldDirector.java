@@ -6969,6 +6969,12 @@ final class SimWorldDirector {
         save();
     }
 
+    void restartSotwProtectionClock() {
+        sotwStartedAt=System.currentTimeMillis();
+        sotwTicks=0L;
+        save();
+    }
+
     void endSotwProtection() {
         long mins = plugin.getConfig().getLong("sotw.protection-minutes", 60L);
         sotwStartedAt = System.currentTimeMillis() - (mins * 60L * 1000L) - 1000L;

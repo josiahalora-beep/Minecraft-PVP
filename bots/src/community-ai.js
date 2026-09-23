@@ -151,6 +151,14 @@ export function startCommunityAiBridge() {
     }
   })
 
+  server.on('error', err => {
+    if (err && err.code === 'EADDRINUSE') {
+      console.warn('[community-ai] port ' + PORT + ' already in use; coordinator will continue without owning the AI bridge')
+      return
+    }
+    console.warn('[community-ai] bridge error: ' + String(err?.message || err))
+  })
+
   server.listen(PORT, '127.0.0.1', () => {
     console.log('[community-ai] localhost bridge on 127.0.0.1:' + PORT +
       ' model=' + MODEL + (API_KEY ? '' : ' (OPENAI_API_KEY missing; deterministic fallback active)'))

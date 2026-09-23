@@ -2381,6 +2381,18 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         return true;
     }
 
+    boolean simBaseFootprintLoaded(String faction,String preset,int x,int y,int z) {
+        return hcfBaseBuilder!=null && hcfBaseBuilder.footprintLoaded(faction,preset,x,y,z);
+    }
+
+    boolean simBaseLooksMaterialized(String faction,String preset,int x,int y,int z) {
+        return hcfBaseBuilder!=null && hcfBaseBuilder.looksMaterialized(faction,preset,x,y,z);
+    }
+
+    int simBaseQueuedOperations() {
+        return hcfBaseBuilder==null?0:hcfBaseBuilder.queuedOperations();
+    }
+
     void queueSimBaseBuild(String faction, String preset, String trapPreset, int x, int y, int z) {
         if (hcfBaseBuilder != null) hcfBaseBuilder.queueBase(faction,preset,trapPreset,x,y,z);
     }
@@ -4112,6 +4124,11 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         } catch(Throwable t) {
             getLogger().warning("Could not hook native tick-time array; /simprobe will report n/a: "+t.getMessage());
         }
+    }
+
+    double currentP95Mspt() {
+        double[] s=tickStats();
+        return s==null?-1.0:s[1];
     }
 
     private double[] tickStats() {

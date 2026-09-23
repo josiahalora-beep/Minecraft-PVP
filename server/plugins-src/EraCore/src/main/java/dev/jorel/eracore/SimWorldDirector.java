@@ -6659,11 +6659,16 @@ final class SimWorldDirector {
         }
 
         int nameSkillVersion=data.getInt("meta.name-skill-model-version",0);
-        if(nameSkillVersion<2) {
+        if(nameSkillVersion<3) {
             for(SimPlayer p:players.values()) {
                 p.skill=creatorSkillOverride(p.name,rebalanceExistingSkillForName(p.name,p.skill));
+                p.mechanics=combatTrait(p.name,"mechanics",p.skill,18);
+                p.pvpIq=combatTrait(p.name,"pvp-iq",p.skill,22);
+                p.gameSense=combatTrait(p.name,"game-sense",Math.max(30,p.skill-4),28);
+                applyCreatorCombatOverrides(p);
+                p.skill=overallCombatSkill(p);
             }
-            data.set("meta.name-skill-model-version",2);
+            data.set("meta.name-skill-model-version",3);
         }
 
         sotwTicks = data.getLong("meta.sotw-ticks", 0L);
@@ -6787,16 +6792,16 @@ final class SimWorldDirector {
         }
 
         int rosterVersion=data.getInt("meta.identity-roster-version",0);
-        if(rosterVersion<2 && !plugin.productionWorldReady() && factions.isEmpty()) {
+        if(rosterVersion<3 && !plugin.productionWorldReady() && factions.isEmpty()) {
             // This generation is still in pre-READY SOTW setup, so replacing
             // the old synthetic username roster is safe: no claims, faction
             // history or live PvP state exist yet. This makes the curated
             // unique-name pool take effect without another physical world reset.
             plugin.resetSimFactionAuthority(new ArrayList<String>(players.keySet()));
             seed();
-            data.set("meta.identity-roster-version",2);
+            data.set("meta.identity-roster-version",3);
             save();
-            plugin.getLogger().info("Identity roster v2: reseeded pre-READY SOTW population with unique period-style names.");
+            plugin.getLogger().info("Identity roster v3: reseeded pre-READY SOTW population with case-insensitive unique period-style names.");
             return;
         }
 
@@ -6807,11 +6812,12 @@ final class SimWorldDirector {
     }
 
     private void expandPopulationIfConfigured() {
+        List<String> names=uniquePlayerNames();
         int target=Math.max(30,Math.min(180,plugin.getConfig().getInt("sim-world.population",90)));
-        target=Math.min(target,PLAYER_NAMES.length);
+        target=Math.min(target,names.size());
         if(players.size()>=target) return;
 
-        List<String> names=new ArrayList<String>(Arrays.asList(PLAYER_NAMES));
+
         Collections.shuffle(names,new Random(2015L+players.size()*31L));
         int added=0;
         for(String name:names) {
@@ -6892,8 +6898,9 @@ final class SimWorldDirector {
         sotwStartedAt = System.currentTimeMillis();
         factionNameCursor = 0;
 
+        List<String> names = uniquePlayerNames();
         int target = Math.max(30, Math.min(180, plugin.getConfig().getInt("sim-world.population", 90)));
-        List<String> names = new ArrayList<String>(Arrays.asList(PLAYER_NAMES));
+        target = Math.min(target,names.size());
         Collections.shuffle(names, new Random(2015L));
 
         int count = Math.min(target, names.size());
@@ -8217,6 +8224,23 @@ final class SimWorldDirector {
         for(int i=1;i<Math.min(4,candidates.size());i++) candidates.get(i).staffRole="MOD";
     }
 
+    private List<String> uniquePlayerNames() {
+        List<String> out=new ArrayList<String>();
+        Set<String> seen=new HashSet<String>();
+        for(String raw:PLAYER_NAMES) {
+            if(raw==null) continue;
+            String name=canonicalIdentityName(raw).trim();
+            if(name.isEmpty() || name.length()>16) continue;
+            String lower=key(name);
+            if(seen.add(lower)) out.add(name);
+        }
+        if(out.size()!=PLAYER_NAMES.length) {
+            plugin.getLogger().warning("Player-name pool normalized from "+PLAYER_NAMES.length+
+                " entries to "+out.size()+" case-insensitive unique identities.");
+        }
+        return out;
+    }
+
     private int namePrestigeTier(String name) {
         if(name==null || name.isEmpty()) return 0;
         if(plugin.isCreatorIdentity(name)) return 3;
@@ -8245,8 +8269,8 @@ final class SimWorldDirector {
             // Most genuinely rare 4-6 character accounts were associated with
             // established/serious players, while preserving occasional bought
             // names, alts and overrated handles.
-            if(rng.nextInt(100)<76) base=Math.max(base,74+rng.nextInt(17));
-            else base=Math.max(base,58+rng.nextInt(18));
+            if(rng.nextInt(100)<82) base=Math.max(base,80+rng.nextInt(16));
+            else base=Math.max(base,58+rng.nextInt(21));
         } else if(tier==1) {
             base+=5;
         } else {
@@ -8259,7 +8283,7 @@ final class SimWorldDirector {
     private int rebalanceExistingSkillForName(String name,int existing) {
         int tier=namePrestigeTier(name);
         int target=existing;
-        if(tier==2) target=Math.max(target,70+rng.nextInt(17));
+        if(tier==2) target=Math.max(target,77+rng.nextInt(16));
         else if(tier==1) target+=2+rng.nextInt(5);
         else target-=2+rng.nextInt(5);
         return Math.max(18,Math.min(100,target));
@@ -8511,8 +8535,8 @@ final class SimWorldDirector {
         }
 
         data.set("meta.schema", 4);
-        data.set("meta.name-skill-model-version",2);
-        data.set("meta.identity-roster-version",2);
+        data.set("meta.name-skill-model-version",3);
+        data.set("meta.identity-roster-version",3);
         data.set("meta.sotw-ticks", sotwTicks);
         data.set("meta.sotw-started-at", sotwStartedAt);
         data.set("meta.faction-name-cursor", factionNameCursor);

@@ -530,7 +530,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     private void bindCommands() {
-        String[] cmds = {"rank","kit","kits","balance","pay","sell","buy","shop","vote","keys","crates","stats","history","duel","f","spawn","stuck","setspawn","warp","warps","setwarp","delwarp","spawnpreset","msg","r","simchat","sotw","simworker","simcombat","simactor","safezone","teamfight","bard","archer","miner","rogue","simprobe","simmap","simstate","duelprep","baserate","baserebuild","mapinfo","events","koth","conquest","oremountain","mapcompose"};
+        String[] cmds = {"rank","kit","kits","balance","pay","sell","buy","shop","vote","keys","crates","stats","history","duel","f","spawn","stuck","setspawn","warp","warps","setwarp","delwarp","spawnpreset","msg","r","simchat","sotw","simworker","simcombat","simactor","simtab","safezone","teamfight","bard","archer","miner","rogue","simprobe","simmap","simstate","duelprep","baserate","baserebuild","mapinfo","events","koth","conquest","oremountain","mapcompose"};
         for (String c : cmds) getCommand(c).setExecutor(this);
     }
 
@@ -1285,6 +1285,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (c.equals("simworker")) return cmdSimWorker(p,args);
         if (c.equals("simcombat")) return cmdSimCombat(p,args);
         if (c.equals("simactor")) return cmdSimActor(p,args);
+        if (c.equals("simtab")) return cmdSimTab(p,args);
         if (c.equals("safezone")) return hcfZones != null && hcfZones.command(p,args);
         if (c.equals("teamfight")) return cmdTeamFight(p,args);
         if (c.equals("bard")) return cmdClassInfo(p,"bard");
@@ -1307,6 +1308,28 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (c.equals("oremountain")) return mapDirector != null && mapDirector.commandOreMountain(p);
         if (c.equals("mapcompose")) return cmdMapCompose(p,args);
         return false;
+    }
+
+    private boolean cmdSimTab(Player p,String[] a) {
+        if(!ownerOnly(p)) return true;
+        if(logicalTab==null) {
+            p.sendMessage(color("&cLogical tab director is unavailable."));
+            return true;
+        }
+        String sub=a.length==0?"status":a[0].toLowerCase(Locale.ENGLISH);
+        if("refresh".equals(sub)) {
+            logicalTab.forceRefresh(p);
+            p.sendMessage(color("&aLogical tab refresh queued. &7Run &f/simtab status &7in a few seconds."));
+            return true;
+        }
+        if("status".equals(sub)) {
+            p.sendMessage(color("&6Sim TAB &8» &f"+logicalTab.status(p)));
+            if(simWorld!=null) p.sendMessage(color("&7logicalOnline=&f"+simWorld.logicalOnlineCount()+
+                " &7physicalOnline=&f"+Bukkit.getOnlinePlayers().size()));
+            return true;
+        }
+        p.sendMessage("/simtab <status|refresh>");
+        return true;
     }
 
     private boolean cmdBaseRebuild(Player p,String[] a) {

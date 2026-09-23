@@ -612,13 +612,12 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         sellPrices.put(Material.GOLD_INGOT, 14.0);
         sellPrices.put(Material.DIAMOND, 60.0);
 
-        // Finished PvP consumables are an expensive convenience. Mature factions
-        // save heavily by brewing instead of buying finished pots.
-        addBuy("healthpot", Material.POTION, (short)16421, 135.0);
-        addBuy("speedpot", Material.POTION, (short)8226, 95.0);
-        addBuy("pearl", Material.ENDER_PEARL, (short)0, 160.0);
-        addBuy("obsidian", Material.OBSIDIAN, (short)0, 30.0);
-        addBuy("iron", Material.IRON_INGOT, (short)0, 18.0);
+        // Classic HCF shop: sell farm output for money, then buy building and
+        // brewing inputs. Finished Speed/Heal potions are not sold; players
+        // brew heals and every player receives permanent Speed II.
+        addBuy("pearl", Material.ENDER_PEARL, (short)0, 175.0);
+        addBuy("obsidian", Material.OBSIDIAN, (short)0, 24.0);
+        addBuy("iron", Material.IRON_INGOT, (short)0, 15.0);
         addBuy("steak", Material.COOKED_BEEF, (short)0, 6.0);
 
         // Farm/bootstrap supplies. A $500 start can establish one modest farm,
@@ -630,21 +629,25 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         addBuy("sand", Material.SAND, (short)0, 2.0);
         addBuy("dirt", Material.DIRT, (short)0, 1.0);
         addBuy("waterbucket", Material.WATER_BUCKET, (short)0, 35.0);
-        addBuy("chest", Material.CHEST, (short)0, 20.0);
-        addBuy("hopper", Material.HOPPER, (short)0, 65.0);
-        addBuy("brewingstand", Material.BREWING_STAND_ITEM, (short)0, 140.0);
+        addBuy("chest", Material.CHEST, (short)0, 12.0);
+        addBuy("hopper", Material.HOPPER, (short)0, 50.0);
+        addBuy("brewingstand", Material.BREWING_STAND_ITEM, (short)0, 100.0);
         addBuy("redstone", Material.REDSTONE, (short)0, 4.0);
-        addBuy("netherwart", Material.NETHER_STALK, (short)0, 12.0);
-        addBuy("glowstone", Material.GLOWSTONE_DUST, (short)0, 12.0);
-        addBuy("gunpowder", Material.SULPHUR, (short)0, 18.0);
-        addBuy("glisteringmelon", Material.SPECKLED_MELON, (short)0, 24.0);
+        addBuy("netherwart", Material.NETHER_STALK, (short)0, 10.0);
+        // Glowstone/gunpowder stay deliberately expensive so experienced
+        // factions prefer protected SOTW resource runs over buying everything.
+        addBuy("glowstone", Material.GLOWSTONE_DUST, (short)0, 24.0);
+        addBuy("gunpowder", Material.SULPHUR, (short)0, 30.0);
+        addBuy("glisteringmelon", Material.SPECKLED_MELON, (short)0, 20.0);
         addBuy("sugar", Material.SUGAR, (short)0, 6.0);
         addBuy("magmacream", Material.MAGMA_CREAM, (short)0, 22.0);
-        addBuy("glass", Material.GLASS, (short)0, 2.0);
-        // Physical portals are intentionally expensive strategic infrastructure.
-        addBuy("flintsteel", Material.FLINT_AND_STEEL, (short)0, 1500.0);
-        addBuy("endframe", Material.ENDER_PORTAL_FRAME, (short)0, 1200.0);
-        addBuy("eyeofender", Material.EYE_OF_ENDER, (short)0, 250.0);
+        addBuy("glass", Material.GLASS, (short)0, 1.5);
+        // Physical portals replace player warp commands. Nether access should
+        // be obtainable during SOTW; private End access remains a meaningful
+        // faction investment while public End portals are still walkable.
+        addBuy("flintsteel", Material.FLINT_AND_STEEL, (short)0, 80.0);
+        addBuy("endframe", Material.ENDER_PORTAL_FRAME, (short)0, 175.0);
+        addBuy("eyeofender", Material.EYE_OF_ENDER, (short)0, 35.0);
         addBuy("book", Material.BOOK, (short)0, 12.0);
         addBuy("lapis", Material.INK_SACK, (short)4, 5.0);
     }
@@ -721,7 +724,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (!hasHumanOnline()) return;
         Rank rank = simRankFor(name);
         String marker = joining ? "&8[&a+&8] " : "&8[&c-&8] ";
-        Bukkit.broadcastMessage(color(marker + identityPrefix(name,rank) + rankNameColor(rank) + name + factionSuffix(name)));
+        Bukkit.broadcastMessage(color(marker + identityPrefix(name,rank) + factionPrefix(name) + rankNameColor(rank) + name));
     }
 
     @EventHandler(priority=EventPriority.MONITOR, ignoreCancelled=true)
@@ -747,7 +750,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             return;
         }
         Rank r = isBotIdentity(p.getName()) ? simRankFor(p.getName()) : getRank(p.getName());
-        e.setFormat(color(identityPrefix(p.getName(), r) + rankNameColor(r) + p.getName() + factionSuffix(p.getName()) + "&7: &f") + "%2$s");
+        e.setFormat(color(identityPrefix(p.getName(), r) + factionPrefix(p.getName()) + rankNameColor(r) + p.getName() + "&7: &f") + "%2$s");
         final String chatText = e.getMessage();
         if (simChat != null) {
             Bukkit.getScheduler().runTask(this, new Runnable() {
@@ -1072,21 +1075,21 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         return "&f";
     }
 
-    private String factionSuffix(String name) {
+    private String factionPrefix(String name) {
         Faction real = factionOf(name);
         String faction = real == null ? "" : real.name;
         if (faction.isEmpty() && simWorld != null) faction = simWorld.factionOf(name);
-        return faction.isEmpty() ? "" : " &8[&7" + faction + "&8]";
+        return faction.isEmpty() ? "" : "&8[&7" + faction + "&8] ";
     }
 
     void broadcastSimulatedChat(String name, String message) {
         Rank rank = simRankFor(name);
-        Bukkit.broadcastMessage(color(identityPrefix(name, rank) + rankNameColor(rank) + name + factionSuffix(name) + "&7: &f" + message));
+        Bukkit.broadcastMessage(color(identityPrefix(name, rank) + factionPrefix(name) + rankNameColor(rank) + name + "&7: &f" + message));
     }
 
     void sendSimulatedPrivate(Player target, String from, String message) {
         Rank rank = simRankFor(from);
-        target.sendMessage(color("&8[&7From " + identityPrefix(from, rank) + rankNameColor(rank) + from + factionSuffix(from) + "&8] &f" + message));
+        target.sendMessage(color("&8[&7From &r" + identityPrefix(from, rank) + factionPrefix(from) + rankNameColor(rank) + from + "&8] &f" + message));
     }
 
     void broadcastKillCounter(String name,int kills,int deaths) {
@@ -1371,7 +1374,10 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (c.equals("events")) return eventDirector != null && eventDirector.commandEvents(p,args);
         if (c.equals("koth")) return eventDirector != null && eventDirector.commandKoth(p,args);
         if (c.equals("conquest")) return eventDirector != null && eventDirector.commandConquest(p,args);
-        if (c.equals("oremountain")) return mapDirector != null && mapDirector.commandOreMountain(p);
+        if (c.equals("oremountain")) {
+            if(!ownerOnly(p)) return true;
+            return mapDirector != null && mapDirector.commandOreMountain(p);
+        }
         if (c.equals("mapcompose")) return cmdMapCompose(p,args);
         return false;
     }
@@ -1695,6 +1701,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     private boolean cmdSpawn(Player p) {
+        if(!ownerOnly(p)) return true;
         Location target=warpManager.getSpawn();
         if(hcfZones!=null && hcfZones.isTagged(p) && !isOwnerPlayer(p)) {
             p.sendMessage(color("&cYou cannot /spawn while combat tagged. &7"+hcfZones.tagSeconds(p)+"s remaining."));
@@ -1706,6 +1713,10 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     private boolean cmdStuck(Player p) {
+        if(!ownerOnly(p)) {
+            p.sendMessage(color("&7Use &f/f home &7for your faction base. Normal HCF travel back to spawn/events is physical."));
+            return true;
+        }
         if(activeDuel!=null && p.getName().equalsIgnoreCase(activeDuel.human)) {
             p.sendMessage(color("&cYou cannot /stuck during a duel."));
             return true;
@@ -1757,6 +1768,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     private boolean cmdWarp(Player p, String[] a) {
+        if(!ownerOnly(p)) return true;
         if (a.length != 1) return cmdWarps(p);
         Location l = warpManager.getWarp(a[0]);
         if (l == null) {
@@ -1774,6 +1786,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     private boolean cmdWarps(Player p) {
+        if(!ownerOnly(p)) return true;
         List<String> names = warpManager.names();
         p.sendMessage(color("&6Warps: &fspawn" + (names.isEmpty() ? "" : ", " + join(names, ", "))));
         return true;
@@ -2851,22 +2864,22 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     private void grantKit(Player p, Rank r) {
-        int pearls=1,heals=2,speed=0,steak=16;
+        int pearls=1,heals=2,steak=16;
         switch(r) {
             case MEMBER:
-                pearls=1; heals=2; speed=0; steak=16;
+                pearls=1; heals=2; steak=16;
                 break;
             case BASIC:
-                pearls=2; heals=3; speed=1; steak=16;
+                pearls=2; heals=3; steak=16;
                 break;
             case SILVER:
-                pearls=3; heals=4; speed=1; steak=20;
+                pearls=3; heals=4; steak=20;
                 break;
             case GOLD:
-                pearls=4; heals=5; speed=1; steak=24;
+                pearls=4; heals=5; steak=24;
                 break;
             case PLATINUM:
-                pearls=5; heals=6; speed=1; steak=32;
+                pearls=5; heals=6; steak=32;
                 break;
             default:
                 break;
@@ -2882,7 +2895,6 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         add(p,new ItemStack(Material.ENDER_PEARL,pearls));
         add(p,new ItemStack(Material.COOKED_BEEF,steak));
         for(int i=0;i<heals;i++) add(p,new ItemStack(Material.POTION,1,(short)16421));
-        for(int i=0;i<speed;i++) add(p,new ItemStack(Material.POTION,1,(short)8226));
 
         // Small economy utility at the top without adding more combat power.
         if(r==Rank.GOLD) add(p,new ItemStack(Material.NETHER_STALK,4));
@@ -2940,8 +2952,6 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         add(p,new ItemStack(Material.COOKED_BEEF,32));
         int heals="miner".equals(type)?6:10;
         for(int i=0;i<heals;i++) add(p,new ItemStack(Material.POTION,1,(short)16421));
-        add(p,new ItemStack(Material.POTION,1,(short)8226));
-        if(!"miner".equals(type)) add(p,new ItemStack(Material.POTION,1,(short)8226));
     }
 
     private ItemStack armor(Material m,int prot) {
@@ -3078,9 +3088,9 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         p.sendMessage(color("&6--- Classic Server Shop ---"));
         p.sendMessage(color("&eSell crops: &fcane $3, cactus $2.25, pumpkin $5.50, melon $0.75, wheat/carrot/potato $1.25"));
         p.sendMessage(color("&eSell ores: &firon $8, gold $14, diamond $60"));
-        p.sendMessage(color("&ePvP: &fhealthpot $135, speedpot $95, pearl $160, obsidian $30, steak $6"));
+        p.sendMessage(color("&ePvP: &fpearl $175, obsidian $24, steak $6 &7(heals are brewed; Speed II is permanent)"));
         p.sendMessage(color("&eFarm: &fcane $9, cactus $7, pumpkinseed $8, melonseed $5, sand $2, dirt $1, waterbucket $35"));
-        p.sendMessage(color("&eSupplies: &firon $18, brewingstand $140, hopper $65, book $12, lapis $5\n&eBrewing: &fnetherwart $12, glowstone $12, gunpowder $18, glisteringmelon $24, sugar $6"));
+        p.sendMessage(color("&eSupplies: &firon $15, brewingstand $100, hopper $50, chest $12, book $12, lapis $5\n&eBrewing: &fnetherwart $10, glowstone $24, gunpowder $30, glisteringmelon $20"));
         p.sendMessage(color("&7Use /sell hand, /sell all, or /buy <item> <amount>."));
         return true;
     }

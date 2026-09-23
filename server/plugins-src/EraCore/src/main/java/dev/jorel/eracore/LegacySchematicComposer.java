@@ -254,8 +254,12 @@ final class LegacySchematicComposer {
             }
 
             Schematic spawn=load(asset("spawn","krakenhcf.schematic"));
+            // Kraken's 253x253 WorldEdit selection contains large intentionally
+            // empty quadrants around the cross-shaped spawn/roads. Those AIR
+            // cells are selection padding, not instructions to excavate the
+            // fresh terrain. Production Overworld structures paste non-air only.
             jobs.add(new PasteJob("Kraken Spawn",over,spawn,0,
-                plugin.getConfig().getInt("world-composer.spawn-anchor-y",66),0,true));
+                plugin.getConfig().getInt("world-composer.spawn-anchor-y",66),0,false));
 
             int ko=plugin.getConfig().getInt("map-layout.koth-offset",500);
             int ky=plugin.getConfig().getInt("map.surface-y",63);
@@ -349,7 +353,7 @@ final class LegacySchematicComposer {
                     if(productionRun) {
                         plugin.finalizeProductionSpawn();
                         plugin.getConfig().set("map.structures-complete",true);
-                        plugin.getConfig().set("map.production-layout-version",3);
+                        plugin.getConfig().set("map.production-layout-version",4);
                         plugin.saveConfig();
                         plugin.getLogger().info("[composer] production HCF structures complete; Kraken spawn finalized and resource stage may begin.");
                     }

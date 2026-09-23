@@ -16,7 +16,7 @@ $JavaSourceDir = Join-Path $Server 'plugins-src\EraCore\src\main\java\dev\jorel\
 
 # This repository is often installed as a plain folder rather than a Git clone.
 # Always sync the exact coordinated source generation before compiling.
-$SourceCommit = '33cf6dfeb3a920bd18134ef353cf65141ee7cfd5'
+$SourceCommit = 'ddd38bafa0a66e25545e7977523ebb16a1d38372'
 $RawBase = 'https://raw.githubusercontent.com/josiahalora-beep/Minecraft-PVP/' + $SourceCommit
 $SourceFiles = @(
     'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/ActorDirectory.java',
@@ -176,6 +176,10 @@ if ($downloadStackLauncher -notmatch 'WORKER_COORDINATOR_URL=http://127\.0\.0\.1
 if ($downloadEra -notmatch 'production-unification-version",5' -or
     $downloadEra -notmatch 'world-composer\.blocks-per-tick",320') {
     throw 'Downloaded EraCore is missing production pacing v5.'
+}
+if ($downloadWorld -notmatch 'jobProgress=' -or
+    (Get-Content -LiteralPath (Join-Path $tempRoot 'server\plugins-src\EraCore\src\main\java\dev\jorel\eracore\LegacySchematicComposer.java') -Raw) -notmatch 'writes=') {
+    throw 'Downloaded production composer is missing scan/write-aware progress reporting.'
 }
 if ($downloadMapAi -match "x:\s*650" -or $downloadMapAi -match "z:\s*-?650") {
     throw 'Downloaded HCF map intelligence still contains the obsolete +/-650 KOTH layout.'

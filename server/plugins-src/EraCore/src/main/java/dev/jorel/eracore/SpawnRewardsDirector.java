@@ -236,14 +236,13 @@ final class SpawnRewardsDirector implements Listener {
         long now=System.currentTimeMillis();
         String k="human."+p.getUniqueId().toString()+".last-donor-key";
         long last=data.getLong(k,0L);
-        long hours=donor>=4 ? plugin.getConfig().getLong("rewards.platinum-key-hours",8L) :
-            (donor==3 ? plugin.getConfig().getLong("rewards.gold-key-hours",12L) :
-            (donor==2 ? plugin.getConfig().getLong("rewards.silver-key-hours",18L) :
-                        plugin.getConfig().getLong("rewards.basic-key-hours",24L)));
-        long cooldown=Math.max(1,hours)*3600000L;
+        long hours=Math.max(1,plugin.getConfig().getLong("rewards.donor-key-hours",24L));
+        long cooldown=hours*3600000L;
         if(now-last<cooldown) return;
 
-        int amount=donor>=4?3:(donor==3?2:1);
+        // Rank value is convenience/volume, not a higher PvP ceiling:
+        // Basic 1, Silver 2, Gold 3, Platinum 4 keys per claim period.
+        int amount=Math.max(1,Math.min(4,donor));
         p.getInventory().addItem(keyItem("donor",amount,donor));
         data.set(k,now);
         save();
@@ -290,6 +289,44 @@ final class SpawnRewardsDirector implements Listener {
             (simDonor>0?" &7("+simDonor+" donor pending)":"")));
         p.sendMessage(EraCore.colorText("&7/vote odds &8| &7/crates"));
         return true;
+    }
+
+    boolean commandRedeem(Player p,String[] args) {
+        String wanted=args.length==0?"all":args[0].toLowerCase(Locale.ENGLISH);
+        if(!Arrays.asList("all","vote","donor","koth").contains(wanted)) {
+            p.sendMessage(EraCore.colorText("&cUsage: /redeem [all|vote|donor|koth]"));
+            return true;
+        }
+
+        int redeemed=0;
+        int safety=2304;
+        while(safety-->0) {
+            String type=nextRedeemableType(p,wanted);
+            if(type.isEmpty()) break;
+
+            int donorTier="donor".equals(type)?highestDonorKeyTier(p):0;
+            if(!consumeKey(p,type)) break;
+            if(plugin.isBotIdentity(p.getName())) plugin.consumeSimPendingKey(p.getName(),type,1);
+            giveReward(p,type,donorTier);
+            redeemed++;
+        }
+
+        if(redeemed==0)
+            p.sendMessage(EraCore.colorText("&cNo matching crate keys found."));
+        else
+            p.sendMessage(EraCore.colorText("&aRedeemed &f"+redeemed+" &acrate key"+(redeemed==1?"":"s")+
+                " &7without leaving your base."));
+        return true;
+    }
+
+    private String nextRedeemableType(Player p,String wanted) {
+        if(!"all".equals(wanted)) return hasKey(p,wanted)?wanted:"";
+        // Event keys first, then donor, then vote. This mirrors perceived value
+        // and makes /redeem all deterministic.
+        if(hasKey(p,"koth")) return "koth";
+        if(hasKey(p,"donor")) return "donor";
+        if(hasKey(p,"vote")) return "vote";
+        return "";
     }
 
     boolean commandCrates(Player p,String[] args) {
@@ -390,103 +427,135 @@ final class SpawnRewardsDirector implements Listener {
         } else if(r<9600) {
             item(p,new ItemStack(Material.GLOWSTONE_DUST,8),"8 Glowstone Dust");
         } else if(r<9850) {
-            ItemStack sword=new ItemStack(Material.DIAMOND_SWORD);
-            sword.addUnsafeEnchantment(Enchantment.DAMAGE_ALL,1);
-            item(p,sword,"Sharpness I Diamond Sword");
-        } else if(r<9970) {
-            p.getInventory().addItem(keyItem("donor",1));
-            finishReward(p,"1 Donor Crate Key",true);
+            giveNamedPvpSet(p,1,1,0,"&eVote");
+            finishReward(p,"Vote P1/S1 Set",true);
         } else {
-            if(plugin.upgradeRankFromReward(p,"Vote Crate")) finishReward(p,"DONOR RANK UPGRADE",true);
-            else {
-                p.getInventory().addItem(keyItem("donor",2));
-                finishReward(p,"2 Donor Crate Keys",true);
-            }
+            p.getInventory().addItem(keyItem("donor",1,1));
+            finishReward(p,"1 Basic Donor Crate Key",true);
         }
     }
 
     private void giveDonorReward(Player p,int r,int tier) {
         tier=Math.max(1,Math.min(4,tier));
         int pearls=8+tier*4;
-        int diamonds=2+tier*2;
-        int obsidian=8+tier*4;
-        int heals=4+tier*3;
-        int gunpowder=8+tier*4;
+        int obsidian=12+tier*6;
+        int heals=6+tier*3;
+        int gp=12+tier*6;
+        int glow=8+tier*4;
+        int wart=16+tier*8;
         double cash=250.0+tier*250.0;
 
-        if(r<1800) {
+        if(r<1200) {
             money(p,cash,"$"+((int)cash));
-        } else if(r<3400) {
+        } else if(r<2500) {
             item(p,new ItemStack(Material.ENDER_PEARL,pearls),pearls+" Ender Pearls");
-        } else if(r<4800) {
-            item(p,new ItemStack(Material.DIAMOND,diamonds),diamonds+" Diamonds");
-        } else if(r<6100) {
+        } else if(r<3700) {
             item(p,new ItemStack(Material.OBSIDIAN,obsidian),obsidian+" Obsidian");
-        } else if(r<7300) {
+        } else if(r<4900) {
             for(int i=0;i<heals;i++) p.getInventory().addItem(new ItemStack(Material.POTION,1,(short)16421));
             finishReward(p,heals+" Splash Health II",false);
-        } else if(r<8200) {
-            item(p,new ItemStack(Material.SULPHUR,gunpowder),gunpowder+" Gunpowder");
-        } else if(r<8900) {
-            Material piece=tier>=3?Material.DIAMOND_CHESTPLATE:Material.IRON_CHESTPLATE;
-            item(p,enchanted(piece,2),"Protection II "+piece.name().replace('_',' '));
-        } else if(r<9400) {
-            ItemStack sword=new ItemStack(Material.DIAMOND_SWORD);
-            sword.addUnsafeEnchantment(Enchantment.DAMAGE_ALL,2);
-            sword.addUnsafeEnchantment(Enchantment.DURABILITY,2);
-            item(p,sword,"Sharpness II Diamond Sword");
-        } else if(r<9750 && tier>=3) {
-            Material[] armor={Material.DIAMOND_HELMET,Material.DIAMOND_CHESTPLATE,Material.DIAMOND_LEGGINGS,Material.DIAMOND_BOOTS};
-            ItemStack piece=enchanted(armor[r%armor.length],2);
-            item(p,piece,"Protection II "+piece.getType().name().replace('_',' '));
-        } else if(r<9925) {
-            int next=Math.min(4,tier+1);
-            p.getInventory().addItem(keyItem("donor",1,next));
-            finishReward(p,donorTierName(next)+" Donor Crate Key",true);
+        } else if(r<6200) {
+            p.getInventory().addItem(new ItemStack(Material.NETHER_STALK,wart));
+            p.getInventory().addItem(new ItemStack(Material.GLOWSTONE_DUST,glow));
+            p.getInventory().addItem(new ItemStack(Material.SULPHUR,gp));
+            p.getInventory().addItem(new ItemStack(Material.SPECKLED_MELON,8+tier*4));
+            finishReward(p,donorTierName(tier)+" Brewing Bundle",false);
+        } else if(r<7400) {
+            item(p,new ItemStack(Material.DIAMOND,4+tier*2),(4+tier*2)+" Diamonds");
+        } else if(r<8500) {
+            p.getInventory().addItem(new ItemStack(Material.IRON_INGOT,16+tier*8));
+            p.getInventory().addItem(new ItemStack(Material.HOPPER,Math.max(1,tier)));
+            p.getInventory().addItem(new ItemStack(Material.CHEST,8+tier*2));
+            finishReward(p,donorTierName(tier)+" Base Supply Bundle",false);
+        } else if(r<9600) {
+            giveNamedPvpSet(p,1,1,0,donorColor(tier)+donorTierName(tier));
+            finishReward(p,donorTierName(tier)+" P1/S1 Supply Set",true);
         } else {
-            if(plugin.upgradeRankFromReward(p,donorTierName(tier)+" Donor Crate"))
-                finishReward(p,"DONOR RANK UPGRADE",true);
-            else {
-                p.getInventory().addItem(keyItem("koth",1,0));
-                finishReward(p,"1 KOTH Key",true);
-            }
+            // A very rare event key is valuable without directly selling P2 gear.
+            p.getInventory().addItem(keyItem("koth",1,0));
+            finishReward(p,"1 KOTH Crate Key",true);
         }
     }
 
     private void giveKothReward(Player p,int r) {
-        if(r<1700) {
+        if(r<1300) {
             item(p,new ItemStack(Material.ENDER_PEARL,16),"16 Ender Pearls");
-        } else if(r<3300) {
+        } else if(r<2500) {
             for(int i=0;i<12;i++) p.getInventory().addItem(new ItemStack(Material.POTION,1,(short)16421));
             finishReward(p,"12 Splash Health II",false);
+        } else if(r<3600) {
+            item(p,new ItemStack(Material.GLOWSTONE_DUST,24),"24 Glowstone Dust");
         } else if(r<4700) {
-            item(p,new ItemStack(Material.GLOWSTONE_DUST,16),"16 Glowstone Dust");
-        } else if(r<6100) {
-            item(p,new ItemStack(Material.SULPHUR,24),"24 Gunpowder");
-        } else if(r<7200) {
-            item(p,new ItemStack(Material.OBSIDIAN,24),"24 Obsidian");
-        } else if(r<8100) {
-            item(p,new ItemStack(Material.DIAMOND,8),"8 Diamonds");
-        } else if(r<8750) {
-            ItemStack looting=new ItemStack(Material.DIAMOND_SWORD);
+            item(p,new ItemStack(Material.SULPHUR,32),"32 Gunpowder");
+        } else if(r<5700) {
+            item(p,new ItemStack(Material.OBSIDIAN,32),"32 Obsidian");
+        } else if(r<6500) {
+            item(p,new ItemStack(Material.DIAMOND,12),"12 Diamonds");
+        } else if(r<7350) {
+            ItemStack looting=namedTool(Material.DIAMOND_SWORD,"&6KOTH Looting Blade");
             looting.addUnsafeEnchantment(Enchantment.LOOT_BONUS_MOBS,4);
             looting.addUnsafeEnchantment(Enchantment.DURABILITY,3);
-            item(p,looting,"Looting IV Event Sword");
-        } else if(r<9300) {
-            ItemStack fortune=new ItemStack(Material.DIAMOND_PICKAXE);
+            item(p,looting,"KOTH Looting IV Sword");
+        } else if(r<8200) {
+            ItemStack fortune=namedTool(Material.DIAMOND_PICKAXE,"&6KOTH Fortune Pick");
             fortune.addUnsafeEnchantment(Enchantment.LOOT_BONUS_BLOCKS,4);
             fortune.addUnsafeEnchantment(Enchantment.DURABILITY,3);
-            item(p,fortune,"Fortune IV Event Pickaxe");
-        } else if(r<9750) {
-            Material[] armor={Material.DIAMOND_HELMET,Material.DIAMOND_CHESTPLATE,Material.DIAMOND_LEGGINGS,Material.DIAMOND_BOOTS};
-            ItemStack piece=enchanted(armor[r%armor.length],2);
-            item(p,piece,"Protection II "+piece.getType().name().replace('_',' '));
+            item(p,fortune,"KOTH Fortune IV Pickaxe");
+        } else if(r<9300) {
+            giveNamedPvpSet(p,2,2,0,"&6KOTH");
+            finishReward(p,"KOTH P2/S2 Set",true);
         } else {
-            ItemStack sword=new ItemStack(Material.DIAMOND_SWORD);
+            ItemStack sword=namedTool(Material.DIAMOND_SWORD,"&cKOTH Fire Blade");
             sword.addUnsafeEnchantment(Enchantment.DAMAGE_ALL,2);
+            sword.addUnsafeEnchantment(Enchantment.FIRE_ASPECT,1);
             sword.addUnsafeEnchantment(Enchantment.DURABILITY,3);
-            item(p,sword,"Sharpness II Event Sword");
+            item(p,sword,"Sharpness II / Fire Aspect I KOTH Blade");
         }
+    }
+
+    private void giveNamedPvpSet(Player p,int prot,int sharp,int fire,String prefix) {
+        p.getInventory().addItem(namedArmor(Material.DIAMOND_HELMET,prot,prefix+" Helmet"));
+        p.getInventory().addItem(namedArmor(Material.DIAMOND_CHESTPLATE,prot,prefix+" Chestplate"));
+        p.getInventory().addItem(namedArmor(Material.DIAMOND_LEGGINGS,prot,prefix+" Leggings"));
+        p.getInventory().addItem(namedArmor(Material.DIAMOND_BOOTS,prot,prefix+" Boots"));
+        p.getInventory().addItem(namedSword(sharp,fire,prefix+" Sword"));
+        p.updateInventory();
+    }
+
+    private ItemStack namedArmor(Material type,int prot,String name) {
+        ItemStack item=new ItemStack(type);
+        item.addUnsafeEnchantment(Enchantment.PROTECTION_ENVIRONMENTAL,prot);
+        item.addUnsafeEnchantment(Enchantment.DURABILITY,2);
+        ItemMeta meta=item.getItemMeta();
+        meta.setDisplayName(EraCore.colorText(name));
+        item.setItemMeta(meta);
+        return item;
+    }
+
+    private ItemStack namedSword(int sharp,int fire,String name) {
+        ItemStack item=new ItemStack(Material.DIAMOND_SWORD);
+        item.addUnsafeEnchantment(Enchantment.DAMAGE_ALL,sharp);
+        if(fire>0) item.addUnsafeEnchantment(Enchantment.FIRE_ASPECT,fire);
+        item.addUnsafeEnchantment(Enchantment.DURABILITY,2);
+        ItemMeta meta=item.getItemMeta();
+        meta.setDisplayName(EraCore.colorText(name));
+        item.setItemMeta(meta);
+        return item;
+    }
+
+    private ItemStack namedTool(Material type,String name) {
+        ItemStack item=new ItemStack(type);
+        ItemMeta meta=item.getItemMeta();
+        meta.setDisplayName(EraCore.colorText(name));
+        item.setItemMeta(meta);
+        return item;
+    }
+
+    private String donorColor(int tier) {
+        if(tier>=4) return "&b";
+        if(tier==3) return "&6";
+        if(tier==2) return "&f";
+        return "&a";
     }
 
     private ItemStack enchanted(Material m,int prot) {
@@ -519,19 +588,18 @@ final class SpawnRewardsDirector implements Listener {
     private void showOdds(Player p,String type) {
         if("koth".equalsIgnoreCase(type)) {
             p.sendMessage(EraCore.colorText("&6--- KOTH Crate ---"));
-            p.sendMessage(EraCore.colorText("&fPearls, Healing II, glowstone, gunpowder, obsidian and diamonds."));
-            p.sendMessage(EraCore.colorText("&eRare: &fLooting IV / Fortune IV event tools, P2 diamond pieces, Sharp II event sword."));
-            p.sendMessage(EraCore.colorText("&7Event rewards never exceed the P2 / Sharp II PvP ceiling."));
+            p.sendMessage(EraCore.colorText("&fPearls, heals, glowstone, gunpowder, obsidian and diamonds."));
+            p.sendMessage(EraCore.colorText("&eRare: &fLooting IV / Fortune IV event tools and a full named P2/S2 set."));
+            p.sendMessage(EraCore.colorText("&cPrestige: &fSharp II / Fire Aspect I KOTH Blade."));
         } else if("donor".equalsIgnoreCase(type)) {
-            p.sendMessage(EraCore.colorText("&6--- Donor Ender Chest ---"));
+            p.sendMessage(EraCore.colorText("&6--- Donor Keys ---"));
             p.sendMessage(EraCore.colorText("&aBasic &7< &fSilver &7< &6Gold &7< &bPlatinum"));
-            p.sendMessage(EraCore.colorText("&7Higher-tier keys increase quantities and improve P2/S2 reward chances."));
-            p.sendMessage(EraCore.colorText("&7No Speed II or Fire Resistance bottles; Speed II is permanent."));
+            p.sendMessage(EraCore.colorText("&7Ranks grant more keys; higher key tiers scale quantities, not the PvP enchant ceiling."));
+            p.sendMessage(EraCore.colorText("&fRewards: &7brew/base bundles, pearls, heals, valuables, named P1/S1 sets; very rare KOTH key."));
         } else {
             p.sendMessage(EraCore.colorText("&e--- Vote Chest ---"));
-            p.sendMessage(EraCore.colorText("&f$250 &724%  &f8 Pearls &718%  &f16 Iron &715%  &f12 Obsidian &712%"));
-            p.sendMessage(EraCore.colorText("&f4 Diamonds &710%  &f6 Heals &78%  &f16 Wart &75%  &f8 Glowstone &74%"));
-            p.sendMessage(EraCore.colorText("&fSharp I Diamond &72.5%  &fVIP donor key/rank upgrade &7rare"));
+            p.sendMessage(EraCore.colorText("&7Economy/resources, pearls, heals and a rare named P1/S1 set."));
+            p.sendMessage(EraCore.colorText("&7Very rare: one Basic Donor Crate Key. No free donor-rank upgrade."));
         }
     }
 
@@ -557,8 +625,8 @@ final class SpawnRewardsDirector implements Listener {
         }
 
         List<String> lore=new ArrayList<String>();
-        lore.add(EraCore.colorText("&7Redeem at the spawn "+prettyType(type)+" block."));
-        lore.add(EraCore.colorText("&8Daegon HCF reward key"));
+        lore.add(EraCore.colorText("&7Right-click the spawn crate or use &f/redeem&7."));
+        lore.add(EraCore.colorText("&8Redeemable from your faction base"));
         meta.setLore(lore);
         item.setItemMeta(meta);
         return item;

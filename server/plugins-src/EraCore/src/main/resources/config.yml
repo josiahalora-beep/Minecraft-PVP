@@ -332,7 +332,8 @@ spawn-build-protection:
 travel:
   faction-home-warmup-seconds: 10
   faction-stuck-warmup-seconds: 180
-  # /spawn and /warp are HCF escape-sensitive commands, never instant.
+  # Owner diagnostics use the generic warmup; normal HCF players use the
+  # faction-home and faction-stuck timings below.
   warmup-seconds: 10
 
 stuck:

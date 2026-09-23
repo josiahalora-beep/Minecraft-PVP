@@ -55,28 +55,43 @@ final class LegacySchematicComposer {
             super(label);this.world=world;this.s=s;this.ax=ax;this.ay=ay;this.az=az;this.pasteAir=pasteAir;
         }
         boolean step(int budget) {
-            int volume=s.volume(),done=0;
-            while(cursor<volume && done<budget) {
+            int volume=s.volume(),writes=0,scanned=0;
+            // Schematic volumes are mostly air. Scan many cells per tick, but
+            // charge the expensive budget only when the world actually needs a
+            // block mutation. This preserves terrain clearing while avoiding
+            // millions of redundant setType(AIR) calls on already-empty space.
+            int scanCap=Math.max(8192,Math.min(50000,budget*96));
+            while(cursor<volume && writes<budget && scanned<scanCap) {
                 int i=cursor++;
+                scanned++;
                 int id=s.blockId(i);
                 if(id==0 && !pasteAir){processed++;continue;}
+
                 int layer=s.width*s.length;
                 int y=i/layer;
                 int rem=i-y*layer;
                 int z=rem/s.width;
                 int x=rem-z*s.width;
                 int wx=ax+x+s.offX, wy=ay+y+s.offY, wz=az+z+s.offZ;
-                if(wy>0 && wy<world.getMaxHeight()) {
-                    int cx=wx>>4,cz=wz>>4;
-                    if(!world.isChunkLoaded(cx,cz)) {
-                        if(done>0) { cursor--; break; }
-                        world.loadChunk(cx,cz,true);
-                    }
-                    Block b=world.getBlockAt(wx,wy,wz);
-                    b.setTypeIdAndData(id,s.blockData(i),false);
-                    changed++;
+                processed++;
+                if(wy<=0 || wy>=world.getMaxHeight()) continue;
+
+                int cx=wx>>4,cz=wz>>4;
+                if(!world.isChunkLoaded(cx,cz)) {
+                    // Finish the current write batch before forcing another
+                    // chunk load; this keeps one chunk-generation spike from
+                    // monopolizing the server tick.
+                    if(writes>0) { cursor--; processed--; break; }
+                    world.loadChunk(cx,cz,true);
                 }
-                processed++;done++;
+
+                Block b=world.getBlockAt(wx,wy,wz);
+                byte data=s.blockData(i);
+                if(b.getTypeId()==id && b.getData()==data) continue;
+
+                b.setTypeIdAndData(id,data,false);
+                changed++;
+                writes++;
             }
             logProgress();
             return cursor>=volume;
@@ -309,10 +324,16 @@ final class LegacySchematicComposer {
 
                 while(budget>0 && !jobs.isEmpty()) {
                     Job j=jobs.peekFirst();
-                    long before=j.processed;
+                    long beforeChanged=j.changed;
+                    long beforeProcessed=j.processed;
                     boolean done=j.step(budget);
-                    int used=(int)Math.max(1,j.processed-before);
-                    budget-=used;
+                    int writes=(int)Math.max(0,j.changed-beforeChanged);
+                    long scanned=j.processed-beforeProcessed;
+                    // A scan-only step still yields after one job pass, but it
+                    // does not consume the block-write budget. This lets sparse
+                    // schematic air advance quickly without increasing write pressure.
+                    if(writes>0) budget-=writes;
+                    else if(scanned<=0) budget-=1;
                     if(done) {
                         jobs.removeFirst();
                         plugin.getLogger().info("[composer] completed "+j.label+" changed="+j.changed);

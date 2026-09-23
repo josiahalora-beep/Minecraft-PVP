@@ -13,6 +13,9 @@ final class SimChatDirector {
     private final Random rng = new Random(2014L);
     private final Map<String,Long> identityCooldown = new HashMap<String,Long>();
     private final Map<String,Long> lineCooldown = new HashMap<String,Long>();
+    private final Map<String,Long> semanticCooldown = new LinkedHashMap<String,Long>();
+    private final Map<String,Deque<String>> recentBySpeaker = new HashMap<String,Deque<String>>();
+    private final Deque<String> recentGlobal = new ArrayDeque<String>();
     private BukkitTask task;
     private long nextAt;
     private long fanCooldownUntil;
@@ -117,28 +120,77 @@ final class SimChatDirector {
     }
 
     private boolean emitGeneral() {
-        SimWorldDirector.ChatEvent event = world.nextChatEvent();
-        if (event == null) return false;
+        for(int attempt=0;attempt<6;attempt++) {
+            SimWorldDirector.ChatEvent event = world.nextChatEvent();
+            if (event == null) return false;
 
-        String name = event.name;
-        String line = event.message;
-        long now = System.currentTimeMillis();
-        Long lastIdentity = identityCooldown.get(name.toLowerCase(Locale.ENGLISH));
-        long identityCd = (event.fastFollow ? 4L : plugin.getConfig().getLong("sim-chat.identity-cooldown-seconds", 75L)) * 1000L;
-        if (lastIdentity != null && now - lastIdentity < identityCd) return event.fastFollow;
+            String name = event.name;
+            String line = event.message==null?"":event.message.trim();
+            if(line.isEmpty()) continue;
+            long now = System.currentTimeMillis();
+            String speakerKey=name.toLowerCase(Locale.ENGLISH);
 
-        Long lastLine = lineCooldown.get(line);
-        long lineCd = (event.fastFollow ? 15L : plugin.getConfig().getLong("sim-chat.line-cooldown-seconds", 600L)) * 1000L;
-        if (lastLine != null && now - lastLine < lineCd) return event.fastFollow;
+            Long lastIdentity = identityCooldown.get(speakerKey);
+            long identityCd = (event.fastFollow ? 4L : plugin.getConfig().getLong("sim-chat.identity-cooldown-seconds", 75L)) * 1000L;
+            if (lastIdentity != null && now - lastIdentity < identityCd) continue;
 
-        plugin.broadcastSimulatedChat(name, line);
-        identityCooldown.put(name.toLowerCase(Locale.ENGLISH), now);
-        lineCooldown.put(line, now);
+            Long lastLine = lineCooldown.get(line.toLowerCase(Locale.ENGLISH));
+            long lineCd = (event.fastFollow ? 15L : plugin.getConfig().getLong("sim-chat.line-cooldown-seconds", 600L)) * 1000L;
+            if (lastLine != null && now - lastLine < lineCd) continue;
 
-        if (plugin.isCreatorIdentity(name)) {
-            scheduleFanReaction(name, "chat");
+            String semantic=semanticKey(line);
+            long semanticWindow=Math.max(60L,plugin.getConfig().getLong("sim-chat.semantic-repeat-window-seconds",1200L))*1000L;
+            Long lastSemantic=semanticCooldown.get(semantic);
+            if(!event.fastFollow && lastSemantic!=null && now-lastSemantic<semanticWindow) continue;
+
+            Deque<String> own=recentBySpeaker.get(speakerKey);
+            if(own==null){own=new ArrayDeque<String>();recentBySpeaker.put(speakerKey,own);}
+            if(own.contains(semantic) && !event.fastFollow) continue;
+
+            plugin.broadcastSimulatedChat(name, line);
+            identityCooldown.put(speakerKey, now);
+            lineCooldown.put(line.toLowerCase(Locale.ENGLISH), now);
+            semanticCooldown.put(semantic,now);
+            own.addLast(semantic);
+            int ownMax=Math.max(4,plugin.getConfig().getInt("sim-chat.per-speaker-recent-window",12));
+            while(own.size()>ownMax) own.removeFirst();
+
+            recentGlobal.addLast(semantic);
+            int globalMax=Math.max(20,plugin.getConfig().getInt("sim-chat.recent-line-window",80));
+            while(recentGlobal.size()>globalMax) recentGlobal.removeFirst();
+
+            while(semanticCooldown.size()>600) {
+                Iterator<String> it=semanticCooldown.keySet().iterator();
+                if(it.hasNext()){it.next();it.remove();} else break;
+            }
+
+            if (plugin.isCreatorIdentity(name)) scheduleFanReaction(name, "chat");
+            return event.fastFollow;
         }
-        return event.fastFollow;
+        return false;
+    }
+
+    private String semanticKey(String line) {
+        String s=line==null?"":line.toLowerCase(Locale.ENGLISH);
+        s=s.replaceAll("\\$?\\d+(?:\\.\\d+)?","<n>");
+        s=s.replaceAll("\\b(?:north|south|east|west)\\b","<dir>");
+        s=s.replaceAll("\\s+"," ").trim();
+
+        // Collapse high-frequency HCF sentence families while preserving topics.
+        if(s.contains("buying ") || s.contains("wtb ")) return "market:buy:"+marketTopic(s);
+        if(s.contains("selling ") || s.contains("wts ")) return "market:sell:"+marketTopic(s);
+        if(s.contains("regen") && s.contains("dtr")) return "dtr:regen";
+        if(s.contains("spawn") && (s.contains("who")||s.contains("anyone"))) return "presence:spawn";
+        if(s.contains("need ") && s.contains("pots")) return "need:pots";
+        if(s.contains("need ") && s.contains("pearl")) return "need:pearls";
+        if(s.contains("building") && s.contains("base")) return "base:building";
+        return s;
+    }
+
+    private String marketTopic(String s) {
+        String[] topics={"pearls","pearl","pots","potion","diamond","diamonds","glass","obsidian","obby","wart","glowstone","books","book","iron","cane"};
+        for(String t:topics) if(s.contains(t)) return t;
+        return "other";
     }
 
     private void scheduleRecruitmentReplies(final Player player) {

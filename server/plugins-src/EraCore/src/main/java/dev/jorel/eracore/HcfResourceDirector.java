@@ -10,6 +10,7 @@ import org.bukkit.event.entity.CreatureSpawnEvent;
 import org.bukkit.event.entity.EntityDeathEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.scheduler.BukkitRunnable;
+import org.bukkit.scheduler.BukkitTask;
 
 import java.util.*;
 
@@ -28,6 +29,26 @@ final class HcfResourceDirector implements Listener {
     private final Random rng=new Random(20150517L);
     private final Set<String> pendingRegen=new HashSet<String>();
     private final Map<UUID,Integer> stacks=new HashMap<UUID,Integer>();
+    private final ArrayDeque<BlockOp> buildQueue=new ArrayDeque<BlockOp>();
+    private final List<SpawnerOp> pendingSpawners=new ArrayList<SpawnerOp>();
+    private BukkitTask buildTask;
+    private boolean bootstrapRun;
+
+
+
+    private static final class BlockOp {
+        final World world; final int x,y,z; final Material material; final byte data;
+        BlockOp(World world,int x,int y,int z,Material material){this(world,x,y,z,material,(byte)0);}
+        BlockOp(World world,int x,int y,int z,Material material,byte data){
+            this.world=world;this.x=x;this.y=y;this.z=z;this.material=material;this.data=data;
+        }
+    }
+    private static final class SpawnerOp {
+        final World world; final int x,y,z; final EntityType type;
+        SpawnerOp(World world,int x,int y,int z,EntityType type){
+            this.world=world;this.x=x;this.y=y;this.z=z;this.type=type;
+        }
+    }
 
     HcfResourceDirector(EraCore plugin,HcfMapDirector map) {
         this.plugin=plugin; this.map=map;
@@ -39,14 +60,78 @@ final class HcfResourceDirector implements Listener {
             int n=parseStack(e);
             if(n>1) stacks.put(e.getUniqueId(),n);
         }
-        if(plugin.getConfig().getBoolean("resources.bootstrap-spawners",false)) {
-            new BukkitRunnable(){public void run(){bootstrapPublicSites();}}.runTaskLater(plugin,160L);
-        }
+        // Physical resource construction is owned by HcfWorldBuildDirector so
+        // it never races the schematic compositor or normal player ticks.
     }
 
     void stop() {
         pendingRegen.clear();
         stacks.clear();
+        buildQueue.clear();
+        pendingSpawners.clear();
+        bootstrapRun=false;
+        if(buildTask!=null) buildTask.cancel();
+        buildTask=null;
+    }
+
+    boolean busy(){return buildTask!=null || !buildQueue.isEmpty() || bootstrapRun;}
+    int queuedOperations(){return buildQueue.size()+pendingSpawners.size();}
+
+    boolean queueBootstrapPublicSites() {
+        if(busy()) return false;
+        bootstrapRun=true;
+        buildOreMountainQueued();
+        buildNetherResourceSitesQueued();
+        buildEndResourceSitesQueued();
+        queueSpawners();
+        ensureBuildRunner();
+        plugin.getLogger().info("[resources] queued production resource sites ops="+queuedOperations());
+        return true;
+    }
+
+    private void ensureBuildRunner() {
+        if(buildTask!=null) return;
+        buildTask=Bukkit.getScheduler().runTaskTimer(plugin,new Runnable(){
+            public void run(){
+                int configured=Math.max(10,Math.min(500,plugin.getConfig().getInt("resources.blocks-per-tick",90)));
+                int budget=configured;
+                double p95=plugin.currentP95Mspt();
+                if(p95>=45.0) budget=0;
+                else if(p95>=32.0) budget=Math.min(budget,8);
+                else if(p95>=26.0) budget=Math.min(budget,16);
+                else if(p95>=22.0) budget=Math.min(budget,28);
+                else if(p95>=18.0) budget=Math.min(budget,50);
+                if(budget<=0) return;
+
+                int used=0;
+                while(used<budget && !buildQueue.isEmpty()) {
+                    BlockOp op=buildQueue.pollFirst();
+                    if(op.world==null) continue;
+                    if(!op.world.isChunkLoaded(op.x>>4,op.z>>4)) {
+                        // Production/reset stages may legitimately need chunks.
+                        // Load only one chunk per tick at most, then spend the
+                        // remainder of the budget inside already-loaded chunks.
+                        if(used>0) { buildQueue.addFirst(op); break; }
+                        op.world.loadChunk(op.x>>4,op.z>>4,true);
+                    }
+                    Block b=op.world.getBlockAt(op.x,op.y,op.z);
+                    b.setType(op.material);
+                    if(op.data!=0) b.setData(op.data);
+                    used++;
+                }
+
+                if(buildQueue.isEmpty()) {
+                    for(SpawnerOp sp:new ArrayList<SpawnerOp>(pendingSpawners))
+                        placeSpawner(sp.world,sp.x,sp.y,sp.z,sp.type);
+                    pendingSpawners.clear();
+                    bootstrapRun=false;
+                    plugin.getConfig().set("world-build.resources-complete",true);
+                    plugin.saveConfig();
+                    plugin.getLogger().info("[resources] production resource materialization complete.");
+                    buildTask.cancel();buildTask=null;
+                }
+            }
+        },1L,1L);
     }
 
     boolean handleProtectedBreak(final BlockBreakEvent e) {
@@ -207,21 +292,14 @@ final class HcfResourceDirector implements Listener {
         return null;
     }
 
-    private void bootstrapPublicSites() {
-        buildOreMountain();
-        buildNetherResourceSites();
-        buildEndResourceSites();
-        bootstrapSpawners();
-    }
+    // Legacy direct bootstrap intentionally removed; all construction is queued.
 
-    private void buildOreMountain() {
+    private void buildOreMountainQueued() {
         World w=Bukkit.getWorld(plugin.getConfig().getString("map-layout.ore-world","ore_mountain"));
         if(w==null) return;
         Location spawn=w.getSpawnLocation();
         int cx=spawn.getBlockX(),cz=spawn.getBlockZ();
-        int base=Math.max(58,w.getHighestBlockYAt(cx,cz));
-        Block sentinel=w.getBlockAt(cx,base+18,cz);
-        if(sentinel.getType()==Material.EMERALD_BLOCK) return;
+        int base=plugin.getConfig().getInt("resources.ore-mountain.base-y",63);
 
         Random local=new Random(20150418L);
         int radius=32;
@@ -239,17 +317,15 @@ final class HcfResourceDirector implements Listener {
                     else if(roll<128) m=Material.IRON_ORE;
                     else if(roll<190) m=Material.REDSTONE_ORE;
                     else if(roll<300) m=Material.COAL_ORE;
-                    w.getBlockAt(cx+dx,base+dy,cz+dz).setType(m);
+                    buildQueue.add(new BlockOp(w,cx+dx,base+dy,cz+dz,m));
                 }
             }
         }
-        sentinel.setType(Material.EMERALD_BLOCK);
+        buildQueue.add(new BlockOp(w,cx,base+19,cz,Material.EMERALD_BLOCK));
         w.setSpawnLocation(cx,base+2,cz);
-        if(map!=null) map.bootstrapWarps();
-        plugin.getLogger().info("Bootstrapped protected Ore Mountain at "+cx+","+cz+".");
     }
 
-    private void buildNetherResourceSites() {
+    private void buildNetherResourceSitesQueued() {
         World w=firstWorld(World.Environment.NETHER);
         if(w==null) return;
 
@@ -265,10 +341,10 @@ final class HcfResourceDirector implements Listener {
                     int h=Math.max(1,(int)Math.round(14.0*(1.0-d/28.0)));
                     for(int dy=0;dy<=h;dy++) {
                         Material m=(dy==h && local.nextInt(100)<42)?Material.GLOWSTONE:Material.NETHERRACK;
-                        w.getBlockAt(cx+dx,y+dy,cz+dz).setType(m);
+                        buildQueue.add(new BlockOp(w,cx+dx,y+dy,cz+dz,m));
                     }
                 }
-                w.getBlockAt(cx,y+15,cz).setType(Material.GLOWSTONE);
+                buildQueue.add(new BlockOp(w,cx,y+15,cz,Material.GLOWSTONE));
             }
         }
 
@@ -277,13 +353,11 @@ final class HcfResourceDirector implements Listener {
             int y=plugin.getConfig().getInt("resources.blaze.y",70);
             int cx=(int)wart.x,cz=(int)wart.z;
             for(int dx=-22;dx<=22;dx++) for(int dz=-16;dz<=16;dz++)
-                w.getBlockAt(cx+dx,y-1,cz+dz).setType(Material.NETHER_BRICK);
+                buildQueue.add(new BlockOp(w,cx+dx,y-1,cz+dz,Material.NETHER_BRICK));
             for(int row=-12;row<=12;row+=4) for(int dx=-18;dx<=18;dx++) {
                 Block soil=w.getBlockAt(cx+dx,y,cz+row);
-                soil.setType(Material.SOUL_SAND);
-                Block crop=w.getBlockAt(cx+dx,y+1,cz+row);
-                crop.setType(Material.NETHER_WARTS);
-                crop.setData((byte)3);
+                buildQueue.add(new BlockOp(w,cx+dx,y,cz+row,Material.SOUL_SAND));
+                buildQueue.add(new BlockOp(w,cx+dx,y+1,cz+row,Material.NETHER_WARTS,(byte)3));
             }
         }
 
@@ -292,9 +366,9 @@ final class HcfResourceDirector implements Listener {
             int y=plugin.getConfig().getInt("resources.blaze.y",70);
             int cx=(int)blaze.x,cz=(int)blaze.z;
             for(int dx=-22;dx<=22;dx++) for(int dz=-22;dz<=22;dz++) {
-                w.getBlockAt(cx+dx,y-1,cz+dz).setType(Material.NETHER_BRICK);
+                buildQueue.add(new BlockOp(w,cx+dx,y-1,cz+dz,Material.NETHER_BRICK));
                 if(Math.abs(dx)==22 || Math.abs(dz)==22)
-                    w.getBlockAt(cx+dx,y,cz+dz).setType(Material.NETHER_FENCE);
+                    buildQueue.add(new BlockOp(w,cx+dx,y,cz+dz,Material.NETHER_FENCE));
             }
         }
 
@@ -303,7 +377,7 @@ final class HcfResourceDirector implements Listener {
             plugin.getConfig().getInt("resources.blaze.y",70),(int)nk.z,Material.NETHER_BRICK,Material.GOLD_BLOCK);
     }
 
-    private void buildEndResourceSites() {
+    private void buildEndResourceSitesQueued() {
         World w=firstWorld(World.Environment.THE_END);
         if(w==null) return;
 
@@ -312,9 +386,9 @@ final class HcfResourceDirector implements Listener {
             int y=plugin.getConfig().getInt("resources.creeper.y",69);
             int cx=(int)creeper.x,cz=(int)creeper.z;
             for(int dx=-20;dx<=20;dx++) for(int dz=-20;dz<=20;dz++) {
-                w.getBlockAt(cx+dx,y-1,cz+dz).setType(Material.ENDER_STONE);
+                buildQueue.add(new BlockOp(w,cx+dx,y-1,cz+dz,Material.ENDER_STONE));
                 if(Math.abs(dx)==20 || Math.abs(dz)==20)
-                    w.getBlockAt(cx+dx,y,cz+dz).setType(Material.OBSIDIAN);
+                    buildQueue.add(new BlockOp(w,cx+dx,y,cz+dz,Material.OBSIDIAN));
             }
         }
 
@@ -327,42 +401,42 @@ final class HcfResourceDirector implements Listener {
             int y=plugin.getConfig().getInt("resources.creeper.y",69);
             int cx=(int)exit.x,cz=(int)exit.z;
             for(int dx=-8;dx<=8;dx++) for(int dz=-8;dz<=8;dz++)
-                w.getBlockAt(cx+dx,y-1,cz+dz).setType(Material.OBSIDIAN);
+                buildQueue.add(new BlockOp(w,cx+dx,y-1,cz+dz,Material.OBSIDIAN));
             // A small physical End portal gives the safe kite destination a real
             // exit. HcfPortalDirector routes it back to the configured Spawn.
             for(int dx=-1;dx<=1;dx++) for(int dz=-1;dz<=1;dz++)
-                w.getBlockAt(cx+dx,y,cz+dz).setType(Material.ENDER_PORTAL);
+                buildQueue.add(new BlockOp(w,cx+dx,y,cz+dz,Material.ENDER_PORTAL));
         }
     }
 
     private void buildCapturePad(World w,int cx,int y,int cz,Material floor,Material center) {
         for(int dx=-18;dx<=18;dx++) for(int dz=-18;dz<=18;dz++)
-            w.getBlockAt(cx+dx,y-1,cz+dz).setType(floor);
+            buildQueue.add(new BlockOp(w,cx+dx,y-1,cz+dz,floor));
         for(int dx=-3;dx<=3;dx++) for(int dz=-3;dz<=3;dz++)
-            w.getBlockAt(cx+dx,y-1,cz+dz).setType(center);
+            buildQueue.add(new BlockOp(w,cx+dx,y-1,cz+dz,center));
     }
 
-    private void bootstrapSpawners() {
+    private void queueSpawners() {
         World nether=firstWorld(World.Environment.NETHER);
         World end=firstWorld(World.Environment.THE_END);
         if(nether!=null) {
             HcfMapDirector.Region r=map.region("blaze");
             if(r!=null) {
                 int y=plugin.getConfig().getInt("resources.blaze.y",70);
-                placeSpawner(nether,(int)r.x-14,y,(int)r.z-14,EntityType.BLAZE);
-                placeSpawner(nether,(int)r.x+14,y,(int)r.z-14,EntityType.BLAZE);
-                placeSpawner(nether,(int)r.x-14,y,(int)r.z+14,EntityType.BLAZE);
-                placeSpawner(nether,(int)r.x+14,y,(int)r.z+14,EntityType.BLAZE);
+                pendingSpawners.add(new SpawnerOp(nether,(int)r.x-14,y,(int)r.z-14,EntityType.BLAZE));
+                pendingSpawners.add(new SpawnerOp(nether,(int)r.x+14,y,(int)r.z-14,EntityType.BLAZE));
+                pendingSpawners.add(new SpawnerOp(nether,(int)r.x-14,y,(int)r.z+14,EntityType.BLAZE));
+                pendingSpawners.add(new SpawnerOp(nether,(int)r.x+14,y,(int)r.z+14,EntityType.BLAZE));
             }
         }
         if(end!=null) {
             HcfMapDirector.Region r=map.region("creeper");
             if(r!=null) {
                 int y=plugin.getConfig().getInt("resources.creeper.y",69);
-                placeSpawner(end,(int)r.x-14,y,(int)r.z-14,EntityType.CREEPER);
-                placeSpawner(end,(int)r.x+14,y,(int)r.z-14,EntityType.CREEPER);
-                placeSpawner(end,(int)r.x-14,y,(int)r.z+14,EntityType.CREEPER);
-                placeSpawner(end,(int)r.x+14,y,(int)r.z+14,EntityType.CREEPER);
+                pendingSpawners.add(new SpawnerOp(end,(int)r.x-14,y,(int)r.z-14,EntityType.CREEPER));
+                pendingSpawners.add(new SpawnerOp(end,(int)r.x+14,y,(int)r.z-14,EntityType.CREEPER));
+                pendingSpawners.add(new SpawnerOp(end,(int)r.x-14,y,(int)r.z+14,EntityType.CREEPER));
+                pendingSpawners.add(new SpawnerOp(end,(int)r.x+14,y,(int)r.z+14,EntityType.CREEPER));
             }
         }
     }

@@ -37,6 +37,11 @@ final class HcfEventDirector {
 
     private boolean conquestActive=false;
     private final List<CapPoint> conquestPoints=new ArrayList<CapPoint>();
+    private final Random rng=new Random(20150808L);
+    private long nextAutoAt;
+    private long activeStartedAt;
+    private long warnedForAt;
+    private int autoSequence;
     private final Map<String,Integer> conquestScores=new LinkedHashMap<String,Integer>();
 
     HcfEventDirector(EraCore plugin,HcfMapDirector map) {
@@ -87,8 +92,84 @@ final class HcfEventDirector {
     }
 
     private void tick() {
+        if(!plugin.productionWorldReady()) return;
+        tickAutoSchedule();
         if(!activeKoth.isEmpty()) tickKoth();
         if(conquestActive) tickConquest();
+    }
+
+    private void tickAutoSchedule() {
+        if(!plugin.getConfig().getBoolean("events.auto-schedule.enabled",true)) return;
+        long now=System.currentTimeMillis();
+
+        if(!activeKoth.isEmpty() || conquestActive) {
+            int maxMinutes=Math.max(5,plugin.getConfig().getInt("events.auto-schedule.max-active-minutes",25));
+            if(activeStartedAt>0L && now-activeStartedAt>=maxMinutes*60000L) {
+                if(!activeKoth.isEmpty()) stopKoth(true);
+                if(conquestActive) stopConquest(true);
+                scheduleNextAutoEvent(now);
+            }
+            return;
+        }
+
+        if(nextAutoAt<=0L) {
+            scheduleNextAutoEvent(now);
+            return;
+        }
+
+        int warnMinutes=Math.max(1,plugin.getConfig().getInt("events.auto-schedule.warning-minutes",5));
+        if(warnedForAt!=nextAutoAt && now>=nextAutoAt-warnMinutes*60000L && now<nextAutoAt) {
+            String id=scheduledEventId();
+            HcfMapDirector.Region r="conquest".equals(id)?map.region("conquest"):map.region(id);
+            String label="conquest".equals(id)?"Conquest":(r==null?id:r.name);
+            Bukkit.broadcastMessage(EraCore.colorText(("&6[Events] &e"+label+
+                " &7will begin in &f"+warnMinutes+" minutes&7.")));
+            warnedForAt=nextAutoAt;
+            save();
+            return;
+        }
+
+        if(now<nextAutoAt) return;
+        if(plugin.simWorldProtectionActive()) {
+            nextAutoAt=now+5L*60000L;
+            warnedForAt=0L;
+            save();
+            return;
+        }
+        if(!plugin.hasHumanOnline()) return;
+
+        int minLogical=Math.max(1,plugin.getConfig().getInt("events.auto-schedule.minimum-logical-online",20));
+        if(plugin.simulatedLogicalOnlineCount()<minLogical) {
+            nextAutoAt=now+5L*60000L;
+            warnedForAt=0L;
+            save();
+            return;
+        }
+
+        String id=scheduledEventId();
+        autoSequence++;
+        if("conquest".equals(id)) startConquest();
+        else startKoth(id);
+        activeStartedAt=now;
+        nextAutoAt=0L;
+        warnedForAt=0L;
+        save();
+    }
+
+    private void scheduleNextAutoEvent(long now) {
+        int min=Math.max(10,plugin.getConfig().getInt("events.auto-schedule.min-gap-minutes",35));
+        int max=Math.max(min,plugin.getConfig().getInt("events.auto-schedule.max-gap-minutes",70));
+        int gap=min+(max==min?0:rng.nextInt(max-min+1));
+        nextAutoAt=now+gap*60000L;
+        warnedForAt=0L;
+        save();
+    }
+
+    private String scheduledEventId() {
+        String[] rotation={"classic","egypt","endstyle","frost","nether-koth","conquest","end-koth"};
+        Calendar c=Calendar.getInstance();
+        int day=Math.max(1,c.get(Calendar.DAY_OF_YEAR));
+        return rotation[Math.abs(day+autoSequence)%rotation.length];
     }
 
     private World worldFor(String key) {
@@ -282,9 +363,11 @@ final class HcfEventDirector {
     }
 
     void startKoth(String id) {
+        if(!plugin.productionWorldReady()) return;
         HcfMapDirector.Region r=map.region(id);
         if(r==null || !"koth".equals(r.type)) return;
         activeKoth=r.id;kothController="";kothControllerPlayer="";kothProgress=0;kothContested=false;
+        activeStartedAt=System.currentTimeMillis();
         Bukkit.broadcastMessage(EraCore.colorText("&6[KOTH] &e"+r.name+" &7is now capturable at &f"+
             ((int)r.x)+", "+((int)r.z)+"&7."));
         save();
@@ -292,11 +375,15 @@ final class HcfEventDirector {
 
     void stopKoth(boolean announce) {
         if(announce && !activeKoth.isEmpty()) Bukkit.broadcastMessage(EraCore.colorText("&6[KOTH] &7The active KOTH was stopped."));
-        activeKoth="";kothController="";kothControllerPlayer="";kothProgress=0;kothContested=false;save();
+        activeKoth="";kothController="";kothControllerPlayer="";kothProgress=0;kothContested=false;activeStartedAt=0L;
+        if(plugin.getConfig().getBoolean("events.auto-schedule.enabled",true) && nextAutoAt<=0L)
+            scheduleNextAutoEvent(System.currentTimeMillis());
+        save();
     }
 
     void startConquest() {
-        conquestActive=true;conquestScores.clear();
+        if(!plugin.productionWorldReady()) return;
+        conquestActive=true;activeStartedAt=System.currentTimeMillis();conquestScores.clear();
         for(CapPoint cp:conquestPoints){cp.owner="";cp.capturing="";cp.progress=0;}
         HcfMapDirector.Region c=map.region("conquest");
         Bukkit.broadcastMessage(EraCore.colorText("&c[Conquest] &7Conquest has begun at &f"+
@@ -306,8 +393,10 @@ final class HcfEventDirector {
 
     void stopConquest(boolean announce) {
         if(announce && conquestActive) Bukkit.broadcastMessage(EraCore.colorText("&c[Conquest] &7Conquest was stopped."));
-        conquestActive=false;conquestScores.clear();
+        conquestActive=false;activeStartedAt=0L;conquestScores.clear();
         for(CapPoint cp:conquestPoints){cp.owner="";cp.capturing="";cp.progress=0;}
+        if(plugin.getConfig().getBoolean("events.auto-schedule.enabled",true) && nextAutoAt<=0L)
+            scheduleNextAutoEvent(System.currentTimeMillis());
         save();
     }
 
@@ -327,7 +416,7 @@ final class HcfEventDirector {
 
     void resetForNewMap() {
         activeKoth="";kothController="";kothControllerPlayer="";kothProgress=0;kothContested=false;
-        conquestActive=false;conquestScores.clear();
+        conquestActive=false;activeStartedAt=0L;nextAutoAt=0L;warnedForAt=0L;autoSequence=0;conquestScores.clear();
         for(CapPoint cp:conquestPoints){cp.owner="";cp.capturing="";cp.progress=0;}
         save();
     }
@@ -338,6 +427,10 @@ final class HcfEventDirector {
         kothControllerPlayer=data.getString("koth.controller-player","");
         kothProgress=data.getInt("koth.progress",0);
         conquestActive=data.getBoolean("conquest.active",false);
+        nextAutoAt=data.getLong("auto.next-at",0L);
+        activeStartedAt=data.getLong("auto.active-started-at",0L);
+        warnedForAt=data.getLong("auto.warned-for-at",0L);
+        autoSequence=data.getInt("auto.sequence",0);
         if(data.isConfigurationSection("conquest.scores"))
             for(String k:data.getConfigurationSection("conquest.scores").getKeys(false))
                 conquestScores.put(k,data.getInt("conquest.scores."+k));
@@ -350,6 +443,10 @@ final class HcfEventDirector {
         data.set("koth.controller-player",kothControllerPlayer);
         data.set("koth.progress",kothProgress);
         data.set("conquest.active",conquestActive);
+        data.set("auto.next-at",nextAutoAt);
+        data.set("auto.active-started-at",activeStartedAt);
+        data.set("auto.warned-for-at",warnedForAt);
+        data.set("auto.sequence",autoSequence);
         data.set("conquest.scores",null);
         for(Map.Entry<String,Integer> e:conquestScores.entrySet()) data.set("conquest.scores."+e.getKey(),e.getValue());
         for(CapPoint cp:conquestPoints) data.set("conquest.points."+cp.id+".owner",cp.owner);

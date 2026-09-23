@@ -78,6 +78,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     private HcfEventDirector eventDirector;
     private HcfResourceDirector resourceDirector;
     private LegacySchematicComposer schematicComposer;
+    private HcfWorldBuildDirector worldBuildDirector;
 
     enum Rank {
         MEMBER(0, "&7[Member]", 24),
@@ -164,6 +165,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         migrateDistributedWorkerConfig();
         migrateLivingWorldConfig();
         migrateStartupPerformanceConfig();
+        migrateProductionUnificationConfig();
         initFiles();
         initShops();
         loadFactions();
@@ -191,6 +193,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         eventDirector = new HcfEventDirector(this,mapDirector);
         resourceDirector = new HcfResourceDirector(this,mapDirector);
         schematicComposer = new LegacySchematicComposer(this);
+        worldBuildDirector = new HcfWorldBuildDirector(this,mapDirector,resourceDirector,schematicComposer);
         infrastructure = new HcfInfrastructureDirector(this,warpManager,hcfZones);
         logicalTab = new LogicalTabListDirector(this, simWorld);
         spawnRewards = new SpawnRewardsDirector(this, warpManager);
@@ -219,6 +222,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         mapDirector.start();
         eventDirector.start();
         resourceDirector.start();
+        worldBuildDirector.start();
         infrastructure.start();
         spawnPresence.start();
         spawnRewards.start();
@@ -233,20 +237,9 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             }.runTaskLater(this, 120L);
         }
 
-        if (getConfig().getBoolean("map.auto-bootstrap", true) && !getConfig().getBoolean("map.complete", false)) {
-            new BukkitRunnable() {
-                public void run() {
-                    if(getConfig().getBoolean("world-composer.enabled",true) && schematicComposer!=null) {
-                        List<String> missing=schematicComposer.missingProductionAssets();
-                        if(missing.isEmpty()) schematicComposer.queueProductionMap(mapDirector);
-                        else getLogger().warning("Production map assets missing; run Install-HCF-World-Assets.ps1. Missing: "+join(missing,", "));
-                    } else {
-                        World world = Bukkit.getWorlds().get(0);
-                        bootstrapMap(world, false);
-                    }
-                }
-            }.runTaskLater(this, 80L);
-        }
+        // Production-map orchestration is owned by HcfWorldBuildDirector.
+        // It stages schematic composition and resource materialization instead
+        // of launching competing startup builders.
 
         if(getConfig().getBoolean("map.auto-warzone-smoothing",false)) {
             new BukkitRunnable() {
@@ -261,6 +254,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     @Override public void onDisable() {
         if (fakePlayers != null) fakePlayers.shutdown();
+        if (worldBuildDirector != null) worldBuildDirector.stop();
         if (schematicComposer != null) schematicComposer.stop();
         if (eventDirector != null) eventDirector.stop();
         if (resourceDirector != null) resourceDirector.stop();
@@ -457,6 +451,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         getConfig().set("map.auto-bootstrap",false);
         getConfig().set("map.auto-warzone-smoothing",false);
         getConfig().set("map-layout.build-visible-borders",false);
+        getConfig().set("terrain.normalize-new-chunks",false);
+        getConfig().set("logical-tab.packet-batch-size",20);
         getConfig().set("safezones.auto-build-borders",false);
         getConfig().set("resources.bootstrap-spawners",false);
         getConfig().set("base-builder.repair-existing-on-start",false);
@@ -479,8 +475,79 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         getLogger().info("Applied startup performance v1: disabled automatic world rewrites, paced simulation 30s/4 factions.");
     }
 
+    private void migrateProductionUnificationConfig() {
+        int version=getConfig().getInt("migration.production-unification-version",0);
+        if(version>=2) return;
+
+        // Canonical v7 map geometry.
+        getConfig().set("map-layout.koth-offset",500);
+        getConfig().set("map-layout.portal-offset",1000);
+        getConfig().set("map-layout.conquest-x",0);
+        getConfig().set("map-layout.conquest-z",1125);
+        getConfig().set("map-layout.spawn-build-radius",190);
+        getConfig().set("map-layout.spawn-claim-radius",500);
+        getConfig().set("map.auto-warzone-smoothing",false);
+        getConfig().set("map-layout.build-visible-borders",false);
+
+        // Staged world construction. Do not turn auto-bootstrap on here; only a
+        // deliberate /sotw reset marker may request a full physical rebuild.
+        getConfig().set("world-build.auto-resume",true);
+        if(!getConfig().contains("map.structures-complete")) getConfig().set("map.structures-complete",
+            getConfig().getBoolean("map.complete",false));
+        if(!getConfig().contains("world-build.active")) getConfig().set("world-build.active",false);
+        if(!getConfig().contains("world-build.complete")) getConfig().set("world-build.complete",
+            getConfig().getBoolean("map.complete",false));
+        if(!getConfig().contains("world-build.resources-complete")) getConfig().set("world-build.resources-complete",
+            getConfig().getBoolean("map.complete",false));
+        getConfig().set("world-build.max-p95-mspt",20.0);
+        if(!getConfig().contains("world-build.archive-directory")) getConfig().set("world-build.archive-directory","");
+        getConfig().set("world-composer.blocks-per-tick",120);
+        getConfig().set("resources.blocks-per-tick",90);
+        getConfig().set("resources.bootstrap-spawners",false);
+        getConfig().set("resources.ore-mountain.enabled",true);
+        getConfig().set("resources.ore-mountain.base-y",63);
+        getConfig().set("resources.ore-mountain.world-border",320);
+        getConfig().set("infrastructure.duel-world","duel_arena");
+        getConfig().set("infrastructure.duel-world-border",192);
+        getConfig().set("infrastructure.duel-center-x",0);
+        getConfig().set("infrastructure.duel-center-z",0);
+        getConfig().set("infrastructure.duel-floor-y",64);
+        getConfig().set("infrastructure.external-dimension-schematics",true);
+        getConfig().set("infrastructure.blocks-per-tick",120);
+
+        // Large persistent memory with small retrieval windows. This increases
+        // continuity without increasing per-chat prompt size or tick work.
+        getConfig().set("memory.relationship-max",64);
+        getConfig().set("memory.history-max-events",10000);
+        getConfig().set("memory.archive-max-bytes",134217728L);
+        getConfig().set("memory.duplicate-window-seconds",1800);
+        if(!getConfig().contains("memory.cold-archive-directory")) getConfig().set("memory.cold-archive-directory","");
+        getConfig().set("memory.cold-shard-max-bytes",268435456L);
+        getConfig().set("memory.cold-max-shards",48);
+        getConfig().set("memory.chat-history-events",12);
+        getConfig().set("memory.chat-relationship-memories",10);
+
+        // Local/contextual chat is primary. AI is an exception path.
+        getConfig().set("sim-chat.recent-line-window",80);
+        getConfig().set("sim-chat.per-speaker-recent-window",12);
+        getConfig().set("sim-chat.semantic-repeat-window-seconds",1200);
+        getConfig().set("sim-chat.ai-direct-human-only",true);
+        getConfig().set("sim-chat.ai-min-seconds-between-requests",8);
+        getConfig().set("sim-chat.ai-max-requests-per-minute",4);
+        getConfig().set("events.auto-schedule.enabled",true);
+        getConfig().set("events.auto-schedule.minimum-logical-online",20);
+        getConfig().set("events.auto-schedule.min-gap-minutes",35);
+        getConfig().set("events.auto-schedule.max-gap-minutes",70);
+        getConfig().set("events.auto-schedule.warning-minutes",5);
+        getConfig().set("events.auto-schedule.max-active-minutes",25);
+
+        getConfig().set("migration.production-unification-version",2);
+        saveConfig();
+        getLogger().info("Applied production unification v2: canonical v7 map, staged builders, expanded bounded memory and local-first chat.");
+    }
+
     private void bindCommands() {
-        String[] cmds = {"rank","kit","kits","balance","pay","sell","buy","shop","vote","keys","crates","stats","history","duel","f","spawn","stuck","setspawn","warp","warps","setwarp","delwarp","spawnpreset","msg","r","simchat","sotw","simworker","simcombat","simactor","safezone","teamfight","bard","archer","miner","rogue","simprobe","simmap","simstate","duelprep","baserate","baserebuild","mapinfo","events","koth","conquest","oremountain","mapcompose"};
+        String[] cmds = {"rank","kit","kits","balance","pay","sell","buy","shop","vote","keys","crates","stats","history","duel","f","spawn","stuck","setspawn","warp","warps","setwarp","delwarp","spawnpreset","msg","r","simchat","sotw","simworker","simcombat","simactor","simtab","safezone","teamfight","bard","archer","miner","rogue","simprobe","simmap","simstate","duelprep","baserate","baserebuild","mapinfo","events","koth","conquest","oremountain","mapcompose"};
         for (String c : cmds) getCommand(c).setExecutor(this);
     }
 
@@ -1046,6 +1113,22 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     boolean simWorldProtectionActive() {
         return simWorld != null && simWorld.sotwProtectionActive();
     }
+    boolean productionWorldReady() {
+        boolean active=getConfig().getBoolean("map.auto-bootstrap",false) ||
+            getConfig().getBoolean("world-build.active",false);
+        return !active || getConfig().getBoolean("world-build.complete",false);
+    }
+
+    String activeHcfEventSummary() {
+        if(eventDirector==null) return "";
+        String s=eventDirector.publicSummary();
+        return s==null?"":s;
+    }
+
+    int simulatedLogicalOnlineCount() {
+        return simWorld==null?0:simWorld.logicalOnlineCount();
+    }
+
 
     boolean isOwnerPlayer(Player p) {
         return p != null && (getRank(p.getName()) == Rank.OWNER || p.hasPermission("eracore.owner"));
@@ -1223,6 +1306,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (c.equals("simworker")) return cmdSimWorker(p,args);
         if (c.equals("simcombat")) return cmdSimCombat(p,args);
         if (c.equals("simactor")) return cmdSimActor(p,args);
+        if (c.equals("simtab")) return cmdSimTab(p,args);
         if (c.equals("safezone")) return hcfZones != null && hcfZones.command(p,args);
         if (c.equals("teamfight")) return cmdTeamFight(p,args);
         if (c.equals("bard")) return cmdClassInfo(p,"bard");
@@ -1245,6 +1329,28 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (c.equals("oremountain")) return mapDirector != null && mapDirector.commandOreMountain(p);
         if (c.equals("mapcompose")) return cmdMapCompose(p,args);
         return false;
+    }
+
+    private boolean cmdSimTab(Player p,String[] a) {
+        if(!ownerOnly(p)) return true;
+        if(logicalTab==null) {
+            p.sendMessage(color("&cLogical tab director is unavailable."));
+            return true;
+        }
+        String sub=a.length==0?"status":a[0].toLowerCase(Locale.ENGLISH);
+        if("refresh".equals(sub)) {
+            logicalTab.forceRefresh(p);
+            p.sendMessage(color("&aLogical tab refresh queued. &7Run &f/simtab status &7in a few seconds."));
+            return true;
+        }
+        if("status".equals(sub)) {
+            p.sendMessage(color("&6Sim TAB &8» &f"+logicalTab.status(p)));
+            if(simWorld!=null) p.sendMessage(color("&7logicalOnline=&f"+simWorld.logicalOnlineCount()+
+                " &7physicalOnline=&f"+Bukkit.getOnlinePlayers().size()));
+            return true;
+        }
+        p.sendMessage("/simtab <status|refresh>");
+        return true;
     }
 
     private boolean cmdBaseRebuild(Player p,String[] a) {
@@ -2176,7 +2282,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             PrintWriter out=new PrintWriter(new OutputStreamWriter(new FileOutputStream(marker),"UTF-8"));
             out.println("requested-by="+p.getName());
             out.println("requested-at="+System.currentTimeMillis());
-            out.println("layout-version=1");
+            out.println("layout-version=2");
             out.close();
         } catch(IOException e) {
             p.sendMessage(color("&cCould not write reset marker: "+e.getMessage()));
@@ -2213,6 +2319,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if("status".equals(sub)) {
             List<String> missing=schematicComposer.missingProductionAssets();
             p.sendMessage(color("&6Composer &8» &7busy=&f"+schematicComposer.busy()+" &7queuedJobs=&f"+schematicComposer.queuedJobs()));
+            if(worldBuildDirector!=null) p.sendMessage(color("&6World build &8» &f"+worldBuildDirector.status()));
             p.sendMessage(color(missing.isEmpty()?"&aAll production assets installed.":"&cMissing: &f"+join(missing,", ")));
             return true;
         }
@@ -2302,6 +2409,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (!ownerOnly(p)) return true;
         if (a.length == 0 || a[0].equalsIgnoreCase("status")) {
             p.sendMessage(color("&7Sim chat: " + (simChat.enabled() ? "&aenabled" : "&cdisabled")));
+            if(simWorld!=null) p.sendMessage(color("&7AI bridge budget: &f"+simWorld.aiChatBudgetStatus()));
             return true;
         }
         if (a[0].equalsIgnoreCase("on")) {

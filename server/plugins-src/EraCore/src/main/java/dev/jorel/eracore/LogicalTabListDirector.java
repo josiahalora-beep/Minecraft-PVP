@@ -24,6 +24,11 @@ final class LogicalTabListDirector {
     private final Map<UUID,Set<String>> sentByViewer = new HashMap<UUID,Set<String>>();
     private final Map<UUID,Long> lastRefreshByViewer = new HashMap<UUID,Long>();
     private BukkitTask task;
+    private long packetsSent;
+    private long entriesSent;
+    private long failures;
+    private String lastFailure="";
+    private long lastFailureAt;
 
     LogicalTabListDirector(EraCore plugin, SimWorldDirector world) {
         this.plugin=plugin;
@@ -49,11 +54,14 @@ final class LogicalTabListDirector {
         fakeEntityByName.clear();
     }
 
-    void showTo(Player viewer) {
+    void showTo(final Player viewer) {
         if(viewer==null || plugin.isBotIdentity(viewer.getName())) return;
-        Bukkit.getScheduler().runTaskLater(plugin,new Runnable() {
-            public void run(){syncViewer(viewer);}
-        },10L);
+        long[] delays={10L,40L,100L};
+        for(final long delay:delays) {
+            Bukkit.getScheduler().runTaskLater(plugin,new Runnable() {
+                public void run(){ if(viewer.isOnline()) syncViewer(viewer); }
+            },delay);
+        }
     }
 
     void onPhysicalJoin(Player p) {
@@ -72,7 +80,29 @@ final class LogicalTabListDirector {
     }
 
     int logicalTabCount() {
-        return world==null?0:world.allIdentityNames().size();
+        return world==null?0:world.logicalOnlineCount();
+    }
+
+    String status(Player viewer) {
+        int sent=0;
+        if(viewer!=null) {
+            Set<String> s=sentByViewer.get(viewer.getUniqueId());
+            sent=s==null?0:s.size();
+        }
+        return "logicalOnline="+logicalTabCount()+
+            " viewerSent="+sent+
+            " packets="+packetsSent+
+            " entries="+entriesSent+
+            " failures="+failures+
+            (lastFailure.isEmpty()?"":" lastFailure="+lastFailure);
+    }
+
+    void forceRefresh(Player viewer) {
+        if(viewer==null || !viewer.isOnline()) return;
+        clearViewer(viewer);
+        Bukkit.getScheduler().runTaskLater(plugin,new Runnable(){
+            public void run(){ if(viewer.isOnline()) syncViewer(viewer); }
+        },4L);
     }
 
     private void syncAll() {
@@ -95,7 +125,7 @@ final class LogicalTabListDirector {
             if(plugin.isBotIdentity(online.getName()) && world.identityDisplayName(online.getName())!=null)
                 roster.add(key(online.getName()));
         }
-        for(String name:world.allIdentityNames()) {
+        for(String name:world.logicalOnlineIdentityNames()) {
             if(roster.size()>=visible) break;
             roster.add(key(name));
         }
@@ -226,6 +256,17 @@ final class LogicalTabListDirector {
     @SuppressWarnings({"unchecked","rawtypes"})
     private void sendBatch(Player viewer,Collection<String> lowerNames,boolean add) {
         if(viewer==null || lowerNames==null || lowerNames.isEmpty()) return;
+
+        List<String> names=new ArrayList<String>(lowerNames);
+        int batchSize=Math.max(5,Math.min(40,plugin.getConfig().getInt("logical-tab.packet-batch-size",20)));
+        for(int offset=0;offset<names.size();offset+=batchSize) {
+            int end=Math.min(names.size(),offset+batchSize);
+            sendPacketChunk(viewer,names.subList(offset,end),add);
+        }
+    }
+
+    @SuppressWarnings({"unchecked","rawtypes"})
+    private void sendPacketChunk(Player viewer,List<String> lowerNames,boolean add) {
         try {
             Class<?> epClass=Class.forName("net.minecraft.server.v1_8_R3.EntityPlayer");
             Class<?> actionClass=Class.forName("net.minecraft.server.v1_8_R3.PacketPlayOutPlayerInfo$EnumPlayerInfoAction");
@@ -234,22 +275,33 @@ final class LogicalTabListDirector {
             List<Object> entities=new ArrayList<Object>();
             for(String lowerName:lowerNames) entities.add(fakeEntity(lowerName));
 
-            Object arr=Array.newInstance(epClass,entities.size());
-            for(int i=0;i<entities.size();i++) Array.set(arr,i,entities.get(i));
-
             Class<?> packetClass=Class.forName("net.minecraft.server.v1_8_R3.PacketPlayOutPlayerInfo");
-            Constructor<?> ctor=packetClass.getConstructor(actionClass,arr.getClass());
-            Object packet=ctor.newInstance(action,arr);
+            Object packet;
+            try {
+                // 1.8.8 exposes an Iterable<EntityPlayer> constructor. This is
+                // less brittle than reflecting the varargs array signature.
+                Constructor<?> ctor=packetClass.getConstructor(actionClass,Iterable.class);
+                packet=ctor.newInstance(action,entities);
+            } catch(NoSuchMethodException noIterable) {
+                Object arr=Array.newInstance(epClass,entities.size());
+                for(int i=0;i<entities.size();i++) Array.set(arr,i,entities.get(i));
+                Constructor<?> ctor=packetClass.getConstructor(actionClass,arr.getClass());
+                packet=ctor.newInstance(action,arr);
+            }
 
             Object handle=viewer.getClass().getMethod("getHandle").invoke(viewer);
             Field connection=handle.getClass().getField("playerConnection");
             Object pc=connection.get(handle);
-
             Class<?> packetBase=Class.forName("net.minecraft.server.v1_8_R3.Packet");
             pc.getClass().getMethod("sendPacket",packetBase).invoke(pc,packet);
+            packetsSent++;
+            entriesSent+=lowerNames.size();
         } catch(Throwable t) {
-            if(add) plugin.getLogger().warning("Logical tab batch failed for "+lowerNames.size()+
-                " identities: "+t.getClass().getSimpleName()+": "+t.getMessage());
+            failures++;
+            lastFailure=t.getClass().getSimpleName()+": "+String.valueOf(t.getMessage());
+            lastFailureAt=System.currentTimeMillis();
+            if(add) plugin.getLogger().warning("Logical tab packet failed for "+lowerNames.size()+
+                " identities: "+lastFailure);
         }
     }
 

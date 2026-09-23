@@ -107,7 +107,7 @@ final class HcfTerrainDirector implements Listener {
 
         // Event/portal pads are level where players fight, then merge smoothly
         // back into surrounding terrain.
-        int ko=plugin.getConfig().getInt("map-layout.koth-offset",650);
+        int ko=plugin.getConfig().getInt("map-layout.koth-offset",500);
         y=flattenPad(y,base,x,z, ko,-ko,175,235);
         y=flattenPad(y,base,x,z,-ko,-ko,175,235);
         y=flattenPad(y,base,x,z, ko, ko,175,235);
@@ -191,7 +191,7 @@ final class HcfTerrainDirector implements Listener {
         double spawn=Math.sqrt((double)x*x+(double)z*z);
         if(spawn<285+margin) return false;
 
-        int ko=plugin.getConfig().getInt("map-layout.koth-offset",650);
+        int ko=plugin.getConfig().getInt("map-layout.koth-offset",500);
         if(near(x,z, ko,-ko,245+margin)||near(x,z,-ko,-ko,245+margin)||
            near(x,z, ko, ko,245+margin)||near(x,z,-ko, ko,245+margin)) return false;
 

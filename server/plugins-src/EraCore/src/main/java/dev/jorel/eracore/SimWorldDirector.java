@@ -16,6 +16,13 @@ import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.FileReader;
 import java.io.FileWriter;
+import java.io.FilenameFilter;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.util.zip.GZIPOutputStream;
 import java.text.DecimalFormat;
 import java.util.*;
 import java.util.regex.Matcher;
@@ -585,6 +592,7 @@ final class SimWorldDirector {
     }
 
     private void reconcileVisiblePhysicalBase() {
+        if(!plugin.productionWorldReady()) return;
         if(!plugin.getConfig().getBoolean("base-builder.lazy-materialization",true)) return;
         if(plugin.simBaseQueuedOperations()>0) return;
 
@@ -683,6 +691,9 @@ final class SimWorldDirector {
         data.set(b+".decisiveness",p.decisiveness);
         data.set(b+".wealth-tier",p.wealthTier);
         data.set(b+".archetype",p.archetype);
+        HcfBasePlan plan=HcfBasePlan.of(f.name,f.baseX,f.baseY,f.baseZ,p);
+        data.set(b+".primary-family",plan.primaryFamilyName());
+        data.set(b+".secondary-family",plan.secondaryFamilyName());
         data.set(b+".storage-tier",f.storageTier);
         data.set(b+".nether-portal",f.netherPortal);
         data.set(b+".end-portal",f.endPortal);
@@ -3176,12 +3187,8 @@ final class SimWorldDirector {
         SimFaction f = p.faction.isEmpty() ? null : factions.get(key(p.faction));
 
         if (f != null) {
-            if (f.recoveryMode) return new ChatEvent(p.name, rng.nextBoolean() ? "we are regening dtr" : "staying in base till dtr regens");
-            if (f.stage == Stage.SCOUT_CLAIM) return new ChatEvent(p.name, "looking for a spot to claim");
-            if (f.stage == Stage.GATHER_STARTER && "miner".equals(p.role)) return new ChatEvent(p.name, "mining for the base rn");
-            if (f.stage == Stage.BREWER && !f.brewer) return new ChatEvent(p.name, "buying redstone stuff for an auto brewer");
-            if (f.stage == Stage.GEARING && f.p4Sets < Math.min(2, f.members.size())) return new ChatEvent(p.name, "buying prot books msg me");
-            if (f.stage == Stage.PVP_READY && rng.nextBoolean()) return new ChatEvent(p.name, "who is at spawn");
+            ChatEvent contextual=contextualFactionChat(p,f);
+            if(contextual!=null) return contextual;
         } else {
             String solo=soloActionFor(p);
             if("solo_loot".equals(solo)) {
@@ -3198,8 +3205,153 @@ final class SimWorldDirector {
             }
         }
 
-        String[] neutral = {"gg","anyone at spawn","who has pearls","who wants ally","selling stuff msg me","lol","need levels","who is outside","need pots","who has p2"};
+        String[] neutral = {
+            "gg","anyone at spawn","who has pearls","who wants ally","lol","need levels",
+            "who is outside","need pots","anyone end","who is nether","where is everyone",
+            "who is selling glass","any road fights","anyone need a miner","who has wart",
+            "just got out of spawn","that was close lol","who is contesting koth","need a few diamonds",
+            "any factions looking for one","who is selling pearls","spawn is dead rn","spawn is active rn",
+            "might go farm for a bit","need xp","who wants to roam"
+        };
         return new ChatEvent(p.name, neutral[rng.nextInt(neutral.length)]);
+    }
+
+    private ChatEvent contextualFactionChat(SimPlayer p,SimFaction f) {
+        if(p==null || f==null) return null;
+
+        String event=plugin.activeHcfEventSummary();
+        boolean activeEvent=event!=null && !event.isEmpty() && !"No active event".equalsIgnoreCase(event);
+        String rival=strongestRival(f.name);
+        String dir=claimDirection(f.baseX,f.baseZ);
+
+        if(f.recoveryMode) {
+            String[] x={
+                "we are regening dtr dont ask us to roam",
+                "staying in base for a bit",
+                "not leaving till our dtr is back",
+                "we need to stop feeding rn",
+                "just farming and waiting on dtr",
+                "everyone chill we are low dtr"
+            };
+            return new ChatEvent(p.name,x[rng.nextInt(x.length)]);
+        }
+
+        switch(f.stage) {
+            case RECRUITING: {
+                String need=factionNeedText(f);
+                if(need.isEmpty()) {
+                    String[] x={"our roster is almost set","think we are good on members","still sorting roles"};
+                    return new ChatEvent(p.name,x[rng.nextInt(x.length)]);
+                }
+                String[] lead={"need a ","looking for a ","still need a ","who mains "};
+                return new ChatEvent(p.name,lead[rng.nextInt(lead.length)]+need+(rng.nextBoolean()?" msg me":""));
+            }
+            case SCOUT_CLAIM: {
+                String[] x={
+                    "looking for a claim "+dir+" of spawn",
+                    "road claims are going fast",
+                    "trying to get a decent claim before they are all gone",
+                    "checking "+dir+" side for a claim",
+                    "dont take the spot we are looking at lol",
+                    "need a claim that isnt right on top of everyone"
+                };
+                return new ChatEvent(p.name,x[rng.nextInt(x.length)]);
+            }
+            case GATHER_STARTER: {
+                List<String> needs=new ArrayList<String>();
+                if(f.wood<80) needs.add("wood");
+                if(f.stone<300) needs.add("stone");
+                if(f.iron<25) needs.add("iron");
+                if(f.glass<120) needs.add("glass");
+                String need=needs.isEmpty()?"mats":needs.get(rng.nextInt(needs.size()));
+                if("miner".equals(p.preferredJob)) {
+                    String[] x={"still mining for the base","getting "+need+" rn","need a little more "+need,"im underground getting mats"};
+                    return new ChatEvent(p.name,x[rng.nextInt(x.length)]);
+                }
+                String[] x={"need "+need+" for our base","someone bring "+need+" back","we are getting starter mats","claim is down now we need blocks"};
+                return new ChatEvent(p.name,x[rng.nextInt(x.length)]);
+            }
+            case BUILD_STARTER: {
+                String[] x={
+                    "finishing our dropdown rn",
+                    "base shell is going up",
+                    "doing storage after this",
+                    "we are still building dont door camp us yet lol",
+                    "working on the bottom of the base",
+                    "need more glass for the top",
+                    "base is almost usable"
+                };
+                return new ChatEvent(p.name,x[rng.nextInt(x.length)]);
+            }
+            case ECONOMY: {
+                if("farmer".equals(p.preferredJob)) {
+                    String[] x={"cane farm is finally decent","farming cane for money","expanding the farm rn","cane prices better be worth this"};
+                    return new ChatEvent(p.name,x[rng.nextInt(x.length)]);
+                }
+                if("miner".equals(p.preferredJob)) {
+                    String[] x={"going back mining for diamonds","need more iron for sets","might go ore mountain","mining while they finish the base"};
+                    return new ChatEvent(p.name,x[rng.nextInt(x.length)]);
+                }
+                String[] x={"trying to get our balance up","selling extra mats msg me","we need money for pots","getting the economy going"};
+                return new ChatEvent(p.name,x[rng.nextInt(x.length)]);
+            }
+            case BREWER: {
+                List<String> needs=new ArrayList<String>();
+                if(f.healPots<20) needs.add("heals");
+                if(f.speedPots<10) needs.add("speed");
+                if(f.pearls<12) needs.add("pearls");
+                String need=needs.isEmpty()?"pots":needs.get(rng.nextInt(needs.size()));
+                String[] x={
+                    "brewer is running now",
+                    "need "+need+" before we roam",
+                    "who is selling wart",
+                    "need glowstone msg me",
+                    "making pots for everyone rn",
+                    "refill room is finally getting stocked"
+                };
+                return new ChatEvent(p.name,x[rng.nextInt(x.length)]);
+            }
+            case GEARING: {
+                String[] x={
+                    "finishing sets then we are out",
+                    "need pearls before we roam",
+                    "who is selling p1 pieces",
+                    "need a few more heals",
+                    "getting bard and archer sets ready",
+                    "almost geared enough to fight"
+                };
+                return new ChatEvent(p.name,x[rng.nextInt(x.length)]);
+            }
+            case PVP_READY: {
+                if(activeEvent && rng.nextInt(100)<42) {
+                    String[] x={"who is going koth","anyone contesting the event","we might pull up to koth","how many are at koth","who is controlling rn"};
+                    return new ChatEvent(p.name,x[rng.nextInt(x.length)]);
+                }
+                if(!rival.isEmpty() && rivalryScore(f.name,rival)>=25 && rng.nextInt(100)<34) {
+                    String[] x={"where is "+rival,rival+" come spawn","we keep seeing "+rival+" everywhere","if "+rival+" is out we are fighting them"};
+                    return new ChatEvent(p.name,x[rng.nextInt(x.length)]);
+                }
+                if(p.combatClass==CombatClass.ARCHER) {
+                    String[] x={"need a diamond with me then ill go spawn","who is roaming i can archer","going out with bow"};
+                    return new ChatEvent(p.name,x[rng.nextInt(x.length)]);
+                }
+                if(p.combatClass==CombatClass.BARD) {
+                    String[] x={"who needs bard","im refilling bard items","not going out alone on bard lol"};
+                    return new ChatEvent(p.name,x[rng.nextInt(x.length)]);
+                }
+                String[] x={
+                    "who is outside spawn","any factions roaming","might go end","we are heading road",
+                    "who wants to fight","anyone at "+dir+" road","we got sets now come fight","looking for pvp"
+                };
+                return new ChatEvent(p.name,x[rng.nextInt(x.length)]);
+            }
+        }
+        return null;
+    }
+
+    private String claimDirection(int x,int z) {
+        if(Math.abs(x)>=Math.abs(z)) return x>=0?"east":"west";
+        return z>=0?"south":"north";
     }
 
     void onHumanPublicChat(Player human, String message) {
@@ -3242,7 +3394,8 @@ final class SimWorldDirector {
             final String speakerName=human.getName();
             final String rawMessage=message;
 
-            boolean dispatched=aiChat.request("public",speakerName,respondent.name,
+            boolean useAi=shouldUseAiForPublicChat(rawMessage,respondent,speakerName,fallback);
+            boolean dispatched=useAi && aiChat.request("public",speakerName,respondent.name,
                 semanticContext(respondent,speakerName),rawMessage,new AiChatBridge.Handler() {
                     public void complete(AiChatBridge.AiReply ai) {
                         String reply=ai!=null?ai.text:fallback;
@@ -3289,6 +3442,31 @@ final class SimWorldDirector {
             if (fighter != null) enqueue(fighter.name, fighter.skill >= 80 ? "im down" : "give me a min", true);
         }
 
+    }
+
+    private boolean shouldUseAiForPublicChat(String message,SimPlayer responder,String speaker,String fallback) {
+        if(!plugin.getConfig().getBoolean("sim-chat.ai-direct-human-only",true)) return true;
+        String m=message==null?"":message.toLowerCase(Locale.ENGLISH).trim();
+        if(m.isEmpty()) return false;
+
+        // Local deterministic intent logic handles the high-volume HCF language:
+        // recruiting, DTR, location, PvP, economy, base progress, greetings and
+        // quick reactions. AI is reserved for genuinely open-ended conversation.
+        if(responder!=null && m.contains(responder.name.toLowerCase(Locale.ENGLISH))) return true;
+        if(m.startsWith("why ") || m.contains("what do you think") || m.contains("what you think") ||
+           m.contains("how do you") || m.contains("how would you") || m.contains("remember when") ||
+           m.contains("what happened") || m.contains("tell me about") || m.contains("you remember")) return true;
+
+        int words=m.split("\\s+").length;
+        if(words>=12 && (m.endsWith("?") || m.contains("because") || m.contains("think"))) return true;
+
+        // If the local brain already has a valid answer, prefer it. This is the
+        // primary AI-usage reduction path.
+        if(fallback!=null && !fallback.trim().isEmpty()) return false;
+
+        SocialEdge e=responder==null?null:relationship(responder.name,speaker,false);
+        if(e!=null && e.lastInteraction>0L && words>=7 && rng.nextInt(100)<30) return true;
+        return false;
     }
 
     private boolean isConfiguredOwner(String name) {
@@ -3354,7 +3532,8 @@ final class SimWorldDirector {
 
         if(!rel.memories.isEmpty()) {
             b.append("; durableMemories=");
-            int skipMem=Math.max(0,rel.memories.size()-6),mi=0;
+            int memoryTake=Math.max(2,Math.min(16,plugin.getConfig().getInt("memory.chat-relationship-memories",10)));
+            int skipMem=Math.max(0,rel.memories.size()-memoryTake),mi=0;
             for(String memory:rel.memories) {
                 if(mi++<skipMem) continue;
                 b.append("[").append(memory.replace(';',',')).append("]");
@@ -3373,6 +3552,10 @@ final class SimWorldDirector {
             }
         }
         return b.toString();
+    }
+
+    String aiChatBudgetStatus() {
+        return aiChat==null?"unavailable":aiChat.budgetStatus();
     }
 
     boolean requestPrivateAi(final Player human,final String simName,final String text) {
@@ -3431,6 +3614,67 @@ final class SimWorldDirector {
         w.newLine();
     }
 
+    private File coldArchiveDir() {
+        String configured=plugin.getConfig().getString("memory.cold-archive-directory","");
+        File dir=null;
+        if(configured!=null && !configured.trim().isEmpty()) {
+            dir=new File(configured.trim());
+        } else {
+            try {
+                File pluginsDir=plugin.getDataFolder().getParentFile();
+                File serverRoot=pluginsDir==null?null:pluginsDir.getParentFile();
+                File pointer=serverRoot==null?null:new File(serverRoot,"cold-storage-root.txt");
+                if(pointer!=null && pointer.isFile()) {
+                    BufferedReader in=new BufferedReader(new InputStreamReader(new FileInputStream(pointer),"UTF-8"));
+                    try {
+                        String root=in.readLine();
+                        if(root!=null && !root.trim().isEmpty())
+                            dir=new File(new File(root.trim()),"memory-archive");
+                    } finally { in.close(); }
+                }
+            } catch(Exception e) {
+                plugin.getLogger().warning("Could not read cold-storage-root.txt for memory archive: "+e.getMessage());
+            }
+        }
+        if(dir==null) dir=new File(plugin.getDataFolder(),"memory-archive");
+        if(!dir.exists()) dir.mkdirs();
+        return dir;
+    }
+
+    private void archiveColdShard(File source) throws IOException {
+        if(source==null || !source.isFile() || source.length()<=0L) return;
+        File dir=coldArchiveDir();
+        String name="memory-events-"+System.currentTimeMillis()+".log.gz";
+        File out=new File(dir,name);
+        InputStream in=new FileInputStream(source);
+        OutputStream gz=new GZIPOutputStream(new FileOutputStream(out));
+        try {
+            byte[] buf=new byte[32768];
+            int n;
+            while((n=in.read(buf))>0) gz.write(buf,0,n);
+        } finally {
+            try{in.close();}catch(Exception ignored){}
+            try{gz.close();}catch(Exception ignored){}
+        }
+        pruneColdShards(dir);
+        plugin.getLogger().info("Archived cold actor memory shard "+out.getAbsolutePath()+
+            " bytes="+out.length());
+    }
+
+    private void pruneColdShards(File dir) {
+        File[] files=dir.listFiles(new FilenameFilter(){
+            public boolean accept(File d,String name){
+                return name.startsWith("memory-events-") && name.endsWith(".log.gz");
+            }
+        });
+        if(files==null) return;
+        Arrays.sort(files,new Comparator<File>(){
+            public int compare(File a,File b){return Long.compare(a.lastModified(),b.lastModified());}
+        });
+        int max=Math.max(4,Math.min(256,plugin.getConfig().getInt("memory.cold-max-shards",48)));
+        for(int i=0;i<files.length-max;i++) files[i].delete();
+    }
+
     private void compactMemoryArchive() {
         if(!memoryFile.getParentFile().exists()) memoryFile.getParentFile().mkdirs();
         File tmp=new File(memoryFile.getParentFile(),"memory-events.compact.tmp");
@@ -3441,8 +3685,11 @@ final class SimWorldDirector {
             w.close();
 
             if(bak.exists()) bak.delete();
-            if(memoryFile.exists() && !memoryFile.renameTo(bak))
-                throw new IOException("could not stage old archive");
+            if(memoryFile.exists()) {
+                archiveColdShard(memoryFile);
+                if(!memoryFile.renameTo(bak))
+                    throw new IOException("could not stage old archive");
+            }
             if(!tmp.renameTo(memoryFile)) {
                 if(bak.exists()) bak.renameTo(memoryFile);
                 throw new IOException("could not install compact archive");
@@ -3577,7 +3824,8 @@ final class SimWorldDirector {
 
     private String historyContextFor(SimPlayer p) {
         String faction=p==null?"":p.faction;
-        List<HistoryEvent> xs=relevantHistory(p==null?"":p.name,faction,12);
+        int max=Math.max(3,Math.min(24,plugin.getConfig().getInt("memory.chat-history-events",12)));
+        List<HistoryEvent> xs=relevantHistory(p==null?"":p.name,faction,max);
         if(xs.isEmpty()) return "";
         StringBuilder b=new StringBuilder();
         for(HistoryEvent e:xs) {
@@ -3914,6 +4162,14 @@ final class SimWorldDirector {
         s.recentKiller = recentKiller;
         s.recentVictim = recentVictim;
 
+        SocialEdge edge=relationship(responder.name,speaker,true);
+        s.affinity=edge.affinity;
+        s.trust=edge.trust;
+        s.respect=edge.respect;
+        s.grudge=edge.grudge;
+        s.rememberedFact=memoryHintFor(responder,speaker);
+        s.hasHistory=!s.rememberedFact.isEmpty() || edge.lastInteraction>0L;
+
         SimPlayer speakerSim = players.get(key(speaker));
         if (speakerSim != null) s.speakerFaction = speakerSim.faction == null ? "" : speakerSim.faction;
 
@@ -3935,6 +4191,27 @@ final class SimWorldDirector {
         }
 
         return s;
+    }
+
+    private String memoryHintFor(SimPlayer responder,String speaker) {
+        if(responder==null) return "";
+        String faction=responder.faction==null?"":responder.faction;
+        Iterator<HistoryEvent> it=communityHistory.descendingIterator();
+        int scanned=0;
+        while(it.hasNext() && scanned++<300) {
+            HistoryEvent e=it.next();
+            boolean responderIn=false,speakerIn=false;
+            for(String p:e.people) {
+                if(p.equalsIgnoreCase(responder.name)) responderIn=true;
+                if(speaker!=null && p.equalsIgnoreCase(speaker)) speakerIn=true;
+            }
+            boolean factionEvent=!faction.isEmpty() && faction.equalsIgnoreCase(e.faction);
+            if((responderIn && speakerIn) || (speakerIn && factionEvent) ||
+               (responderIn && e.importance>=6)) return e.summary;
+        }
+        SocialEdge edge=relationship(responder.name,speaker,false);
+        if(edge!=null && !edge.memories.isEmpty()) return edge.memories.peekLast();
+        return "";
     }
 
     private String factionNeedText(SimFaction f) {
@@ -4298,6 +4575,13 @@ final class SimWorldDirector {
         return n;
     }
 
+    List<String> logicalOnlineIdentityNames() {
+        List<String> out=new ArrayList<String>();
+        for(SimPlayer p:players.values()) if(p.logicalOnline) out.add(p.name);
+        Collections.sort(out,String.CASE_INSENSITIVE_ORDER);
+        return out;
+    }
+
     private Collection<SimPlayer> logicallyOnlinePlayers() {
         List<SimPlayer> out=new ArrayList<SimPlayer>();
         for(SimPlayer p:players.values()) if(p.logicalOnline) out.add(p);
@@ -4470,6 +4754,15 @@ final class SimWorldDirector {
     private void tick() {
         sotwTicks++;
         updateLogicalSessionsAndGoals();
+
+        // During a fresh SOTW physical map build, identities may be logically
+        // online and chat, but claims/economy/base/event strategy must wait for
+        // the authoritative geometry to exist.
+        if(!plugin.productionWorldReady()) {
+            if(sotwTicks%4L==0L) save();
+            return;
+        }
+
         communityTick();
         formationTick();
         applyCreatorFactionSpecializations();
@@ -7281,7 +7574,14 @@ final class SimWorldDirector {
             int[] raw = chooseBasePoint(f);
             int x = alignChunkCenter(raw[0]);
             int z = alignChunkCenter(raw[1]);
-            int[] eval = plugin.evaluateSimBaseSite(x,z,terrainRadius); // medianY, relief, liquid samples
+            int[] eval;
+            if(plugin.getConfig().getBoolean("terrain.normalize-new-chunks",false)) {
+                eval=plugin.evaluateSimBaseSite(x,z,terrainRadius); // medianY, relief, liquid samples
+            } else {
+                // Canonical production map is flat. Abstract claim scouting must
+                // not synchronously generate distant chunks just to rediscover Y63.
+                eval=new int[]{plugin.getConfig().getInt("map.surface-y",63),0,0};
+            }
 
             int minY = Math.max(50, plugin.getConfig().getInt("sim-world.min-base-y", 50));
             int maxY = Math.min(110, plugin.getConfig().getInt("sim-world.max-base-y", 110));
@@ -7325,9 +7625,9 @@ final class SimWorldDirector {
 
     private int baseTerrainRadius(SimFaction f) {
         HcfBasePlan.Profile p=baseProfile(f.name);
-        int members=Math.max(1,p.members);
-        int r=18+members;
-        if("fall_trap".equalsIgnoreCase(f.trapPreset)) r=Math.max(r,22);
+        HcfBasePlan plan=HcfBasePlan.of(f.name,f.baseX,f.baseY,f.baseZ,p);
+        int r=plan.surfacePadRadius();
+        if("fall_trap".equalsIgnoreCase(f.trapPreset)) r=Math.max(r,24);
         return r;
     }
 
@@ -7383,8 +7683,29 @@ final class SimWorldDirector {
             };
         }
 
+        String archetype=f.archetype==null?"BALANCED":f.archetype.toUpperCase(Locale.ENGLISH);
+        boolean roadHungry="PVP".equals(archetype) || f.powerFaction ||
+            ("TRAPPER".equals(archetype) && rng.nextInt(100)<45);
+
+        if(roadHungry && rng.nextInt(100)<72) {
+            // Valuable road-adjacent claim: close enough for fast KOTH/spawn
+            // routes, but offset far enough to keep the road itself open.
+            int road=rng.nextInt(4);
+            int along=420+rng.nextInt(720);
+            int lateral=(rng.nextBoolean()?1:-1)*(105+rng.nextInt(145));
+            int x,z;
+            if(road==0){x=lateral;z=-along;}
+            else if(road==1){x=lateral;z=along;}
+            else if(road==2){x=-along;z=lateral;}
+            else{x=along;z=lateral;}
+            return new int[]{spawn.getBlockX()+x,spawn.getBlockZ()+z};
+        }
+
+        int minRadius="ECONOMY".equals(archetype)||"UNDERDOG".equals(archetype)?850:650;
+        int maxRadius="ECONOMY".equals(archetype)||"UNDERDOG".equals(archetype)?1325:1250;
+        // Creator status itself deliberately does not improve land value.
         double angle = rng.nextDouble() * Math.PI * 2.0;
-        int radius = creatorLed ? 500 + rng.nextInt(350) : 650 + rng.nextInt(650);
+        int radius=minRadius+rng.nextInt(Math.max(1,maxRadius-minRadius+1));
         return new int[]{
             spawn.getBlockX() + (int)Math.round(Math.cos(angle) * radius),
             spawn.getBlockZ() + (int)Math.round(Math.sin(angle) * radius)

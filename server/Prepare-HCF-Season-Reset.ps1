@@ -41,7 +41,22 @@ if (Test-Path $serverProperties) {
 }
 
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$archiveRoot = Join-Path $ServerRoot ('world-archives\SOTW-' + $stamp)
+
+# Optional spare-SSD archive root written by the production installer.
+$coldRootFile = Join-Path $ServerRoot 'cold-storage-root.txt'
+$archiveBase = Join-Path $ServerRoot 'world-archives'
+if (Test-Path $coldRootFile) {
+    $candidate = (Get-Content -LiteralPath $coldRootFile -Raw).Trim()
+    if ($candidate) {
+        $drive = Split-Path -Qualifier $candidate
+        if ($drive -and (Test-Path $drive)) {
+            $archiveBase = Join-Path $candidate 'world-archives'
+            Write-Host ('[SOTW] Using cold-storage archive root: ' + $archiveBase) -ForegroundColor Cyan
+        }
+    }
+}
+
+$archiveRoot = Join-Path $archiveBase ('SOTW-' + $stamp)
 New-Item -ItemType Directory -Path $archiveRoot -Force | Out-Null
 
 $worlds = @(
@@ -60,21 +75,39 @@ foreach ($worldName in $worlds) {
     Move-Item -LiteralPath $source -Destination $destination
 }
 
-# Remove transient physical/event indices. Long-term player identity/rank/history
-# files are intentionally preserved.
+# Remove transient physical/event indices. Long-term identity/rank/history files
+# are intentionally preserved.
 $era = Join-Path $ServerRoot 'plugins\EraCore'
 foreach ($name in @('claims-v2.yml','events.yml','combat-hot.yml')) {
     $path = Join-Path $era $name
     if (Test-Path $path) { Remove-Item -LiteralPath $path -Force }
 }
 
-# Force the compositor and terrain migrations to run in the newly generated map.
+function Set-YamlScalar {
+    param(
+        [string]$Text,
+        [string]$Key,
+        [string]$Value,
+        [int]$Occurrence = 1
+    )
+    $pattern = '(?m)^(\s*' + [regex]::Escape($Key) + ':\s*).+$'
+    $matches = [regex]::Matches($Text,$pattern)
+    if ($matches.Count -lt $Occurrence) { return $Text }
+    $m = $matches[$Occurrence-1]
+    return $Text.Substring(0,$m.Index) + $m.Groups[1].Value + $Value + $Text.Substring($m.Index+$m.Length)
+}
+
+# A full reset requests the staged production pipeline. Structures are built
+# first, resources second, then the map is marked READY.
 $config = Join-Path $era 'config.yml'
 if (Test-Path $config) {
     $text = Get-Content -LiteralPath $config -Raw
-    $text = [regex]::Replace($text, '(?m)^(\s*auto-bootstrap:\s*).+$', '${1}true', 1)
-    $text = [regex]::Replace($text, '(?m)^(\s*complete:\s*).+$', '${1}false', 1)
-    $text = [regex]::Replace($text, '(?m)^(\s*warzone-smoothing-version:\s*).+$', '${1}0', 1)
+    $text = Set-YamlScalar $text 'auto-bootstrap' 'true' 1
+    $text = Set-YamlScalar $text 'complete' 'false' 1
+    $text = Set-YamlScalar $text 'structures-complete' 'false' 1
+    $text = Set-YamlScalar $text 'active' 'true' 1
+    $text = Set-YamlScalar $text 'complete' 'false' 2
+    $text = Set-YamlScalar $text 'resources-complete' 'false' 1
     Set-Content -LiteralPath $config -Value $text -Encoding UTF8
 }
 
@@ -83,12 +116,17 @@ $simulation = Join-Path $era 'simulation.yml'
 if (Test-Path $simulation) {
     $text = Get-Content -LiteralPath $simulation -Raw
     if ($text -match '(?m)^\s*terrain-repair-version:\s*\d+\s*$') {
-        $text = [regex]::Replace($text, '(?m)^(\s*terrain-repair-version:\s*)\d+\s*$', '${1}0')
+        $text = [regex]::Replace(
+            $text,
+            '(?m)^(\s*terrain-repair-version:\s*)\d+\s*$',
+            { param($m) $m.Groups[1].Value + '0' },
+            1
+        )
     }
     Set-Content -LiteralPath $simulation -Value $text -Encoding UTF8
 }
 
 Remove-Item -LiteralPath $marker -Force
-Write-Host '[SOTW] Physical map reset complete. Starting a fresh generated map now.' -ForegroundColor Green
+Write-Host '[SOTW] Physical map reset complete. Staged v2 production build will resume automatically.' -ForegroundColor Green
 Write-Host '[SOTW] Donor ranks and long-term AI memory were preserved; factions/economy were reset before shutdown.'
 exit 0

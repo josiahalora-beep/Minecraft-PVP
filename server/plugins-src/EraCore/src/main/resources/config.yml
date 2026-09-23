@@ -71,16 +71,14 @@ metrics:
 creator-tag:
   enabled: true
   minimum-donor-level: 0
-  head-prefix: '&c[Yt] &f'
-  chat-prefix: '&c[Yt] '
+  head-prefix: '&c[YT] &f'
+  chat-prefix: '&c[YT] &r'
+  # Marcel / Stimp / Stimpypvp are aliases of the same creator identity.
+  # Only one simulated player is seeded so the same person never appears twice.
   creators:
     - Stimpy
-    - Stimp
-    - Stimpypvp
-    - Marcel
     - PainfulPvP
     - lolitsalex
-    - loolitsalex
     - Skimpy
 
 ai-chat:
@@ -108,53 +106,35 @@ sim-chat:
   fan-reaction-cooldown-seconds: 180
   max-fan-reactions: 1
   roster:
+    - Vexon
+    - Mints
+    - Zyro
+    - Riven
+    - Axion
+    - Finesse
+    - Deceive
+    - Jettison
+    - Shanked
+    - Reborn
+    - Ghosted
+    - Beamed
+    - PurpleDino
     - xRico
-    - SethPvP
+    - xSavage
     - iTzMason
     - FrostyHD
-    - NateMC
-    - PurpleDino
-    - xNova
-    - CamPvP
-    - iHackLite
-    - Jettison
-    - MasonHD
     - ClutchKid
-    - xRekt
-    - RyanPvP
-    - HoaxMC
-    - Kinq
-    - Axion
-    - PandaPvP
-    - VerzideFan
-    - Toxxic
-    - BreezyMC
-    - RektByPing
-    - Cxdy
-    - LlamaPvP
-    - Beamed
-    - ZiblackingFan
-    - RedstoneKid
-    - CreeperHD
-    - iTzJordan
-    - NightPvP
     - Stimpy
-    - Stimpypvp
-    - Marcel
     - PainfulPvP
     - lolitsalex
     - Skimpy
   fans:
     - xRico
-    - SethPvP
     - PurpleDino
-    - CamPvP
-    - MasonHD
     - ClutchKid
-    - RyanPvP
-    - PandaPvP
-    - BreezyMC
-    - NightPvP
+    - Waffle
+    - Grape
+    - Nightfall
   lines:
     - 'anyone selling p2'
     - 'who has pearls'
@@ -306,8 +286,7 @@ worker-pool:
   anchor-bodies: 20
   prestige-bodies: 10
   creator-bodies:
-    - Stimpypvp
-    - Marcel
+    - Stimpy
     - PainfulPvP
     - lolitsalex
     - Skimpy

@@ -507,6 +507,13 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         getConfig().set("resources.ore-mountain.enabled",true);
         getConfig().set("resources.ore-mountain.base-y",63);
         getConfig().set("resources.ore-mountain.world-border",320);
+        getConfig().set("infrastructure.duel-world","duel_arena");
+        getConfig().set("infrastructure.duel-world-border",192);
+        getConfig().set("infrastructure.duel-center-x",0);
+        getConfig().set("infrastructure.duel-center-z",0);
+        getConfig().set("infrastructure.duel-floor-y",64);
+        getConfig().set("infrastructure.external-dimension-schematics",true);
+        getConfig().set("infrastructure.blocks-per-tick",120);
 
         // Large persistent memory with small retrieval windows. This increases
         // continuity without increasing per-chat prompt size or tick work.

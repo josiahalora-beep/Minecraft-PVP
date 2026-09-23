@@ -1183,6 +1183,10 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     boolean simWorldProtectionActive() {
         return simWorld != null && simWorld.sotwProtectionActive();
     }
+
+    void restartSotwProtectionClock() {
+        if(simWorld!=null) simWorld.restartSotwProtectionClock();
+    }
     boolean productionWorldReady() {
         boolean active=getConfig().getBoolean("map.auto-bootstrap",false) ||
             getConfig().getBoolean("world-build.active",false);

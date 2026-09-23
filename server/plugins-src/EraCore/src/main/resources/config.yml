@@ -324,6 +324,14 @@ spawn:
   external-schematic: true
   preset: kraken
   road-exit-distance: 122
+  # Functional blocks are placed into existing Kraken floor space only.
+  # No crate court, beacon, signs or generated spawn geometry.
+  crates:
+    y: 67
+    z: 36
+    vote-x: -8
+    donor-x: 0
+    koth-x: 8
 
 spawn-build-protection:
   radius: 190

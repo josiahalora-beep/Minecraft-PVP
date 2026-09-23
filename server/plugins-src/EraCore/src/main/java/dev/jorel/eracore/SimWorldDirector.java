@@ -3247,7 +3247,8 @@ final class SimWorldDirector {
             final String speakerName=human.getName();
             final String rawMessage=message;
 
-            boolean dispatched=aiChat.request("public",speakerName,respondent.name,
+            boolean useAi=shouldUseAiForPublicChat(rawMessage,respondent,speakerName,fallback);
+            boolean dispatched=useAi && aiChat.request("public",speakerName,respondent.name,
                 semanticContext(respondent,speakerName),rawMessage,new AiChatBridge.Handler() {
                     public void complete(AiChatBridge.AiReply ai) {
                         String reply=ai!=null?ai.text:fallback;
@@ -3294,6 +3295,31 @@ final class SimWorldDirector {
             if (fighter != null) enqueue(fighter.name, fighter.skill >= 80 ? "im down" : "give me a min", true);
         }
 
+    }
+
+    private boolean shouldUseAiForPublicChat(String message,SimPlayer responder,String speaker,String fallback) {
+        if(!plugin.getConfig().getBoolean("sim-chat.ai-direct-human-only",true)) return true;
+        String m=message==null?"":message.toLowerCase(Locale.ENGLISH).trim();
+        if(m.isEmpty()) return false;
+
+        // Local deterministic intent logic handles the high-volume HCF language:
+        // recruiting, DTR, location, PvP, economy, base progress, greetings and
+        // quick reactions. AI is reserved for genuinely open-ended conversation.
+        if(responder!=null && m.contains(responder.name.toLowerCase(Locale.ENGLISH))) return true;
+        if(m.startsWith("why ") || m.contains("what do you think") || m.contains("what you think") ||
+           m.contains("how do you") || m.contains("how would you") || m.contains("remember when") ||
+           m.contains("what happened") || m.contains("tell me about") || m.contains("you remember")) return true;
+
+        int words=m.split("\\s+").length;
+        if(words>=12 && (m.endsWith("?") || m.contains("because") || m.contains("think"))) return true;
+
+        // If the local brain already has a valid answer, prefer it. This is the
+        // primary AI-usage reduction path.
+        if(fallback!=null && !fallback.trim().isEmpty()) return false;
+
+        SocialEdge e=responder==null?null:relationship(responder.name,speaker,false);
+        if(e!=null && e.lastInteraction>0L && words>=7 && rng.nextInt(100)<30) return true;
+        return false;
     }
 
     private boolean isConfiguredOwner(String name) {

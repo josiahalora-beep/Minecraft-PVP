@@ -184,9 +184,25 @@ final class HcfTerrainDirector implements Listener {
         double wx=x+warpX,wz=z+warpZ;
 
         double relief=
-            valueNoise(wx,wz,300.0,0xA311L)*amp*0.52+
-            valueNoise(wx,wz,155.0,0xB827L)*amp*0.31+
-            valueNoise(wx,wz,82.0,0xC593L)*amp*0.17;
+            valueNoise(wx,wz,360.0,0xA311L)*amp*0.38+
+            valueNoise(wx,wz,185.0,0xB827L)*amp*0.24+
+            valueNoise(wx,wz,96.0,0xC593L)*amp*0.11;
+
+        // Broad curving ridge spines plus independently warped bowls give the
+        // wilderness a readable topographic silhouette without mountains.
+        double ridgeField=1.0-Math.abs(valueNoise(wx+71.0,wz-43.0,245.0,0xF117L));
+        double ridgeShape=Math.max(0.0,(ridgeField-0.50)/0.50);
+        ridgeShape*=ridgeShape;
+        double ridgeMask=0.55+0.45*valueNoise(wx,wz,520.0,0xF211L);
+        double ridge=ridgeShape*ridgeMask*amp*0.42;
+
+        double bowlField=1.0-Math.abs(valueNoise(wx-123.0,wz+89.0,305.0,0xF331L));
+        double bowlShape=Math.max(0.0,(bowlField-0.57)/0.43);
+        bowlShape*=bowlShape;
+        double bowlMask=0.50+0.50*valueNoise(wx+80.0,wz-130.0,610.0,0xF441L);
+        double bowl=bowlShape*bowlMask*amp*0.30;
+
+        relief += ridge - bowl;
 
         // Regional identity remains subtle; geometry never becomes a mountain.
         if(x<-650 && z>160) relief+=1.0+valueNoise(x,z,210.0,0xD114L)*0.9;

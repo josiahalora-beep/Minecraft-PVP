@@ -102,6 +102,64 @@ final class HcfBaseBuilder {
         ensureRunner();
     }
 
+    void lazyMaterialize(String faction,String preset,String trapPreset,int cx,int y,int cz,
+                         int storageTier,boolean brewer,boolean netherPortal,boolean endPortal) {
+        if(faction==null || faction.trim().isEmpty()) return;
+        World world=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
+        if(world==null) return;
+
+        HcfBasePlan plan=planFor(faction,cx,y,cz);
+        if(!footprintLoaded(faction,preset,cx,y,cz)) return;
+
+        String k=faction.toLowerCase(java.util.Locale.ENGLISH);
+        completed.remove("base:"+k);
+        completed.remove("surface:"+k);
+        maintenanceRebuild=true;
+
+        // Queue-only recovery path: never scan remote terrain synchronously.
+        // Original base-site selection already required low relief, so a fixed
+        // six-block support slab is enough to seal shallow holes without
+        // getHighestBlockYAt() sweeps.
+        clearBrokenBaseVolumes(world,plan);
+        int pad=plan.surfacePadRadius();
+        for(int x=plan.cx-pad;x<=plan.cx+pad;x++) {
+            for(int z=plan.cz-pad;z<=plan.cz+pad;z++) {
+                for(int yy=Math.max(2,plan.surfaceY-6);yy<plan.surfaceY;yy++) {
+                    Material m=yy>=plan.surfaceY-3?Material.DIRT:Material.STONE;
+                    queue.add(new Op(world,x,yy,z,m));
+                }
+                queue.add(new Op(world,x,plan.surfaceY,z,Material.GRASS));
+            }
+        }
+
+        buildSurfaceShell(world,plan,true);
+        buildUndergroundCore(world,plan);
+        sealCriticalEnvelope(world,plan,true);
+
+        int tier=Math.max(1,Math.min(3,storageTier));
+        if(tier>1) buildStorageTier(world,plan,tier);
+        if(brewer) {
+            buildUndergroundBrewer(world,plan);
+            plugin.registerAutoBrewerSite(faction,preset,cx,y,cz);
+        }
+        if(netherPortal) buildFactionPortal(world,plan,"nether");
+        if(endPortal) buildFactionPortal(world,plan,"end");
+
+        if ("fall_trap".equalsIgnoreCase(trapPreset)) buildFallTrap(world,cx,y,cz);
+        else if ("fence_gate_bow".equalsIgnoreCase(trapPreset)) buildFenceGateBowTrap(world,cx,y,cz);
+        else if ("drop_chute".equalsIgnoreCase(trapPreset)) buildDropChute(world,cx,y,cz);
+
+        completed.add("base:"+k);
+        completed.add("surface:"+k);
+        completed.add("farm:"+k);
+        completed.add("storage:"+k+":"+tier);
+        if(brewer) completed.add("brewer:"+k);
+        if(netherPortal) completed.add("portal:"+k+":nether");
+        if(endPortal) completed.add("portal:"+k+":end");
+
+        ensureRunner();
+    }
+
     private void clearBrokenBaseVolumes(World w,HcfBasePlan p) {
         // Surface: remove every previous generated shell/wing/roof in this
         // faction work pad. Grade itself is rebuilt by prepareTerrainPad().
@@ -368,6 +426,37 @@ final class HcfBaseBuilder {
                m==Material.LAVA || m==Material.STATIONARY_LAVA;
     }
 
+    boolean footprintLoaded(String faction,String preset,int cx,int y,int cz) {
+        World w=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
+        if(w==null) return false;
+        HcfBasePlan p=planFor(faction,cx,y,cz);
+        int r=p.surfacePadRadius();
+        int[][] pts={{p.cx,p.cz},{p.cx-r,p.cz-r},{p.cx-r,p.cz+r},{p.cx+r,p.cz-r},{p.cx+r,p.cz+r}};
+        for(int[] pt:pts) if(!w.isChunkLoaded(pt[0]>>4,pt[1]>>4)) return false;
+        return true;
+    }
+
+    boolean looksMaterialized(String faction,String preset,int cx,int y,int cz) {
+        World w=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
+        if(w==null) return false;
+        HcfBasePlan p=planFor(faction,cx,y,cz);
+        if(!footprintLoaded(faction,preset,cx,y,cz)) return false;
+
+        int[][] pts={
+            {p.cx-p.surfaceHalfX,p.surfaceY+2,p.cz},
+            {p.cx+p.surfaceHalfX,p.surfaceY+2,p.cz},
+            {p.cx,p.surfaceY+2,p.cz-p.surfaceHalfZ},
+            {p.cx,p.surfaceY+2,p.cz+p.surfaceHalfZ},
+            {p.cx,p.surfaceY+p.surfaceHeight,p.cz}
+        };
+        int present=0;
+        for(int[] pt:pts) {
+            Material m=w.getBlockAt(pt[0],pt[1],pt[2]).getType();
+            if(m!=Material.AIR && !isVegetationOrLiquid(m)) present++;
+        }
+        return present>=2;
+    }
+
     int queuedOperations() {
         return queue.size();
     }
@@ -387,13 +476,24 @@ final class HcfBaseBuilder {
         if (runner != null) return;
         runner = new BukkitRunnable() {
             public void run() {
-                int configured = Math.max(20, plugin.getConfig().getInt("base-builder.blocks-per-tick", 120));
-                int visible=Math.max(4,plugin.getConfig().getInt("base-builder.visible-blocks-per-tick",16));
-                int rebuild=Math.max(configured,plugin.getConfig().getInt("base-builder.rebuild-blocks-per-tick",600));
-                // Forced repair/rematerialization is maintenance, not roleplay.
-                // It must finish promptly even if the owner joins to inspect it.
-                int budget = maintenanceRebuild ? rebuild :
-                    (plugin.hasHumanOnline() ? Math.min(configured,visible) : configured);
+                int configured = Math.max(8, plugin.getConfig().getInt("base-builder.blocks-per-tick", 80));
+                int visible=Math.max(4,plugin.getConfig().getInt("base-builder.visible-blocks-per-tick",12));
+                int rebuild=Math.max(8,plugin.getConfig().getInt("base-builder.rebuild-blocks-per-tick",32));
+
+                int normal=plugin.hasHumanOnline()?Math.min(configured,visible):configured;
+                int budget=maintenanceRebuild?Math.min(rebuild,plugin.hasHumanOnline()?24:40):normal;
+
+                // Construction is cosmetic/physical projection, never allowed to
+                // compete with combat or normal movement. Pause or taper instantly
+                // as p95 tick time rises.
+                double p95=plugin.currentP95Mspt();
+                if(p95>=45.0) budget=0;
+                else if(p95>=32.0) budget=Math.min(budget,2);
+                else if(p95>=26.0) budget=Math.min(budget,4);
+                else if(p95>=22.0) budget=Math.min(budget,8);
+                else if(p95>=18.0) budget=Math.min(budget,12);
+
+                if(budget<=0) return;
                 int n = 0;
                 while (n < budget && !queue.isEmpty()) {
                     Op op = queue.poll();
@@ -403,8 +503,20 @@ final class HcfBaseBuilder {
                     long now=System.currentTimeMillis();
                     if(op.deferUntil>now) {
                         queue.add(op);
-                        break;
+                        n++;
+                        continue;
                     }
+
+                    // Never force-load/generate an offscreen chunk just to finish
+                    // cosmetic projection. The operation waits until a real/HOT
+                    // player naturally has this base area loaded.
+                    if(!op.world.isChunkLoaded(op.x>>4,op.z>>4)) {
+                        op.deferUntil=now+5000L;
+                        queue.add(op);
+                        n++;
+                        continue;
+                    }
+
                     if (op.material != Material.AIR && intersectsPlayer(op)) {
                         // Never turn a temporary player collision into a permanent
                         // hole. Millenaire-style builders wait until the work site

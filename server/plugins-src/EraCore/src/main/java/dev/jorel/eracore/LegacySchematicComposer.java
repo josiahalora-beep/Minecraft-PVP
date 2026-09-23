@@ -175,6 +175,32 @@ final class LegacySchematicComposer {
         );
     }
 
+    boolean queueSpawnOnly() {
+        if(busy()) return false;
+        String name=asset("spawn","krakenhcf.schematic");
+        if(!hasAsset(name)) {
+            plugin.getLogger().warning("Cannot compose Kraken spawn; missing asset: "+name);
+            return false;
+        }
+        try {
+            World over=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
+            if(over==null) return false;
+            Schematic spawn=load(name);
+            jobs.add(new PasteJob("Kraken Spawn",over,spawn,0,
+                plugin.getConfig().getInt("world-composer.spawn-anchor-y",66),0,true));
+            productionRun=false;
+            ensureRunner();
+            plugin.getLogger().info("[composer] queued spawn-only reset asset="+name+
+                " volume="+spawn.volume());
+            return true;
+        } catch(Exception e) {
+            jobs.clear();
+            plugin.getLogger().severe("Could not queue Kraken spawn reset: "+e.getMessage());
+            e.printStackTrace();
+            return false;
+        }
+    }
+
     boolean queueProductionMap(HcfMapDirector map) {
         if(busy()) return false;
         List<String> missing=missingProductionAssets();
@@ -250,7 +276,16 @@ final class LegacySchematicComposer {
         if(runner!=null) return;
         runner=Bukkit.getScheduler().runTaskTimer(plugin,new Runnable() {
             public void run() {
-                int budget=Math.max(50,Math.min(1000,plugin.getConfig().getInt("world-composer.blocks-per-tick",350)));
+                int configured=Math.max(20,Math.min(500,plugin.getConfig().getInt("world-composer.blocks-per-tick",120)));
+                int budget=configured;
+                double p95=plugin.currentP95Mspt();
+                if(p95>=45.0) budget=0;
+                else if(p95>=32.0) budget=Math.min(budget,10);
+                else if(p95>=26.0) budget=Math.min(budget,20);
+                else if(p95>=22.0) budget=Math.min(budget,40);
+                else if(p95>=18.0) budget=Math.min(budget,70);
+                if(budget<=0) return;
+
                 while(budget>0 && !jobs.isEmpty()) {
                     Job j=jobs.peekFirst();
                     long before=j.processed;

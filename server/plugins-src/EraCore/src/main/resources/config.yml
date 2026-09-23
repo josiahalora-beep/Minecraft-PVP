@@ -251,12 +251,16 @@ terrain:
   custom-decoration: true
 
 base-builder:
-  blocks-per-tick: 120
-  visible-blocks-per-tick: 16
-  rebuild-blocks-per-tick: 600
+  blocks-per-tick: 80
+  visible-blocks-per-tick: 12
+  rebuild-blocks-per-tick: 32
   interval-ticks: 2
   gate-auto-close-ticks: 30
   repair-existing-on-start: false
+  lazy-materialization: true
+  lazy-check-ticks: 100
+  lazy-radius: 144
+  lazy-max-p95-mspt: 18.0
 
 combat-director:
   hot-body-budget: 12

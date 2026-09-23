@@ -2225,7 +2225,18 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             p.sendMessage(color(ok?"&aProduction map composition queued.":"&cCould not queue production map. Check console/assets."));
             return true;
         }
-        p.sendMessage("/mapcompose <status|start>");
+        if("spawn".equals(sub)) {
+            if(schematicComposer.busy()) {
+                p.sendMessage(color("&cA composition pass is already running."));
+                return true;
+            }
+            boolean ok=schematicComposer.queueSpawnOnly();
+            p.sendMessage(color(ok
+                ?"&aKraken spawn-only reset queued. &7Use &f/mapcompose status &7until busy=false, then stand at the intended center/facing and run &f/spawnpreset kraken center&7."
+                :"&cCould not queue Kraken spawn. Check console and map-assets/krakenhcf.schematic."));
+            return true;
+        }
+        p.sendMessage("/mapcompose <status|start|spawn>");
         return true;
     }
 
@@ -2381,6 +2392,18 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         return true;
     }
 
+    boolean simBaseFootprintLoaded(String faction,String preset,int x,int y,int z) {
+        return hcfBaseBuilder!=null && hcfBaseBuilder.footprintLoaded(faction,preset,x,y,z);
+    }
+
+    boolean simBaseLooksMaterialized(String faction,String preset,int x,int y,int z) {
+        return hcfBaseBuilder!=null && hcfBaseBuilder.looksMaterialized(faction,preset,x,y,z);
+    }
+
+    int simBaseQueuedOperations() {
+        return hcfBaseBuilder==null?0:hcfBaseBuilder.queuedOperations();
+    }
+
     void queueSimBaseBuild(String faction, String preset, String trapPreset, int x, int y, int z) {
         if (hcfBaseBuilder != null) hcfBaseBuilder.queueBase(faction,preset,trapPreset,x,y,z);
     }
@@ -2392,6 +2415,14 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             hcfBaseBuilder.forceRebuild(faction,preset,trapPreset,x,y,z,
                 storageTier,brewer,netherPortal,endPortal);
     }
+    void lazyMaterializeSimBase(String faction,String preset,String trapPreset,
+                                int x,int y,int z,int storageTier,
+                                boolean brewer,boolean netherPortal,boolean endPortal) {
+        if(hcfBaseBuilder!=null)
+            hcfBaseBuilder.lazyMaterialize(faction,preset,trapPreset,x,y,z,
+                storageTier,brewer,netherPortal,endPortal);
+    }
+
 
     void queueSimSurfaceBuild(String faction,String preset,int x,int y,int z) {
         if(hcfBaseBuilder!=null) hcfBaseBuilder.queueSurfaceStarter(faction,preset,x,y,z);
@@ -4112,6 +4143,11 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         } catch(Throwable t) {
             getLogger().warning("Could not hook native tick-time array; /simprobe will report n/a: "+t.getMessage());
         }
+    }
+
+    double currentP95Mspt() {
+        double[] s=tickStats();
+        return s==null?-1.0:s[1];
     }
 
     private double[] tickStats() {

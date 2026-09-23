@@ -5,7 +5,7 @@ commands:
   rank:
     usage: /rank set <player> <rank>
   kit:
-    usage: /kit <starter [diamond|bard|archer|miner|rogue]|member|basic|silver|gold|platinum>
+    usage: /kit <diamond|bard|archer|miner|rogue|youtube>
   kits:
     usage: /kits
   balance:
@@ -23,8 +23,11 @@ commands:
     usage: /vote [odds]
   keys:
     usage: /keys
+  redeem:
+    description: Redeem crate keys from anywhere, including faction home
+    usage: /redeem [all|vote|donor|koth]
   crates:
-    usage: /crates [vote|donor]
+    usage: /crates [vote|donor|koth]
   stats:
     usage: /stats [player]
   history:

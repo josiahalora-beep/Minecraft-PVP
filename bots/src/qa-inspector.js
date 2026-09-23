@@ -77,7 +77,7 @@ if(!viewer.setVersion(bot.version)) throw new Error('Unsupported viewer version 
 const worldView=new WorldView(bot.world,viewDistance,bot.entity.position)
 viewer.listen(worldView)
 await worldView.init(bot.entity.position)
-worldView.listenToBot(bot)
+if(process.env.QA_RENDER_ENTITIES==='1') worldView.listenToBot(bot)
 
 async function waitRender(){
   try{
@@ -107,7 +107,7 @@ async function teleport(x,y,z){
     throw new Error('Teleport verification failed target='+tx+','+ty+','+tz+' actual='+
       (p?p.x.toFixed(2)+','+p.y.toFixed(2)+','+p.z.toFixed(2):'missing'))
   }
-  worldView.updatePosition(bot.entity.position)
+  await worldView.updatePosition(bot.entity.position,true)
 }
 async function aim(x,y,z){
   try{await bot.lookAt(new Vec3(Number(x),Number(y),Number(z)),true)}catch{}
@@ -117,7 +117,7 @@ async function capture(name,position,target,settleMs=3200){
   await teleport(position.x,position.y,position.z)
   await aim(target.x,target.y,target.z)
   await sleep(settleMs)
-  worldView.updatePosition(bot.entity.position)
+  await worldView.updatePosition(bot.entity.position,true)
   await waitRender()
 
   const actual={
@@ -152,18 +152,20 @@ await sleep(800)
 bot.chat('/simprobe')
 await sleep(800)
 
-const fixed=[
-  ['spawn-overview',{x:0,y:105,z:-45},{x:0,y:64,z:0}],
-  ['spawn-ground',{x:0,y:67,z:-78},{x:0,y:68,z:0}],
-  ['north-road-transition',{x:78,y:92,z:-390},{x:0,y:63,z:-500}],
-  ['wilderness-low-relief',{x:360,y:92,z:-690},{x:360,y:63,z:-760}],
-  ['koth2',{x:500,y:108,z:-555},{x:500,y:64,z:-500}],
-  ['endstyle-koth',{x:-500,y:108,z:-555},{x:-500,y:64,z:-500}],
-  ['egypt-koth',{x:500,y:108,z:445},{x:500,y:64,z:500}],
-  ['koth-forty',{x:-500,y:108,z:445},{x:-500,y:64,z:500}],
-  ['conquest',{x:0,y:118,z:1060},{x:0,y:64,z:1125}]
-]
-for(const [name,pos,target] of fixed) await capture(name,pos,target,3800)
+if(process.env.QA_BASES_ONLY!=='1') {
+  const fixed=[
+    ['spawn-overview',{x:0,y:105,z:-45},{x:0,y:64,z:0}],
+    ['spawn-ground',{x:0,y:67,z:-78},{x:0,y:68,z:0}],
+    ['north-road-transition',{x:78,y:92,z:-390},{x:0,y:63,z:-500}],
+    ['wilderness-low-relief',{x:360,y:92,z:-690},{x:360,y:63,z:-760}],
+    ['koth2',{x:500,y:108,z:-555},{x:500,y:64,z:-500}],
+    ['endstyle-koth',{x:-500,y:108,z:-555},{x:-500,y:64,z:-500}],
+    ['egypt-koth',{x:500,y:108,z:445},{x:500,y:64,z:500}],
+    ['koth-forty',{x:-500,y:108,z:445},{x:-500,y:64,z:500}],
+    ['conquest',{x:0,y:118,z:1060},{x:0,y:64,z:1125}]
+  ]
+  for(const [name,pos,target] of fixed) await capture(name,pos,target,3800)
+}
 
 let bases=await waitUntil(()=>{
   const b=factionBases()
@@ -174,8 +176,10 @@ manifest.discoveredBases=bases
 writeManifest()
 
 if(bases.length){
-  bot.chat('/baserebuild all')
-  await sleep(25000)
+  if(process.env.QA_REBUILD_BASES!=='0') {
+    bot.chat('/baserebuild all')
+    await sleep(Number(process.env.QA_REBUILD_WAIT_MS||25000))
+  }
   for(const b of bases.slice(0,6)){
     await capture('base-'+b.name+'-overview',
       {x:b.x,y:b.y+34,z:b.z-18},{x:b.x,y:b.y+2,z:b.z},6000)

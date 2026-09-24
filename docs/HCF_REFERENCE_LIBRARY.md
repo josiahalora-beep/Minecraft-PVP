@@ -31,6 +31,7 @@ This directory/document is the canonical provenance index for user-supplied HCF 
 | `HCF Base Schematic.schematic` | schematic extracted from MODS + Schematic.zip | `d6c34a67345de7c31a83411ddf3f9a99d137086e181240b16f8e271346a62906` | Mods are not required; only the schematic is a design reference |
 | `HCF Base Design [Solo].zip` | complete Minecraft world save | `46ccaee57557b744b7114a8701fb9c6ac7cfc73d94e68b2c593fa48580a1d46a` | Preserve as world-context reference; inspect in Phase 2 |
 | `base design by Fazh & Custah.download` | Internet shortcut | `e2c16903b4427163b97a7e7e047e4bae919778c454d5a0e7606fcb552d717df8` | Points to the Fazh & Custah schematic source; fetch/verify in Phase 2 |
+| `All Base Showcases.rar` | bundled base showcase reference archive | `4b564df8aab573cea2d9955d965b06bb2cb413e06e1f46feb46c541a12fe2aec` | User-supplied additional Phase-2 base references; preserve untouched until Phase 2 |
 
 ## Phase-1 terrain audit
 

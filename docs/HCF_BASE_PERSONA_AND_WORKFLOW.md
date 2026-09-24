@@ -34,7 +34,7 @@ Surface architecture is a mouth, not a building. Use a narrow entrance that wide
 Irregular, lopsided and rock-led. Use an organic/elliptical footprint with deterministic wobble, rough stone/moss/cobble language and strong terrain integration. Avoid rectangular roof reads. The entrance should feel cut into existing rock rather than attached to a bunker.
 
 ## Concealment silhouette
-Use irregular stepped shoulders rather than continuous rings. A 5-3-2-1 run-length rhythm is a useful starting grammar around entrances and exposed edges. Break symmetry, vary height, follow the site's uphill/downhill bias, and keep the actual walking corridor open.
+Use irregular stepped shoulders rather than continuous rings. A 5-3-2-1 run-length rhythm is a useful starting grammar around entrances and exposed edges. Break symmetry, vary height, and follow the site's measured uphill/downhill direction. The uphill side is authoritative; a rear-side preference is only a minor readability adjustment. Keep the actual walking corridor open.
 
 Roof cover targets are family-relative: Tunnel and Cave should hide most roof area; Redemption should hide a majority/large portion; Base-HCF roughly half; ModernHCF less. Finish/concealment tier can adjust these values modestly but must not erase family identity.
 
@@ -82,3 +82,13 @@ Production installer pinning happens only after this generation compiles and pas
 | Cave | lopsided noisy ellipse with a rock lobe | low irregular rock roof | cut-in fracture/mouth | strongest rock/earth integration |
 
 The shell compiler, integrity sealer and materialization probe must all use the same family mask, real boundary positions and per-column roof profile. A mask-only change followed by a generic rectangular gate/roof/seal pass is not complete family geometry.
+
+
+## Visual integration lock v14
+The production family compiler passed the independent five-family visual QA at the v14 terrain generation. Future base changes must preserve these constraints:
+- concealment follows real uphill terrain instead of surrounding the shell with a radial berm;
+- the structural grade is limited to the shell and a tiny irregular apron;
+- Cave/Tunnel rely primarily on roof burial and existing terrain relief;
+- Base-HCF/Redemption remain visibly player-built but must sit into the site rather than on a lawn;
+- ModernHCF may expose more architecture, but surrounding terrain must remain canonical rather than planed flat;
+- the QA showcase must render all five primary families and fail if coverage is incomplete.

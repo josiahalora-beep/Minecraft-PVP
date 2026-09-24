@@ -459,6 +459,10 @@ if (Test-Path (Join-Path $Server 'plugins-src\EraCore')) {
 if (Test-Path $ResetScript) {
     Copy-Item -LiteralPath $ResetScript -Destination (Join-Path $backupRoot 'Prepare-HCF-Season-Reset.ps1') -Force
 }
+$serverPropertiesBackup = Join-Path $Server 'server.properties'
+if (Test-Path $serverPropertiesBackup) {
+    Copy-Item -LiteralPath $serverPropertiesBackup -Destination (Join-Path $backupRoot 'server.properties') -Force
+}
 $startBat = Join-Path $Server 'start-server.bat'
 if (Test-Path $startBat) {
     Copy-Item -LiteralPath $startBat -Destination (Join-Path $backupRoot 'start-server.bat') -Force
@@ -500,6 +504,9 @@ if (Test-Path $Source) {
 }
 if (Test-Path (Join-Path $Here 'Prepare-HCF-Season-Reset.ps1')) {
     Copy-Item -LiteralPath (Join-Path $Here 'Prepare-HCF-Season-Reset.ps1') -Destination (Join-Path $Server 'Prepare-HCF-Season-Reset.ps1') -Force
+}
+if (Test-Path (Join-Path $Here 'server.properties')) {
+    Copy-Item -LiteralPath (Join-Path $Here 'server.properties') -Destination (Join-Path $Server 'server.properties') -Force
 }
 if (Test-Path (Join-Path $Here 'start-server.bat')) {
     Copy-Item -LiteralPath (Join-Path $Here 'start-server.bat') -Destination (Join-Path $Server 'start-server.bat') -Force

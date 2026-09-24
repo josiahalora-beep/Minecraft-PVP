@@ -482,15 +482,33 @@ final class HcfBaseBuilder {
 
     private int gradedSurfaceY(HcfBasePlan p,int x,int z,int blendReach) {
         double d=warpedMaskDistance(p,x,z,blendReach+2);
-        double start=1.35;
-        double raw=d<=start?0.0:(d-start)/Math.max(1.0,blendReach-start);
-        double t=Math.max(0.0,Math.min(1.0,raw));
-        t=t*t*(3.0-2.0*t);
-
         int natural=plugin.canonicalHcfTerrainY(x,z);
         int delta=Math.max(-6,Math.min(6,natural-p.surfaceY));
-        return Math.max(p.surfaceY-6,Math.min(p.surfaceY+6,
-            (int)Math.round(p.surfaceY+delta*t)));
+
+        if(d<=1.35) return p.surfaceY;
+
+        // A mathematically smooth radial interpolation still rounds into obvious
+        // Minecraft contour rings. Player terraforming is less uniform: a tiny
+        // work apron stays level, then the amount of natural grade we preserve
+        // expands in irregular bands that follow the canonical terrain itself.
+        // Broad low-frequency jitter bends the transition boundaries without
+        // introducing per-block height noise or Mineflayer snag points.
+        double side=(x-p.cx)/(double)Math.max(4,p.surfaceHalfX+blendReach);
+        double back=(z-p.cz)/(double)Math.max(4,p.surfaceHalfZ+blendReach);
+        double jitter=(cradleBroadNoise(x,z,p.seed+1601)-0.5)*2.8+
+            (cradleNoise(x,z,p.seed+1609)-0.5)*0.75+
+            back*0.75+p.utilitySide*side*0.35;
+        double edge=d+jitter;
+
+        int allowed;
+        if(edge<=3.2) allowed=1;
+        else if(edge<=5.8) allowed=2;
+        else if(edge<=8.5) allowed=3;
+        else if(edge<=11.2) allowed=4;
+        else allowed=6;
+
+        int kept=Math.max(-allowed,Math.min(allowed,delta));
+        return p.surfaceY+kept;
     }
 
     private double warpedMaskDistance(HcfBasePlan p,int x,int z,int limit) {
@@ -1505,6 +1523,18 @@ final class HcfBaseBuilder {
         return ab+(cd-ab)*fz;
     }
 
+    private double cradleBroadNoise(int x,int z,int seed) {
+        int cell=13;
+        int gx=Math.floorDiv(x,cell),gz=Math.floorDiv(z,cell);
+        double fx=(Math.floorMod(x,cell))/(double)cell;
+        double fz=(Math.floorMod(z,cell))/(double)cell;
+        fx=fx*fx*(3.0-2.0*fx); fz=fz*fz*(3.0-2.0*fz);
+        double a=cradleLattice(gx,gz,seed),b=cradleLattice(gx+1,gz,seed);
+        double c0=cradleLattice(gx,gz+1,seed),d0=cradleLattice(gx+1,gz+1,seed);
+        double ab=a+(b-a)*fx,cd=c0+(d0-c0)*fx;
+        return ab+(cd-ab)*fz;
+    }
+
     private double cradleLattice(int x,int z,int seed) {
         long h=((long)x*341873128712L)^((long)z*132897987541L)^((long)seed*31L);
         h^=(h>>>21); h*=0x9E3779B97F4A7C15L; h^=(h>>>29);
@@ -1531,11 +1561,14 @@ final class HcfBaseBuilder {
         int gateX=p.cx+p.frontGateOffset;
         int frontZ=surfaceFrontZ(p,gateX);
 
-        // Concealment comes mostly from embedding + roof cover. Large radial
-        // earth berms made every family look like a generated mound.
-        double familyFactor=p.primaryFamily==3?1.00:(p.primaryFamily==4?1.06:
-            (p.primaryFamily==2?0.55:(p.primaryFamily==0?0.84:0.74)));
-        double tierFactor=conceal==0?0.76:(conceal==1?0.91:1.04);
+        // v12: concealment is a set of broken terrain-following lobes, not a
+        // continuous berm. The old all-angle falloff still looked like a
+        // procedural mound even after its contour was warped.
+        double familyFactor=p.primaryFamily==3?0.94:(p.primaryFamily==4?1.00:
+            (p.primaryFamily==2?0.46:(p.primaryFamily==0?0.74:0.64)));
+        double tierFactor=conceal==0?0.72:(conceal==1?0.90:1.02);
+        double patchThreshold=p.primaryFamily==3?0.43:(p.primaryFamily==4?0.40:
+            (p.primaryFamily==2?0.68:(p.primaryFamily==0?0.51:0.58)));
 
         int outerX=p.surfaceHalfX+extra;
         int outerZ=p.surfaceHalfZ+extra;
@@ -1545,53 +1578,61 @@ final class HcfBaseBuilder {
                 double dist=warpedMaskDistance(p,x,z,extra+2);
                 if(dist<=0.0 || dist>extra+1.0) continue;
 
-                // Bent, unmarked approach corridor: walkable but never a road
-                // or direct visual arrow from wilderness to the primary gate.
+                // Bent, unmarked approach corridor remains completely walkable.
                 if(z<=frontZ && z>=frontZ-approach) {
                     int depth=frontZ-z;
                     int bend=p.utilitySide*(depth/4);
                     if(Math.abs(x-(gateX+bend))<=2) continue;
                 }
 
-                double ft=(dist-0.65)/Math.max(1.0,extra+0.35-0.65);
+                double ft=(dist-0.55)/Math.max(1.0,extra+0.45-0.55);
                 ft=Math.max(0.0,Math.min(1.0,ft));
                 ft=ft*ft*(3.0-2.0*ft);
-                double falloff=1.0-ft;
-                falloff=Math.pow(falloff,1.22);
+                double falloff=Math.pow(1.0-ft,1.34);
 
                 int naturalY=plugin.canonicalHcfTerrainY(x,z);
                 int slopeDelta=Math.max(-5,Math.min(5,naturalY-p.surfaceY));
-                double slopeBias=1.0+slopeDelta*0.055;
-                double frontBias=z<frontZ?0.58:(z>=p.cz?1.05:0.94);
-                double lateralBias=1.0+0.045*p.utilitySide*Math.signum(x-p.cx);
-                double n=0.86+cradleNoise(x,z,p.seed+271)*0.28;
+                double slopeBias=1.0+slopeDelta*0.045;
 
+                double side=(x-p.cx)/(double)Math.max(4,p.surfaceHalfX+extra);
+                double back=(z-p.cz)/(double)Math.max(4,p.surfaceHalfZ+extra);
+                double patch=0.68*cradleBroadNoise(x,z,p.seed+271)+
+                    0.32*cradleNoise(x,z,p.seed+811);
+                double coverField=patch+
+                    Math.max(0.0,back)*0.24+
+                    Math.max(0.0,p.utilitySide*side)*0.07;
+
+                // The front half should read as an entrance cut into terrain,
+                // not as a circular moat/berm. Only immediate structural support
+                // is continuous; farther cover must earn its place from a lobe.
+                if(z<p.cz) coverField-=0.16;
+                double threshold=patchThreshold+Math.max(0.0,dist-2.0)*0.025;
+                if(dist>1.45 && coverField<threshold) continue;
+
+                double frontBias=z<frontZ?0.48:(z>=p.cz?1.06:0.90);
                 double raw=maxHeight*falloff*familyFactor*tierFactor*
-                    slopeBias*frontBias*lateralBias*n;
-                int h=Math.max(0,Math.min(maxHeight+1,(int)Math.round(raw)));
+                    slopeBias*frontBias*(0.92+patch*0.16);
+                int h=Math.max(0,Math.min(maxHeight,(int)Math.round(raw)));
                 if(h<=0) continue;
 
-                // Build only the earth actually needed above the canonical
-                // graded surface. Uphill terrain can conceal the shell by itself;
-                // downhill terrain gets a small organic shoulder.
                 int groundY=gradedSurfaceY(p,x,z,extra+3);
                 int desiredTop=Math.max(groundY,p.surfaceY+h);
                 if(desiredTop<=groundY) continue;
 
                 for(int yy=groundY+1;yy<desiredTop;yy++) {
                     Material m=(yy==groundY+1 && desiredTop-groundY>=4 &&
-                        cradleNoise(x+9,z-7,p.seed+383)>0.76)?accent:fillMat;
+                        cradleNoise(x+9,z-7,p.seed+383)>0.78)?accent:fillMat;
                     queue.add(new Op(w,x,yy,z,m));
                 }
-                Material exposed=terrainSurfacePatch(topMat,fillMat,accent,x,z,p.seed);
-                queue.add(new Op(w,x,desiredTop,z,exposed));
+                queue.add(new Op(w,x,desiredTop,z,
+                    terrainSurfacePatch(topMat,fillMat,accent,x,z,p.seed)));
             }
         }
 
-        // Family-relative soil roof cover. Tunnel/Cave remain the most buried,
-        // Modern exposes its deliberate stepped roof, and the others sit between.
+        // Family-relative soil roof cover. Tunnel/Cave remain the most buried;
+        // Modern deliberately exposes its stepped roof.
         double cover=p.primaryFamily==3?0.93:(p.primaryFamily==4?0.95:
-            (p.primaryFamily==2?0.16:(p.primaryFamily==0?0.64:0.48)));
+            (p.primaryFamily==2?0.16:(p.primaryFamily==0?0.61:0.44)));
         cover=Math.min(0.98,cover+conceal*0.04+(p.finishTier>=2?0.02:-0.01));
 
         for(int x=p.cx-p.surfaceHalfX;x<=p.cx+p.surfaceHalfX;x++) {

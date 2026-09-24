@@ -553,11 +553,10 @@ final class SimWorldDirector {
         File backup=new File(source.getParentFile(),
             "simulation.yml.pre-legacy-repair-"+System.currentTimeMillis()+".bak");
         File temp=new File(source.getParentFile(),"simulation.yml.legacy-repair.tmp");
-        Pattern bad=Pattern.compile("^(\\s*):\\s*terrain-repair-version:\\s*(\\d+)\\s*$");
+        Pattern bad=Pattern.compile("^\\s*:\\s*terrain-repair-version:\\s*\\d+\\s*$");
 
         List<String> lines=new ArrayList<String>();
         int badIndex=-1;
-        String version=null;
         BufferedReader reader=null;
         try {
             reader=new BufferedReader(new InputStreamReader(new FileInputStream(source),"UTF-8"));
@@ -570,25 +569,17 @@ final class SimWorldDirector {
         }
 
         for(int i=0;i<lines.size();i++) {
-            Matcher m=bad.matcher(lines.get(i));
-            if(!m.matches()) continue;
-            if(badIndex>=0) return false; // more than one corruption: do not guess
+            if(!bad.matcher(lines.get(i)).matches()) continue;
+            if(badIndex>=0) return false; // more than one malformed marker: do not guess
             badIndex=i;
-            version=m.group(2);
         }
         if(badIndex<0) return false;
 
-        int previous=badIndex-1;
-        while(previous>=0 && lines.get(previous).trim().isEmpty()) previous--;
-        if(previous<0 || !"meta:".equals(lines.get(previous).trim())) return false;
-
-        String parent=lines.get(previous);
-        int indent=0;
-        while(indent<parent.length() && Character.isWhitespace(parent.charAt(indent))) indent++;
-        StringBuilder fixed=new StringBuilder();
-        for(int i=0;i<indent+2;i++) fixed.append(' ');
-        fixed.append("terrain-repair-version: ").append(version);
-        lines.set(badIndex,fixed.toString());
+        // The malformed line is not valid YAML under any parent. Removing only
+        // this exact historical marker is safe: a missing terrain-repair version
+        // already means version 0 everywhere in the runtime. Do not infer or
+        // rewrite any other simulation state.
+        lines.remove(badIndex);
 
         try {
             copyFileBytes(source,backup);

@@ -420,7 +420,8 @@ if ($downloadStackLauncher -notmatch 'WORKER_COORDINATOR_URL=http://127\.0\.0\.1
     throw 'Downloaded Daegon launcher chain is incomplete.'
 }
 if ($downloadCoordinator -notmatch 'server\.listen\(PORT,BIND' -or
-    $downloadCoordinator -notmatch 'worker-coordinator' -or
+    $downloadCoordinator -notmatch 'WORKER_COORDINATOR_PORT' -or
+    $downloadCoordinator -notmatch 'const nodes = new Map\(\)' -or
     $downloadBotPackage -notmatch '"coordinator"\s*:\s*"node src/worker-coordinator\.js"') {
     throw 'Downloaded worker coordinator runtime is incomplete.'
 }

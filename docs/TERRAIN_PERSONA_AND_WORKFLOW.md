@@ -53,3 +53,11 @@ A terrain pass is acceptable only when:
 - screenshots from 50–100 blocks read as terrain first and structure second for concealed families.
 
 The independent Build Viewer / QA server is the visual authority before production installer pinning. Screenshots should be taken in permanent clear daylight with enough distance to judge silhouette, not only from inside the claim.
+
+
+## Surface-mask integration v9
+Faction-site grading is footprint-relative, not bounding-box-relative. Distance to the actual family mask controls where grade is normalized and where natural relief takes back over. This is required for Cave ellipses, Tunnel spines and Modern stepped plans; a rectangular lawn around a non-rectangular shell is a failure.
+
+Concealment earthwork follows the same real footprint edge with an irregular 5-3-2-1 height rhythm, then site slope and clustered noise break the rhythm so it does not become a visible ring. Uphill/back sides may carry more mass; downhill/front sides taper sooner. Entrance corridors remain unmarked and open.
+
+Exposed cradle surfaces use coherent clustered local-palette patches at roughly 70/20/10 dominant/support/accent. The patch field must be spatially correlated; random per-block material confetti is not acceptable.

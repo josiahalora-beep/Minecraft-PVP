@@ -69,3 +69,16 @@ Wealth does not mean bigger glass walls, taller towers or brighter materials.
 Across a five-family test set, a reviewer should be able to distinguish each family from silhouette and terrain relationship without relying on block palette. Tunnel/Cave must have dramatically less exposed roof/shell than ModernHCF. Neighboring bases must not share identical berm outlines. Entrances must remain traversable by humans and Mineflayer. No base may require duplicating road, auto-step, terrain, weather or claim systems.
 
 Production installer pinning happens only after this generation compiles and passes independent visual QA.
+
+
+## Surface geometry matrix v9
+
+| Family | Footprint | Structural roof | Entrance read | Terrain relationship |
+| --- | --- | --- | --- | --- |
+| Redemption | compact core + defensive rear shoulder + recessed nose | compact raised rear core | fortified recessed mouth | majority earth shoulder, controlled stone reveal |
+| Base-HCF | broad classic octagon with one imperfect rear bite | practical single-height roof | obvious only at close range | roughly half-covered, naturally seated |
+| ModernHCF | stepped main volume + offset utility wing | one offset raised slab | clean framed access | least buried family, but never lawn-mounted |
+| Tunnel | narrow mouth widening into a long spine | low mouth, slightly higher buried spine | portal-like mouth only | strongest soil burial and side cover |
+| Cave | lopsided noisy ellipse with a rock lobe | low irregular rock roof | cut-in fracture/mouth | strongest rock/earth integration |
+
+The shell compiler, integrity sealer and materialization probe must all use the same family mask, real boundary positions and per-column roof profile. A mask-only change followed by a generic rectangular gate/roof/seal pass is not complete family geometry.

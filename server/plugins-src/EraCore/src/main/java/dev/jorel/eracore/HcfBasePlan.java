@@ -88,12 +88,14 @@ final class HcfBasePlan {
         int sz=5+((members+1)/3)+((seed/13)&1);
         int sh=3+Math.min(2,Math.max(0,this.profile.builderQuality-50)/25);
 
-        // Families now alter exposure strategy, not merely trim.
-        if(family==0) { sx=Math.max(5,sx-1); sz=Math.max(5,sz-1); }          // compact/vertical
-        else if(family==1) { sx+=1; sz+=1; }                                // classic balanced
-        else if(family==2) { sx+=2; sz+=1; sh=Math.min(5,sh+1); }           // polished but low
-        else if(family==3) { sx=Math.max(5,sx-1); sz=Math.max(5,sz-1); }     // tunnel: minimal surface
-        else if(family==4) { sx+=1; sz+=1; sh=Math.max(3,sh-1); }            // cave: terrain dominant
+        // v9 silhouette proportions: families differ before any material is
+        // placed. Tunnel is a long buried spine, Cave is broad/low, Modern is a
+        // stepped clean plan, Redemption stays compact, Base-HCF stays broad.
+        if(family==0) { sx=Math.max(5,sx-1); sz=Math.max(5,sz-1); }           // compact/vertical
+        else if(family==1) { sx+=1; sz+=1; }                                 // classic balanced
+        else if(family==2) { sx+=2; sz+=1; sh=Math.min(5,sh+1); }            // polished/stepped
+        else if(family==3) { sx=Math.max(4,sx-2); sz+=4; sh=Math.min(3,sh); } // narrow long tunnel
+        else if(family==4) { sx+=2; sz+=1; sh=Math.max(3,sh-1); }             // broad low cave
 
         this.surfaceHalfX=sx;
         this.surfaceHalfZ=sz;

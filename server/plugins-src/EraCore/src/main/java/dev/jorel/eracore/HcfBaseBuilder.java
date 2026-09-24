@@ -397,36 +397,34 @@ final class HcfBaseBuilder {
         int configuredExtra=Math.max(7,plugin.getConfig().getInt("base-builder.cradle-extra-radius",11));
         int outer=Math.max(p.terrainCradleRadius(),
             Math.max(p.surfaceHalfX,p.surfaceHalfZ)+configuredExtra);
-        int workX=p.surfaceHalfX+3;
-        int workZ=p.surfaceHalfZ+3;
+        int blendReach=configuredExtra+3;
+        Material[] sitePalette=sampleLocalPalette(w,p);
+        Material gradeTop=sitePalette[0],gradeFill=sitePalette[1];
 
+        // v9: footprint-relative terraforming. The grade follows the real family
+        // mask rather than a rectangular work box, so Cave/Tunnel/Modern sites
+        // cannot leave square lawns around non-square shells.
         for(int x=p.cx-outer;x<=p.cx+outer;x++) {
             for(int z=p.cz-outer;z<=p.cz+outer;z++) {
                 int surface=solidSurfaceY(w,x,z);
-                int ax=Math.abs(x-p.cx),az=Math.abs(z-p.cz);
-                int ex=Math.max(0,ax-workX);
-                int ez=Math.max(0,az-workZ);
-                double dist=Math.sqrt((double)ex*ex+(double)ez*ez);
-                double blendRadius=Math.max(1.0,outer-Math.max(workX,workZ));
-                double t=Math.max(0.0,Math.min(1.0,dist/blendRadius));
+                int maskDistance=surfaceDistanceFromMask(p,x,z,blendReach+2);
+                if(maskDistance>blendReach+1) continue;
+
+                double raw=(maskDistance<=2)?0.0:
+                    (maskDistance-2)/(double)Math.max(1,blendReach-2);
+                double t=Math.max(0.0,Math.min(1.0,raw));
                 t=t*t*(3.0-2.0*t);
 
-                int naturalDelta=Math.max(-5,Math.min(5,surface-p.surfaceY));
+                int naturalDelta=Math.max(-6,Math.min(6,surface-p.surfaceY));
                 int target=(int)Math.round(p.surfaceY+naturalDelta*t);
-                target=Math.max(p.surfaceY-5,Math.min(p.surfaceY+5,target));
+                target=Math.max(p.surfaceY-6,Math.min(p.surfaceY+6,target));
 
-                int shellDx=Math.max(0,ax-p.surfaceHalfX);
-                int shellDz=Math.max(0,az-p.surfaceHalfZ);
-                boolean structureWork=Math.sqrt((double)shellDx*shellDx+(double)shellDz*shellDz)<=3.25;
+                boolean structureWork=maskDistance<=3;
                 boolean elevationChange=target!=surface;
-
-                // Outside the compact cradle, preserve the generated terrain and
-                // its flora exactly. Underground rooms do not justify clearing a
-                // claim-sized square on the surface.
                 if(!structureWork && !elevationChange) continue;
 
                 int clearTop=Math.min(w.getMaxHeight()-1,
-                    Math.max(target+8,w.getHighestBlockYAt(x,z)+3));
+                    Math.max(target+10,w.getHighestBlockYAt(x,z)+3));
                 for(int yy=target+1;yy<=clearTop;yy++) {
                     Material existing=w.getBlockAt(x,yy,z).getType();
                     if(structureWork || !isVegetationOrLiquid(existing))
@@ -435,9 +433,9 @@ final class HcfBaseBuilder {
 
                 if(surface<target) {
                     for(int yy=Math.max(2,surface+1);yy<target;yy++)
-                        queue.add(new Op(w,x,yy,z,yy>=target-3?Material.DIRT:Material.STONE));
+                        queue.add(new Op(w,x,yy,z,yy>=target-3?gradeFill:Material.STONE));
                 }
-                queue.add(new Op(w,x,target,z,Material.GRASS));
+                queue.add(new Op(w,x,target,z,gradeTop));
             }
         }
     }
@@ -511,12 +509,16 @@ final class HcfBaseBuilder {
         HcfBasePlan p=planFor(faction,cx,y,cz);
         if(!footprintLoaded(faction,preset,cx,y,cz)) return false;
 
+        int frontX=p.cx+p.frontGateOffset;
+        int frontZ=surfaceFrontZ(p,frontX);
+        int rearZ=surfaceRearZ(p,p.cx);
+        int sideX=surfaceSideX(p,p.cz,p.utilitySide);
+        int centerRoof=surfaceRoofY(p,p.cx,p.cz)+1;
         int[][] pts={
-            {p.cx-p.surfaceHalfX,p.surfaceY+2,p.cz},
-            {p.cx+p.surfaceHalfX,p.surfaceY+2,p.cz},
-            {p.cx,p.surfaceY+2,p.cz-p.surfaceHalfZ},
-            {p.cx,p.surfaceY+2,p.cz+p.surfaceHalfZ},
-            {p.cx,p.surfaceY+p.surfaceHeight,p.cz}
+            {frontX,p.surfaceY+2,frontZ},
+            {p.cx,centerRoof,p.cz},
+            {p.cx,p.surfaceY+2,rearZ},
+            {sideX,p.surfaceY+2,p.cz}
         };
         int present=0;
         for(int[] pt:pts) {
@@ -951,61 +953,69 @@ final class HcfBaseBuilder {
     private void buildSurfaceShell(World w,HcfBasePlan p,boolean openTransit) {
         int minX=p.cx-p.surfaceHalfX,maxX=p.cx+p.surfaceHalfX;
         int minZ=p.cz-p.surfaceHalfZ,maxZ=p.cz+p.surfaceHalfZ;
-        int top=p.surfaceY+p.surfaceHeight;
+        int maxTop=surfaceMaxTop(p);
 
+        // v9: every family owns its footprint AND roof profile. The structural
+        // shell is still practical HCF construction, but it no longer extrudes
+        // one identical-height box over five different masks.
         for(int x=minX;x<=maxX;x++) for(int z=minZ;z<=maxZ;z++) {
             if(!surfaceInside(p,x,z)) continue;
+            int colTop=surfaceRoofY(p,x,z);
             queue.add(new Op(w,x,p.surfaceY,z,p.surfaceFloor));
 
             boolean edge=surfaceBoundary(p,x,z);
-            for(int yy=p.surfaceY+1;yy<=top;yy++) {
+            for(int yy=p.surfaceY+1;yy<=colTop;yy++) {
                 if(!edge) {
                     queue.add(new Op(w,x,yy,z,Material.AIR));
                     continue;
                 }
                 boolean cornerish=surfaceCornerLike(p,x,z);
-                boolean beam=cornerish || yy==p.surfaceY+1 || yy==top;
-                queue.add(new Op(w,x,yy,z,surfaceWallMaterial(p,x,yy,z,top,beam)));
+                boolean beam=cornerish || yy==p.surfaceY+1 || yy==colTop;
+                queue.add(new Op(w,x,yy,z,surfaceWallMaterial(p,x,yy,z,colTop,beam)));
             }
-            queue.add(new Op(w,x,top+1,z,surfaceRoofMaterial(p,x,z,edge)));
+            queue.add(new Op(w,x,colTop+1,z,surfaceRoofMaterial(p,x,z,edge)));
         }
 
-        // One primary entrance. Better-organized factions may have ONE secondary
-        // side exit, and only elite/high-IQ factions receive a rear escape.
-        // No universal four-sided gate pattern and no decorative approach road.
+        // Gates resolve against the real family boundary. Curved, stepped and
+        // tunnel masks no longer receive doors on empty bounding-box air.
         int frontX=p.cx+p.frontGateOffset;
-        bufferedGateZ(w,frontX,p.surfaceY,minZ,+1,p.surfaceFrame);
-        if(p.entrances>=2)
-            bufferedGateX(w,p.utilitySide>0?maxX:minX,p.surfaceY,p.cz,
-                p.utilitySide>0?-1:+1,p.surfaceFrame);
-        if(p.entrances>=3)
-            bufferedGateZ(w,p.cx-p.frontGateOffset,p.surfaceY,maxZ,-1,p.surfaceFrame);
+        int frontZ=surfaceFrontZ(p,frontX);
+        bufferedGateZ(w,frontX,p.surfaceY,frontZ,+1,p.surfaceFrame);
+        if(p.entrances>=2) {
+            int sideX=surfaceSideX(p,p.cz,p.utilitySide);
+            bufferedGateX(w,sideX,p.surfaceY,p.cz,p.utilitySide>0?-1:+1,p.surfaceFrame);
+        }
+        if(p.entrances>=3) {
+            int backX=p.cx-p.frontGateOffset;
+            int rearZ=surfaceRearZ(p,backX);
+            bufferedGateZ(w,backX,p.surfaceY,rearZ,-1,p.surfaceFrame);
+        }
 
         int[] d=p.anchor("drop");
         for(int x=d[0]-2;x<=d[0]+2;x++) for(int z=d[2]-2;z<=d[2]+2;z++)
             queue.add(new Op(w,x,p.surfaceY,z,
                 (Math.abs(x-d[0])==2||Math.abs(z-d[2])==2)?p.surfaceFrame:p.surfaceFloor));
 
-        buildTerrainCradle(w,p,top);
-        decorateSurfaceGrammar(w,p,top);
+        buildTerrainCradle(w,p,maxTop);
+        decorateSurfaceGrammar(w,p,maxTop);
         if(openTransit) buildVerticalTransit(w,p);
     }
 
     private void sealSurfaceEnvelope(World w,HcfBasePlan p,boolean dropdownOpen) {
-        int top=p.surfaceY+p.surfaceHeight;
         int[] d=p.anchor("drop");
 
-        // Re-assert every structural surface-floor and roof cell after all
-        // decorative/modules operations. Only the intentional dropdown may be open.
+        // Re-assert the family-shaped shell using the same per-column roof
+        // profile as initial construction. Only intentional gates/transit reopen.
         for(int x=p.cx-p.surfaceHalfX;x<=p.cx+p.surfaceHalfX;x++) {
             for(int z=p.cz-p.surfaceHalfZ;z<=p.cz+p.surfaceHalfZ;z++) {
                 if(!surfaceInside(p,x,z)) continue;
+                int colTop=surfaceRoofY(p,x,z);
                 boolean dropCell=dropdownOpen && Math.abs(x-d[0])<=1 && Math.abs(z-d[2])<=1;
                 queue.add(new Op(w,x,p.surfaceY,z,dropCell?Material.AIR:p.surfaceFloor));
 
                 boolean edge=surfaceBoundary(p,x,z);
                 if(edge) {
-                    for(int yy=p.surfaceY+1;yy<=top;yy++) {
+                    for(int yy=p.surfaceY+1;yy<=colTop;yy++) {
                         if(isBayJoinOpening(p,x,yy,z)) {
                             queue.add(new Op(w,x,yy,z,Material.AIR));
                             continue;
@@ -1015,14 +1025,13 @@ final class HcfBaseBuilder {
                             queue.add(new Op(w,x,yy,z,Material.FENCE_GATE,(byte)gateData));
                             continue;
                         }
-                        boolean beam=surfaceCornerLike(p,x,z) || yy==p.surfaceY+1 || yy==top ||
-                            ((x-(p.cx-p.surfaceHalfX))%6==0) ||
-                            ((z-(p.cz-p.surfaceHalfZ))%6==0);
-                        queue.add(new Op(w,x,yy,z,surfaceWallMaterial(p,x,yy,z,top,beam)));
+                        boolean beam=surfaceCornerLike(p,x,z) || yy==p.surfaceY+1 || yy==colTop ||
+                            ((Math.abs(x-p.cx)+Math.abs(z-p.cz)+p.seed)%7==0);
+                        queue.add(new Op(w,x,yy,z,surfaceWallMaterial(p,x,yy,z,colTop,beam)));
                     }
                 }
 
-                queue.add(new Op(w,x,top+1,z,surfaceRoofMaterial(p,x,z,edge)));
+                queue.add(new Op(w,x,colTop+1,z,surfaceRoofMaterial(p,x,z,edge)));
             }
         }
     }
@@ -1088,20 +1097,18 @@ final class HcfBaseBuilder {
 
     private int surfaceGateData(HcfBasePlan p,int x,int yy,int z) {
         if(yy<p.surfaceY+1 || yy>p.surfaceY+2) return -1;
-        int minX=p.cx-p.surfaceHalfX,maxX=p.cx+p.surfaceHalfX;
-        int minZ=p.cz-p.surfaceHalfZ,maxZ=p.cz+p.surfaceHalfZ;
 
         int frontX=p.cx+p.frontGateOffset;
-        if(z==minZ && Math.abs(x-frontX)<=1) return 0;
+        if(Math.abs(x-frontX)<=1 && z==surfaceFrontZ(p,x)) return 0;
 
-        if(p.entrances>=2) {
-            int sideX=p.utilitySide>0?maxX:minX;
-            if(x==sideX && Math.abs(z-p.cz)<=1) return 1;
+        if(p.entrances>=2 && Math.abs(z-p.cz)<=1) {
+            int sideX=surfaceSideX(p,z,p.utilitySide);
+            if(x==sideX) return 1;
         }
 
         if(p.entrances>=3) {
             int backX=p.cx-p.frontGateOffset;
-            if(z==maxZ && Math.abs(x-backX)<=1) return 0;
+            if(Math.abs(x-backX)<=1 && z==surfaceRearZ(p,x)) return 0;
         }
         return -1;
     }
@@ -1115,41 +1122,50 @@ final class HcfBaseBuilder {
         int ax=Math.abs(dx),az=Math.abs(dz);
         if(ax>p.surfaceHalfX || az>p.surfaceHalfZ) return false;
 
-        // v8: family identity starts in the footprint, not in trim. These masks
-        // deliberately remain deterministic and orthogonally navigable while
-        // breaking the old "same rectangle, different materials" silhouette.
+        // Permanent three-wide access necks keep semantic gate anchors valid
+        // even when the family mask is curved or aggressively chamfered.
+        if(dz<=-p.surfaceHalfZ+1 && Math.abs(dx-p.frontGateOffset)<=2) return true;
+        if(p.entrances>=2 && dx*p.utilitySide>=p.surfaceHalfX-1 && Math.abs(dz)<=2) return true;
+        if(p.entrances>=3 && dz>=p.surfaceHalfZ-1 && Math.abs(dx+p.frontGateOffset)<=2) return true;
+
         switch(p.primaryFamily) {
-            case 0: { // Redemption: compact clipped bunker with a recessed front.
-                int clip=3;
-                if(ax+az>p.surfaceHalfX+p.surfaceHalfZ-clip) return false;
-                int front=-p.surfaceHalfZ;
-                if(dz<=front+2 && Math.abs(dx-(p.frontGateOffset))>Math.max(4,p.surfaceHalfX-3))
-                    return false;
-                return true;
+            case 0: { // Redemption: compact core + defensive rear shoulder + recessed nose.
+                boolean core=ax<=Math.max(3,p.surfaceHalfX-2) && az<=p.surfaceHalfZ-1;
+                boolean shoulder=dz>=-1 && dx*p.utilitySide>=0 &&
+                    ax<=p.surfaceHalfX && az<=Math.max(3,p.surfaceHalfZ-3);
+                boolean nose=dz<=-p.surfaceHalfZ+3 && Math.abs(dx-p.frontGateOffset)<=4;
+                if(!(core||shoulder||nose)) return false;
+                return ax+az<=p.surfaceHalfX+p.surfaceHalfZ-2;
             }
-            case 1: { // Base-HCF: broad classic shell, asymmetric rear shoulder.
+            case 1: { // Base-HCF: broad classic shell, asymmetric rear bite.
                 if(ax+az>p.surfaceHalfX+p.surfaceHalfZ-2) return false;
                 if(dz>p.surfaceHalfZ-3 && dx*p.utilitySide<-(p.surfaceHalfX-4)) return false;
                 return true;
             }
-            case 2: { // ModernHCF: stepped/octagonal plan with one offset utility face.
-                int cut=Math.max(3,Math.min(5,Math.min(p.surfaceHalfX,p.surfaceHalfZ)/3));
-                if(ax+az>p.surfaceHalfX+p.surfaceHalfZ-cut) return false;
-                if(dx*p.utilitySide>p.surfaceHalfX-2 && az>p.surfaceHalfZ/2) return false;
-                return true;
+            case 2: { // ModernHCF: stepped main volume plus offset utility wing.
+                boolean main=ax<=p.surfaceHalfX-1 && az<=p.surfaceHalfZ-2 &&
+                    ax+az<=p.surfaceHalfX+p.surfaceHalfZ-3;
+                boolean wing=dx*p.utilitySide>=Math.max(1,p.surfaceHalfX-3) &&
+                    az<=Math.max(3,p.surfaceHalfZ-4);
+                boolean rearBar=dz>=0 && az<=p.surfaceHalfZ-1 &&
+                    ax<=Math.max(3,p.surfaceHalfX-3);
+                return main||wing||rearBar;
             }
-            case 3: { // Tunnel: long buried spine; surface mouth is intentionally narrow.
-                int mouthHalf=Math.max(4,p.surfaceHalfX/2);
-                int widen=Math.max(0,(dz+p.surfaceHalfZ)/4);
-                int allowed=Math.min(p.surfaceHalfX,mouthHalf+widen);
+            case 3: { // Tunnel: long buried spine growing from a compact mouth.
+                int depth=dz+p.surfaceHalfZ;
+                int mouthHalf=Math.max(3,p.surfaceHalfX/2);
+                int allowed=Math.min(p.surfaceHalfX,mouthHalf+Math.max(0,depth/5));
+                if(depth>p.surfaceHalfZ+p.surfaceHalfZ-3)
+                    allowed=Math.max(mouthHalf,allowed-1);
                 return ax<=allowed && dz<=p.surfaceHalfZ-1;
             }
-            case 4: { // Cave: lopsided rock chamber, intentionally non-rectilinear.
+            case 4: { // Cave: lopsided rock chamber with deterministic lobe.
                 double nx=dx/(double)Math.max(1,p.surfaceHalfX);
                 double nz=dz/(double)Math.max(1,p.surfaceHalfZ);
-                double wobble=0.10*(cradleNoise(x,z,p.seed+417)-0.5);
-                double skew=(dx*p.utilitySide>0?-0.05:0.04);
-                return nx*nx+nz*nz <= 1.0+wobble+skew;
+                double wobble=0.18*(cradleNoise(x,z,p.seed+417)-0.5);
+                double skew=(dx*p.utilitySide>0?-0.08:0.05);
+                double lobe=(dx*p.utilitySide<0 && dz>0)?0.08:0.0;
+                return nx*nx+nz*nz <= 1.0+wobble+skew+lobe;
             }
             default:
                 return p.surfaceShape!=1 || ax+az<=p.surfaceHalfX+p.surfaceHalfZ-3;
@@ -1169,6 +1185,75 @@ final class HcfBaseBuilder {
         if(!surfaceInside(p,x,z+1)) missing++;
         if(!surfaceInside(p,x,z-1)) missing++;
         return missing>=2;
+    }
+
+    private int surfaceFrontZ(HcfBasePlan p,int x) {
+        for(int z=p.cz-p.surfaceHalfZ;z<=p.cz+p.surfaceHalfZ;z++)
+            if(surfaceInside(p,x,z)) return z;
+        return p.cz-p.surfaceHalfZ;
+    }
+
+    private int surfaceRearZ(HcfBasePlan p,int x) {
+        for(int z=p.cz+p.surfaceHalfZ;z>=p.cz-p.surfaceHalfZ;z--)
+            if(surfaceInside(p,x,z)) return z;
+        return p.cz+p.surfaceHalfZ;
+    }
+
+    private int surfaceSideX(HcfBasePlan p,int z,int side) {
+        if(side>=0) {
+            for(int x=p.cx+p.surfaceHalfX;x>=p.cx-p.surfaceHalfX;x--)
+                if(surfaceInside(p,x,z)) return x;
+            return p.cx+p.surfaceHalfX;
+        }
+        for(int x=p.cx-p.surfaceHalfX;x<=p.cx+p.surfaceHalfX;x++)
+            if(surfaceInside(p,x,z)) return x;
+        return p.cx-p.surfaceHalfX;
+    }
+
+    private int surfaceRoofY(HcfBasePlan p,int x,int z) {
+        int dx=x-p.cx,dz=z-p.cz;
+        int base=p.surfaceY+p.surfaceHeight;
+        int roof=base;
+        switch(p.primaryFamily) {
+            case 0: // Redemption: raised rear core behind a lower defensive nose.
+                if(dz>=0 && Math.abs(dx)<=Math.max(2,p.surfaceHalfX/2)) roof++;
+                break;
+            case 1: // Base-HCF: practical single-height roof.
+                break;
+            case 2: // ModernHCF: one clean offset upper slab, not a universal tower.
+                if(dx*p.utilitySide>0 && dz>-(p.surfaceHalfZ/3)) roof++;
+                break;
+            case 3: // Tunnel: mouth low; buried spine rises behind it.
+                if(dz<-p.surfaceHalfZ/3) roof--;
+                break;
+            case 4: // Cave: rough low rock roof with clustered variation.
+                roof--;
+                if(cradleNoise(x,z,p.seed+733)>0.66) roof++;
+                break;
+            default:
+                break;
+        }
+        return Math.max(p.surfaceY+3,roof);
+    }
+
+    private int surfaceMaxTop(HcfBasePlan p) {
+        int max=p.surfaceY+3;
+        for(int x=p.cx-p.surfaceHalfX;x<=p.cx+p.surfaceHalfX;x++)
+            for(int z=p.cz-p.surfaceHalfZ;z<=p.cz+p.surfaceHalfZ;z++)
+                if(surfaceInside(p,x,z)) max=Math.max(max,surfaceRoofY(p,x,z));
+        return max;
+    }
+
+    private int surfaceDistanceFromMask(HcfBasePlan p,int x,int z,int limit) {
+        if(surfaceInside(p,x,z)) return 0;
+        int max=Math.max(1,limit);
+        for(int r=1;r<=max;r++) {
+            for(int d=-r;d<=r;d++) {
+                if(surfaceInside(p,x+d,z-r) || surfaceInside(p,x+d,z+r) ||
+                   surfaceInside(p,x-r,z+d) || surfaceInside(p,x+r,z+d)) return r;
+            }
+        }
+        return max+1;
     }
 
     private void buildSurfaceBay(World w,HcfBasePlan p,int bx,int bz,int side,int top) {
@@ -1350,7 +1435,16 @@ final class HcfBaseBuilder {
         return (h&0xffffL)/65535.0;
     }
 
-    private void buildTerrainCradle(World w,HcfBasePlan p,int top) {
+    private Material terrainSurfacePatch(Material dominant,Material support,Material accent,int x,int z,int seed) {
+        // Five-block value-noise produces coherent clusters instead of per-block
+        // confetti: approximately 70% dominant, 20% support, 10% accent.
+        double n=cradleNoise(x,z,seed+1511);
+        if(n>0.91) return accent;
+        if(n>0.70) return support;
+        return dominant;
+    }
+
+    private void buildTerrainCradle(World w,HcfBasePlan p,int maxTop) {
         Material[] palette=sampleLocalPalette(w,p);
         Material topMat=palette[0],fillMat=palette[1],accent=palette[2];
 
@@ -1358,45 +1452,44 @@ final class HcfBaseBuilder {
         int maxHeight=Math.max(3,plugin.getConfig().getInt("base-builder.concealment-max-height",5));
         int approach=Math.max(6,plugin.getConfig().getInt("base-builder.entrance-approach-length",9));
         int conceal=p.concealmentTier();
-        int minZ=p.cz-p.surfaceHalfZ;
         int gateX=p.cx+p.frontGateOffset;
+        int frontZ=surfaceFrontZ(p,gateX);
 
-        double familyFactor=p.primaryFamily==3?1.22:(p.primaryFamily==4?1.28:(p.primaryFamily==2?0.82:1.0));
-        double tierFactor=conceal==0?0.72:(conceal==1?0.92:1.08);
+        double familyFactor=p.primaryFamily==3?1.25:(p.primaryFamily==4?1.30:
+            (p.primaryFamily==2?0.78:(p.primaryFamily==0?1.05:0.96)));
+        double tierFactor=conceal==0?0.74:(conceal==1?0.94:1.10);
 
         int outerX=p.surfaceHalfX+extra;
         int outerZ=p.surfaceHalfZ+extra;
         for(int x=p.cx-outerX;x<=p.cx+outerX;x++) {
             for(int z=p.cz-outerZ;z<=p.cz+outerZ;z++) {
                 if(surfaceInside(p,x,z)) continue;
+                int dist=surfaceDistanceFromMask(p,x,z,extra+2);
+                if(dist<=0 || dist>extra+1) continue;
 
-                int ax=Math.abs(x-p.cx),az=Math.abs(z-p.cz);
-                int ex=Math.max(0,ax-p.surfaceHalfX);
-                int ez=Math.max(0,az-p.surfaceHalfZ);
-                double dist=Math.sqrt((double)ex*ex+(double)ez*ez);
-                if(dist>extra+1) continue;
-
-                // Bent, unmarked approach corridor. It stays walkable but does
-                // not look like a gravel runway pointing directly at the gate.
-                if(z<=minZ && z>=minZ-approach) {
-                    int depth=minZ-z;
+                // Bent, unmarked approach corridor: walkable but never a road
+                // or direct visual arrow from wilderness to the primary gate.
+                if(z<=frontZ && z>=frontZ-approach) {
+                    int depth=frontZ-z;
                     int bend=p.utilitySide*(depth/4);
                     if(Math.abs(x-(gateX+bend))<=2) continue;
                 }
 
-                double falloff=Math.max(0.0,1.0-dist/(extra+1.0));
-                double backBias=z>=p.cz?1.12:(z<minZ?0.72:1.0);
+                // 5-3-2-1 concealment grammar follows the actual footprint edge.
+                // Noise and site slope break the bands so they read as earthwork,
+                // not concentric retaining rings.
+                int stepHeight=dist<=2?maxHeight:
+                    (dist<=4?Math.min(maxHeight,3):
+                    (dist<=6?Math.min(maxHeight,2):1));
 
-                // Follow the actual site's slope instead of drawing a generic
-                // circular berm. Uphill sides get more cover; downhill/front
-                // sides stay lower so the base feels cut into existing relief.
                 int naturalY=solidSurfaceY(w,x,z);
-                int slopeDelta=Math.max(-4,Math.min(4,naturalY-p.surfaceY));
-                double slopeBias=1.0+slopeDelta*0.09;
+                int slopeDelta=Math.max(-5,Math.min(5,naturalY-p.surfaceY));
+                double slopeBias=1.0+slopeDelta*0.085;
+                double frontBias=z<frontZ?0.70:(z>=p.cz?1.14:1.0);
                 double lateralBias=1.0+0.08*p.utilitySide*Math.signum(x-p.cx);
-                double n=0.62+cradleNoise(x,z,p.seed)*0.58;
-                int h=(int)Math.round(maxHeight*falloff*n*familyFactor*tierFactor*
-                    backBias*slopeBias*lateralBias);
+                double n=0.78+cradleNoise(x,z,p.seed)*0.36;
+                int h=(int)Math.round(stepHeight*n*familyFactor*tierFactor*
+                    slopeBias*frontBias*lateralBias);
                 h=Math.max(0,Math.min(maxHeight+2,h));
                 if(h<=0) continue;
 
@@ -1405,79 +1498,90 @@ final class HcfBaseBuilder {
                         ?accent:fillMat;
                     queue.add(new Op(w,x,yy,z,m));
                 }
-                queue.add(new Op(w,x,p.surfaceY+h,z,topMat));
+                Material exposed=terrainSurfacePatch(topMat,fillMat,accent,x,z,p.seed);
+                queue.add(new Op(w,x,p.surfaceY+h,z,exposed));
             }
         }
 
-        // Partial soil roof. Tunnel/Cave hide most of their surface roof,
-        // Redemption/Base-HCF hide roughly half, Modern leaves more craft visible.
-        double cover=p.primaryFamily==3?0.88:(p.primaryFamily==4?0.91:
-            (p.primaryFamily==2?0.22:(p.primaryFamily==0?0.62:0.50)));
-        // Wealth/skill changes finish and concealment discipline without making
-        // poor factions neon targets. Tunnel/Cave remain fundamentally buried.
-        cover=Math.min(0.96,cover+conceal*0.055+(p.finishTier>=2?0.025:-0.015));
+        // Family-relative soil roof cover. Smooth mask noise creates broad
+        // patches; per-column roofs prevent one flat covered rectangle.
+        double cover=p.primaryFamily==3?0.91:(p.primaryFamily==4?0.93:
+            (p.primaryFamily==2?0.20:(p.primaryFamily==0?0.66:0.52)));
+        cover=Math.min(0.97,cover+conceal*0.05+(p.finishTier>=2?0.025:-0.015));
 
         for(int x=p.cx-p.surfaceHalfX;x<=p.cx+p.surfaceHalfX;x++) {
             for(int z=p.cz-p.surfaceHalfZ;z<=p.cz+p.surfaceHalfZ;z++) {
                 if(!surfaceInside(p,x,z)) continue;
-                int frontDepth=z-minZ;
-                if(frontDepth<=2 && Math.abs(x-gateX)<=3) continue;
+                if(z<=frontZ+2 && Math.abs(x-gateX)<=3) continue;
                 if(cradleNoise(x,z,p.seed+991)>cover) continue;
 
-                queue.add(new Op(w,x,top+2,z,fillMat));
-                queue.add(new Op(w,x,top+3,z,topMat));
+                int roofY=surfaceRoofY(p,x,z);
+                queue.add(new Op(w,x,roofY+2,z,fillMat));
+                queue.add(new Op(w,x,roofY+3,z,
+                    terrainSurfacePatch(topMat,fillMat,accent,x,z,p.seed+229)));
             }
         }
     }
 
     private void decorateSurfaceGrammar(World w,HcfBasePlan p,int top) {
-        int minZ=p.cz-p.surfaceHalfZ;
         int gx=p.cx+p.frontGateOffset;
+        int frontZ=surfaceFrontZ(p,gx);
+        Material[] palette=sampleLocalPalette(w,p);
+        Material topMat=palette[0],fillMat=palette[1],accent=palette[2];
 
         // Close-range craftsmanship only. From range the terrain cradle should
-        // dominate; these details become visible near the actual entrance.
+        // dominate; these details become visible at the actual entrance.
         for(int x=gx-2;x<=gx+2;x++) {
-            queue.add(new Op(w,x,p.surfaceY+3,minZ-1,
-                (Math.abs(x-gx)==2)?p.surfaceFrame:Material.COBBLESTONE));
+            queue.add(new Op(w,x,p.surfaceY+3,frontZ-1,
+                (Math.abs(x-gx)==2)?p.surfaceFrame:accent));
         }
-        // Irregular 5-3-2-1 entrance shoulders: readable up close, visually
-        // absorbed by terrain at distance, and never extended into a fake road.
+
+        // Irregular 5-3-2-1 entrance shoulders. Skill may clean one side up,
+        // but the center corridor remains completely open and unmarked.
         int[] shoulder={5,3,2,1};
+        int conceal=p.concealmentTier();
         for(int depth=0;depth<shoulder.length;depth++) {
-            int z=minZ-1-depth;
+            int z=frontZ-1-depth;
             int span=shoulder[depth];
             int bend=p.utilitySide*(depth/2);
             for(int dx=-span;dx<=span;dx++) {
                 if(Math.abs(dx)<=2) continue;
-                int h=Math.max(1,3-depth/2);
+                int sideBias=(dx*p.utilitySide>0 && conceal>0)?1:0;
+                int h=Math.max(1,3-depth/2+sideBias);
                 for(int yy=1;yy<=h;yy++) {
-                    Material m=(yy==h)?Material.GRASS:
-                        (((Math.abs(dx)+depth+p.seed)&3)==0?Material.COBBLESTONE:Material.DIRT);
+                    Material m=yy==h
+                        ?terrainSurfacePatch(topMat,fillMat,accent,gx+bend+dx,z,p.seed+depth*17)
+                        :((cradleNoise(gx+dx,z,p.seed+87)>0.82)?accent:fillMat);
                     queue.add(new Op(w,gx+bend+dx,p.surfaceY+yy,z,m));
                 }
             }
         }
 
         if(p.primaryFamily==0) {
-            // Redemption: compact recessed stone lip.
+            // Redemption: compact recessed stone brow over the defended mouth.
             for(int x=gx-3;x<=gx+3;x++)
-                queue.add(new Op(w,x,p.surfaceY+4,minZ,p.surfaceFrame));
+                queue.add(new Op(w,x,p.surfaceY+4,frontZ,p.surfaceFrame));
         } else if(p.primaryFamily==1) {
-            // Classic HCF: small broken buttresses, not a visible roof trim ring.
-            queue.add(new Op(w,p.cx-p.surfaceHalfX,p.surfaceY+2,p.cz+2,p.undergroundTrim));
-            queue.add(new Op(w,p.cx+p.surfaceHalfX,p.surfaceY+2,p.cz-3,p.undergroundTrim));
+            // Classic HCF: two imperfect buttresses on real shell boundaries.
+            int z1=Math.min(p.cz+2,surfaceRearZ(p,p.cx));
+            int z2=Math.max(p.cz-3,frontZ+2);
+            queue.add(new Op(w,surfaceSideX(p,z1,-1),p.surfaceY+2,z1,p.undergroundTrim));
+            queue.add(new Op(w,surfaceSideX(p,z2,+1),p.surfaceY+2,z2,p.undergroundTrim));
         } else if(p.primaryFamily==2) {
-            // Modern: one restrained recessed window strip.
-            for(int x=p.cx-2;x<=p.cx+2;x++)
-                queue.add(new Op(w,x,p.surfaceY+2,p.cz+p.surfaceHalfZ,Material.STAINED_GLASS,(byte)0));
+            // Modern: restrained rear window strip on the stepped upper volume.
+            for(int x=p.cx-2;x<=p.cx+2;x++) {
+                int rz=surfaceRearZ(p,x);
+                queue.add(new Op(w,x,p.surfaceY+2,rz,Material.STAINED_GLASS,(byte)0));
+            }
         } else if(p.primaryFamily==3) {
-            // Tunnel: surface identity is almost entirely the portal-like mouth.
+            // Tunnel: the only strong surface read is a compact portal-like mouth.
             for(int x=gx-2;x<=gx+2;x++)
-                queue.add(new Op(w,x,p.surfaceY+1,minZ-1,Material.COBBLESTONE));
+                queue.add(new Op(w,x,p.surfaceY+1,frontZ-1,Material.COBBLESTONE));
         } else {
-            // Cave: irregular moss/cobble edge near the entrance only.
-            queue.add(new Op(w,gx-3,p.surfaceY+1,minZ,Material.MOSSY_COBBLESTONE));
-            queue.add(new Op(w,gx+2,p.surfaceY+2,minZ-1,Material.COBBLESTONE));
+            // Cave: irregular rock fracture around the cut-in entrance.
+            queue.add(new Op(w,gx-3,p.surfaceY+1,frontZ,Material.MOSSY_COBBLESTONE));
+            queue.add(new Op(w,gx+2,p.surfaceY+2,frontZ-1,Material.COBBLESTONE));
+            queue.add(new Op(w,gx+p.utilitySide*4,p.surfaceY+1,frontZ+1,accent));
         }
     }
 

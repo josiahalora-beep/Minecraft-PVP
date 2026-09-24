@@ -13,7 +13,7 @@ map:
   complete: false
   structures-complete: false
   surface-y: 63
-  world-border: 3000
+  world-border: 2000
   warzone-smoothing-radius: 520
   warzone-smoothing-version: 0
   nether-border: 1000
@@ -253,7 +253,12 @@ sotw:
   protection-minutes: 12
 
 terrain:
-  normalize-new-chunks: true
+  # Phase 1: Stylez/ViperMC-era authored HCF world is authoritative.
+  # EraCore must sample/preserve it instead of regenerating wilderness terrain.
+  authored-world: true
+  authored-world-asset: FreeMap.rar
+  authored-world-sha256: af9c214979fcde0b1c41e435a6359940a930ffa97c8e2ad09667f74203afba95
+  normalize-new-chunks: false
   cleanup-height: 46
   # Visual HCF terrain v3: warped natural relief, readable PvP lanes and
   # event-specific terraforming sized to each real production schematic.
@@ -275,7 +280,7 @@ terrain:
   portal-blend-radius: 168.0
   conquest-flat-radius: 158.0
   conquest-blend-radius: 222.0
-  custom-decoration: true
+  custom-decoration: false
   tree-chance-percent: 24
   rock-chance-percent: 16
   ground-detail-chance-percent: 24
@@ -416,10 +421,10 @@ map-layout:
   road-protection-half-width: 32
   koth-offset: 500
   koth-radius: 165
-  portal-offset: 1000
+  portal-offset: 800
   portal-radius: 125
   conquest-x: 0
-  conquest-z: 1125
+  conquest-z: 775
   conquest-radius: 175
   spawn-build-radius: 190
   spawn-claim-radius: 500

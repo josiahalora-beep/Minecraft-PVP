@@ -40,7 +40,8 @@ $requiredAssets = @(
     'KOTH-Forty-1.8-converted.schematic',
     'conquest.schematic',
     'NetherSpawnWillzaTeam.schematic',
-    'magical-hcf-end-xayden-bt.schematic'
+    'magical-hcf-end-xayden-bt.schematic',
+    'FreeMap.rar'
 )
 
 $missing = @($requiredAssets | Where-Object { -not (Test-Path (Join-Path $assetDir $_)) })
@@ -103,13 +104,13 @@ foreach ($worldName in $worlds) {
     }
 }
 
-# Force the canonical flat 1.8 HCF terrain on the regenerated Overworld.
-# This prevents a reset from silently coming back as ordinary vanilla terrain.
+# Phase 1 authored-world foundation. Never regenerate the Overworld as
+# superflat: every SOTW starts from the verified Stylez HCF world snapshot.
 if (Test-Path $serverProperties) {
     $props = Get-Content -LiteralPath $serverProperties
     $wanted = @{
-        'level-type' = 'FLAT'
-        'generator-settings' = '2;7,59x1,3x3,2;1;'
+        'level-type' = 'DEFAULT'
+        'generator-settings' = ''
         'generate-structures' = 'false'
         'spawn-protection' = '0'
     }
@@ -126,6 +127,56 @@ if (Test-Path $serverProperties) {
     }
     Set-Content -LiteralPath $serverProperties -Value $props -Encoding ASCII
 }
+
+$authoredArchive = Join-Path $assetDir 'FreeMap.rar'
+$expectedAuthoredHash = 'af9c214979fcde0b1c41e435a6359940a930ffa97c8e2ad09667f74203afba95'
+$actualAuthoredHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $authoredArchive).Hash.ToLowerInvariant()
+if ($actualAuthoredHash -ne $expectedAuthoredHash) {
+    throw ('Authored HCF map checksum mismatch. Expected ' + $expectedAuthoredHash + ' but found ' + $actualAuthoredHash)
+}
+
+$extractRoot = Join-Path $ServerRoot ('.authored-world-' + $stamp)
+New-Item -ItemType Directory -Path $extractRoot -Force | Out-Null
+
+$expanded = $false
+$tar = Get-Command tar.exe -ErrorAction SilentlyContinue
+if (-not $tar) { $tar = Get-Command tar -ErrorAction SilentlyContinue }
+if ($tar) {
+    & $tar.Source -xf $authoredArchive -C $extractRoot
+    if ($LASTEXITCODE -eq 0 -and (Test-Path (Join-Path $extractRoot 'FreeWorld\level.dat'))) {
+        $expanded = $true
+    }
+}
+
+if (-not $expanded) {
+    $sevenCandidates = @(
+        (Join-Path $env:ProgramFiles '7-Zip\7z.exe'),
+        (Join-Path \${env:ProgramFiles(x86)} '7-Zip\7z.exe')
+    ) | Where-Object { $_ -and (Test-Path $_) }
+    if ($sevenCandidates.Count -gt 0) {
+        & $sevenCandidates[0] x -y ('-o' + $extractRoot) $authoredArchive | Out-Null
+        if ($LASTEXITCODE -eq 0 -and (Test-Path (Join-Path $extractRoot 'FreeWorld\level.dat'))) {
+            $expanded = $true
+        }
+    }
+}
+
+if (-not $expanded) {
+    throw 'Could not extract FreeMap.rar. Windows tar/libarchive or 7-Zip is required for the authored HCF world reset.'
+}
+
+$authoredSource = Join-Path $extractRoot 'FreeWorld'
+$activeOverworld = Join-Path $ServerRoot $levelName
+Copy-Item -LiteralPath $authoredSource -Destination $activeOverworld -Recurse -Force
+$sessionLock = Join-Path $activeOverworld 'session.lock'
+if (Test-Path $sessionLock) { Remove-Item -LiteralPath $sessionLock -Force }
+Remove-Item -LiteralPath $extractRoot -Recurse -Force
+
+if (-not (Test-Path (Join-Path $activeOverworld 'level.dat')) -or
+    -not (Test-Path (Join-Path $activeOverworld 'region'))) {
+    throw 'Authored HCF world restore failed verification.'
+}
+Write-Host '[SOTW] Authored Stylez HCF overworld restored and checksum verified.' -ForegroundColor Green
 
 $era = Join-Path $ServerRoot 'plugins\EraCore'
 $stateArchive = Join-Path $archiveRoot 'EraCore-reset-state'
@@ -181,14 +232,20 @@ Set-Content -LiteralPath $receipt -Value @(
 
 Remove-Item -LiteralPath $marker -Force
 
+$activeOverworld = Join-Path $ServerRoot $levelName
+if (-not (Test-Path (Join-Path $activeOverworld 'level.dat')) -or
+    -not (Test-Path (Join-Path $activeOverworld 'region'))) {
+    throw 'SOTW reset verification failed; authored Overworld is not staged before Spigot start.'
+}
 foreach ($worldName in $worlds) {
+    if ($worldName -eq $levelName) { continue }
     $source = Join-Path $ServerRoot $worldName
     if (Test-Path $source) {
-        throw ('SOTW reset verification failed; generated world folder unexpectedly exists before Spigot start: ' + $source)
+        throw ('SOTW reset verification failed; non-Overworld dimension unexpectedly exists before Spigot start: ' + $source)
     }
 }
 
-Write-Host '[SOTW] VERIFIED fresh physical map reset complete.' -ForegroundColor Green
-Write-Host '[SOTW] Old worlds + stale location state were archived. Spigot will now generate the canonical flat world and EraCore will paste production assets.'
+Write-Host '[SOTW] VERIFIED authored HCF physical map reset complete.' -ForegroundColor Green
+Write-Host '[SOTW] Old worlds + stale location state were archived. The verified authored Overworld is staged; EraCore will add only HCF-specific production structures/overlays.'
 Write-Host ('[SOTW] Archive: ' + $archiveRoot) -ForegroundColor DarkGray
 exit 0

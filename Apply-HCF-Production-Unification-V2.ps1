@@ -16,7 +16,7 @@ $JavaSourceDir = Join-Path $Server 'plugins-src\EraCore\src\main\java\dev\jorel\
 
 # This repository is often installed as a plain folder rather than a Git clone.
 # Always sync the exact coordinated source generation before compiling.
-$SourceCommit = '8f16bb4fc1d9bda7a0f9501a9bfc200ad65075ec'
+$SourceCommit = 'c4ea37e24e6d15557f77560ee0aa678d1f9ae018'
 $RawBase = 'https://raw.githubusercontent.com/josiahalora-beep/Minecraft-PVP/' + $SourceCommit
 $SourceFiles = @(
     'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/ActorDirectory.java',
@@ -194,10 +194,19 @@ if ($downloadBasePlan -notmatch 'Family selection happens BEFORE dimensions' -or
     throw 'Downloaded base compiler is missing the v9 family-geometry/terraforming contract.'
 }
 if ($downloadTerrainDoctrine -notmatch 'Surface-mask integration v9' -or
-    $downloadTerrainDoctrine -notmatch 'footprint-relative' -or
+    $downloadTerrainDoctrine -notmatch 'Visually tested terrain integration v14' -or
+    $downloadTerrainDoctrine -notmatch 'real uphill side' -or
     $downloadBaseDoctrine -notmatch 'Surface geometry matrix v9' -or
+    $downloadBaseDoctrine -notmatch 'Visual integration lock v14' -or
     $downloadBaseDoctrine -notmatch 'per-column roof profile') {
-    throw 'Downloaded terrain/base doctrines do not match the pinned v9 visual generation.'
+    throw 'Downloaded terrain/base doctrines do not match the pinned v14 visual generation.'
+}
+if ($downloadBaseBuilder -notmatch 'terrainUphillBias' -or
+    $downloadBaseBuilder -notmatch 'v14: terrain cover follows the site''s REAL uphill side' -or
+    $downloadBaseBuilder -notmatch 'qa-showcase' -or
+    $downloadTerrain -notmatch 'v14 contour breakup' -or
+    $downloadTerrain -notmatch '0x6D55L') {
+    throw 'Downloaded terrain/base compiler is missing the visually tested v14 integration contract.'
 }
 $forbiddenWorkerTravel = @(
     "tryCommand(state,'/warp",

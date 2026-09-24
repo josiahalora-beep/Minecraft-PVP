@@ -222,10 +222,19 @@ if(process.env.QA_BASES_ONLY!=='1') {
     ['egypt-approach',{x:500,y:86,z:760},{x:500,y:64,z:500}],
     ['koth-forty',{x:-500,y:110,z:445},{x:-500,y:64,z:500}],
     ['frost-approach',{x:-500,y:86,z:760},{x:-500,y:64,z:500}],
-    ['conquest',{x:0,y:120,z:1060},{x:0,y:64,z:1125}],
-    ['conquest-approach',{x:0,y:88,z:860},{x:0,y:64,z:1125}]
+    ['conquest',{x:0,y:120,z:710},{x:0,y:68,z:775}],
+    ['conquest-approach',{x:0,y:92,z:575},{x:0,y:68,z:775}]
   ]
   for(const [name,pos,target] of fixed) await capture(name,pos,target,3800)
+}
+
+if(process.env.QA_TERRAIN_ONLY==='1') {
+  manifest.terrainOnly=true
+  manifest.finishedAt=new Date().toISOString()
+  writeManifest()
+  try{bot.quit('Terrain QA complete')}catch{}
+  setTimeout(()=>process.exit(0),500)
+  await new Promise(()=>{})
 }
 
 const wantedFamilies=['REDEMPTION','BASE_HCF','MODERN_HCF','TUNNEL','CAVE']

@@ -1,73 +1,55 @@
-# Daegon Critical Terrain Doctrine
+# HCF Terrain Persona and Workflow
 
-## Status: mandatory
-
-All terrain, road, event-site, faction-site, environmental-art and structure-to-landscape work must follow this file.
+## Purpose
+This file is the canonical terrain doctrine for the production HCF world. Update it in place; do not create a competing terrain system.
 
 ## Persona
-Principal Level Designer & Environmental Artist. Work from current screenshots/map views, not assumptions.
+Build terrain like a strong 2015–2016 HCF mapmaker preparing a competitive survival world, not like a generic survival seed and not like a showcase fantasy map. The wilderness must feel natural at player scale, readable while sprinting and fighting, and irregular enough that screenshots never read as a flat generated lawn.
 
-## 0. Reference Check
-Before a substantial terrain change:
-- inspect a current screenshot/map view of the actual site;
-- read back rough elevation, biome, palette and structure position;
-- confirm approximate scale/theme if not already known.
+## Non-negotiable constraints
+- Preserve the existing Natural HCF terrain v3 warped-noise generator, broad ridge/bowl shaping, protected roads, event pads, always-day/no-weather presentation, and Mineflayer terrain awareness.
+- Roads remain no-claim + no-build + PvP enabled. Terrain work must never create a second road or a visual path that points directly to a faction entrance.
+- Spawn and event readability outrank decorative terrain. Wilderness relief must not create unavoidable movement traps.
+- Ordinary one-block rises are desirable and must remain traversable by human players and the existing Mineflayer auto-step behavior.
+- Never flatten a whole faction claim. Only the structural work envelope may be normalized; everything outside it should preserve or blend into the generated site.
+- Grass is the dominant surface language. Dirt, gravel, stone/cobble/moss and dry-region materials are accents, not checkerboards.
+- Natural layering is grass/topsoil -> dirt/fill -> stone. Exposed transitions should look eroded or cut, never like stacked horizontal stripes.
 
-Headless QA screenshots satisfy this requirement.
+## Shape language
+Use broad forms first: shallow bowls, low ridges, shoulders, saddles and gentle drainage-like depressions. Overlay medium forms second: uneven banks, hillside shelves, broken edges and small rock exposures. Add micro-detail last and in clusters.
 
-## 1. Silhouette & Topography
-- Organic terrain uses tapering, irregular curvature rather than long straight natural edges.
-- Avoid mirrored ridges/valleys, repeated sine bands, concentric terraces and uniform diagonals.
-- HCF wilderness must be rolling and readable, never superflat and never mountain-survival terrain.
-- Normal travel should remain sprint-friendly and Mineflayer-safe.
+Avoid repeated circles, perfect rings, symmetric mounds, long straight retaining walls, evenly spaced foliage and noisy one-block speckling. Curves should be irregular and composed from changing run lengths; a useful hand-built rhythm is 5-3-2-1 rather than constant diagonals.
 
-## 2. Texturing
-Use cohesive local patches, not per-block noise.
-- ~70% dominant surface
-- ~20% supporting variant
-- ~10% accent
-Transitions bleed through compatible 1.8 materials rather than hard grass-to-stone/sand seams.
+## Faction-site workflow
+1. Read the existing site before changing it: median grade, local relief, uphill/downhill sides, nearby road/event exclusions, local surface palette and vegetation.
+2. Select a base family and footprint before terraforming. Terrain serves the chosen architecture; architecture does not force every site into the same rectangle.
+3. Establish only the minimum safe structural grade needed for the shell and PvP entrance.
+4. Blend the structural grade into the original terrain using the site's real slope. Uphill sides may climb and wrap; downhill sides should taper earlier.
+5. Embed the shell. Use banks, shoulders, partial roof soil and broken rock/earth edges to make the base look excavated into the site rather than placed on it.
+6. Preserve an unmarked, walkable entrance approach. Occlude sightlines with terrain shoulders, not gravel paths or artificial roads.
+7. Add clustered vegetation/details after the macro shape works. Empty space is intentional.
+8. Inspect from approximately 8, 25, 50 and 100 blocks. At range, terrain should dominate. At close range, construction quality and faction wealth/skill may become legible.
+9. Reject the result if it produces a square plateau, floating shelf, obvious berm ring, fake road, trapped movement channel, or a silhouette that advertises the base from range.
 
-## 3. Structure Cradle
-KOTHs, Conquest, portals and faction sites must look embedded in terrain, not dropped onto a lawn.
-Terrain must rise/cut/blend around the structure without blocking gameplay.
+## Base concealment relationship
+Concealment is family- and quality-dependent, not universal camouflage.
+- Tunnel: strongest burial; only a compact mouth and minimal crafted surface should read.
+- Cave: strongest natural-rock integration; irregular exposed stone and a partly hidden mouth.
+- Redemption: compact bunker embedded into a shaped shoulder.
+- Base-HCF: recognizable classic faction shell, but seated into terrain rather than standing on a lawn.
+- ModernHCF: cleaner deliberate architecture and somewhat more visible craft, while still respecting site relief.
 
-## 4. Flora
-Use sparse, site-aware custom flora and meaningful negative space.
-No uniform tree spam or low leaf clutter in PvP/pathing lanes.
+Higher-skill/wealth factions may execute cleaner transitions, better occlusion and more intentional palettes. Lower tiers can be rougher and less complete, but should never become implausibly exposed boxes.
 
-## 5. Roads
-Roads are clean architectural infrastructure, but their shoulders must blend naturally.
+## Visual QA
+A terrain pass is acceptable only when:
+- there is no claim-sized flattening;
+- macro relief remains visible around bases;
+- slopes are navigable and do not strand bots;
+- entrance sightlines are broken without fake roads;
+- roof exposure matches family doctrine;
+- repeated neighboring bases do not produce repeated terrain rings;
+- the local palette remains coherent;
+- screenshots from 50–100 blocks read as terrain first and structure second for concealed families.
 
-Canonical road policy:
-- NO CLAIM
-- NO BUILD / NO GRIEF
-- PvP ENABLED outside actual Safezone
-- no unexplained one-wide stubs or single-gate road fragments
-- claim scouting must reject road-corridor intersections
-
-## 6. Bot Movement
-Mineflayer must fluidly traverse ordinary one-block terrain:
-approach -> auto-step/jump -> preserve sprint when safe -> continue.
-No repeated face-running, stop/start loops or arbitrary /stuck fallback for a simple grass rise.
-
-## 7. Procedural Order
-REFERENCE -> MACRO LANDFORM -> DOMAIN WARP -> ROAD MASK -> EVENT MASKS -> BASE-SITE MASKS -> MATERIAL PATCHES -> FLORA -> STRUCTURES -> RESOURCES -> VISUAL QA -> PATHFINDING QA -> READY
-
-## 8. Acceptance
-Reject terrain that reads as:
-- superflat;
-- procedural sine/ring terrain;
-- square plateaus;
-- material confetti;
-- giant accidental dirt/rock/sand carpets;
-- empty green lawn;
-- structures dropped on top;
-- generic terrain generation.
-
-For substantial terrain work, use:
-0. Reference Check
-1. Silhouette & Topography Geometry
-2. Texturing Matrix & Gradient Mix
-3. Custom Flora & Detail Pass
-4. Tool / Procedural Workflow
+The independent Build Viewer / QA server is the visual authority before production installer pinning. Screenshots should be taken in permanent clear daylight with enough distance to judge silhouette, not only from inside the claim.

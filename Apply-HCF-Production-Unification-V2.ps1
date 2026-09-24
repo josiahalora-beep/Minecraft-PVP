@@ -482,11 +482,9 @@ if ($downloadRewards -notmatch 'placeFunctionalCrate') {
 if ($downloadSim -notmatch 'case-insensitive unique identities' -or $downloadSim -notmatch 'namePrestigeTier') {
     throw 'Downloaded simulation is missing unique/prestige-aware HCF identities.'
 }
-if ($downloadComposer -notmatch 'HCF Spawn.*false' -or
-    $downloadComposer -notmatch 'approved spawn''s own road design' -or
-    $downloadComposer -notmatch 'Approved HCF spawn must be 101x37x101') {
-    throw 'Downloaded composer is not using the approved 101x101 spawn and copied road design.'
-}
+# Approved spawn/road/event placement is already validated above using
+# SpawnRoadSurfaceJob + canonicalHcfTerrainY + Conquest Z=775 markers.
+# Do not repeat that check with brittle source-text patterns here.
 if ($downloadReset -match 'Set-YamlScalar' -or
     $downloadReset -match 'Set-Content -LiteralPath \$config') {
     throw 'Downloaded reset preflight still mutates config.yml directly.'

@@ -105,9 +105,103 @@ if ($javaExit -ne 0) { throw ('Java version probe failed with exit code ' + $jav
 if ($versionText -notmatch '1\.8\.') { throw ('EraCore requires Java 8. Found: ' + $versionText.Trim()) }
 Write-Host ('[OK] Java 8: ' + (($versionText -split "[\r\n]+" | Select-Object -First 1).Trim())) -ForegroundColor Green
 
+function Ensure-AuthoredHcfMapAsset {
+    param([string]$AssetDir)
+
+    $fileName = 'FreeMap.rar'
+    $quickKey = '32sslt4lmrut2e0'
+    $expectedHash = 'af9c214979fcde0b1c41e435a6359940a930ffa97c8e2ad09667f74203afba95'
+    $expectedSize = 207109938L
+    $target = Join-Path $AssetDir $fileName
+
+    if (!(Test-Path $AssetDir)) {
+        New-Item -ItemType Directory -Path $AssetDir -Force | Out-Null
+    }
+
+    if (Test-Path $target) {
+        $existing = Get-Item -LiteralPath $target
+        $existingHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $target).Hash.ToLowerInvariant()
+        if ($existing.Length -eq $expectedSize -and $existingHash -eq $expectedHash) {
+            Write-Host '[OK] Authored Stylez HCF map asset already verified.' -ForegroundColor Green
+            return
+        }
+        Write-Host '[WARN] Existing FreeMap.rar failed checksum/size validation; downloading the approved public copy.' -ForegroundColor Yellow
+        Remove-Item -LiteralPath $target -Force
+    }
+
+    $headers = @{
+        'User-Agent' = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36'
+        'Accept' = 'application/json,text/html,*/*'
+        'Referer' = 'https://builtbybit.com/'
+    }
+
+    $api = 'https://www.mediafire.com/api/1.5/file/get_info.php?quick_key=' + $quickKey + '&response_format=json'
+    Write-Host '[MAP] Resolving approved authored HCF world...' -ForegroundColor Cyan
+    $info = Invoke-RestMethod -Method Get -Uri $api -Headers $headers
+    $fileInfo = $info.response.file_info
+    if ($null -eq $fileInfo -or
+        [string]$fileInfo.filename -ne $fileName -or
+        [string]$fileInfo.ready -ne 'yes' -or
+        [string]$fileInfo.privacy -ne 'public' -or
+        ([string]$fileInfo.hash).ToLowerInvariant() -ne $expectedHash -or
+        [int64]$fileInfo.size -ne $expectedSize) {
+        throw 'MediaFire metadata no longer matches the approved authored HCF map.'
+    }
+
+    $normal = [string]$fileInfo.links.normal_download
+    if ([string]::IsNullOrWhiteSpace($normal)) {
+        throw 'MediaFire did not return the authored-map download page.'
+    }
+
+    $page = Invoke-WebRequest -UseBasicParsing -Uri $normal -Headers $headers
+    $html = [string]$page.Content
+    $patterns = @(
+        'id=["'']downloadButton["''][^>]+href=["'']([^"'']+)',
+        'href=["'']([^"'']+)["''][^>]+id=["'']downloadButton["'']',
+        'aria-label=["'']Download file["''][^>]+href=["'']([^"'']+)'
+    )
+    $direct = $null
+    foreach ($pattern in $patterns) {
+        $m = [regex]::Match($html,$pattern,[Text.RegularExpressions.RegexOptions]::IgnoreCase)
+        if ($m.Success) {
+            $direct = [Net.WebUtility]::HtmlDecode($m.Groups[1].Value)
+            break
+        }
+    }
+    if ([string]::IsNullOrWhiteSpace($direct)) {
+        throw 'Could not resolve the public MediaFire CDN URL for FreeMap.rar.'
+    }
+
+    $downloadHost = ([Uri]$direct).Host
+    if (!$downloadHost.StartsWith('download') -or !$downloadHost.EndsWith('.mediafire.com')) {
+        throw ('Refusing unexpected authored-map download host: ' + $downloadHost)
+    }
+
+    $downloadHeaders = @{}
+    foreach ($k in $headers.Keys) { $downloadHeaders[$k] = $headers[$k] }
+    $downloadHeaders['Referer'] = $normal
+
+    $tmp = $target + '.download'
+    if (Test-Path $tmp) { Remove-Item -LiteralPath $tmp -Force }
+    Write-Host ('[MAP] Downloading ' + $fileName + ' (~198 MB) from verified public source...') -ForegroundColor Cyan
+    Invoke-WebRequest -UseBasicParsing -Uri $direct -Headers $downloadHeaders -OutFile $tmp
+
+    $downloaded = Get-Item -LiteralPath $tmp
+    $actualHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $tmp).Hash.ToLowerInvariant()
+    if ($downloaded.Length -ne $expectedSize -or $actualHash -ne $expectedHash) {
+        Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+        throw ('Downloaded authored map failed validation. size=' + $downloaded.Length + ' sha256=' + $actualHash)
+    }
+
+    Move-Item -LiteralPath $tmp -Destination $target -Force
+    Write-Host '[OK] Authored Stylez HCF map downloaded and SHA-256 verified.' -ForegroundColor Green
+}
+
 if (!$SkipAssetCheck) {
     $assetDir = Join-Path $Server 'map-assets'
+    Ensure-AuthoredHcfMapAsset -AssetDir $assetDir
     $required = @(
+        'FreeMap.rar',
         'krakenhcf.schematic',
         'KOTH2-production-1.8.schematic',
         'EndStyleKOTH-production-1.8.schematic',

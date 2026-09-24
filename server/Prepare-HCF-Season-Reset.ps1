@@ -151,7 +151,7 @@ if ($tar) {
 if (-not $expanded) {
     $sevenCandidates = @(
         (Join-Path $env:ProgramFiles '7-Zip\7z.exe'),
-        (Join-Path \${env:ProgramFiles(x86)} '7-Zip\7z.exe')
+        (Join-Path ([Environment]::GetEnvironmentVariable('ProgramFiles(x86)')) '7-Zip\7z.exe')
     ) | Where-Object { $_ -and (Test-Path $_) }
     if ($sevenCandidates.Count -gt 0) {
         & $sevenCandidates[0] x -y ('-o' + $extractRoot) $authoredArchive | Out-Null

@@ -225,13 +225,48 @@ async function capture(name,position,target,settleMs=3200){
   writeManifest()
 }
 
+async function composeProductionWorld(){
+  const startedAt=new Date().toISOString()
+  const marker=manifest.messages.length
+  bot.chat('/mapcompose start')
+  await sleep(1400)
+
+  let lastProbe=0
+  let sawBusy=false
+  let sawQueued=false
+  const complete=await waitUntil(async()=>{
+    const recent=manifest.messages.slice(marker).map(x=>x.text)
+    if(recent.some(t=>/Production map composition queued/i.test(t))) sawQueued=true
+    if(recent.some(t=>/Could not queue production map|Missing:/i.test(t))) {
+      throw new Error('Production map composition rejected: '+recent.slice(-6).join(' | '))
+    }
+    if(recent.some(t=>/busy=true/i.test(t))) sawBusy=true
+    const now=Date.now()
+    if(now-lastProbe>1200){
+      bot.chat('/mapcompose status')
+      lastProbe=now
+    }
+    // A very fast isolated CI composition can finish before the first busy
+    // probe, so accept busy=false only after the queue acknowledgement.
+    return sawQueued && recent.some(t=>/busy=false/i.test(t))
+  },Number(process.env.QA_COMPOSE_TIMEOUT_MS||720000),450)
+
+  manifest.productionCompose={startedAt,finishedAt:new Date().toISOString(),complete:Boolean(complete),sawBusy,sawQueued}
+  writeManifest()
+  if(!complete) throw new Error('Production map compositor did not drain before QA timeout')
+  await sleep(1800)
+}
+
 const ready=await waitForWorldReady()
 manifest.worldReady=Boolean(ready)
 writeManifest()
 if(!ready) throw new Error('Production world did not reach READY before QA timeout')
 
-bot.chat('/mapcompose status')
-await sleep(800)
+if(process.env.QA_COMPOSE_PRODUCTION==='1') await composeProductionWorld()
+else {
+  bot.chat('/mapcompose status')
+  await sleep(800)
+}
 bot.chat('/simprobe')
 await sleep(800)
 

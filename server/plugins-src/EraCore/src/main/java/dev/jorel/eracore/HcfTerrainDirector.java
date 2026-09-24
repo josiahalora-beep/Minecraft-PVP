@@ -199,13 +199,13 @@ final class HcfTerrainDirector implements Listener {
         double ridgeShape=Math.max(0.0,(ridgeField-0.50)/0.50);
         ridgeShape*=ridgeShape;
         double ridgeMask=0.55+0.45*valueNoise(wx,wz,520.0,0xF211L);
-        double ridge=ridgeShape*ridgeMask*amp*0.42;
+        double ridge=ridgeShape*ridgeMask*amp*0.36;
 
         double bowlField=1.0-Math.abs(valueNoise(wx-123.0,wz+89.0,305.0,0xF331L));
         double bowlShape=Math.max(0.0,(bowlField-0.57)/0.43);
         bowlShape*=bowlShape;
         double bowlMask=0.50+0.50*valueNoise(wx+80.0,wz-130.0,610.0,0xF441L);
-        double bowl=bowlShape*bowlMask*amp*0.30;
+        double bowl=bowlShape*bowlMask*amp*0.26;
 
         relief += ridge - bowl;
 
@@ -216,10 +216,10 @@ final class HcfTerrainDirector implements Listener {
         // ordinary sprint paths still change by one block at a time.
         double microWarpX=valueNoise(wx+19.0,wz-31.0,68.0,0x6A01L)*20.0;
         double microWarpZ=valueNoise(wx-41.0,wz+13.0,68.0,0x6A0BL)*20.0;
-        relief += valueNoise(wx+microWarpX,wz+microWarpZ,46.0,0x6A17L)*0.68;
-        relief += valueNoise(wx-microWarpZ,wz+microWarpX,23.0,0x6B2DL)*0.52;
-        relief += valueNoise(wx+17.0,wz-9.0,12.0,0x6C41L)*0.24;
-        relief += valueNoise(wx-7.0,wz+21.0,8.5,0x6D55L)*0.10;
+        relief += valueNoise(wx+microWarpX,wz+microWarpZ,46.0,0x6A17L)*0.70;
+        relief += valueNoise(wx-microWarpZ,wz+microWarpX,23.0,0x6B2DL)*0.58;
+        relief += valueNoise(wx+17.0,wz-9.0,12.0,0x6C41L)*0.38;
+        relief += valueNoise(wx-7.0,wz+21.0,7.5,0x6D55L)*0.18;
 
         // Regional identity remains subtle; geometry never becomes a mountain.
         if(x<-650 && z>160) relief+=1.0+valueNoise(x,z,210.0,0xD114L)*0.9;

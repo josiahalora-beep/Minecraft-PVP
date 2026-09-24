@@ -49,6 +49,7 @@ function factionBases(){
     .map(f=>({
       name:String(f.name||'Faction'),x:Number(f['base-x']||0),y:Number(f['base-y']||63),z:Number(f['base-z']||0),
       stage:String(f.stage||''),archetype:String(f.archetype||''),power:Boolean(f['power-faction']),
+      primaryFamily:String(f['primary-family']||''),secondaryFamily:String(f['secondary-family']||''),
       members:Array.isArray(f.members)?f.members.length:0
     }))
     .sort((a,b)=>(Number(b.power)-Number(a.power)) || (b.members-a.members) || a.name.localeCompare(b.name))
@@ -227,27 +228,61 @@ if(process.env.QA_BASES_ONLY!=='1') {
   for(const [name,pos,target] of fixed) await capture(name,pos,target,3800)
 }
 
+const wantedFamilies=['REDEMPTION','BASE_HCF','MODERN_HCF','TUNNEL','CAVE']
 let bases=await waitUntil(()=>{
   const b=factionBases()
-  return b.length>=5?b:null
-},4*60*1000,2000)
+  const covered=new Set(b.map(x=>x.primaryFamily).filter(Boolean))
+  return wantedFamilies.every(f=>covered.has(f))?b:null
+},6*60*1000,2000)
 bases=bases||factionBases()
 manifest.discoveredBases=bases
+
+const selected=[]
+const selectedNames=new Set()
+for(const family of wantedFamilies){
+  const hit=bases.find(b=>b.primaryFamily===family && !selectedNames.has(b.name))
+  if(hit){selected.push(hit);selectedNames.add(hit.name)}
+}
+for(const b of bases){
+  if(selected.length>=7) break
+  if(!selectedNames.has(b.name)){selected.push(b);selectedNames.add(b.name)}
+}
+const coveredFamilies=[...new Set(selected.map(b=>b.primaryFamily).filter(Boolean))]
+manifest.familyCoverage={
+  wanted:wantedFamilies,
+  covered:coveredFamilies,
+  missing:wantedFamilies.filter(f=>!coveredFamilies.includes(f)),
+  selected:selected.map(b=>({name:b.name,primaryFamily:b.primaryFamily,secondaryFamily:b.secondaryFamily}))
+}
 writeManifest()
 
-if(bases.length){
-  if(process.env.QA_REBUILD_BASES!=='0') {
-    bot.chat('/baserebuild all')
-    await sleep(Number(process.env.QA_REBUILD_WAIT_MS||25000))
-  }
-  for(const b of bases.slice(0,6)){
-    await capture('base-'+b.name+'-overview',
+async function waitForBaseRebuild(timeoutMs=180000){
+  let lastProbe=0
+  return await waitUntil(()=>{
+    const now=Date.now()
+    if(now-lastProbe>1200){bot.chat('/baserebuild status');lastProbe=now}
+    const recent=manifest.messages.slice(-30).map(x=>x.text)
+    return recent.some(t=>/Base rebuild:\s*IDLE/i.test(t) && /queuedOps=0/i.test(t))
+  },timeoutMs,350)
+}
+
+if(selected.length){
+  for(const b of selected){
+    if(process.env.QA_REBUILD_BASES!=='0') {
+      bot.chat('/baserebuild '+b.name)
+      await sleep(900)
+      const rebuilt=await waitForBaseRebuild(Number(process.env.QA_REBUILD_TIMEOUT_MS||180000))
+      if(!rebuilt) manifest.errors.push('base rebuild timeout: '+b.name)
+    }
+
+    const prefix='base-'+(b.primaryFamily||'unknown')+'-'+b.name
+    await capture(prefix+'-overview',
       {x:b.x,y:b.y+38,z:b.z-26},{x:b.x,y:b.y+2,z:b.z},6000)
-    await capture('base-'+b.name+'-frontage',
+    await capture(prefix+'-frontage',
       {x:b.x,y:b.y+5,z:b.z-48},{x:b.x,y:b.y+4,z:b.z},4800)
-    await capture('base-'+b.name+'-side',
+    await capture(prefix+'-side',
       {x:b.x+48,y:b.y+7,z:b.z},{x:b.x,y:b.y+4,z:b.z},4800)
-    await capture('base-'+b.name+'-claim-context',
+    await capture(prefix+'-claim-context',
       {x:b.x+52,y:b.y+30,z:b.z-52},{x:b.x,y:b.y+2,z:b.z},5200)
   }
 }

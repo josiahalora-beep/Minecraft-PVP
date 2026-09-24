@@ -255,11 +255,11 @@ if(showcase){
   if(!rebuilt) manifest.errors.push('five-family QA showcase rebuild timeout')
 
   selected=[
-    {name:'QARedemption2',x:-900,y:70,z:-900,primaryFamily:'REDEMPTION',secondaryFamily:''},
-    {name:'QABase0',x:-450,y:70,z:-900,primaryFamily:'BASE_HCF',secondaryFamily:''},
-    {name:'QAModern14',x:450,y:70,z:-900,primaryFamily:'MODERN_HCF',secondaryFamily:''},
-    {name:'QATunnel21',x:900,y:70,z:-900,primaryFamily:'TUNNEL',secondaryFamily:''},
-    {name:'QACave55',x:-900,y:70,z:900,primaryFamily:'CAVE',secondaryFamily:''}
+    {name:'QARedemption2',x:-900,y:64,z:-900,primaryFamily:'REDEMPTION',secondaryFamily:''},
+    {name:'QABase0',x:-450,y:64,z:-900,primaryFamily:'BASE_HCF',secondaryFamily:''},
+    {name:'QAModern14',x:450,y:64,z:-900,primaryFamily:'MODERN_HCF',secondaryFamily:''},
+    {name:'QATunnel21',x:900,y:64,z:-900,primaryFamily:'TUNNEL',secondaryFamily:''},
+    {name:'QACave55',x:-900,y:64,z:900,primaryFamily:'CAVE',secondaryFamily:''}
   ]
   bases=selected
 }else{
@@ -315,5 +315,15 @@ if(selected.length){
 
 manifest.finishedAt=new Date().toISOString()
 writeManifest()
-try{bot.quit('QA complete')}catch{}
+
+const fatal=[]
+if(manifest.familyCoverage?.missing?.length)
+  fatal.push('missing primary families: '+manifest.familyCoverage.missing.join(','))
+if(manifest.errors.length) fatal.push(...manifest.errors)
+
+try{bot.quit(fatal.length?'QA failed':'QA complete')}catch{}
+if(fatal.length) {
+  await sleep(250)
+  throw new Error('Visual QA failed: '+fatal.join(' | '))
+}
 setTimeout(()=>process.exit(0),500)

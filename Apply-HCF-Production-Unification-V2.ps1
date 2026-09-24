@@ -16,7 +16,7 @@ $JavaSourceDir = Join-Path $Server 'plugins-src\EraCore\src\main\java\dev\jorel\
 
 # This repository is often installed as a plain folder rather than a Git clone.
 # Always sync the exact coordinated source generation before compiling.
-$SourceCommit = '3ba97a3fe138d17902f6dd691065595bc57b3a08'
+$SourceCommit = '0c7b4a5f4715e3e0faf79cbe24e5d0720b6d8679'
 $RawBase = 'https://raw.githubusercontent.com/josiahalora-beep/Minecraft-PVP/' + $SourceCommit
 $SourceFiles = @(
     'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/ActorDirectory.java',
@@ -205,12 +205,81 @@ function Ensure-AuthoredHcfMapAsset {
     Write-Host '[OK] Authored Stylez HCF map downloaded and SHA-256 verified.' -ForegroundColor Green
 }
 
+function Ensure-ApprovedProductionSchematics {
+    param([string]$AssetDir)
+
+    $expected = [ordered]@{
+        'HCF-Spawn-101-production.schematic' = '3f41d2ac7d329f96c0d33c8ec2ba3807d74f35d4b01b0b544644a585d7d2e378'
+        'KOTH2-production-1.8.schematic' = '76927168a1f228f7c12c4a00c48f5785fd25b02b4d66f26bb496e540cdc82a31'
+        'EndStyleKOTH-production-1.8.schematic' = 'ebe27dfc5c102fe84c9f1c748fc52850486c22edc0835ba3ee1a355d7a759182'
+        'EgyptKOTH-production-1.8.schematic' = '99fed90e7a57bb6c16cf9293b11f4cf9236a2f6bc3e0acdd8c1facba306d351d'
+        'KOTH-Forty-1.8-converted.schematic' = '1893f941747cd9f8a1e92f4df42e68341fa934a14c2e875c68fd09377655c4de'
+        'conquest.schematic' = 'cd6bf439e9bd18858dcb144d5e96f9749e2e2b935a51c89bc860026285d2f336'
+        'NetherSpawnWillzaTeam.schematic' = '8db0cf006c9ef9d4b1f8c297b4e5a0747552b629fefdb0e0d95280ec100706d9'
+        'magical-hcf-end-xayden-bt.schematic' = '952bf326168522641192c66fea5100d637821e1e1f19c77ce8035b7fd4be2754'
+    }
+
+    if (!(Test-Path $AssetDir)) {
+        New-Item -ItemType Directory -Path $AssetDir -Force | Out-Null
+    }
+
+    $allValid = $true
+    foreach ($name in $expected.Keys) {
+        $p = Join-Path $AssetDir $name
+        if (!(Test-Path $p)) { $allValid=$false; break }
+        $h=(Get-FileHash -Algorithm SHA256 -LiteralPath $p).Hash.ToLowerInvariant()
+        if ($h -ne $expected[$name]) { $allValid=$false; break }
+    }
+    if ($allValid) {
+        Write-Host '[OK] Approved production schematic pack already verified.' -ForegroundColor Green
+        return
+    }
+
+    $packName='Daegon-HCF-Phase1-Production-Assets.zip'
+    $candidates=@(
+        (Join-Path $Root $packName),
+        (Join-Path $Server $packName),
+        (Join-Path $AssetDir $packName),
+        (Join-Path (Get-Location).Path $packName)
+    ) | Select-Object -Unique
+    $pack=$candidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+    if ([string]::IsNullOrWhiteSpace([string]$pack)) {
+        Write-Host '[FAIL] Approved production schematic pack was not found.' -ForegroundColor Red
+        Write-Host ('Place ' + $packName + ' in the Minecraft-PVP root and run this installer again.') -ForegroundColor Yellow
+        throw 'Production schematic asset pack is missing.'
+    }
+
+    $extract=Join-Path $Root '.phase1-production-assets'
+    if (Test-Path $extract) { Remove-Item -LiteralPath $extract -Recurse -Force }
+    New-Item -ItemType Directory -Path $extract -Force | Out-Null
+    Expand-Archive -LiteralPath $pack -DestinationPath $extract -Force
+
+    foreach ($name in $expected.Keys) {
+        $src=Join-Path $extract $name
+        if (!(Test-Path $src)) {
+            Remove-Item -LiteralPath $extract -Recurse -Force -ErrorAction SilentlyContinue
+            throw ('Approved asset pack is missing: ' + $name)
+        }
+        $h=(Get-FileHash -Algorithm SHA256 -LiteralPath $src).Hash.ToLowerInvariant()
+        if ($h -ne $expected[$name]) {
+            Remove-Item -LiteralPath $extract -Recurse -Force -ErrorAction SilentlyContinue
+            throw ('Approved asset checksum mismatch: ' + $name + ' sha256=' + $h)
+        }
+        Copy-Item -LiteralPath $src -Destination (Join-Path $AssetDir $name) -Force
+    }
+
+    Remove-Item -LiteralPath $extract -Recurse -Force -ErrorAction SilentlyContinue
+    Write-Host '[OK] Approved spawn/KOTH/Conquest/Nether/End schematic pack imported and verified.' -ForegroundColor Green
+}
+
 if (!$SkipAssetCheck) {
     $assetDir = Join-Path $Server 'map-assets'
     Ensure-AuthoredHcfMapAsset -AssetDir $assetDir
+    Ensure-ApprovedProductionSchematics -AssetDir $assetDir
+
     $required = @(
         'FreeMap.rar',
-        'krakenhcf.schematic',
+        'HCF-Spawn-101-production.schematic',
         'KOTH2-production-1.8.schematic',
         'EndStyleKOTH-production-1.8.schematic',
         'EgyptKOTH-production-1.8.schematic',
@@ -223,9 +292,9 @@ if (!$SkipAssetCheck) {
     if ($missing.Count -gt 0) {
         Write-Host '[FAIL] Production map assets are incomplete:' -ForegroundColor Red
         $missing | ForEach-Object { Write-Host ('  - ' + $_) -ForegroundColor Red }
-        throw 'Install the missing production assets before deploying the unified build.'
+        throw 'Production assets failed installation.'
     }
-    Write-Host '[OK] Production schematic assets present.' -ForegroundColor Green
+    Write-Host '[OK] Production map assets present.' -ForegroundColor Green
 }
 
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
@@ -272,11 +341,11 @@ if ($downloadEra -match 'factionSuffix\s*\(') { throw 'Downloaded EraCore still 
 if ($downloadEra -notmatch 'cmdSimTab') { throw 'Downloaded EraCore is missing /simtab diagnostics.' }
 if ($downloadWorld -notmatch 'STRUCTURES' -or $downloadWorld -notmatch 'RESOURCES') { throw 'Downloaded staged world builder is incomplete.' }
 if ($downloadTerrain -notmatch 'authoredWorld\(\)' -or
-    $downloadTerrain -notmatch 'maintainAuthoredChunk' -or
     $downloadTerrain -notmatch 'authoredSurfaceY' -or
-    $downloadTerrain -notmatch 'authored-road-half-width' -or
-    $downloadTerrain -notmatch 'keepAuthoredGroundDetail') {
-    throw 'Downloaded terrain director is missing the Phase-1 authored-world terrain contract.'
+    $downloadTerrain -notmatch 'no wilderness blocks are rewritten' -or
+    $downloadTerrain -match 'maintainAuthoredChunk' -or
+    $downloadTerrain -match 'keepAuthoredGroundDetail') {
+    throw 'Downloaded terrain director does not preserve the approved FreeMap wilderness exactly.'
 }
 if ($downloadBasePlan -notmatch 'Family selection happens BEFORE dimensions' -or
     $downloadBasePlan -notmatch 'v9 silhouette proportions' -or
@@ -297,12 +366,11 @@ if ($downloadBasePlan -notmatch 'Family selection happens BEFORE dimensions' -or
     throw 'Downloaded base compiler is missing the v9 family-geometry/terraforming contract.'
 }
 if ($downloadTerrainDoctrine -notmatch 'Phase 1 production authority' -or
-    $downloadTerrainDoctrine -notmatch '2000-block diameter' -or
-    $downloadTerrainDoctrine -notmatch 'Sparse ground-cover cleanup' -or
-    $downloadTerrainDoctrine -notmatch 'Cardinal HCF roads' -or
-    $downloadBaseDoctrine -notmatch 'Surface geometry matrix v9' -or
-    $downloadBaseDoctrine -notmatch 'per-column roof profile') {
-    throw 'Downloaded terrain/base doctrines do not match the authored-map Phase-1 generation.'
+    $downloadTerrainDoctrine -notmatch 'Authored-world mutation policy' -or
+    $downloadTerrainDoctrine -notmatch 'must \*\*not\*\* thin grass' -or
+    $downloadTerrainDoctrine -notmatch 'new spawn schematic''s own road design' -or
+    $downloadBaseDoctrine -notmatch 'Surface geometry matrix v9') {
+    throw 'Downloaded terrain/base doctrines do not match the untouched authored-world Phase-1 contract.'
 }
 if ($downloadReferenceLibrary -notmatch 'af9c214979fcde0b1c41e435a6359940a930ffa97c8e2ad09667f74203afba95') {
     throw 'Downloaded HCF reference library is missing the approved authored-map provenance.'
@@ -376,8 +444,11 @@ if ($downloadEra -notmatch 'production-unification-version",8' -or
 if ($downloadWorld -notmatch 'jobProgress=' -or $downloadComposer -notmatch 'writes=') {
     throw 'Downloaded production composer is missing scan/write-aware progress reporting.'
 }
-if ($downloadComposer -notmatch 'Kraken Spawn[\s\S]{0,500},false\)') {
-    throw 'Downloaded production composer still allows Kraken selection air to carve the terrain.'
+if ($downloadComposer -notmatch 'HCF Spawn[\s\S]{0,500},false\)' -or
+    $downloadComposer -notmatch 'SpawnRoadSurfaceJob' -or
+    $downloadComposer -notmatch 'canonicalHcfTerrainY' -or
+    $downloadComposer -notmatch 'map-layout\.conquest-z",775') {
+    throw 'Downloaded production composer is missing the approved new-spawn/road/event placement contract.'
 }
 if ($downloadSimWorld -notmatch 'uniquePlayerNames' -or
     $downloadSimWorld -notmatch 'name-skill-model-version",3') {
@@ -421,17 +492,16 @@ if ($downloadRewards -notmatch 'FULL.*P2 SET' -or
     throw 'Downloaded reward director is missing the tiered rare P2/S2/Fire jackpot economy.'
 }
 $downloadComposer = Get-Content -LiteralPath (Join-Path $tempRoot 'server\plugins-src\EraCore\src\main\java\dev\jorel\eracore\LegacySchematicComposer.java') -Raw
-if ($downloadInfrastructure -notmatch 'Production schematic mode: preserving Kraken \+ Nether/End geometry exactly') {
-    throw 'Downloaded infrastructure director can still fall back to generic production geometry.'
-}
-if ($downloadRewards -notmatch 'placeFunctionalCrate' -or $downloadRewards -notmatch 'Refusing to overwrite Kraken block') {
-    throw 'Downloaded rewards director is missing non-destructive Kraken crate placement.'
+if ($downloadRewards -notmatch 'placeFunctionalCrate') {
+    throw 'Downloaded rewards director is missing non-destructive crate placement.'
 }
 if ($downloadSim -notmatch 'case-insensitive unique identities' -or $downloadSim -notmatch 'namePrestigeTier') {
     throw 'Downloaded simulation is missing unique/prestige-aware HCF identities.'
 }
-if ($downloadComposer -notmatch 'Kraken Spawn.*false' -or $downloadComposer -notmatch 'selection padding, not instructions to excavate') {
-    throw 'Downloaded composer is not using non-air Kraken production paste.'
+if ($downloadComposer -notmatch 'HCF Spawn.*false' -or
+    $downloadComposer -notmatch 'approved spawn''s own road design' -or
+    $downloadComposer -notmatch 'Approved HCF spawn must be 101x37x101') {
+    throw 'Downloaded composer is not using the approved 101x101 spawn and copied road design.'
 }
 if ($downloadReset -match 'Set-YamlScalar' -or
     $downloadReset -match 'Set-Content -LiteralPath \$config') {

@@ -121,22 +121,13 @@ final class HcfBaseBuilder {
         completed.remove("surface:"+k);
         maintenanceRebuild=true;
 
-        // Queue-only recovery path: never scan/generate the full remote claim.
-        // Only the visible upper base receives the guaranteed flat support apron.
-        // The outer work/claim radius is deliberately left on the global low-relief
-        // HCF terrain so lazy materialization cannot create giant square plateaus.
+        // Lazy/cold materialization must compile the same visible terrain contract
+        // as normal SOTW construction and /baserebuild. Reusing the old rectangular
+        // flat apron made a base change appearance depending on how it became hot.
+        // v10 keeps the work bounded to the deterministic family mask + cradle blend,
+        // so Cave/Tunnel/Modern sites cannot regress into square lawns after recovery.
         clearBrokenBaseVolumes(world,plan);
-        int flatX=plan.surfaceHalfX+6;
-        int flatZ=plan.surfaceHalfZ+6;
-        for(int x=plan.cx-flatX;x<=plan.cx+flatX;x++) {
-            for(int z=plan.cz-flatZ;z<=plan.cz+flatZ;z++) {
-                for(int yy=Math.max(2,plan.surfaceY-6);yy<plan.surfaceY;yy++) {
-                    Material m=yy>=plan.surfaceY-3?Material.DIRT:Material.STONE;
-                    queue.add(new Op(world,x,yy,z,m));
-                }
-                queue.add(new Op(world,x,plan.surfaceY,z,Material.GRASS));
-            }
-        }
+        prepareTerrainPad(world,plan);
         auditPlan(plan);
 
         buildSurfaceShell(world,plan,true);

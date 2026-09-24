@@ -108,6 +108,7 @@ jobs:
 
           c['base-builder']=c['base-builder']||{}
           c['base-builder']['qa-fast-rebuild']=true
+          c['base-builder']['qa-showcase']=true
           c['base-builder']['qa-fast-rebuild-blocks-per-run']=6000
           c['base-builder']['blocks-per-tick']=1200
           c['base-builder']['visible-blocks-per-tick']=1200
@@ -153,10 +154,11 @@ jobs:
       - name: Render five-family terrain integration QA
         working-directory: bots
         env:
-          QA_OUTPUT_DIR: \${{ github.workspace }}/qa-output
-          SIMULATION_FILE: \${{ github.workspace }}/server/plugins/EraCore/simulation.yml
-          ERACORE_CONFIG: \${{ github.workspace }}/server/plugins/EraCore/config.yml
+          QA_OUTPUT_DIR: ${{ github.workspace }}/qa-output
+          SIMULATION_FILE: ${{ github.workspace }}/server/plugins/EraCore/simulation.yml
+          ERACORE_CONFIG: ${{ github.workspace }}/server/plugins/EraCore/config.yml
           QA_BASES_ONLY: '1'
+          QA_SHOWCASE: '1'
           QA_REBUILD_BASES: '1'
           QA_TEST_ATMOSPHERE: '1'
           QA_VIEW_DISTANCE: '10'

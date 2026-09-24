@@ -19,6 +19,7 @@ const username=process.env.QA_USERNAME || 'QAInspector'
 const width=Number(process.env.QA_WIDTH||1280)
 const height=Number(process.env.QA_HEIGHT||720)
 const viewDistance=Number(process.env.QA_VIEW_DISTANCE||8)
+const detailPass=process.env.QA_DETAIL_PASS!=='0'
 
 fs.mkdirSync(outDir,{recursive:true})
 const manifest={startedAt:new Date().toISOString(),captures:[],messages:[],errors:[]}
@@ -253,6 +254,14 @@ if(process.env.QA_BASES_ONLY!=='1') {
   const fixed=[
     ['spawn-overview',{x:0,y:108,z:-48},{x:0,y:64,z:0}],
     ['spawn-ground',{x:0,y:68,z:-82},{x:0,y:68,z:0}],
+    ...(detailPass ? [
+      ['spawn-north-detail',{x:0,y:72,z:-52},{x:0,y:67,z:0}],
+      ['spawn-east-detail',{x:52,y:72,z:0},{x:0,y:67,z:0}],
+      ['spawn-south-detail',{x:0,y:72,z:52},{x:0,y:67,z:0}],
+      ['spawn-west-detail',{x:-52,y:72,z:0},{x:0,y:67,z:0}],
+      ['spawn-diagonal-texture',{x:42,y:74,z:-42},{x:0,y:67,z:0}],
+      ['spawn-ground-seam',{x:34,y:69,z:-34},{x:0,y:65,z:0}]
+    ] : []),
     ['north-road-long',{x:0,y:72,z:-255},{x:0,y:64,z:-620}],
     ['north-road-transition',{x:74,y:92,z:-335},{x:0,y:64,z:-470}],
     ['road-shoulder-relief',{x:92,y:88,z:-430},{x:150,y:64,z:-520}],
@@ -262,14 +271,19 @@ if(process.env.QA_BASES_ONLY!=='1') {
     ['southeast-dry-basin',{x:690,y:92,z:650},{x:790,y:61,z:760}],
     ['koth2',{x:500,y:110,z:-555},{x:500,y:64,z:-500}],
     ['koth2-approach',{x:500,y:86,z:-760},{x:500,y:64,z:-500}],
+    ...(detailPass ? [['koth2-detail',{x:536,y:74,z:-536},{x:500,y:66,z:-500}]] : []),
     ['endstyle-koth',{x:-500,y:110,z:-555},{x:-500,y:64,z:-500}],
     ['endstyle-approach',{x:-500,y:86,z:-760},{x:-500,y:64,z:-500}],
+    ...(detailPass ? [['endstyle-detail',{x:-536,y:74,z:-536},{x:-500,y:66,z:-500}]] : []),
     ['egypt-koth',{x:500,y:110,z:445},{x:500,y:64,z:500}],
     ['egypt-approach',{x:500,y:86,z:760},{x:500,y:64,z:500}],
+    ...(detailPass ? [['egypt-detail',{x:536,y:74,z:464},{x:500,y:66,z:500}]] : []),
     ['koth-forty',{x:-500,y:110,z:445},{x:-500,y:64,z:500}],
     ['frost-approach',{x:-500,y:86,z:760},{x:-500,y:64,z:500}],
+    ...(detailPass ? [['frost-detail',{x:-536,y:74,z:464},{x:-500,y:66,z:500}]] : []),
     ['conquest',{x:0,y:120,z:710},{x:0,y:68,z:775}],
-    ['conquest-approach',{x:0,y:92,z:575},{x:0,y:68,z:775}]
+    ['conquest-approach',{x:0,y:92,z:575},{x:0,y:68,z:775}],
+    ...(detailPass ? [['conquest-detail',{x:42,y:78,z:733},{x:0,y:70,z:775}]] : [])
   ]
   for(const [name,pos,target] of fixed) await capture(name,pos,target,3800)
 }
@@ -365,6 +379,14 @@ if(selected.length){
       {x:b.x+48,y:b.y+9,z:b.z},{x:b.x,y:b.y-1,z:b.z},4800)
     await capture(prefix+'-claim-context',
       {x:b.x+52,y:b.y+30,z:b.z-52},{x:b.x,y:b.y-2,z:b.z},5200)
+    if(detailPass){
+      await capture(prefix+'-detail-diagonal',
+        {x:b.x+32,y:b.y+6,z:b.z-32},{x:b.x,y:b.y,z:b.z},3000)
+      await capture(prefix+'-terrain-seam',
+        {x:b.x-30,y:b.y+4,z:b.z-30},{x:b.x-6,y:b.y-1,z:b.z-6},3000)
+      await capture(prefix+'-rear-detail',
+        {x:b.x-34,y:b.y+7,z:b.z+34},{x:b.x,y:b.y,z:b.z},3000)
+    }
   }
 }
 

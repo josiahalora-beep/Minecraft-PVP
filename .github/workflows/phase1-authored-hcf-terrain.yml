@@ -61,42 +61,69 @@ jobs:
           set -euo pipefail
           mkdir -p .phase1/map
           python3 - <<'PY'
-          import html,json,re,urllib.request,urllib.parse
+          import hashlib,html,json,re,urllib.parse,urllib.request,urllib.error
           key='32sslt4lmrut2e0'
+          expected='af9c214979fcde0b1c41e435a6359940a930ffa97c8e2ad09667f74203afba95'
           ua='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36'
+          headers={
+              'User-Agent':ua,
+              'Accept':'application/json,text/html,*/*',
+              'Referer':'https://builtbybit.com/'
+          }
 
           api=f'https://www.mediafire.com/api/1.5/file/get_info.php?quick_key={key}&response_format=json'
-          req=urllib.request.Request(api,headers={'User-Agent':ua,'Accept':'application/json'})
-          info=json.loads(urllib.request.urlopen(req,timeout=30).read().decode('utf-8'))['response']['file_info']
-          if info.get('filename')!='FreeMap.rar' or info.get('hash')!='af9c214979fcde0b1c41e435a6359940a930ffa97c8e2ad09667f74203afba95':
-              raise SystemExit('MediaFire metadata does not match the approved authored HCF map')
+          req=urllib.request.Request(api,headers=headers)
+          with urllib.request.urlopen(req,timeout=30) as r:
+              info=json.loads(r.read().decode('utf-8'))['response']['file_info']
 
-          page=info['links']['normal_download']
-          req=urllib.request.Request(page,headers={'User-Agent':ua})
-          body=urllib.request.urlopen(req,timeout=30).read().decode('utf-8','ignore')
-          patterns=[
+          if info.get('privacy')!='public' or info.get('ready')!='yes':
+              raise SystemExit('MediaFire file is no longer public/ready')
+          if info.get('hash','').lower()!=expected:
+              raise SystemExit('MediaFire API hash changed: '+str(info.get('hash')))
+          if info.get('filename')!='FreeMap.rar':
+              raise SystemExit('Unexpected MediaFire filename: '+str(info.get('filename')))
+
+          normal=info.get('links',{}).get('normal_download')
+          if not normal:
+              raise SystemExit('MediaFire API did not return normal_download')
+          req=urllib.request.Request(normal,headers=headers)
+          with urllib.request.urlopen(req,timeout=30) as r:
+              page=r.read().decode('utf-8','replace')
+
+          direct=None
+          for pat in [
               r'id=["\']downloadButton["\'][^>]+href=["\']([^"\']+)',
               r'href=["\']([^"\']+)["\'][^>]+id=["\']downloadButton["\']',
-              r'aria-label=["\']Download file["\'][^>]+href=["\']([^"\']+)'
-          ]
-          link=None
-          for p in patterns:
-              m=re.search(p,body,re.I)
+              r'aria-label=["\']Download file["\'][^>]+href=["\']([^"\']+)',
+              r'href=["\'](https?://download[^"\']+)["\']'
+          ]:
+              m=re.search(pat,page,re.I)
               if m:
-                  link=html.unescape(m.group(1))
+                  direct=html.unescape(m.group(1))
                   break
-          if not link:
-              raise SystemExit('Could not resolve MediaFire download URL from canonical page')
+          if not direct:
+              raise SystemExit('Canonical MediaFire page did not expose a CDN download URL')
 
-          print('Resolved authored map host:',urllib.parse.urlparse(link).netloc)
-          req=urllib.request.Request(link,headers={'User-Agent':ua,'Referer':page})
+          host=urllib.parse.urlparse(direct).netloc
+          if not (host.endswith('.mediafire.com') and host.startswith('download')):
+              raise SystemExit('Refusing unexpected download host: '+host)
+          print('Downloading verified public asset from',host)
+
+          req=urllib.request.Request(direct,headers={**headers,'Referer':normal})
+          h=hashlib.sha256()
+          size=0
           with urllib.request.urlopen(req,timeout=180) as r, open('.phase1/map/FreeMap.rar','wb') as out:
               while True:
                   b=r.read(1024*1024)
                   if not b: break
-                  out.write(b)
+                  out.write(b); h.update(b); size+=len(b)
+          actual=h.hexdigest()
+          print('Downloaded bytes=',size,'sha256=',actual)
+          if actual!=expected:
+              raise SystemExit('Downloaded authored map checksum mismatch: '+actual)
+          if size!=int(info.get('size','0')):
+              raise SystemExit('Downloaded authored map size mismatch')
           PY
-          echo "af9c214979fcde0b1c41e435a6359940a930ffa97c8e2ad09667f74203afba95  .phase1/map/FreeMap.rar" | sha256sum -c -
 
       - name: Extract authored map
         shell: bash

@@ -357,7 +357,7 @@ final class LegacySchematicComposer {
             return true;
         } catch(Exception e) {
             jobs.clear();
-            plugin.getLogger().severe("Could not queue Kraken spawn reset: "+e.getMessage());
+            plugin.getLogger().severe("Could not queue HCF spawn reset: "+e.getMessage());
             e.printStackTrace();
             return false;
         }
@@ -389,16 +389,24 @@ final class LegacySchematicComposer {
                 plugin.getConfig().getInt("world-composer.spawn-anchor-y",66),0,false));
 
             int ko=plugin.getConfig().getInt("map-layout.koth-offset",500);
-            int ky=plugin.getConfig().getInt("map.surface-y",63);
-            jobs.add(new PasteJob("Classic KOTH",over,load(asset("koth-classic","KOTH2-production-1.8.schematic")), ko,ky,-ko,false));
-            jobs.add(new PasteJob("EndStyle KOTH",over,load(asset("koth-endstyle","EndStyleKOTH-production-1.8.schematic")),-ko,ky,-ko,false));
-            jobs.add(new PasteJob("Egypt KOTH",over,load(asset("koth-egypt","EgyptKOTH-production-1.8.schematic")), ko,ky,ko,false));
-            jobs.add(new PasteJob("Frost KOTH",over,load(asset("koth-frost","KOTH-Forty-1.8-converted.schematic")),-ko,ky,ko,false));
+            // Keep the already-reviewed quadrant coordinates, but anchor each
+            // schematic to the authored FreeMap ground at its own center. This
+            // replaces the obsolete superflat-Y assumption without grading the
+            // surrounding builder terrain.
+            int classicY=plugin.canonicalHcfTerrainY( ko,-ko);
+            int endstyleY=plugin.canonicalHcfTerrainY(-ko,-ko);
+            int egyptY=plugin.canonicalHcfTerrainY( ko, ko);
+            int frostY=plugin.canonicalHcfTerrainY(-ko, ko);
+            jobs.add(new PasteJob("Classic KOTH",over,load(asset("koth-classic","KOTH2-production-1.8.schematic")), ko,classicY,-ko,false));
+            jobs.add(new PasteJob("EndStyle KOTH",over,load(asset("koth-endstyle","EndStyleKOTH-production-1.8.schematic")),-ko,endstyleY,-ko,false));
+            jobs.add(new PasteJob("Egypt KOTH",over,load(asset("koth-egypt","EgyptKOTH-production-1.8.schematic")), ko,egyptY,ko,false));
+            jobs.add(new PasteJob("Frost KOTH",over,load(asset("koth-frost","KOTH-Forty-1.8-converted.schematic")),-ko,frostY,ko,false));
 
+            int conquestX=plugin.getConfig().getInt("map-layout.conquest-x",0);
+            int conquestZ=plugin.getConfig().getInt("map-layout.conquest-z",775);
+            int conquestY=plugin.canonicalHcfTerrainY(conquestX,conquestZ);
             jobs.add(new PasteJob("Conquest",over,load(asset("conquest","conquest.schematic")),
-                plugin.getConfig().getInt("map-layout.conquest-x",0),
-                plugin.getConfig().getInt("world-composer.conquest-anchor-y",63),
-                plugin.getConfig().getInt("map-layout.conquest-z",1125),false));
+                conquestX,conquestY,conquestZ,false));
 
             jobs.add(new PasteJob("Nether Spawn",nether,load(asset("nether-spawn","NetherSpawnWillzaTeam.schematic")),
                 0,plugin.getConfig().getInt("world-composer.nether-anchor-y",70),0,true));

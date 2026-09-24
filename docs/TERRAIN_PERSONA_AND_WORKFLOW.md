@@ -1,73 +1,137 @@
 # HCF Terrain Persona and Workflow
 
 ## Purpose
-This file is the canonical terrain doctrine for the production HCF world. Update it in place; do not create a competing terrain system.
+
+This file is the canonical terrain doctrine for the production HCF Overworld. Update it in place. Do not add a competing wilderness generator.
+
+## Phase 1 production authority
+
+The production Overworld is an **authored HCF map**, not a superflat world and not an EraCore-generated noise field.
+
+- Asset: `FreeMap.rar`
+- Internal world folder: `FreeWorld`
+- Approved SHA-256: `af9c214979fcde0b1c41e435a6359940a930ffa97c8e2ad09667f74203afba95`
+- Original world spawn: `0,65,0`
+- Pre-generated coverage: approximately 4096 x 4096 blocks
+- Production playable border: **2000-block diameter**, centered at 0,0 (approximately X/Z -1000 to +1000)
+- Public release provenance and usage notes are tracked in `docs/HCF_REFERENCE_LIBRARY.md`.
+
+The old `HcfTerrainDirector` warped-noise terrain implementation remains only as a legacy/fallback code path. It is **not** permitted to normalize, flatten, recolor or redecorate the authored production wilderness.
 
 ## Persona
-Build terrain like a strong 2015–2016 HCF mapmaker preparing a competitive survival world, not like a generic survival seed and not like a showcase fantasy map. The wilderness must feel natural at player scale, readable while sprinting and fighting, and irregular enough that screenshots never read as a flat generated lawn.
+
+Treat the wilderness as the work of an experienced 2015–2016 HCF map builder whose macro terrain is already finished. Preserve the authored hills, bowls, ponds, biome transitions and custom trees. Server code should add only the minimum HCF gameplay overlays that the map itself does not provide.
+
+The target is readable PvP terrain: broad natural plains, gentle-to-moderate rolling relief, recognizable custom tree clusters and clear sightlines. It must never return to a generated lawn, a layer-cake noise field, or random cobble/dirt confetti.
 
 ## Non-negotiable constraints
-- Preserve the existing Natural HCF terrain v3 warped-noise generator, broad ridge/bowl shaping, protected roads, event pads, always-day/no-weather presentation, and Mineflayer terrain awareness.
-- Roads remain no-claim + no-build + PvP enabled. Terrain work must never create a second road or a visual path that points directly to a faction entrance.
-- Spawn and event readability outrank decorative terrain. Wilderness relief must not create unavoidable movement traps.
-- Ordinary one-block rises are desirable and must remain traversable by human players and the existing Mineflayer auto-step behavior.
-- Never flatten a whole faction claim. Only the structural work envelope may be normalized; everything outside it should preserve or blend into the generated site.
-- Grass is the dominant surface language. Dirt, gravel, stone/cobble/moss and dry-region materials are accents, not checkerboards.
-- Natural layering is grass/topsoil -> dirt/fill -> stone. Exposed transitions should look eroded or cut, never like stacked horizontal stripes.
 
-## Shape language
-Use broad forms first: shallow bowls, low ridges, shoulders, saddles and gentle drainage-like depressions. Overlay medium forms second: uneven banks, hillside shelves, broken edges and small rock exposures. Add micro-detail last and in clusters.
+- Never run whole-map height normalization on the authored Overworld.
+- Never replace authored hills with procedural `targetY()` output.
+- Never apply random cobblestone/stone/dirt surface scars to wilderness.
+- Never add a second tree/decor population pass.
+- The authored map's elevations, ponds, trees and biome boundaries are authoritative.
+- Permanent clear daylight remains authoritative: no rain/thunder and no random night cycle.
+- The 2000-block world border is a diameter. All claims, event protection and AI destinations must fit fully inside +/-1000.
+- Faction claim rectangles must reject any rectangle extending beyond the border.
+- Base scouting must sample the **real authored terrain** even though procedural chunk normalization is disabled.
+- New production code may not infer "normalize-new-chunks:false" means "flat world."
 
-Avoid repeated circles, perfect rings, symmetric mounds, long straight retaining walls, evenly spaced foliage and noisy one-block speckling. Curves should be irregular and composed from changing run lengths; a useful hand-built rhythm is 5-3-2-1 rather than constant diagonals.
+## Allowed authored-world surface maintenance
+
+Only two wilderness-wide presentation changes are allowed, and both must be deterministic and idempotent.
+
+### 1. Sparse ground-cover cleanup
+
+The public map contains much denser tall grass than the desired PvP presentation. EraCore may thin:
+
+- long grass,
+- double plants,
+- flowers,
+
+while preserving them in coherent sparse clusters. The goal is open HCF sightlines with intentional pockets of vegetation, not a sterile lawn and not per-block random noise.
+
+Do **not** remove the authored custom trees merely to make the map empty.
+
+### 2. Cardinal HCF roads
+
+The four N/S/E/W HCF road corridors remain no-claim + no-build + PvP-enabled.
+
+The visible lane is a narrow deliberate gravel surface following the authored terrain. It must:
+
+- begin outside the spawn exit,
+- stay inside the 2k border,
+- remain approximately 9 blocks wide unless visual QA justifies a small adjustment,
+- follow the existing ground instead of flattening a 30-100 block shoulder,
+- contain no random cobblestone scatter,
+- clear vegetation only where it physically blocks the lane.
+
+Road protection width and visible road width are separate concepts. A protected corridor may be wider than the gravel strip.
+
+## Spawn and event integration
+
+Production structures are overlays on this authored map, not excuses to rebuild the wilderness.
+
+- Kraken spawn owns its immediate structure footprint/frontage.
+- KOTH/Conquest/portal sites may receive **local footprint grading only where the schematic requires structural support**.
+- Do not flatten a quadrant or create a giant circular event plateau.
+- If an old event coordinate lands on a severe hill, prefer relocating the site to a compatible natural pocket before large-scale terraforming.
+- Blend the edge of any required structural pad back into the authored land over the shortest safe distance.
+- Roads must not be turned into visual arrows pointing at faction bases.
+
+Current in-border layout constraints:
+- KOTH quadrant centers remain near +/-500 while Phase-1 compatibility is evaluated.
+- Overworld portal centers are moved inward to +/-800 so their protection radius fits the 2k map.
+- Conquest is moved inside the border; its exact final structural anchor must respect authored relief and the full schematic footprint.
 
 ## Faction-site workflow
-1. Read the existing site before changing it: median grade, local relief, uphill/downhill sides, nearby road/event exclusions, local surface palette and vegetation.
-2. Select a base family and footprint before terraforming. Terrain serves the chosen architecture; architecture does not force every site into the same rectangle.
-3. Establish only the minimum safe structural grade needed for the shell and PvP entrance.
-4. Blend the structural grade into the original terrain using the site's real slope. The actual uphill direction is the primary concealment driver. Uphill sides may climb and wrap; downhill sides should taper earlier. A rear-side preference may only be a minor entrance-readability adjustment, never a substitute for site slope.
-5. Embed the shell. Use banks, shoulders, partial roof soil and broken rock/earth edges to make the base look excavated into the site rather than placed on it.
-6. Preserve an unmarked, walkable entrance approach. Occlude sightlines with terrain shoulders, not gravel paths or artificial roads.
-7. Add clustered vegetation/details after the macro shape works. Empty space is intentional.
-8. Inspect from approximately 8, 25, 50 and 100 blocks. At range, terrain should dominate. At close range, construction quality and faction wealth/skill may become legible.
-9. Reject the result if it produces a square plateau, floating shelf, obvious berm ring, fake road, trapped movement channel, or a silhouette that advertises the base from range.
 
-## Base concealment relationship
-Concealment is family- and quality-dependent, not universal camouflage.
-- Tunnel: strongest burial; only a compact mouth and minimal crafted surface should read.
-- Cave: strongest natural-rock integration; irregular exposed stone and a partly hidden mouth.
-- Redemption: compact bunker embedded into a shaped shoulder.
-- Base-HCF: recognizable classic faction shell, but seated into terrain rather than standing on a lawn.
-- ModernHCF: cleaner deliberate architecture and somewhat more visible craft, while still respecting site relief.
+Base work happens in Phase 2+, but all future builders must obey the Phase-1 terrain contract.
 
-Higher-skill/wealth factions may execute cleaner transitions, better occlusion and more intentional palettes. Lower tiers can be rougher and less complete, but should never become implausibly exposed boxes.
+1. Sample the real authored ground, not a formula.
+2. Read median grade, local relief, liquids, tree obstruction and uphill/downhill direction.
+3. Choose the base site before building.
+4. Alter only the compact structural envelope required by the chosen design.
+5. Do not conceal normal HCF bases with universal dirt roofs or radial berms.
+6. Preserve surrounding authored terrain so the base looks placed by players in a real HCF map.
+7. Keep entrances and faction movement paths human/Mineflayer traversable.
 
-## Visual QA
-A terrain pass is acceptable only when:
-- there is no claim-sized flattening;
-- macro relief remains visible around bases;
-- slopes are navigable and do not strand bots;
-- entrance sightlines are broken without fake roads;
-- roof exposure matches family doctrine;
-- repeated neighboring bases do not produce repeated terrain rings;
-- the local palette remains coherent;
-- screenshots from 50–100 blocks read as terrain first and structure second for concealed families.
+## Visual rejection conditions
 
-The independent Build Viewer / QA server is the visual authority before production installer pinning. Screenshots should be taken in permanent clear daylight with enough distance to judge silhouette, not only from inside the claim.
+Reject a terrain revision if screenshots show any of the following:
 
+- dense tall-grass carpet across most visible plains;
+- random cobblestone/gravel/dirt confetti outside deliberate roads/builds;
+- procedural contour rings or layer-cake ridges introduced by server code;
+- claim-sized flat lawns;
+- giant circular event plateaus;
+- roads that disappear into unmarked grass;
+- generated forests added by EraCore;
+- terrain holes caused by actual world corruption rather than renderer chunk-loading gaps;
+- an event/claim extending through the +/-1000 world border.
 
-## Surface-mask integration v9
-Faction-site grading is footprint-relative, not bounding-box-relative. Distance to the actual family mask controls where grade is normalized and where natural relief takes back over. This is required for Cave ellipses, Tunnel spines and Modern stepped plans; a rectangular lawn around a non-rectangular shell is a failure.
+## Required Phase-1 visual QA
 
-Concealment earthwork follows the same real footprint edge with an irregular 5-3-2-1 height rhythm, then site slope and clustered noise break the rhythm so it does not become a visible ring. The site's measured uphill direction carries the mass; downhill sides taper sooner. Rear bias is secondary and must never create a radial/rear berm when the real terrain slopes elsewhere. Entrance corridors remain unmarked and open.
+The independent Spigot 1.8.8 renderer is the authority before installer pinning.
 
-Exposed cradle surfaces use coherent clustered local-palette patches at roughly 70/20/10 dominant/support/accent. The patch field must be spatially correlated; random per-block material confetti is not acceptable.
+A Phase-1 pass must verify:
 
+- the exact public map downloads and matches the approved SHA-256;
+- the world boots from the authored `FreeWorld` data;
+- the Overworld border reports 2000;
+- no log line shows the old production wilderness normalizer running;
+- clear noon/no-rain is restored automatically;
+- spawn and multiple wilderness quadrants retain authored relief;
+- tall grass is sparse enough for PvP visibility;
+- cardinal roads are visibly readable;
+- no unexpected EraCore surface material noise appears.
 
-## Visually tested terrain integration v14
-The independent five-family renderer is now a required regression check for terrain/base changes. v14 specifically freezes these lessons from screenshot review:
-- do not use radial concealment berms around faction shells;
-- use the canonical terrain gradient to find the site's real uphill side and let that terrain do most of the concealment;
-- keep only a tiny structural grading apron, returning immediately to canonical wilderness height outside it;
-- Tunnel/Cave conceal mainly through roof burial plus natural uphill relief, not artificial surrounding mounds;
-- integer-Y terrain contours must be broken with coherent medium-scale relief so they form short natural shelves rather than long parallel layer-cake seams;
-- surface-material scars must remain clustered and subordinate to grass, never broad geometric carpets.
+The raw-map baseline and the cleaned-road pass should use the same camera positions whenever possible so visual changes are attributable to code rather than camera selection.
+
+## Fallback terrain code
+
+The old Natural-HCF warped-noise implementation may remain in source for disposable worlds/tests that explicitly set:
+
+`terrain.authored-world: false`
+
+It must never silently activate on production because an asset is missing. Missing/corrupt authored-map assets are deployment errors and should stop the reset/install path rather than generating a substitute world.

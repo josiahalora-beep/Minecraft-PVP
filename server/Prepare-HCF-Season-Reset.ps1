@@ -193,6 +193,144 @@ $era = Join-Path $ServerRoot 'plugins\EraCore'
 $stateArchive = Join-Path $archiveRoot 'EraCore-reset-state'
 New-Item -ItemType Directory -Path $stateArchive -Force | Out-Null
 
+# Preserve persistent AI/faction state across SOTW, but repair one known legacy
+# corruption produced by an old reset script:
+#     : terrain-repair-version: 0
+# That line is not valid YAML. Removing only that malformed marker is safe
+# because EraCore treats a missing terrain-repair marker as version 0.
+$simulation = Join-Path $era 'simulation.yml'
+if (Test-Path -LiteralPath $simulation) {
+    $simulationBackup = Join-Path $stateArchive 'simulation.yml.before-sotw-repair'
+    Copy-Item -LiteralPath $simulation -Destination $simulationBackup -Force
+
+    $lines = @(Get-Content -LiteralPath $simulation)
+    $badLegacy = @($lines | Where-Object {
+        $_ -match '^\s*:\s*terrain-repair-version:\s*\d+\s*
+# These files contain physical-map locations or transient world state. Preserve
+# copies in the archive, then remove them so a fresh map cannot inherit an old
+# spawn, safezone, claim index, crate mark, event, duel, or combat location.
+$resetState = @(
+    'claims-v2.yml',
+    'events.yml',
+    'combat-hot.yml',
+    'warps.yml',
+    'safezones.yml',
+    'infrastructure.yml',
+    'rewards.yml'
+)
+foreach ($name in $resetState) {
+    $path = Join-Path $era $name
+    if (-not (Test-Path $path)) { continue }
+    Copy-Item -LiteralPath $path -Destination (Join-Path $stateArchive $name) -Force
+    Remove-Item -LiteralPath $path -Force
+}
+
+# EraCore owns config.yml mutation. This reset preflight only handles
+# destructive filesystem work and leaves a receipt for the plugin to consume
+# after Bukkit has parsed a valid configuration.
+
+# Preserve simulation.yml byte-for-byte across SOTW. FreeMap is authoritative
+# terrain, so the old base-terrain repair marker no longer needs reset-time text
+# mutation. EraCore owns all YAML writes after Bukkit has parsed the file.
+
+# Leave a positive receipt for diagnostics. The pending marker is removed only
+# after every destructive/reset step above has completed successfully.
+$receipt = Join-Path $era 'season-reset.applied'
+Set-Content -LiteralPath $receipt -Value @(
+    ('applied-at=' + [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()),
+    ('archive=' + $archiveRoot),
+    ('level-name=' + $levelName),
+    'layout-version=3'
+) -Encoding ASCII
+
+Remove-Item -LiteralPath $marker -Force
+
+$activeOverworld = Join-Path $ServerRoot $levelName
+if (-not (Test-Path (Join-Path $activeOverworld 'level.dat')) -or
+    -not (Test-Path (Join-Path $activeOverworld 'region'))) {
+    throw 'SOTW reset verification failed; authored Overworld is not staged before Spigot start.'
+}
+foreach ($worldName in $worlds) {
+    if ($worldName -eq $levelName) { continue }
+    $source = Join-Path $ServerRoot $worldName
+    if (Test-Path $source) {
+        throw ('SOTW reset verification failed; non-Overworld dimension unexpectedly exists before Spigot start: ' + $source)
+    }
+}
+
+Write-Host '[SOTW] VERIFIED authored HCF physical map reset complete.' -ForegroundColor Green
+Write-Host '[SOTW] Old worlds + stale location state were archived. The verified authored Overworld is staged; EraCore will add only HCF-specific production structures/overlays.'
+Write-Host ('[SOTW] Archive: ' + $archiveRoot) -ForegroundColor DarkGray
+exit 0
+
+    })
+
+    if ($badLegacy.Count -gt 0) {
+        $fixed = @($lines | Where-Object {
+            $_ -notmatch '^\s*:\s*terrain-repair-version:\s*\d+\s*
+# These files contain physical-map locations or transient world state. Preserve
+# copies in the archive, then remove them so a fresh map cannot inherit an old
+# spawn, safezone, claim index, crate mark, event, duel, or combat location.
+$resetState = @(
+    'claims-v2.yml',
+    'events.yml',
+    'combat-hot.yml',
+    'warps.yml',
+    'safezones.yml',
+    'infrastructure.yml',
+    'rewards.yml'
+)
+foreach ($name in $resetState) {
+    $path = Join-Path $era $name
+    if (-not (Test-Path $path)) { continue }
+    Copy-Item -LiteralPath $path -Destination (Join-Path $stateArchive $name) -Force
+    Remove-Item -LiteralPath $path -Force
+}
+
+# EraCore owns config.yml mutation. This reset preflight only handles
+# destructive filesystem work and leaves a receipt for the plugin to consume
+# after Bukkit has parsed a valid configuration.
+
+# Preserve simulation.yml byte-for-byte across SOTW. FreeMap is authoritative
+# terrain, so the old base-terrain repair marker no longer needs reset-time text
+# mutation. EraCore owns all YAML writes after Bukkit has parsed the file.
+
+# Leave a positive receipt for diagnostics. The pending marker is removed only
+# after every destructive/reset step above has completed successfully.
+$receipt = Join-Path $era 'season-reset.applied'
+Set-Content -LiteralPath $receipt -Value @(
+    ('applied-at=' + [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()),
+    ('archive=' + $archiveRoot),
+    ('level-name=' + $levelName),
+    'layout-version=3'
+) -Encoding ASCII
+
+Remove-Item -LiteralPath $marker -Force
+
+$activeOverworld = Join-Path $ServerRoot $levelName
+if (-not (Test-Path (Join-Path $activeOverworld 'level.dat')) -or
+    -not (Test-Path (Join-Path $activeOverworld 'region'))) {
+    throw 'SOTW reset verification failed; authored Overworld is not staged before Spigot start.'
+}
+foreach ($worldName in $worlds) {
+    if ($worldName -eq $levelName) { continue }
+    $source = Join-Path $ServerRoot $worldName
+    if (Test-Path $source) {
+        throw ('SOTW reset verification failed; non-Overworld dimension unexpectedly exists before Spigot start: ' + $source)
+    }
+}
+
+Write-Host '[SOTW] VERIFIED authored HCF physical map reset complete.' -ForegroundColor Green
+Write-Host '[SOTW] Old worlds + stale location state were archived. The verified authored Overworld is staged; EraCore will add only HCF-specific production structures/overlays.'
+Write-Host ('[SOTW] Archive: ' + $archiveRoot) -ForegroundColor DarkGray
+exit 0
+
+        })
+        Set-Content -LiteralPath $simulation -Value $fixed -Encoding UTF8
+        Write-Host ('[SOTW] Repaired known malformed simulation.yml terrain marker; backup: ' + $simulationBackup) -ForegroundColor Yellow
+    }
+}
+
 # These files contain physical-map locations or transient world state. Preserve
 # copies in the archive, then remove them so a fresh map cannot inherit an old
 # spawn, safezone, claim index, crate mark, event, duel, or combat location.

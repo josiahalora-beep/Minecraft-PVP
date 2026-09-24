@@ -281,15 +281,39 @@ final class LegacySchematicComposer {
         return Math.max(2,y);
     }
 
+    private int countRoadSurfaceOnRow(Schematic spawn,int z) {
+        int count=0;
+        for(int x=0;x<spawn.width;x++) {
+            int i=z*spawn.width+x; // approved road surface lives at schematic Y=0
+            if(i>=0 && i<spawn.blocks.length && isSpawnRoadSurface(spawn.blockId(i))) count++;
+        }
+        return count;
+    }
+
+    private int countRoadSurfaceOnColumn(Schematic spawn,int x) {
+        int count=0;
+        for(int z=0;z<spawn.length;z++) {
+            int i=z*spawn.width+x; // approved road surface lives at schematic Y=0
+            if(i>=0 && i<spawn.blocks.length && isSpawnRoadSurface(spawn.blockId(i))) count++;
+        }
+        return count;
+    }
+
     private void validateSpawnRoadContract(Schematic spawn)throws IOException {
         if(spawn.width!=101 || spawn.height!=37 || spawn.length!=101 ||
            spawn.offX!=-50 || spawn.offY!=-1 || spawn.offZ!=-50)
             throw new IOException("Approved HCF spawn must be 101x37x101 with WE offset -50,-1,-50.");
 
-        int[] probes={1*spawn.width+57,99*spawn.width+51,55*spawn.width+1,30*spawn.width+99};
-        for(int i:probes)
-            if(i<0 || i>=spawn.blocks.length || !isSpawnRoadSurface(spawn.blockId(i)))
-                throw new IOException("Approved HCF spawn road exit contract is missing expected terminal road blocks.");
+        // Validate the actual terminal road signatures instead of one brittle
+        // coordinate per side. Decorative/grass cells legitimately sit between
+        // road pixels at the schematic boundary.
+        int north=countRoadSurfaceOnRow(spawn,1);
+        int south=countRoadSurfaceOnRow(spawn,99);
+        int west=countRoadSurfaceOnColumn(spawn,1);
+        int east=countRoadSurfaceOnColumn(spawn,99);
+        if(north<4 || south<4 || west<4 || east<4)
+            throw new IOException("Approved HCF spawn road exits are incomplete: N="+north+
+                " S="+south+" W="+west+" E="+east);
     }
 
     private final EraCore plugin;

@@ -7,6 +7,7 @@ on:
     paths:
       - '.github/workflows/phase1-authored-hcf-terrain.yml'
       - 'bots/src/qa-inspector.js'
+      - 'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/LegacySchematicComposer.java'
       - '.github/qa-assets/production-assets.part*.b64'
 
 permissions:

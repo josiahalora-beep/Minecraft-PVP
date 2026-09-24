@@ -107,6 +107,54 @@ final class HcfBaseBuilder {
         ensureRunner();
     }
 
+    void queueQaFamilyShowcase() {
+        if(!plugin.getConfig().getBoolean("base-builder.qa-showcase",false)) return;
+        final World world=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
+        if(world==null) return;
+
+        // Disposable visual-QA only. These names/coordinates are chosen so the
+        // unmodified deterministic HcfBasePlan resolves one primary example of
+        // every real production family. No alternate geometry path exists here:
+        // forceRebuild() still runs the same planner/compiler used by factions.
+        final String[] names={
+            "QARedemption2","QABase0","QAModern14","QATunnel21","QACave55"
+        };
+        final int[][] sites={
+            {-900,-900},{-450,-900},{450,-900},{900,-900},{-900,900}
+        };
+        final String[] expected={
+            "REDEMPTION","BASE_HCF","MODERN_HCF","TUNNEL","CAVE"
+        };
+
+        // Preload a bounded neighborhood first. Newly generated chunks are
+        // normalized by HcfTerrainDirector on the following tick; delaying the
+        // actual build lets each showcase site read the real terrain relief.
+        for(int[] site:sites) {
+            int ccx=site[0]>>4, ccz=site[1]>>4;
+            for(int dx=-4;dx<=4;dx++)
+                for(int dz=-4;dz<=4;dz++)
+                    world.loadChunk(ccx+dx,ccz+dz);
+        }
+
+        Bukkit.getScheduler().runTaskLater(plugin,new Runnable() {
+            public void run() {
+                for(int i=0;i<sites.length;i++) {
+                    int x=sites[i][0],z=sites[i][1];
+                    int y=evaluateSite(x,z,30)[0];
+                    HcfBasePlan p=planFor(names[i],x,y,z);
+                    if(!expected[i].equals(p.primaryFamilyName())) {
+                        plugin.getLogger().warning("[qa-showcase] family seed drift name="+names[i]+
+                            " expected="+expected[i]+" actual="+p.primaryFamilyName());
+                    }
+                    forceRebuild(names[i],"hcf_glass_box","none",x,y,z,1,false,false,false);
+                    plugin.getLogger().info("[qa-showcase] queued "+names[i]+
+                        " family="+p.primaryFamilyName()+" secondary="+p.secondaryFamilyName()+
+                        " at="+x+","+y+","+z);
+                }
+            }
+        },20L);
+    }
+
     void lazyMaterialize(String faction,String preset,String trapPreset,int cx,int y,int cz,
                          int storageTier,boolean brewer,boolean netherPortal,boolean endPortal) {
         if(faction==null || faction.trim().isEmpty()) return;

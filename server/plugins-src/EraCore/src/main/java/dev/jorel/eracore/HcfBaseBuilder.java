@@ -1575,14 +1575,15 @@ final class HcfBaseBuilder {
         int gateX=p.cx+p.frontGateOffset;
         int frontZ=surfaceFrontZ(p,gateX);
 
-        // v12: concealment is a set of broken terrain-following lobes, not a
-        // continuous berm. The old all-angle falloff still looked like a
-        // procedural mound even after its contour was warped.
-        double familyFactor=p.primaryFamily==3?0.94:(p.primaryFamily==4?1.00:
-            (p.primaryFamily==2?0.46:(p.primaryFamily==0?0.74:0.64)));
-        double tierFactor=conceal==0?0.72:(conceal==1?0.90:1.02);
-        double patchThreshold=p.primaryFamily==3?0.43:(p.primaryFamily==4?0.40:
-            (p.primaryFamily==2?0.68:(p.primaryFamily==0?0.51:0.58)));
+        // v14: terrain cover follows the site's REAL uphill side. A fixed
+        // radial/rear-biased berm still looked player-generated from overview
+        // cameras. Broken uphill shoulders make the shell feel excavated into
+        // existing relief and leave downhill/frontage views naturally open.
+        double familyFactor=p.primaryFamily==3?0.78:(p.primaryFamily==4?0.84:
+            (p.primaryFamily==2?0.36:(p.primaryFamily==0?0.56:0.48)));
+        double tierFactor=conceal==0?0.70:(conceal==1?0.88:1.00);
+        double patchThreshold=p.primaryFamily==3?0.55:(p.primaryFamily==4?0.52:
+            (p.primaryFamily==2?0.76:(p.primaryFamily==0?0.65:0.70)));
 
         int outerX=p.surfaceHalfX+extra;
         int outerZ=p.surfaceHalfZ+extra;
@@ -1590,52 +1591,54 @@ final class HcfBaseBuilder {
             for(int z=p.cz-outerZ;z<=p.cz+outerZ;z++) {
                 if(surfaceInside(p,x,z)) continue;
                 double dist=warpedMaskDistance(p,x,z,extra+2);
-                if(dist<=0.0 || dist>extra+1.0) continue;
+                if(dist<=0.0 || dist>extra+0.75) continue;
 
-                // Bent, unmarked approach corridor remains completely walkable.
+                // Keep the primary approach as an unmarked, naturally graded cut.
                 if(z<=frontZ && z>=frontZ-approach) {
                     int depth=frontZ-z;
                     int bend=p.utilitySide*(depth/4);
-                    if(Math.abs(x-(gateX+bend))<=2) continue;
+                    if(Math.abs(x-(gateX+bend))<=3) continue;
                 }
 
-                double ft=(dist-0.55)/Math.max(1.0,extra+0.45-0.55);
+                double ft=(dist-0.45)/Math.max(1.0,extra+0.30-0.45);
                 ft=Math.max(0.0,Math.min(1.0,ft));
                 ft=ft*ft*(3.0-2.0*ft);
-                double falloff=Math.pow(1.0-ft,1.34);
+                double falloff=Math.pow(1.0-ft,1.48);
 
                 int naturalY=plugin.canonicalHcfTerrainY(x,z);
-                int slopeDelta=Math.max(-5,Math.min(5,naturalY-p.surfaceY));
-                double slopeBias=1.0+slopeDelta*0.045;
+                int groundY=gradedSurfaceY(p,x,z,extra+3);
+                double uphill=terrainUphillBias(p,x,z);
 
-                double side=(x-p.cx)/(double)Math.max(4,p.surfaceHalfX+extra);
-                double back=(z-p.cz)/(double)Math.max(4,p.surfaceHalfZ+extra);
-                double patch=0.68*cradleBroadNoise(x,z,p.seed+271)+
-                    0.32*cradleNoise(x,z,p.seed+811);
-                double coverField=patch+
-                    Math.max(0.0,back)*0.24+
-                    Math.max(0.0,p.utilitySide*side)*0.07;
+                double patch=0.70*cradleBroadNoise(x,z,p.seed+271)+
+                    0.30*cradleNoise(x,z,p.seed+811);
+                double coverField=0.64*patch+0.30*uphill;
 
-                // The front half should read as an entrance cut into terrain,
-                // not as a circular moat/berm. Only immediate structural support
-                // is continuous; farther cover must earn its place from a lobe.
-                if(z<p.cz) coverField-=0.16;
-                double threshold=patchThreshold+Math.max(0.0,dist-2.0)*0.025;
-                if(dist>1.45 && coverField<threshold) continue;
+                // Faint rear preference preserves HCF entrance readability, but
+                // it is intentionally much weaker than actual terrain direction.
+                if(z>=p.cz) coverField+=0.05;
+                if(z<frontZ+2) coverField-=0.12;
 
-                double frontBias=z<frontZ?0.48:(z>=p.cz?1.06:0.90);
-                double raw=maxHeight*falloff*familyFactor*tierFactor*
-                    slopeBias*frontBias*(0.92+patch*0.16);
-                int h=Math.max(0,Math.min(maxHeight,(int)Math.round(raw)));
+                double threshold=patchThreshold+Math.max(0.0,dist-1.0)*0.018;
+                if(coverField<threshold) continue;
+
+                // Natural uphill terrain should do most of the concealment.
+                // Do not pile dirt on a column already high enough to hide the
+                // shell; only bridge a shallow low spot into the same landform.
+                int naturalNeed=Math.max(0,(p.surfaceY+2)-naturalY);
+                if(naturalNeed==0 && dist>2.25) continue;
+
+                double raw=(maxHeight-1)*falloff*familyFactor*tierFactor*
+                    (0.76+uphill*0.34)*(0.94+patch*0.12);
+                int h=Math.max(0,Math.min(maxHeight-1,(int)Math.round(raw)));
                 if(h<=0) continue;
 
-                int groundY=gradedSurfaceY(p,x,z,extra+3);
-                int desiredTop=Math.max(groundY,p.surfaceY+h);
+                int desiredTop=Math.max(groundY,
+                    Math.min(p.surfaceY+h,groundY+Math.max(1,naturalNeed+1)));
                 if(desiredTop<=groundY) continue;
 
                 for(int yy=groundY+1;yy<desiredTop;yy++) {
-                    Material m=(yy==groundY+1 && desiredTop-groundY>=4 &&
-                        cradleNoise(x+9,z-7,p.seed+383)>0.78)?accent:fillMat;
+                    Material m=(yy==groundY+1 && desiredTop-groundY>=3 &&
+                        cradleNoise(x+9,z-7,p.seed+383)>0.82)?accent:fillMat;
                     queue.add(new Op(w,x,yy,z,m));
                 }
                 queue.add(new Op(w,x,desiredTop,z,
@@ -1643,11 +1646,11 @@ final class HcfBaseBuilder {
             }
         }
 
-        // Family-relative soil roof cover. Tunnel/Cave remain the most buried;
-        // Modern deliberately exposes its stepped roof.
-        double cover=p.primaryFamily==3?0.93:(p.primaryFamily==4?0.95:
-            (p.primaryFamily==2?0.16:(p.primaryFamily==0?0.61:0.44)));
-        cover=Math.min(0.98,cover+conceal*0.04+(p.finishTier>=2?0.02:-0.01));
+        // Soil cover is now the main concealment mechanism for Tunnel/Cave.
+        // That is visually quieter than surrounding the building with a mound.
+        double cover=p.primaryFamily==3?0.96:(p.primaryFamily==4?0.97:
+            (p.primaryFamily==2?0.12:(p.primaryFamily==0?0.58:0.40)));
+        cover=Math.min(0.99,cover+conceal*0.035+(p.finishTier>=2?0.015:-0.01));
 
         for(int x=p.cx-p.surfaceHalfX;x<=p.cx+p.surfaceHalfX;x++) {
             for(int z=p.cz-p.surfaceHalfZ;z<=p.cz+p.surfaceHalfZ;z++) {
@@ -1661,6 +1664,20 @@ final class HcfBaseBuilder {
                     terrainSurfacePatch(topMat,fillMat,accent,x,z,p.seed+229)));
             }
         }
+    }
+
+    private double terrainUphillBias(HcfBasePlan p,int x,int z) {
+        int r=8;
+        double gx=plugin.canonicalHcfTerrainY(p.cx+r,p.cz)-
+            plugin.canonicalHcfTerrainY(p.cx-r,p.cz);
+        double gz=plugin.canonicalHcfTerrainY(p.cx,p.cz+r)-
+            plugin.canonicalHcfTerrainY(p.cx,p.cz-r);
+        double gm=Math.sqrt(gx*gx+gz*gz);
+        double dx=x-p.cx,dz=z-p.cz;
+        double dm=Math.sqrt(dx*dx+dz*dz);
+        if(gm<0.35 || dm<0.5) return 0.50;
+        double dot=(dx/dm)*(gx/gm)+(dz/dm)*(gz/gm);
+        return Math.max(0.0,Math.min(1.0,0.5+0.5*dot));
     }
 
     private void decorateSurfaceGrammar(World w,HcfBasePlan p,int top) {

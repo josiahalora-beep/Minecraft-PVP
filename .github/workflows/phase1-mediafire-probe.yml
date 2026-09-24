@@ -20,7 +20,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import json,urllib.parse,urllib.request,urllib.error
+          import json,html,re,urllib.parse,urllib.request,urllib.error
           key='32sslt4lmrut2e0'
           ua='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36'
           def get(url):
@@ -34,6 +34,7 @@ jobs:
                       return r.status,r.geturl(),r.read()
               except urllib.error.HTTPError as e:
                   return e.code,e.geturl(),e.read()
+          normal=None
           for action,extra in [
               ('get_info',''),
               ('get_links','&link_type=normal_download'),
@@ -42,5 +43,29 @@ jobs:
               url=f'https://www.mediafire.com/api/1.5/file/{action}.php?quick_key={key}&response_format=json{extra}'
               status,final,body=get(url)
               print('\nAPI',action,extra,'status=',status,'final=',final)
-              print(body[:8000].decode('utf-8','replace'))
+              txt=body.decode('utf-8','replace')
+              print(txt[:8000])
+              try:
+                  data=json.loads(txt)['response']
+                  if action=='get_info':
+                      normal=data.get('file_info',{}).get('links',{}).get('normal_download')
+                  elif extra.endswith('normal_download') and data.get('links'):
+                      normal=data['links'][0].get('normal_download') or normal
+              except Exception as e:
+                  print('JSON parse error:',e)
+          if normal:
+              status,final,body=get(normal)
+              print('\nNORMAL PAGE status=',status,'final=',final,'bytes=',len(body))
+              page=body.decode('utf-8','replace')
+              print(page[:12000])
+              for pat in [
+                  r'id=["\']downloadButton["\'][^>]+href=["\']([^"\']+)',
+                  r'href=["\']([^"\']+)["\'][^>]+id=["\']downloadButton["\']',
+                  r'aria-label=["\']Download file["\'][^>]+href=["\']([^"\']+)',
+                  r'href=["\'](https?://download[^"\']+)["\']'
+              ]:
+                  m=re.search(pat,page,re.I)
+                  if m:
+                      print('DIRECT CANDIDATE:',html.unescape(m.group(1)))
+                      break
           PY

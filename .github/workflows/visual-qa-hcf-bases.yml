@@ -2,11 +2,6 @@ name: visual-qa-hcf-bases
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/visual-qa-hcf-bases.yml'
-      - 'bots/src/qa-inspector.js'
 
 permissions:
   contents: read

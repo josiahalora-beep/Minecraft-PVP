@@ -1682,8 +1682,11 @@ final class HcfBaseBuilder {
                                         int gateX,int frontZ,int extra) {
         if(p.primaryFamily!=3 && p.primaryFamily!=4) return;
 
-        int reach=p.primaryFamily==3?4:5;
-        int targetBase=p.surfaceY+(p.primaryFamily==3?2:3);
+        int reach=p.primaryFamily==3?5:6;
+        // Banks meet the structural roof line on side/rear faces. This hides
+        // the long low wall without making a radial mound; the front fan below
+        // remains explicitly excluded.
+        int targetBase=p.surfaceY+4;
 
         for(int x=p.cx-p.surfaceHalfX-reach;x<=p.cx+p.surfaceHalfX+reach;x++) {
             for(int z=p.cz-p.surfaceHalfZ-reach;z<=p.cz+p.surfaceHalfZ+reach;z++) {
@@ -1704,8 +1707,12 @@ final class HcfBaseBuilder {
 
                 // Close banks may hug portions of the side/rear wall, but gaps
                 // are mandatory so the result cannot become another ellipse/ring.
-                double threshold=(p.primaryFamily==3?0.46:0.43)+
-                    Math.max(0.0,dist-1.0)*0.075;
+                double threshold;
+                if(dist<=1.65)
+                    threshold=p.primaryFamily==3?0.34:0.37;
+                else
+                    threshold=(p.primaryFamily==3?0.50:0.48)+
+                        Math.max(0.0,dist-1.65)*0.085;
                 if(field<threshold) continue;
 
                 // Tunnel banks favor long sides/rear. Cave banks are lopsided
@@ -1713,7 +1720,7 @@ final class HcfBaseBuilder {
                 if(p.primaryFamily==3) {
                     boolean rear=z>=p.cz+p.surfaceHalfZ-3;
                     boolean side=Math.abs(x-p.cx)>=Math.max(2,p.surfaceHalfX-2);
-                    if(!rear && !side && dist>1.5) continue;
+                    if(!rear && !side) continue;
                 } else {
                     double sideBias=p.utilitySide*(x-p.cx)/(double)Math.max(1,p.surfaceHalfX);
                     if(dist>2.0 && uphill<0.42 && sideBias<0.15) continue;
@@ -1721,8 +1728,7 @@ final class HcfBaseBuilder {
 
                 int ground=gradedSurfaceY(p,x,z,extra+3);
                 int bump=(broad>0.72?1:0)+(uphill>0.72?1:0);
-                int desired=Math.min(targetBase+bump,
-                    p.surfaceY+(p.primaryFamily==3?3:4));
+                int desired=Math.min(targetBase+bump,p.surfaceY+5);
                 if(ground>=desired) continue;
 
                 for(int yy=ground+1;yy<desired;yy++) {

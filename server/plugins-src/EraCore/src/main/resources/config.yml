@@ -258,9 +258,10 @@ terrain:
   authored-world: true
   authored-world-asset: FreeMap.rar
   authored-world-sha256: af9c214979fcde0b1c41e435a6359940a930ffa97c8e2ad09667f74203afba95
-  authored-surface-cleanup: true
-  authored-roads: true
-  authored-road-half-width: 4
+  # The uploaded Stylez/ViperMC-era map is preserved exactly. EraCore may paste
+  # approved structures/roads on top, but never globally cleans or repaints it.
+  authored-surface-cleanup: false
+  authored-roads: false
   normalize-new-chunks: false
   cleanup-height: 46
   # Visual HCF terrain v3: warped natural relief, readable PvP lanes and
@@ -393,7 +394,7 @@ spawn:
   # warps and protection but must not overwrite the schematic with its old hub.
   external-schematic: true
   preset: kraken
-  road-exit-distance: 122
+  road-exit-distance: 50
   # Functional blocks are placed into existing Kraken floor space only.
   # No crate court, beacon, signs or generated spawn geometry.
   crates:
@@ -528,7 +529,7 @@ world-composer:
   nether-anchor-y: 70
   end-anchor-y: 68
   assets:
-    spawn: krakenhcf.schematic
+    spawn: HCF-Spawn-101-production.schematic
     koth-classic: KOTH2-production-1.8.schematic
     koth-endstyle: EndStyleKOTH-production-1.8.schematic
     koth-egypt: EgyptKOTH-production-1.8.schematic

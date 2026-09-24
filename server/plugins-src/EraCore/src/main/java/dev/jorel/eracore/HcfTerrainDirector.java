@@ -45,6 +45,14 @@ final class HcfTerrainDirector implements Listener {
     }
 
     boolean queueProductionTerrain() {
+        if(authoredWorld()) {
+            stop();
+            normalizedThisRun.clear();
+            plugin.getConfig().set("world-build.terrain-complete",true);
+            plugin.saveConfig();
+            plugin.getLogger().info("[terrain] authored HCF world is authoritative; wilderness normalization skipped.");
+            return true;
+        }
         if(busy()) return false;
         World world=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
         if(world==null) return false;
@@ -106,6 +114,7 @@ final class HcfTerrainDirector implements Listener {
 
     @EventHandler(priority=EventPriority.MONITOR)
     public void onChunkLoad(final ChunkLoadEvent e) {
+        if(authoredWorld()) return;
         if(!plugin.getConfig().getBoolean("terrain.normalize-new-chunks",true)) return;
         if(e.getWorld().getEnvironment()!=World.Environment.NORMAL) return;
         if(Bukkit.getWorlds().isEmpty() || !e.getWorld().equals(Bukkit.getWorlds().get(0))) return;
@@ -173,8 +182,31 @@ final class HcfTerrainDirector implements Listener {
     }
 
     int canonicalSurfaceY(int x,int z) {
+        if(authoredWorld()) return authoredSurfaceY(x,z);
         int base=plugin.getConfig().getInt("map.surface-y",63);
         return targetY(x,z,base);
+    }
+
+    private boolean authoredWorld() {
+        return plugin.getConfig().getBoolean("terrain.authored-world",false);
+    }
+
+    private int authoredSurfaceY(int x,int z) {
+        World world=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
+        if(world==null) return plugin.getConfig().getInt("map.surface-y",63);
+
+        int y=Math.min(world.getMaxHeight()-1,world.getHighestBlockYAt(x,z));
+        if(world.getBlockAt(x,y,z).getType()==Material.AIR) y--;
+        while(y>2 && isAuthoredDecoration(world.getBlockAt(x,y,z).getType())) y--;
+        return Math.max(2,y);
+    }
+
+    private boolean isAuthoredDecoration(Material m) {
+        return m==Material.AIR || m==Material.LOG || m==Material.LOG_2 ||
+               m==Material.LEAVES || m==Material.LEAVES_2 ||
+               m==Material.LONG_GRASS || m==Material.YELLOW_FLOWER ||
+               m==Material.RED_ROSE || m==Material.DOUBLE_PLANT ||
+               m==Material.VINE || m==Material.SNOW;
     }
 
     private int targetY(int x,int z,int base) {

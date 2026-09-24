@@ -61,13 +61,23 @@ jobs:
           set -euo pipefail
           mkdir -p .phase1/map
           python3 - <<'PY'
-          import html,re,urllib.request,urllib.parse
-          page='https://www.mediafire.com/?32sslt4lmrut2e0'
-          req=urllib.request.Request(page,headers={'User-Agent':'Mozilla/5.0'})
+          import html,json,re,urllib.request,urllib.parse
+          key='32sslt4lmrut2e0'
+          ua='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36'
+
+          api=f'https://www.mediafire.com/api/1.5/file/get_info.php?quick_key={key}&response_format=json'
+          req=urllib.request.Request(api,headers={'User-Agent':ua,'Accept':'application/json'})
+          info=json.loads(urllib.request.urlopen(req,timeout=30).read().decode('utf-8'))['response']['file_info']
+          if info.get('filename')!='FreeMap.rar' or info.get('hash')!='af9c214979fcde0b1c41e435a6359940a930ffa97c8e2ad09667f74203afba95':
+              raise SystemExit('MediaFire metadata does not match the approved authored HCF map')
+
+          page=info['links']['normal_download']
+          req=urllib.request.Request(page,headers={'User-Agent':ua})
           body=urllib.request.urlopen(req,timeout=30).read().decode('utf-8','ignore')
           patterns=[
-              r'<a[^>]+id="downloadButton"[^>]+href="([^"]+)"',
-              r'<a[^>]+href="([^"]+)"[^>]+id="downloadButton"'
+              r'id=["\']downloadButton["\'][^>]+href=["\']([^"\']+)',
+              r'href=["\']([^"\']+)["\'][^>]+id=["\']downloadButton["\']',
+              r'aria-label=["\']Download file["\'][^>]+href=["\']([^"\']+)'
           ]
           link=None
           for p in patterns:
@@ -76,10 +86,11 @@ jobs:
                   link=html.unescape(m.group(1))
                   break
           if not link:
-              raise SystemExit('Could not resolve MediaFire downloadButton URL')
-          print('Resolved public map download host:',urllib.parse.urlparse(link).netloc)
-          req=urllib.request.Request(link,headers={'User-Agent':'Mozilla/5.0','Referer':page})
-          with urllib.request.urlopen(req,timeout=120) as r, open('.phase1/map/FreeMap.rar','wb') as out:
+              raise SystemExit('Could not resolve MediaFire download URL from canonical page')
+
+          print('Resolved authored map host:',urllib.parse.urlparse(link).netloc)
+          req=urllib.request.Request(link,headers={'User-Agent':ua,'Referer':page})
+          with urllib.request.urlopen(req,timeout=180) as r, open('.phase1/map/FreeMap.rar','wb') as out:
               while True:
                   b=r.read(1024*1024)
                   if not b: break

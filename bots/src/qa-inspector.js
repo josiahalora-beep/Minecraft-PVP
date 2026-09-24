@@ -229,46 +229,72 @@ if(process.env.QA_BASES_ONLY!=='1') {
 }
 
 const wantedFamilies=['REDEMPTION','BASE_HCF','MODERN_HCF','TUNNEL','CAVE']
-let bases=await waitUntil(()=>{
-  const b=factionBases()
-  const covered=new Set(b.map(x=>x.primaryFamily).filter(Boolean))
-  return wantedFamilies.every(f=>covered.has(f))?b:null
-},6*60*1000,2000)
-bases=bases||factionBases()
-manifest.discoveredBases=bases
 
-const selected=[]
-const selectedNames=new Set()
-for(const family of wantedFamilies){
-  const hit=bases.find(b=>b.primaryFamily===family && !selectedNames.has(b.name))
-  if(hit){selected.push(hit);selectedNames.add(hit.name)}
+async function waitForBaseRebuild(timeoutMs=180000){
+  let lastProbe=0
+  let sawRunning=false
+  return await waitUntil(()=>{
+    const now=Date.now()
+    if(now-lastProbe>1200){bot.chat('/baserebuild status');lastProbe=now}
+    const recent=manifest.messages.slice(-50).map(x=>x.text)
+    if(recent.some(t=>/Base rebuild:\s*RUNNING/i.test(t) || /queuedOps=[1-9][0-9]*/i.test(t))) sawRunning=true
+    return sawRunning && recent.some(t=>/Base rebuild:\s*IDLE/i.test(t) && /queuedOps=0/i.test(t))
+  },timeoutMs,350)
 }
-for(const b of bases){
-  if(selected.length>=7) break
-  if(!selectedNames.has(b.name)){selected.push(b);selectedNames.add(b.name)}
+
+const showcase=process.env.QA_SHOWCASE==='1'
+let bases=[]
+let selected=[]
+
+if(showcase){
+  // The server-side showcase uses the exact production planner/compiler with
+  // deterministic seeds that resolve one primary example of each family.
+  bot.chat('/baserebuild showcase')
+  await sleep(2500)
+  const rebuilt=await waitForBaseRebuild(Number(process.env.QA_REBUILD_TIMEOUT_MS||180000))
+  if(!rebuilt) manifest.errors.push('five-family QA showcase rebuild timeout')
+
+  selected=[
+    {name:'QARedemption2',x:-900,y:70,z:-900,primaryFamily:'REDEMPTION',secondaryFamily:''},
+    {name:'QABase0',x:-450,y:70,z:-900,primaryFamily:'BASE_HCF',secondaryFamily:''},
+    {name:'QAModern14',x:450,y:70,z:-900,primaryFamily:'MODERN_HCF',secondaryFamily:''},
+    {name:'QATunnel21',x:900,y:70,z:-900,primaryFamily:'TUNNEL',secondaryFamily:''},
+    {name:'QACave55',x:-900,y:70,z:900,primaryFamily:'CAVE',secondaryFamily:''}
+  ]
+  bases=selected
+}else{
+  bases=await waitUntil(()=>{
+    const b=factionBases()
+    const covered=new Set(b.map(x=>x.primaryFamily).filter(Boolean))
+    return wantedFamilies.every(f=>covered.has(f))?b:null
+  },6*60*1000,2000)
+  bases=bases||factionBases()
+
+  const selectedNames=new Set()
+  for(const family of wantedFamilies){
+    const hit=bases.find(b=>b.primaryFamily===family && !selectedNames.has(b.name))
+    if(hit){selected.push(hit);selectedNames.add(hit.name)}
+  }
+  for(const b of bases){
+    if(selected.length>=7) break
+    if(!selectedNames.has(b.name)){selected.push(b);selectedNames.add(b.name)}
+  }
 }
+
+manifest.discoveredBases=bases
 const coveredFamilies=[...new Set(selected.map(b=>b.primaryFamily).filter(Boolean))]
 manifest.familyCoverage={
   wanted:wantedFamilies,
   covered:coveredFamilies,
   missing:wantedFamilies.filter(f=>!coveredFamilies.includes(f)),
+  showcase,
   selected:selected.map(b=>({name:b.name,primaryFamily:b.primaryFamily,secondaryFamily:b.secondaryFamily}))
 }
 writeManifest()
 
-async function waitForBaseRebuild(timeoutMs=180000){
-  let lastProbe=0
-  return await waitUntil(()=>{
-    const now=Date.now()
-    if(now-lastProbe>1200){bot.chat('/baserebuild status');lastProbe=now}
-    const recent=manifest.messages.slice(-30).map(x=>x.text)
-    return recent.some(t=>/Base rebuild:\s*IDLE/i.test(t) && /queuedOps=0/i.test(t))
-  },timeoutMs,350)
-}
-
 if(selected.length){
   for(const b of selected){
-    if(process.env.QA_REBUILD_BASES!=='0') {
+    if(!showcase && process.env.QA_REBUILD_BASES!=='0') {
       bot.chat('/baserebuild '+b.name)
       await sleep(900)
       const rebuilt=await waitForBaseRebuild(Number(process.env.QA_REBUILD_TIMEOUT_MS||180000))
@@ -277,13 +303,13 @@ if(selected.length){
 
     const prefix='base-'+(b.primaryFamily||'unknown')+'-'+b.name
     await capture(prefix+'-overview',
-      {x:b.x,y:b.y+38,z:b.z-26},{x:b.x,y:b.y+2,z:b.z},6000)
+      {x:b.x,y:b.y+38,z:b.z-26},{x:b.x,y:b.y-2,z:b.z},6000)
     await capture(prefix+'-frontage',
-      {x:b.x,y:b.y+5,z:b.z-48},{x:b.x,y:b.y+4,z:b.z},4800)
+      {x:b.x,y:b.y+7,z:b.z-48},{x:b.x,y:b.y-1,z:b.z},4800)
     await capture(prefix+'-side',
-      {x:b.x+48,y:b.y+7,z:b.z},{x:b.x,y:b.y+4,z:b.z},4800)
+      {x:b.x+48,y:b.y+9,z:b.z},{x:b.x,y:b.y-1,z:b.z},4800)
     await capture(prefix+'-claim-context',
-      {x:b.x+52,y:b.y+30,z:b.z-52},{x:b.x,y:b.y+2,z:b.z},5200)
+      {x:b.x+52,y:b.y+30,z:b.z-52},{x:b.x,y:b.y-2,z:b.z},5200)
   }
 }
 

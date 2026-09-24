@@ -1,0 +1,46 @@
+name: phase1-mediafire-probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/phase1-mediafire-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - name: Probe MediaFire public API for authored map
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,urllib.parse,urllib.request,urllib.error
+          key='32sslt4lmrut2e0'
+          ua='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36'
+          def get(url):
+              req=urllib.request.Request(url,headers={
+                  'User-Agent':ua,
+                  'Accept':'application/json,text/html,*/*',
+                  'Referer':'https://builtbybit.com/'
+              })
+              try:
+                  with urllib.request.urlopen(req,timeout=30) as r:
+                      return r.status,r.geturl(),r.read()
+              except urllib.error.HTTPError as e:
+                  return e.code,e.geturl(),e.read()
+          for action,extra in [
+              ('get_info',''),
+              ('get_links','&link_type=normal_download'),
+              ('get_links','&link_type=direct_download')
+          ]:
+              url=f'https://www.mediafire.com/api/1.5/file/{action}.php?quick_key={key}&response_format=json{extra}'
+              status,final,body=get(url)
+              print('\nAPI',action,extra,'status=',status,'final=',final)
+              print(body[:8000].decode('utf-8','replace'))
+          PY

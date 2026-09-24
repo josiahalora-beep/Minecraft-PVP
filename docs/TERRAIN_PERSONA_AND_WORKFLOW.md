@@ -37,42 +37,28 @@ The target is readable PvP terrain: broad natural plains, gentle-to-moderate rol
 - Base scouting must sample the **real authored terrain** even though procedural chunk normalization is disabled.
 - New production code may not infer "normalize-new-chunks:false" means "flat world."
 
-## Allowed authored-world surface maintenance
+## Authored-world mutation policy
 
-Only two wilderness-wide presentation changes are allowed, and both must be deterministic and idempotent.
+The Stylez/ViperMC-era wilderness is treated as finished builder work.
 
-### 1. Sparse ground-cover cleanup
+EraCore must **not** thin grass, repaint surface blocks, normalize elevations, add terrain noise, add decoration, or build a separate generic road system across the map.
 
-The public map contains much denser tall grass than the desired PvP presentation. EraCore may thin:
+The only allowed Overworld block changes in Phase 1 are approved production overlays:
 
-- long grass,
-- double plants,
-- flowers,
+- the new spawn schematic at 0,0;
+- the four already-approved KOTH schematics at their established quadrant locations;
+- Conquest and the already-approved portal/production structures;
+- extension of the **new spawn schematic's own road design** from its four exits to the 2k border.
 
-while preserving them in coherent sparse clusters. The goal is open HCF sightlines with intentional pockets of vegetation, not a sterile lawn and not per-block random noise.
+Road extension must sample the actual terminal road blocks/data from `HCF-Spawn-101-production.schematic`. It may clear vegetation only in cells where a copied road block is being placed. It may follow the existing authored surface height, but it must not flatten or recolor neighboring wilderness.
 
-Do **not** remove the authored custom trees merely to make the map empty.
-
-### 2. Cardinal HCF roads
-
-The four N/S/E/W HCF road corridors remain no-claim + no-build + PvP-enabled.
-
-The visible lane is a narrow deliberate gravel surface following the authored terrain. It must:
-
-- begin outside the spawn exit,
-- stay inside the 2k border,
-- remain approximately 9 blocks wide unless visual QA justifies a small adjustment,
-- follow the existing ground instead of flattening a 30-100 block shoulder,
-- contain no random cobblestone scatter,
-- clear vegetation only where it physically blocks the lane.
-
-Road protection width and visible road width are separate concepts. A protected corridor may be wider than the gravel strip.
+There is no fallback "gravel road palette" in production.
 
 ## Spawn and event integration
 
 Production structures are overlays on this authored map, not excuses to rebuild the wilderness.
 
-- Kraken spawn owns its immediate structure footprint/frontage.
+- `HCF-Spawn-101-production.schematic` owns its immediate structure footprint/frontage.
 - KOTH/Conquest/portal sites may receive **local footprint grading only where the schematic requires structural support**.
 - Do not flatten a quadrant or create a giant circular event plateau.
 - If an old event coordinate lands on a severe hill, prefer relocating the site to a compatible natural pocket before large-scale terraforming.
@@ -105,7 +91,7 @@ Reject a terrain revision if screenshots show any of the following:
 - procedural contour rings or layer-cake ridges introduced by server code;
 - claim-sized flat lawns;
 - giant circular event plateaus;
-- roads that disappear into unmarked grass;
+- road extensions that do not match the uploaded spawn-road pattern;
 - generated forests added by EraCore;
 - terrain holes caused by actual world corruption rather than renderer chunk-loading gaps;
 - an event/claim extending through the +/-1000 world border.
@@ -122,11 +108,10 @@ A Phase-1 pass must verify:
 - no log line shows the old production wilderness normalizer running;
 - clear noon/no-rain is restored automatically;
 - spawn and multiple wilderness quadrants retain authored relief;
-- tall grass is sparse enough for PvP visibility;
-- cardinal roads are visibly readable;
+- the authored wilderness remains unchanged outside approved structure/road footprints;
+- all four extended roads visibly match the uploaded spawn-road design;
 - no unexpected EraCore surface material noise appears.
 
-The raw-map baseline and the cleaned-road pass should use the same camera positions whenever possible so visual changes are attributable to code rather than camera selection.
 
 ## Fallback terrain code
 

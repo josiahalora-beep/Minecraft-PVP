@@ -180,9 +180,9 @@ jobs:
       - name: Capture phase 1 authored terrain
         working-directory: bots
         env:
-          QA_OUTPUT_DIR: \${{ github.workspace }}/qa-output
-          SIMULATION_FILE: \${{ github.workspace }}/server/plugins/EraCore/simulation.yml
-          ERACORE_CONFIG: \${{ github.workspace }}/server/plugins/EraCore/config.yml
+          QA_OUTPUT_DIR: ${{ github.workspace }}/qa-output
+          SIMULATION_FILE: ${{ github.workspace }}/server/plugins/EraCore/simulation.yml
+          ERACORE_CONFIG: ${{ github.workspace }}/server/plugins/EraCore/config.yml
           QA_TERRAIN_ONLY: '1'
           QA_BASES_ONLY: '0'
           QA_TEST_ATMOSPHERE: '1'

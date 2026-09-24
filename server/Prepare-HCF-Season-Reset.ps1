@@ -216,20 +216,9 @@ foreach ($name in $resetState) {
 # destructive filesystem work and leaves a receipt for the plugin to consume
 # after Bukkit has parsed a valid configuration.
 
-# Reset only the terrain-rematerialization marker inside the preserved AI state.
-$simulation = Join-Path $era 'simulation.yml'
-if (Test-Path $simulation) {
-    $text = Get-Content -LiteralPath $simulation -Raw
-    if ($text -match '(?m)^\s*terrain-repair-version:\s*\d+\s*$') {
-        $text = [regex]::Replace(
-            $text,
-            '(?m)^(\s*terrain-repair-version:\s*)\d+\s*$',
-            { param($m) $m.Groups[1].Value + '0' },
-            1
-        )
-    }
-    Set-Content -LiteralPath $simulation -Value $text -Encoding UTF8
-}
+# Preserve simulation.yml byte-for-byte across SOTW. FreeMap is authoritative
+# terrain, so the old base-terrain repair marker no longer needs reset-time text
+# mutation. EraCore owns all YAML writes after Bukkit has parsed the file.
 
 # Leave a positive receipt for diagnostics. The pending marker is removed only
 # after every destructive/reset step above has completed successfully.

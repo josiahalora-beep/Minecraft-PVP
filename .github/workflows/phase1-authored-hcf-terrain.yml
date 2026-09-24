@@ -7,6 +7,7 @@ on:
     paths:
       - '.github/workflows/phase1-authored-hcf-terrain.yml'
       - 'bots/src/qa-inspector.js'
+      - '.github/qa-assets/production-assets.part*.b64'
 
 permissions:
   contents: read
@@ -128,6 +129,27 @@ jobs:
           cp -a .phase1/map/extracted/FreeWorld server/world
           rm -f server/world/session.lock
 
+      - name: Restore verified production schematic assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .phase1/assets server/map-assets
+          cat .github/qa-assets/production-assets.part*.b64 | base64 -d > .phase1/assets/production-assets.zip
+          echo "121b6707754764ffc88d1ea18a6f009c440f2d81a5e13cd68ef411461cd49eec  .phase1/assets/production-assets.zip" | sha256sum -c -
+          unzip -q -o .phase1/assets/production-assets.zip -d server/map-assets
+
+          cd server/map-assets
+          printf '%s  %s\n' \
+            '3f41d2ac7d329f96c0d33c8ec2ba3807d74f35d4b01b0b544644a585d7d2e378' 'HCF-Spawn-101-production.schematic' \
+            '76927168a1f228f7c12c4a00c48f5785fd25b02b4d66f26bb496e540cdc82a31' 'KOTH2-production-1.8.schematic' \
+            'ebe27dfc5c102fe84c9f1c748fc52850486c22edc0835ba3ee1a355d7a759182' 'EndStyleKOTH-production-1.8.schematic' \
+            '99fed90e7a57bb6c16cf9293b11f4cf9236a2f6bc3e0acdd8c1facba306d351d' 'EgyptKOTH-production-1.8.schematic' \
+            '1893f941747cd9f8a1e92f4df42e68341fa934a14c2e875c68fd09377655c4de' 'KOTH-Forty-1.8-converted.schematic' \
+            'cd6bf439e9bd18858dcb144d5e96f9749e2e2b935a51c89bc860026285d2f336' 'conquest.schematic' \
+            '8db0cf006c9ef9d4b1f8c297b4e5a0747552b629fefdb0e0d95280ec100706d9' 'NetherSpawnWillzaTeam.schematic' \
+            '952bf326168522641192c66fea5100d637821e1e1f19c77ce8035b7fd4be2754' 'magical-hcf-end-xayden-bt.schematic' \
+            | sha256sum -c -
+
       - name: Install headless renderer
         working-directory: bots
         run: |
@@ -136,7 +158,7 @@ jobs:
           node --check src/qa-inspector.js
           xvfb-run -a -s "-screen 0 1600x900x24" node --input-type=module -e "const {createCanvas}=await import('node-canvas-webgl/lib/index.js'); const c=createCanvas(64,64); const gl=c.getContext('webgl'); if(!gl) throw new Error('headless WebGL context unavailable')"
 
-      - name: Prepare terrain-only QA server
+      - name: Prepare production-faithful visual QA server
         shell: bash
         run: |
           set -euo pipefail
@@ -170,7 +192,8 @@ jobs:
           c.terrain['custom-decoration']=false
 
           c['world-composer']=c['world-composer']||{}
-          c['world-composer'].enabled=false
+          c['world-composer'].enabled=true
+          c['world-composer']['blocks-per-tick']=5000
           c['ai-chat']=c['ai-chat']||{}
           c['ai-chat'].enabled=false
           c['sim-chat']=c['sim-chat']||{}
@@ -205,14 +228,18 @@ jobs:
           raise SystemExit('Spigot did not open 25565')
           PY
 
-      - name: Capture phase 1 authored terrain
+      - name: Capture composed Phase 1 world and base integration
         working-directory: bots
         env:
           QA_OUTPUT_DIR: ${{ github.workspace }}/qa-output
           SIMULATION_FILE: ${{ github.workspace }}/server/plugins/EraCore/simulation.yml
           ERACORE_CONFIG: ${{ github.workspace }}/server/plugins/EraCore/config.yml
-          QA_TERRAIN_ONLY: '1'
+          QA_TERRAIN_ONLY: '0'
           QA_BASES_ONLY: '0'
+          QA_SHOWCASE: '1'
+          QA_COMPOSE_PRODUCTION: '1'
+          QA_COMPOSE_TIMEOUT_MS: '720000'
+          QA_REBUILD_TIMEOUT_MS: '300000'
           QA_DETAIL_PASS: '1'
           QA_TEST_ATMOSPHERE: '1'
           QA_VIEW_DISTANCE: '12'
@@ -229,6 +256,12 @@ jobs:
           cp server/plugins/EraCore/config.yml qa-output/diagnostics/config.yml || true
           cp server/world/level.dat qa-output/diagnostics/level.dat || true
           grep -q "overworld=2000" server/phase1-server.log
+          grep -q "\[composer\] production HCF structures complete" server/phase1-server.log
+          grep -q "\[qa-showcase\] build queue drained" server/phase1-server.log
+          if grep -q "Could not queue production HCF map\|Cannot compose HCF map\|missing asset" server/phase1-server.log; then
+            echo "ERROR: production composition reported an asset/queue failure" >&2
+            exit 1
+          fi
           if grep -q "production terrain repair chunks=" server/phase1-server.log; then
             echo "ERROR: old wilderness normalizer ran on authored world" >&2
             exit 1

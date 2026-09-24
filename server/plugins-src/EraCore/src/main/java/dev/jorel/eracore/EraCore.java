@@ -2575,8 +2575,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             }
             boolean ok=schematicComposer.queueSpawnOnly();
             p.sendMessage(color(ok
-                ?"&aKraken spawn-only reset queued. &7Use &f/mapcompose status &7until busy=false, then stand at the intended center/facing and run &f/spawnpreset kraken center&7."
-                :"&cCould not queue Kraken spawn. Check console and map-assets/krakenhcf.schematic."));
+                ?"&aHCF spawn-only repaste queued. &7Use &f/mapcompose status &7until busy=false."
+                :"&cCould not queue HCF spawn. Check console and map-assets/HCF-Spawn-101-production.schematic."));
             return true;
         }
         p.sendMessage("/mapcompose <status|start|spawn>");
@@ -2586,7 +2586,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     void rewardKothCapture(String faction,Player representative,String kothId) {
         if(representative==null) return;
 
-        // Event loot is redeemed at the physical KOTH chest in Kraken spawn.
+        // Event loot is redeemed at the physical KOTH chest in spawn.
         // That preserves the old HCF loop: win event -> survive home/spawn trip
         // -> open event reward, instead of materializing gear on the cap point.
         if(isBotIdentity(representative.getName())) {

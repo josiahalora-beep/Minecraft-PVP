@@ -136,33 +136,44 @@ if ($actualAuthoredHash -ne $expectedAuthoredHash) {
 }
 
 $extractRoot = Join-Path $ServerRoot ('.authored-world-' + $stamp)
+if (Test-Path -LiteralPath $extractRoot) {
+    Remove-Item -LiteralPath $extractRoot -Recurse -Force
+}
 New-Item -ItemType Directory -Path $extractRoot -Force | Out-Null
 
-$expanded = $false
-$tar = Get-Command tar.exe -ErrorAction SilentlyContinue
-if (-not $tar) { $tar = Get-Command tar -ErrorAction SilentlyContinue }
-if ($tar) {
-    & $tar.Source -xf $authoredArchive -C $extractRoot
-    if ($LASTEXITCODE -eq 0 -and (Test-Path (Join-Path $extractRoot 'FreeWorld\level.dat'))) {
-        $expanded = $true
-    }
+# FreeMap is RAR. Windows tar/libarchive is not a reliable RAR extractor and on
+# some builds emits "Parsing filters is unsupported". Resolve one concrete 7-Zip
+# executable instead; avoid PowerShell's single-item array unrolling bug.
+$sevenZip = $null
+$sevenCommand = Get-Command 7z.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($sevenCommand) {
+    $sevenZip = $sevenCommand.Source
 }
-
-if (-not $expanded) {
-    $sevenCandidates = @(
+if (-not $sevenZip) {
+    $candidatePaths = @(
         (Join-Path $env:ProgramFiles '7-Zip\7z.exe'),
         (Join-Path ([Environment]::GetEnvironmentVariable('ProgramFiles(x86)')) '7-Zip\7z.exe')
-    ) | Where-Object { $_ -and (Test-Path $_) }
-    if ($sevenCandidates.Count -gt 0) {
-        & $sevenCandidates[0] x -y ('-o' + $extractRoot) $authoredArchive | Out-Null
-        if ($LASTEXITCODE -eq 0 -and (Test-Path (Join-Path $extractRoot 'FreeWorld\level.dat'))) {
-            $expanded = $true
-        }
-    }
+    )
+    $sevenZip = @($candidatePaths | Where-Object { $_ -and (Test-Path -LiteralPath $_) } |
+        Select-Object -Unique | Select-Object -First 1)
+    if ($sevenZip.Count -gt 0) { $sevenZip = [string]$sevenZip[0] } else { $sevenZip = $null }
+}
+if (-not $sevenZip) {
+    throw 'Could not extract FreeMap.rar because 7-Zip was not found. Install 7-Zip, then rerun server\start-server.bat.'
 }
 
-if (-not $expanded) {
-    throw 'Could not extract FreeMap.rar. Windows tar/libarchive or 7-Zip is required for the authored HCF world reset.'
+Write-Host ('[SOTW] Extracting verified FreeMap.rar with ' + $sevenZip)
+& $sevenZip x -y ('-o' + $extractRoot) $authoredArchive | Out-Null
+$sevenExit = $LASTEXITCODE
+$freeWorldLevel = Join-Path $extractRoot 'FreeWorld\level.dat'
+$freeWorldRegion = Join-Path $extractRoot 'FreeWorld\region'
+if ($sevenExit -ne 0 -or
+    -not (Test-Path -LiteralPath $freeWorldLevel) -or
+    -not (Test-Path -LiteralPath $freeWorldRegion)) {
+    if (Test-Path -LiteralPath $extractRoot) {
+        Remove-Item -LiteralPath $extractRoot -Recurse -Force
+    }
+    throw ('Could not extract/verify FreeMap.rar with 7-Zip. Exit code: ' + $sevenExit)
 }
 
 $authoredSource = Join-Path $extractRoot 'FreeWorld'

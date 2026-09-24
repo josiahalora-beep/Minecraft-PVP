@@ -1158,9 +1158,18 @@ final class HcfBaseBuilder {
     }
 
     private Material surfaceWallMaterial(HcfBasePlan p,int x,int yy,int z,int top,boolean beam) {
-        if(beam) return p.surfaceFrame;
         int level=yy-p.surfaceY;
         int pattern=Math.abs(x*31+z*17+p.seed)%11;
+        if(beam) {
+            // Buried families should never reveal a polished structural cage.
+            // Their load-bearing edges read as local rock/rough support instead.
+            if(p.primaryFamily==4)
+                return pattern<4?Material.MOSSY_COBBLESTONE:
+                    (pattern<8?Material.COBBLESTONE:Material.STONE);
+            if(p.primaryFamily==3)
+                return pattern<6?Material.COBBLESTONE:Material.STONE;
+            return p.surfaceFrame;
+        }
 
         switch(p.primaryFamily) {
             case 0: // Redemption: compact stone bunker, tiny upper slits.
@@ -1579,11 +1588,11 @@ final class HcfBaseBuilder {
         // radial/rear-biased berm still looked player-generated from overview
         // cameras. Broken uphill shoulders make the shell feel excavated into
         // existing relief and leave downhill/frontage views naturally open.
-        double familyFactor=p.primaryFamily==3?0.78:(p.primaryFamily==4?0.84:
-            (p.primaryFamily==2?0.36:(p.primaryFamily==0?0.56:0.48)));
+        double familyFactor=p.primaryFamily==3?0.72:(p.primaryFamily==4?0.76:
+            (p.primaryFamily==2?0.34:(p.primaryFamily==0?0.54:0.34)));
         double tierFactor=conceal==0?0.70:(conceal==1?0.88:1.00);
-        double patchThreshold=p.primaryFamily==3?0.55:(p.primaryFamily==4?0.52:
-            (p.primaryFamily==2?0.76:(p.primaryFamily==0?0.65:0.70)));
+        double patchThreshold=p.primaryFamily==3?0.58:(p.primaryFamily==4?0.56:
+            (p.primaryFamily==2?0.78:(p.primaryFamily==0?0.67:0.79)));
 
         int outerX=p.surfaceHalfX+extra;
         int outerZ=p.surfaceHalfZ+extra;
@@ -1646,6 +1655,8 @@ final class HcfBaseBuilder {
             }
         }
 
+        buildBuriedFamilyBanks(w,p,topMat,fillMat,accent,gateX,frontZ,extra);
+
         // Soil cover is now the main concealment mechanism for Tunnel/Cave.
         // That is visually quieter than surrounding the building with a mound.
         double cover=p.primaryFamily==3?0.96:(p.primaryFamily==4?0.97:
@@ -1662,6 +1673,73 @@ final class HcfBaseBuilder {
                 queue.add(new Op(w,x,roofY+2,z,fillMat));
                 queue.add(new Op(w,x,roofY+3,z,
                     terrainSurfacePatch(topMat,fillMat,accent,x,z,p.seed+229)));
+            }
+        }
+    }
+
+    private void buildBuriedFamilyBanks(World w,HcfBasePlan p,
+                                        Material topMat,Material fillMat,Material accent,
+                                        int gateX,int frontZ,int extra) {
+        if(p.primaryFamily!=3 && p.primaryFamily!=4) return;
+
+        int reach=p.primaryFamily==3?4:5;
+        int targetBase=p.surfaceY+(p.primaryFamily==3?2:3);
+
+        for(int x=p.cx-p.surfaceHalfX-reach;x<=p.cx+p.surfaceHalfX+reach;x++) {
+            for(int z=p.cz-p.surfaceHalfZ-reach;z<=p.cz+p.surfaceHalfZ+reach;z++) {
+                if(surfaceInside(p,x,z)) continue;
+                double dist=surfaceDistanceFromMaskExact(p,x,z,reach+1);
+                if(dist<=0.0 || dist>reach+0.25) continue;
+
+                // The first impression must remain a mouth/opening. No earth
+                // is allowed to close the 7-wide front fan or form a horseshoe.
+                int forward=frontZ-z;
+                if(z<=frontZ+3 && Math.abs(x-gateX)<=5+Math.max(0,forward/4))
+                    continue;
+
+                double uphill=terrainUphillBias(p,x,z);
+                double broad=cradleBroadNoise(x,z,p.seed+(p.primaryFamily==3?2027:2089));
+                double fine=cradleNoise(x,z,p.seed+2111);
+                double field=0.52*broad+0.36*uphill+0.12*fine;
+
+                // Close banks may hug portions of the side/rear wall, but gaps
+                // are mandatory so the result cannot become another ellipse/ring.
+                double threshold=(p.primaryFamily==3?0.46:0.43)+
+                    Math.max(0.0,dist-1.0)*0.075;
+                if(field<threshold) continue;
+
+                // Tunnel banks favor long sides/rear. Cave banks are lopsided
+                // rock shoulders biased to the real uphill side.
+                if(p.primaryFamily==3) {
+                    boolean rear=z>=p.cz+p.surfaceHalfZ-3;
+                    boolean side=Math.abs(x-p.cx)>=Math.max(2,p.surfaceHalfX-2);
+                    if(!rear && !side && dist>1.5) continue;
+                } else {
+                    double sideBias=p.utilitySide*(x-p.cx)/(double)Math.max(1,p.surfaceHalfX);
+                    if(dist>2.0 && uphill<0.42 && sideBias<0.15) continue;
+                }
+
+                int ground=gradedSurfaceY(p,x,z,extra+3);
+                int bump=(broad>0.72?1:0)+(uphill>0.72?1:0);
+                int desired=Math.min(targetBase+bump,
+                    p.surfaceY+(p.primaryFamily==3?3:4));
+                if(ground>=desired) continue;
+
+                for(int yy=ground+1;yy<desired;yy++) {
+                    Material m=fillMat;
+                    if(p.primaryFamily==4 && dist<1.8 && yy>=desired-2)
+                        m=(fine>0.58?Material.COBBLESTONE:Material.STONE);
+                    else if(p.primaryFamily==3 && dist<1.35 && fine>0.70)
+                        m=Material.COBBLESTONE;
+                    queue.add(new Op(w,x,yy,z,m));
+                }
+
+                Material exposed;
+                if(p.primaryFamily==4 && dist<1.7 && broad>0.44)
+                    exposed=(fine>0.66?Material.MOSSY_COBBLESTONE:Material.COBBLESTONE);
+                else
+                    exposed=terrainSurfacePatch(topMat,fillMat,accent,x,z,p.seed+2231);
+                queue.add(new Op(w,x,desired,z,exposed));
             }
         }
     }

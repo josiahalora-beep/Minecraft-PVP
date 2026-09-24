@@ -151,6 +151,27 @@ final class HcfBaseBuilder {
                         " family="+p.primaryFamilyName()+" secondary="+p.secondaryFamilyName()+
                         " at="+x+","+y+","+z);
                 }
+
+                // Spigot may unload remote showcase chunks because the inspector
+                // begins at spawn. Keep only these disposable QA neighborhoods
+                // hot until the real production build queue reaches zero; this
+                // makes screenshots prove COMPLETE geometry rather than a partial
+                // prefix of queued operations.
+                new BukkitRunnable() {
+                    public void run() {
+                        if(queue.isEmpty()) {
+                            plugin.getLogger().info("[qa-showcase] build queue drained; captures may begin.");
+                            cancel();
+                            return;
+                        }
+                        for(int[] site:sites) {
+                            int ccx=site[0]>>4, ccz=site[1]>>4;
+                            for(int dx=-4;dx<=4;dx++)
+                                for(int dz=-4;dz<=4;dz++)
+                                    world.loadChunk(ccx+dx,ccz+dz);
+                        }
+                    }
+                }.runTaskTimer(plugin,1L,10L);
             }
         },20L);
     }
@@ -485,30 +506,23 @@ final class HcfBaseBuilder {
         int natural=plugin.canonicalHcfTerrainY(x,z);
         int delta=Math.max(-6,Math.min(6,natural-p.surfaceY));
 
-        if(d<=1.35) return p.surfaceY;
+        // v13: only the shell and a tiny irregular work apron are graded.
+        // Wider distance-based interpolation inevitably becomes a visible
+        // contour/moat around a Minecraft build once Y is quantized to blocks.
+        // Outside roughly two blocks, the untouched canonical wilderness owns
+        // the height completely; concealment is added later as broken lobes.
+        double bend=(cradleBroadNoise(x,z,p.seed+1601)-0.5)*1.25+
+            (cradleNoise(x,z,p.seed+1609)-0.5)*0.40;
+        double edge=d+bend;
 
-        // A mathematically smooth radial interpolation still rounds into obvious
-        // Minecraft contour rings. Player terraforming is less uniform: a tiny
-        // work apron stays level, then the amount of natural grade we preserve
-        // expands in irregular bands that follow the canonical terrain itself.
-        // Broad low-frequency jitter bends the transition boundaries without
-        // introducing per-block height noise or Mineflayer snag points.
-        double side=(x-p.cx)/(double)Math.max(4,p.surfaceHalfX+blendReach);
-        double back=(z-p.cz)/(double)Math.max(4,p.surfaceHalfZ+blendReach);
-        double jitter=(cradleBroadNoise(x,z,p.seed+1601)-0.5)*2.8+
-            (cradleNoise(x,z,p.seed+1609)-0.5)*0.75+
-            back*0.75+p.utilitySide*side*0.35;
-        double edge=d+jitter;
-
-        int allowed;
-        if(edge<=3.2) allowed=1;
-        else if(edge<=5.8) allowed=2;
-        else if(edge<=8.5) allowed=3;
-        else if(edge<=11.2) allowed=4;
-        else allowed=6;
-
-        int kept=Math.max(-allowed,Math.min(allowed,delta));
-        return p.surfaceY+kept;
+        if(edge<=1.20) return p.surfaceY;
+        if(edge<=2.15) {
+            // One-block transition only, sufficient to avoid a hard foundation
+            // lip without drawing a faction-sized terrace.
+            int kept=Math.max(-1,Math.min(1,delta));
+            return p.surfaceY+kept;
+        }
+        return natural;
     }
 
     private double warpedMaskDistance(HcfBasePlan p,int x,int z,int limit) {

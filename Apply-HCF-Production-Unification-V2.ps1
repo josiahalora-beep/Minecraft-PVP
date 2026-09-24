@@ -16,7 +16,7 @@ $JavaSourceDir = Join-Path $Server 'plugins-src\EraCore\src\main\java\dev\jorel\
 
 # This repository is often installed as a plain folder rather than a Git clone.
 # Always sync the exact coordinated source generation before compiling.
-$SourceCommit = '6e99f710d5c999f5934f065d49e892b9b7dd501c'
+$SourceCommit = '078e3eded495d6d5f0e32600d8632f00212edbcf'
 $RawBase = 'https://raw.githubusercontent.com/josiahalora-beep/Minecraft-PVP/' + $SourceCommit
 $SourceFiles = @(
     'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/ActorDirectory.java',
@@ -375,14 +375,17 @@ if ($downloadReset -notmatch 'FreeMap\.rar' -or
     $downloadReset -notmatch 'Authored Stylez HCF overworld restored') {
     throw 'Downloaded reset script is missing the checksum-locked authored-world restore.'
 }
-if ($downloadReset -notmatch '\$sevenZip' -or
+if ($downloadReset -notmatch 'Resolve-SevenZip' -or
+    $downloadReset -notmatch 'Preflighting verified FreeMap\.rar' -or
+    $downloadReset -notmatch '& \$sevenZip t -y \$authoredArchive' -or
     $downloadReset -match '\$sevenCandidates' -or
     $downloadReset -match 'Get-Command tar') {
-    throw 'Downloaded reset script is not using the safe 7-Zip-only RAR extraction path.'
+    throw 'Downloaded reset script is not preflighting the verified RAR safely before world archival.'
 }
 if ($downloadSimWorld -notmatch 'repairLegacyTerrainMarkerYaml' -or
-    $downloadSimWorld -notmatch 'simulation\.yml\.pre-legacy-repair') {
-    throw 'Downloaded simulation runtime is missing targeted legacy YAML recovery.'
+    $downloadSimWorld -notmatch 'simulation\.yml\.pre-legacy-repair' -or
+    $downloadSimWorld -notmatch 'lines\.remove\(badIndex\)') {
+    throw 'Downloaded simulation runtime is missing robust targeted legacy YAML recovery.'
 }
 if ($downloadSimWorld -notmatch 'terrain\.authored-world' -or
     $downloadMapAi -notmatch 'border:\s*1000' -or

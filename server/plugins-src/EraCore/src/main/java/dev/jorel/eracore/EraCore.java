@@ -247,6 +247,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         mapDirector.start();
         eventDirector.start();
         resourceDirector.start();
+        terrainDirector.start();
         worldBuildDirector.start();
         atmosphereDirector.start();
         infrastructure.start();

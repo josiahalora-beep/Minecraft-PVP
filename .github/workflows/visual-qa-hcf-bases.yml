@@ -2,19 +2,6 @@ name: visual-qa-hcf-bases
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/visual-qa-hcf-bases.yml'
-      - 'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfBaseBuilder.java'
-      - 'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfBasePlan.java'
-      - 'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfTerrainDirector.java'
-      - 'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/SimWorldDirector.java'
-      - 'bots/src/qa-inspector.js'
-
-concurrency:
-  group: visual-qa-hcf-bases
-  cancel-in-progress: true
 
 permissions:
   contents: read

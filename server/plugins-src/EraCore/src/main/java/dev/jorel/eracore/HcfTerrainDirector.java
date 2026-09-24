@@ -209,14 +209,17 @@ final class HcfTerrainDirector implements Listener {
 
         relief += ridge - bowl;
 
-        // v11 contour breakup: Minecraft must quantize continuous terrain to
-        // integer Y, but broad smooth slopes were crossing those thresholds in
-        // kilometer-long lines. Two low-amplitude, smoothly interpolated fields
-        // bend the rounding thresholds without introducing one-block white noise.
-        // Event pads/roads are flattened after this, so their combat cores remain
-        // exact while wilderness contours stop reading like topographic rings.
-        relief += valueNoise(wx+37.0,wz-61.0,58.0,0x6A17L)*0.36;
-        relief += valueNoise(wx-29.0,wz+43.0,31.0,0x6B2DL)*0.14;
+        // v13 contour breakup: Minecraft quantizes the continuous height field
+        // to integer Y. Broad-only noise therefore creates very long one-block
+        // contour seams that read like hand-drawn topographic lines. Add coherent
+        // medium/small undulation with enough amplitude to bend and split those
+        // thresholds, while wavelengths remain far too large to make one-block
+        // white-noise bumps or Mineflayer snag terrain.
+        double microWarpX=valueNoise(wx+19.0,wz-31.0,74.0,0x6A01L)*18.0;
+        double microWarpZ=valueNoise(wx-41.0,wz+13.0,74.0,0x6A0BL)*18.0;
+        relief += valueNoise(wx+microWarpX,wz+microWarpZ,52.0,0x6A17L)*0.62;
+        relief += valueNoise(wx-microWarpZ,wz+microWarpX,27.0,0x6B2DL)*0.34;
+        relief += valueNoise(wx+17.0,wz-9.0,16.0,0x6C41L)*0.12;
 
         // Regional identity remains subtle; geometry never becomes a mountain.
         if(x<-650 && z>160) relief+=1.0+valueNoise(x,z,210.0,0xD114L)*0.9;

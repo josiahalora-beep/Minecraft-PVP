@@ -8464,11 +8464,14 @@ final class SimWorldDirector {
             int x = alignChunkCenter(raw[0]);
             int z = alignChunkCenter(raw[1]);
             int[] eval;
-            if(plugin.getConfig().getBoolean("terrain.normalize-new-chunks",false)) {
-                eval=plugin.evaluateSimBaseSite(x,z,terrainRadius); // medianY, relief, liquid samples
+            if(plugin.getConfig().getBoolean("terrain.authored-world",false) ||
+               plugin.getConfig().getBoolean("terrain.normalize-new-chunks",false)) {
+                // The authored Phase-1 map is pre-generated and authoritative.
+                // Read its real median grade/relief/liquid state even though the
+                // old wilderness normalizer is intentionally disabled.
+                eval=plugin.evaluateSimBaseSite(x,z,terrainRadius);
             } else {
-                // Canonical production map is flat. Abstract claim scouting must
-                // not synchronously generate distant chunks just to rediscover Y63.
+                // Legacy flat-map fallback only.
                 eval=new int[]{plugin.getConfig().getInt("map.surface-y",63),0,0};
             }
 

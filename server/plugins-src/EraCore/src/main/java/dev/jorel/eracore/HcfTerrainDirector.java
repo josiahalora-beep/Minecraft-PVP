@@ -209,17 +209,17 @@ final class HcfTerrainDirector implements Listener {
 
         relief += ridge - bowl;
 
-        // v13 contour breakup: Minecraft quantizes the continuous height field
-        // to integer Y. Broad-only noise therefore creates very long one-block
-        // contour seams that read like hand-drawn topographic lines. Add coherent
-        // medium/small undulation with enough amplitude to bend and split those
-        // thresholds, while wavelengths remain far too large to make one-block
-        // white-noise bumps or Mineflayer snag terrain.
-        double microWarpX=valueNoise(wx+19.0,wz-31.0,74.0,0x6A01L)*18.0;
-        double microWarpZ=valueNoise(wx-41.0,wz+13.0,74.0,0x6A0BL)*18.0;
-        relief += valueNoise(wx+microWarpX,wz+microWarpZ,52.0,0x6A17L)*0.62;
-        relief += valueNoise(wx-microWarpZ,wz+microWarpX,27.0,0x6B2DL)*0.34;
-        relief += valueNoise(wx+17.0,wz-9.0,16.0,0x6C41L)*0.12;
+        // v14 contour breakup: integer block Y will always show contours,
+        // but they should fragment into short natural shelves rather than run
+        // across an entire hillside. Stronger coherent medium-scale variation
+        // bends/splits threshold crossings while remaining smooth enough that
+        // ordinary sprint paths still change by one block at a time.
+        double microWarpX=valueNoise(wx+19.0,wz-31.0,68.0,0x6A01L)*20.0;
+        double microWarpZ=valueNoise(wx-41.0,wz+13.0,68.0,0x6A0BL)*20.0;
+        relief += valueNoise(wx+microWarpX,wz+microWarpZ,46.0,0x6A17L)*0.68;
+        relief += valueNoise(wx-microWarpZ,wz+microWarpX,23.0,0x6B2DL)*0.52;
+        relief += valueNoise(wx+17.0,wz-9.0,12.0,0x6C41L)*0.24;
+        relief += valueNoise(wx-7.0,wz+21.0,8.5,0x6D55L)*0.10;
 
         // Regional identity remains subtle; geometry never becomes a mountain.
         if(x<-650 && z>160) relief+=1.0+valueNoise(x,z,210.0,0xD114L)*0.9;

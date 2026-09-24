@@ -4,6 +4,22 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+function Resolve-SevenZip {
+    $cmd = Get-Command 7z.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($cmd) { return [string]$cmd.Source }
+
+    $candidates = @(
+        (Join-Path $env:ProgramFiles '7-Zip\7z.exe'),
+        (Join-Path ([Environment]::GetEnvironmentVariable('ProgramFiles(x86)')) '7-Zip\7z.exe')
+    )
+    foreach ($candidate in $candidates) {
+        if ($candidate -and (Test-Path -LiteralPath $candidate)) {
+            return [string]$candidate
+        }
+    }
+    return $null
+}
+
 # PowerShell -File calls from cmd.exe can preserve quoting/trailing-separator
 # artifacts in explicitly supplied path arguments. The script normally lives
 # directly in the server folder, so normalize once before constructing paths.
@@ -60,6 +76,27 @@ if (Test-Path $serverProperties) {
         $value = $match.Matches[0].Groups[1].Value.Trim()
         if ($value) { $levelName = $value }
     }
+}
+
+# Validate the authored-world archive and extractor BEFORE moving any active
+# world. A failed RAR extraction must never leave Spigot to generate a fallback
+# vanilla Overworld.
+$authoredArchive = Join-Path $assetDir 'FreeMap.rar'
+$expectedAuthoredHash = 'af9c214979fcde0b1c41e435a6359940a930ffa97c8e2ad09667f74203afba95'
+$actualAuthoredHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $authoredArchive).Hash.ToLowerInvariant()
+if ($actualAuthoredHash -ne $expectedAuthoredHash) {
+    throw ('Authored HCF map checksum mismatch. Expected ' + $expectedAuthoredHash + ' but found ' + $actualAuthoredHash)
+}
+
+$sevenZip = Resolve-SevenZip
+if (-not $sevenZip) {
+    throw 'Could not extract FreeMap.rar because 7-Zip was not found. Install 7-Zip, then rerun server\start-server.bat.'
+}
+
+Write-Host ('[SOTW] Preflighting verified FreeMap.rar with ' + $sevenZip)
+& $sevenZip t -y $authoredArchive | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    throw ('FreeMap.rar failed the 7-Zip integrity test. Exit code: ' + $LASTEXITCODE)
 }
 
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
@@ -128,40 +165,14 @@ if (Test-Path $serverProperties) {
     Set-Content -LiteralPath $serverProperties -Value $props -Encoding ASCII
 }
 
-$authoredArchive = Join-Path $assetDir 'FreeMap.rar'
-$expectedAuthoredHash = 'af9c214979fcde0b1c41e435a6359940a930ffa97c8e2ad09667f74203afba95'
-$actualAuthoredHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $authoredArchive).Hash.ToLowerInvariant()
-if ($actualAuthoredHash -ne $expectedAuthoredHash) {
-    throw ('Authored HCF map checksum mismatch. Expected ' + $expectedAuthoredHash + ' but found ' + $actualAuthoredHash)
-}
-
+# Archive hash and 7-Zip readability were already verified before any world moved.
 $extractRoot = Join-Path $ServerRoot ('.authored-world-' + $stamp)
 if (Test-Path -LiteralPath $extractRoot) {
     Remove-Item -LiteralPath $extractRoot -Recurse -Force
 }
 New-Item -ItemType Directory -Path $extractRoot -Force | Out-Null
 
-# FreeMap is RAR. Windows tar/libarchive is not a reliable RAR extractor and on
-# some builds emits "Parsing filters is unsupported". Resolve one concrete 7-Zip
-# executable instead; avoid PowerShell's single-item array unrolling bug.
-$sevenZip = $null
-$sevenCommand = Get-Command 7z.exe -ErrorAction SilentlyContinue | Select-Object -First 1
-if ($sevenCommand) {
-    $sevenZip = $sevenCommand.Source
-}
-if (-not $sevenZip) {
-    $candidatePaths = @(
-        (Join-Path $env:ProgramFiles '7-Zip\7z.exe'),
-        (Join-Path ([Environment]::GetEnvironmentVariable('ProgramFiles(x86)')) '7-Zip\7z.exe')
-    )
-    $sevenZip = @($candidatePaths | Where-Object { $_ -and (Test-Path -LiteralPath $_) } |
-        Select-Object -Unique | Select-Object -First 1)
-    if ($sevenZip.Count -gt 0) { $sevenZip = [string]$sevenZip[0] } else { $sevenZip = $null }
-}
-if (-not $sevenZip) {
-    throw 'Could not extract FreeMap.rar because 7-Zip was not found. Install 7-Zip, then rerun server\start-server.bat.'
-}
-
+# 7-Zip was resolved and archive-tested before active worlds were archived.
 Write-Host ('[SOTW] Extracting verified FreeMap.rar with ' + $sevenZip)
 & $sevenZip x -y ('-o' + $extractRoot) $authoredArchive | Out-Null
 $sevenExit = $LASTEXITCODE

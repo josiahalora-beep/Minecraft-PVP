@@ -33,7 +33,7 @@ try {
 
 $assetDir = Join-Path $ServerRoot 'map-assets'
 $requiredAssets = @(
-    'krakenhcf.schematic',
+    'HCF-Spawn-101-production.schematic',
     'KOTH2-production-1.8.schematic',
     'EndStyleKOTH-production-1.8.schematic',
     'EgyptKOTH-production-1.8.schematic',

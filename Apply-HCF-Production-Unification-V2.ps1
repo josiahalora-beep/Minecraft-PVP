@@ -52,6 +52,7 @@ $SourceFiles = @(
     'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/WarpManager.java',
     'server/plugins-src/EraCore/src/main/resources/config.yml',
     'server/plugins-src/EraCore/src/main/resources/plugin.yml',
+    'server/server.properties',
     'server/Prepare-HCF-Season-Reset.ps1',
     'server/start-server.bat',
     'bots/package.json',
@@ -107,6 +108,12 @@ Write-Host ('[OK] Java 8: ' + (($versionText -split "[\r\n]+" | Select-Object -F
 
 function Ensure-AuthoredHcfMapAsset {
     param([string]$AssetDir)
+
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    } catch {
+        Write-Host '[WARN] Could not force TLS 1.2; continuing with the system default.' -ForegroundColor Yellow
+    }
 
     $fileName = 'FreeMap.rar'
     $quickKey = '32sslt4lmrut2e0'

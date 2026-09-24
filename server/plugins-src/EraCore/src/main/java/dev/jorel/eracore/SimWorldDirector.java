@@ -22,6 +22,7 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.io.OutputStreamWriter;
 import java.util.zip.GZIPOutputStream;
 import java.text.DecimalFormat;
 import java.util.*;
@@ -521,14 +522,115 @@ final class SimWorldDirector {
             try {
                 loaded.load(file);
             } catch(Exception ex) {
-                throw new IllegalStateException(
-                    "simulation.yml is invalid; refusing to seed a replacement over persistent faction/player state. "+
-                    "Restore the last-good/installer backup before starting EraCore.",ex);
+                // One historical SOTW reset script could corrupt exactly one
+                // nested meta line into ": terrain-repair-version: N". Repair
+                // ONLY that known shape, after taking a byte-for-byte backup.
+                // Any other YAML failure still aborts to protect persistent state.
+                if(!repairLegacyTerrainMarkerYaml(file)) {
+                    throw new IllegalStateException(
+                        "simulation.yml is invalid; refusing to seed a replacement over persistent faction/player state. "+
+                        "Restore the last-good/installer backup before starting EraCore.",ex);
+                }
+                loaded=new YamlConfiguration();
+                try {
+                    loaded.load(file);
+                    plugin.getLogger().warning(
+                        "Recovered simulation.yml from the known legacy SOTW terrain-marker YAML corruption; "+
+                        "original file was backed up before repair.");
+                } catch(Exception retry) {
+                    throw new IllegalStateException(
+                        "simulation.yml remained invalid after narrowly scoped legacy repair; "+
+                        "restore the last-good/installer backup before starting EraCore.",retry);
+                }
             }
         }
         this.data = loaded;
         loadOrSeed();
         loadMemoryArchive();
+    }
+
+    private boolean repairLegacyTerrainMarkerYaml(File source) {
+        File backup=new File(source.getParentFile(),
+            "simulation.yml.pre-legacy-repair-"+System.currentTimeMillis()+".bak");
+        File temp=new File(source.getParentFile(),"simulation.yml.legacy-repair.tmp");
+        Pattern bad=Pattern.compile("^(\\s*):\\s*terrain-repair-version:\\s*(\\d+)\\s*$");
+
+        List<String> lines=new ArrayList<String>();
+        int badIndex=-1;
+        String version=null;
+        BufferedReader reader=null;
+        try {
+            reader=new BufferedReader(new InputStreamReader(new FileInputStream(source),"UTF-8"));
+            String line;
+            while((line=reader.readLine())!=null) lines.add(line);
+        } catch(Exception readEx) {
+            return false;
+        } finally {
+            if(reader!=null) try{reader.close();}catch(Exception ignored){}
+        }
+
+        for(int i=0;i<lines.size();i++) {
+            Matcher m=bad.matcher(lines.get(i));
+            if(!m.matches()) continue;
+            if(badIndex>=0) return false; // more than one corruption: do not guess
+            badIndex=i;
+            version=m.group(2);
+        }
+        if(badIndex<0) return false;
+
+        int previous=badIndex-1;
+        while(previous>=0 && lines.get(previous).trim().isEmpty()) previous--;
+        if(previous<0 || !"meta:".equals(lines.get(previous).trim())) return false;
+
+        String parent=lines.get(previous);
+        int indent=0;
+        while(indent<parent.length() && Character.isWhitespace(parent.charAt(indent))) indent++;
+        StringBuilder fixed=new StringBuilder();
+        for(int i=0;i<indent+2;i++) fixed.append(' ');
+        fixed.append("terrain-repair-version: ").append(version);
+        lines.set(badIndex,fixed.toString());
+
+        try {
+            copyFileBytes(source,backup);
+            BufferedWriter writer=new BufferedWriter(
+                new OutputStreamWriter(new FileOutputStream(temp,false),"UTF-8"));
+            try {
+                for(String line:lines) {
+                    writer.write(line);
+                    writer.newLine();
+                }
+            } finally { writer.close(); }
+
+            YamlConfiguration verify=new YamlConfiguration();
+            verify.load(temp);
+
+            if(source.exists() && !source.delete())
+                throw new IOException("could not stage invalid simulation.yml for repair");
+            if(!temp.renameTo(source)) {
+                copyFileBytes(temp,source);
+                temp.delete();
+            }
+            return true;
+        } catch(Exception repairEx) {
+            try {
+                if(backup.isFile()) copyFileBytes(backup,source);
+            } catch(Exception ignored){}
+            if(temp.exists()) temp.delete();
+            return false;
+        }
+    }
+
+    private void copyFileBytes(File from,File to) throws IOException {
+        InputStream in=new FileInputStream(from);
+        OutputStream out=new FileOutputStream(to,false);
+        try {
+            byte[] buffer=new byte[32768];
+            int n;
+            while((n=in.read(buffer))>0) out.write(buffer,0,n);
+        } finally {
+            try{in.close();}catch(Exception ignored){}
+            try{out.close();}catch(Exception ignored){}
+        }
     }
 
     void start() {

@@ -365,14 +365,18 @@ final class HcfTerrainDirector implements Listener {
             if(rock>0.50 && breakup>0.10) return new SurfaceSpec(Material.DIRT,1);
         }
 
-        // General slope accents stay restrained. Grass is the dominant HCF
-        // surface; these coherent scars exist to reveal a slope, not recolor a
-        // whole hillside.
+        // General slope accents stay restrained. A second, shorter breakup
+        // field prevents one high value-noise lobe from becoming a 40-60 block
+        // gravel carpet. Grass remains dominant; exposed material appears as
+        // irregular shelves/scars that reveal the slope.
         if(canSurfaceAccent(x,z)) {
             double accent=valueNoise(x,z,46.0,0x39A7L);
+            double breakup=valueNoise(x,z,19.0,0x3B61L);
             int delta=Math.abs(y-base);
-            if(delta>=5 && accent>0.78) return new SurfaceSpec(Material.GRAVEL,0);
-            if(delta>=3 && accent>0.66) return new SurfaceSpec(Material.DIRT,1);
+            if(delta>=5 && accent>0.80 && breakup>0.24)
+                return new SurfaceSpec(breakup>0.58?Material.STONE:Material.GRAVEL,0);
+            if(delta>=3 && accent>0.68 && breakup>0.02)
+                return new SurfaceSpec(Material.DIRT,1);
         }
 
         return new SurfaceSpec(Material.GRASS,0);

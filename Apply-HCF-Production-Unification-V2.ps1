@@ -347,30 +347,21 @@ if ($downloadTerrain -notmatch 'authoredWorld\(\)' -or
     $downloadTerrain -match 'keepAuthoredGroundDetail') {
     throw 'Downloaded terrain director does not preserve the approved FreeMap wilderness exactly.'
 }
-if ($downloadBasePlan -notmatch 'Family selection happens BEFORE dimensions' -or
-    $downloadBasePlan -notmatch 'v9 silhouette proportions' -or
-    $downloadBasePlan -notmatch 'coreHalfX\+20' -or
-    $downloadBasePlan -notmatch 'war-room' -or
-    $downloadBaseBuilder -notmatch 'prepareTerrainPad\(World w,HcfBasePlan p\)' -or
-    $downloadBaseBuilder -notmatch 'v9: footprint-relative terraforming' -or
-    $downloadBaseBuilder -notmatch 'every family owns its footprint AND roof profile' -or
-    $downloadBaseBuilder -notmatch 'surfaceDistanceFromMask' -or
-    $downloadBaseBuilder -notmatch 'surfaceRoofY' -or
-    $downloadBaseBuilder -notmatch 'approximately 70% dominant, 20% support, 10% accent' -or
-    $downloadBaseBuilder -notmatch 'Irregular 5-3-2-1 entrance shoulders' -or
-    $downloadBaseBuilder -notmatch 'buildCoreUtilityModules' -or
-    $downloadBaseBuilder -notmatch 'surfaceWallMaterial' -or
-    $downloadBaseBuilder -notmatch 'surfaceRoofMaterial' -or
-    $downloadBaseBuilder -notmatch 'setTypeIdAndData\(Material\.AIR\.getId\(\)' -or
-    $downloadBaseBuilder -notmatch '\[base-plan\]') {
-    throw 'Downloaded base compiler is missing the v9 family-geometry/terraforming contract.'
+# Phase 1 does not gate deployment on the old v9 procedural-base doctrine.
+# Base architecture is intentionally deferred to Phase 2. Only verify that the
+# existing compiler still exposes its core planner/build hooks and let Maven
+# compilation enforce source compatibility.
+if ($downloadBasePlan -notmatch 'primaryFamilyName' -or
+    $downloadBasePlan -notmatch 'coreHalfX' -or
+    $downloadBaseBuilder -notmatch 'queueBase' -or
+    $downloadBaseBuilder -notmatch 'forceRebuild') {
+    throw 'Downloaded base compiler is missing required core planner/build hooks.'
 }
 if ($downloadTerrainDoctrine -notmatch 'Phase 1 production authority' -or
     $downloadTerrainDoctrine -notmatch 'Authored-world mutation policy' -or
     $downloadTerrainDoctrine -notmatch 'must \*\*not\*\* thin grass' -or
-    $downloadTerrainDoctrine -notmatch 'new spawn schematic''s own road design' -or
-    $downloadBaseDoctrine -notmatch 'Surface geometry matrix v9') {
-    throw 'Downloaded terrain/base doctrines do not match the untouched authored-world Phase-1 contract.'
+    $downloadTerrainDoctrine -notmatch 'new spawn schematic''s own road design') {
+    throw 'Downloaded terrain doctrine does not match the untouched authored-world Phase-1 contract.'
 }
 if ($downloadReferenceLibrary -notmatch 'af9c214979fcde0b1c41e435a6359940a930ffa97c8e2ad09667f74203afba95') {
     throw 'Downloaded HCF reference library is missing the approved authored-map provenance.'
@@ -389,10 +380,6 @@ if ($downloadSimWorld -notmatch 'terrain\.authored-world' -or
     $downloadMapAi -notmatch 'x:\s*800' -or
     $downloadMapAi -notmatch 'z:\s*775') {
     throw 'Downloaded simulation/Mineflayer map intelligence is not aligned with the 2k authored world.'
-}
-if ($downloadBaseBuilder -notmatch 'terrainUphillBias' -or
-    $downloadBaseBuilder -notmatch 'qa-showcase') {
-    throw 'Downloaded base compiler is missing the pre-Phase-2 visual QA hooks.'
 }
 $forbiddenWorkerTravel = @(
     "tryCommand(state,'/warp",

@@ -167,6 +167,131 @@ final class LegacySchematicComposer {
         }
     }
 
+    /**
+     * Extends the actual surface pattern from the uploaded 101x101 spawn roads.
+     *
+     * This is intentionally NOT a generated gravel road. Every road block/data
+     * value comes from the spawn schematic's terminal road rows/columns.
+     * The pattern is projected onto the authored Stylez terrain so only the
+     * narrow copied road footprint changes.
+     */
+    private final class SpawnRoadSurfaceJob extends Job {
+        final World world;
+        final Schematic s;
+        final int ax,az;
+        final int direction; // 0=N,1=S,2=W,3=E
+        final int border,totalSteps,perpendicularSize;
+        int cursor=0;
+
+        SpawnRoadSurfaceJob(String label,World world,Schematic s,int ax,int az,int direction,int border) {
+            super(label);
+            this.world=world;this.s=s;this.ax=ax;this.az=az;this.direction=direction;
+            this.border=Math.max(64,border);
+            this.perpendicularSize=(direction<=1)?s.width:s.length;
+            int boundary=(direction==0||direction==2)?
+                Math.abs((direction==0?s.offZ:s.offX)):
+                Math.abs((direction==1?s.offZ+s.length-1:s.offX+s.width-1));
+            this.totalSteps=Math.max(0,this.border-boundary);
+        }
+
+        boolean step(int budget) {
+            int total=Math.max(1,totalSteps*perpendicularSize);
+            int writes=0,scanned=0;
+            int scanCap=Math.max(4096,Math.min(24000,budget*48));
+            while(cursor<total && writes<budget && scanned<scanCap) {
+                int global=cursor++;
+                scanned++;
+                int longitudinal=global/perpendicularSize;
+                int p=global-longitudinal*perpendicularSize;
+
+                int sx,sz,wx,wz;
+                if(direction==0) { // north: exact terminal rows 1..25
+                    sz=1+(longitudinal%25); sx=p;
+                    wx=ax+sx+s.offX;
+                    wz=az+s.offZ-longitudinal;
+                } else if(direction==1) { // south: exact terminal rows 99..90
+                    sz=99-(longitudinal%10); sx=p;
+                    wx=ax+sx+s.offX;
+                    wz=az+s.offZ+s.length-1+longitudinal;
+                } else if(direction==2) { // west: exact terminal columns 1..6
+                    sx=1+(longitudinal%6); sz=p;
+                    wx=ax+s.offX-longitudinal;
+                    wz=az+sz+s.offZ;
+                } else { // east: exact terminal columns 99..95
+                    sx=99-(longitudinal%5); sz=p;
+                    wx=ax+s.offX+s.width-1+longitudinal;
+                    wz=az+sz+s.offZ;
+                }
+
+                if(sx<0||sx>=s.width||sz<0||sz>=s.length) continue;
+                int source=sz*s.width+sx; // approved road surface lives at schematic Y=0
+                int id=s.blockId(source);
+                if(!isSpawnRoadSurface(id)) continue;
+
+                int cx=wx>>4,cz=wz>>4;
+                if(!world.isChunkLoaded(cx,cz)) {
+                    if(writes>0) { cursor--; break; }
+                    world.loadChunk(cx,cz,true);
+                }
+
+                int y=roadGroundY(world,wx,wz);
+                for(int yy=y+1;yy<=Math.min(world.getMaxHeight()-1,y+10);yy++) {
+                    Block above=world.getBlockAt(wx,yy,wz);
+                    if(!isRoadVegetation(above.getType())) break;
+                    if(above.getType()!=Material.AIR) {
+                        above.setTypeIdAndData(Material.AIR.getId(),(byte)0,false);
+                        changed++;writes++;
+                    }
+                }
+
+                Block dst=world.getBlockAt(wx,y,wz);
+                byte data=s.blockData(source);
+                if(dst.getTypeId()!=id || dst.getData()!=data) {
+                    dst.setTypeIdAndData(id,data,false);
+                    changed++;writes++;
+                }
+                processed++;
+            }
+            return cursor>=total;
+        }
+
+        int progressPercent() {
+            int total=Math.max(1,totalSteps*perpendicularSize);
+            return Math.min(100,(int)((cursor*100L)/total));
+        }
+    }
+
+    private boolean isSpawnRoadSurface(int id) {
+        // Exact Y=0 road palette in HCF-Spawn-101-production.schematic.
+        return id==1 || id==4 || id==13 || id==35;
+    }
+
+    private boolean isRoadVegetation(Material m) {
+        return m==Material.AIR || m==Material.LONG_GRASS ||
+            m==Material.YELLOW_FLOWER || m==Material.RED_ROSE ||
+            m==Material.DOUBLE_PLANT || m==Material.SNOW ||
+            m==Material.VINE || m==Material.LEAVES || m==Material.LEAVES_2 ||
+            m==Material.LOG || m==Material.LOG_2;
+    }
+
+    private int roadGroundY(World world,int x,int z) {
+        int y=Math.min(world.getMaxHeight()-1,world.getHighestBlockYAt(x,z));
+        if(world.getBlockAt(x,y,z).getType()==Material.AIR) y--;
+        while(y>2 && isRoadVegetation(world.getBlockAt(x,y,z).getType())) y--;
+        return Math.max(2,y);
+    }
+
+    private void validateSpawnRoadContract(Schematic spawn)throws IOException {
+        if(spawn.width!=101 || spawn.height!=37 || spawn.length!=101 ||
+           spawn.offX!=-50 || spawn.offY!=-1 || spawn.offZ!=-50)
+            throw new IOException("Approved HCF spawn must be 101x37x101 with WE offset -50,-1,-50.");
+
+        int[] probes={1*spawn.width+57,99*spawn.width+51,55*spawn.width+1,30*spawn.width+99};
+        for(int i:probes)
+            if(i<0 || i>=spawn.blocks.length || !isSpawnRoadSurface(spawn.blockId(i)))
+                throw new IOException("Approved HCF spawn road exit contract is missing expected terminal road blocks.");
+    }
+
     private final EraCore plugin;
     private final File assetDir;
     private final ArrayDeque<Job> jobs=new ArrayDeque<Job>();
@@ -200,7 +325,7 @@ final class LegacySchematicComposer {
 
     private List<String> productionAssetNames() {
         return Arrays.asList(
-            plugin.getConfig().getString("world-composer.assets.spawn","krakenhcf.schematic"),
+            plugin.getConfig().getString("world-composer.assets.spawn","HCF-Spawn-101-production.schematic"),
             plugin.getConfig().getString("world-composer.assets.koth-classic","KOTH2-production-1.8.schematic"),
             plugin.getConfig().getString("world-composer.assets.koth-endstyle","EndStyleKOTH-production-1.8.schematic"),
             plugin.getConfig().getString("world-composer.assets.koth-egypt","EgyptKOTH-production-1.8.schematic"),
@@ -213,16 +338,17 @@ final class LegacySchematicComposer {
 
     boolean queueSpawnOnly() {
         if(busy()) return false;
-        String name=asset("spawn","krakenhcf.schematic");
+        String name=asset("spawn","HCF-Spawn-101-production.schematic");
         if(!hasAsset(name)) {
-            plugin.getLogger().warning("Cannot compose Kraken spawn; missing asset: "+name);
+            plugin.getLogger().warning("Cannot compose HCF spawn; missing asset: "+name);
             return false;
         }
         try {
             World over=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
             if(over==null) return false;
             Schematic spawn=load(name);
-            jobs.add(new PasteJob("Kraken Spawn",over,spawn,0,
+            validateSpawnRoadContract(spawn);
+            jobs.add(new PasteJob("HCF Spawn",over,spawn,0,
                 plugin.getConfig().getInt("world-composer.spawn-anchor-y",66),0,false));
             productionRun=false;
             ensureRunner();
@@ -253,12 +379,13 @@ final class LegacySchematicComposer {
                 return false;
             }
 
-            Schematic spawn=load(asset("spawn","krakenhcf.schematic"));
+            Schematic spawn=load(asset("spawn","HCF-Spawn-101-production.schematic"));
+            validateSpawnRoadContract(spawn);
             // Kraken's 253x253 WorldEdit selection contains large intentionally
             // empty quadrants around the cross-shaped spawn/roads. Those AIR
             // cells are selection padding, not instructions to excavate the
             // fresh terrain. Production Overworld structures paste non-air only.
-            jobs.add(new PasteJob("Kraken Spawn",over,spawn,0,
+            jobs.add(new PasteJob("HCF Spawn",over,spawn,0,
                 plugin.getConfig().getInt("world-composer.spawn-anchor-y",66),0,false));
 
             int ko=plugin.getConfig().getInt("map-layout.koth-offset",500);
@@ -278,21 +405,13 @@ final class LegacySchematicComposer {
             jobs.add(new PasteJob("Magic End",end,load(asset("end","magical-hcf-end-xayden-bt.schematic")),
                 0,plugin.getConfig().getInt("world-composer.end-anchor-y",68),0,true));
 
-            int border=plugin.getConfig().getInt("map.world-border",3000)/2;
-            int roadEdge=126;
-            int repeats=Math.max(0,(border-roadEdge)/25);
-            jobs.add(new RoadJob("North Kraken road",over,spawn,0,
-                plugin.getConfig().getInt("world-composer.spawn-anchor-y",66),0,
-                114,138,0,24,0,-25,repeats));
-            jobs.add(new RoadJob("South Kraken road",over,spawn,0,
-                plugin.getConfig().getInt("world-composer.spawn-anchor-y",66),0,
-                114,138,228,252,0,25,repeats));
-            jobs.add(new RoadJob("West Kraken road",over,spawn,0,
-                plugin.getConfig().getInt("world-composer.spawn-anchor-y",66),0,
-                0,24,114,138,-25,0,repeats));
-            jobs.add(new RoadJob("East Kraken road",over,spawn,0,
-                plugin.getConfig().getInt("world-composer.spawn-anchor-y",66),0,
-                228,252,114,138,25,0,repeats));
+            int border=plugin.getConfig().getInt("map.world-border",2000)/2;
+            // Continue the uploaded spawn's own road design to the 2k border.
+            // No generated gravel lane/palette is used.
+            jobs.add(new SpawnRoadSurfaceJob("North HCF spawn road",over,spawn,0,0,0,border));
+            jobs.add(new SpawnRoadSurfaceJob("South HCF spawn road",over,spawn,0,0,1,border));
+            jobs.add(new SpawnRoadSurfaceJob("West HCF spawn road",over,spawn,0,0,2,border));
+            jobs.add(new SpawnRoadSurfaceJob("East HCF spawn road",over,spawn,0,0,3,border));
 
             productionRun=true;
             plugin.getConfig().set("map.structures-complete",false);
@@ -355,7 +474,7 @@ final class LegacySchematicComposer {
                         plugin.getConfig().set("map.structures-complete",true);
                         plugin.getConfig().set("map.production-layout-version",4);
                         plugin.saveConfig();
-                        plugin.getLogger().info("[composer] production HCF structures complete; Kraken spawn finalized and resource stage may begin.");
+                        plugin.getLogger().info("[composer] production HCF structures complete; HCF spawn finalized and resource stage may begin.");
                     }
                     productionRun=false;
                     runner.cancel();runner=null;

@@ -16,7 +16,7 @@ $JavaSourceDir = Join-Path $Server 'plugins-src\EraCore\src\main\java\dev\jorel\
 
 # This repository is often installed as a plain folder rather than a Git clone.
 # Always sync the exact coordinated source generation before compiling.
-$SourceCommit = '99cadd0ddd501f5efa7d6d6722c2f48c111d5749'
+$SourceCommit = 'c9b7a94a82be0b8248cb5d60b1244391104c02ac'
 $RawBase = 'https://raw.githubusercontent.com/josiahalora-beep/Minecraft-PVP/' + $SourceCommit
 $SourceFiles = @(
     'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/ActorDirectory.java',
@@ -177,6 +177,9 @@ if ($downloadBasePlan -notmatch 'Family selection happens BEFORE dimensions' -or
     $downloadBaseBuilder -notmatch 'prepareTerrainPad\(World w,HcfBasePlan p\)' -or
     $downloadBaseBuilder -notmatch 'buildCoreUtilityModules' -or
     $downloadBaseBuilder -notmatch 'surfaceWallMaterial' -or
+    $downloadBaseBuilder -notmatch 'v8: family identity starts in the footprint' -or
+    $downloadBaseBuilder -notmatch 'Follow the actual site''s slope' -or
+    $downloadBaseBuilder -notmatch 'Irregular 5-3-2-1 entrance shoulders' -or
     $downloadBaseBuilder -notmatch 'surfaceRoofMaterial' -or
     $downloadBaseBuilder -notmatch 'setTypeIdAndData\(Material\.AIR\.getId\(\)' -or
     $downloadBaseBuilder -notmatch '\[base-plan\]') {

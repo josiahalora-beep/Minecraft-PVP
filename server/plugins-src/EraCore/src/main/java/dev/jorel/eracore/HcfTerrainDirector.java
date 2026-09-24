@@ -172,6 +172,11 @@ final class HcfTerrainDirector implements Listener {
             decorate(chunk);
     }
 
+    int canonicalSurfaceY(int x,int z) {
+        int base=plugin.getConfig().getInt("map.surface-y",63);
+        return targetY(x,z,base);
+    }
+
     private int targetY(int x,int z,int base) {
         double amp=Math.max(4.0,Math.min(9.0,
             plugin.getConfig().getDouble("terrain.wilderness-amplitude",7.0)));
@@ -203,6 +208,15 @@ final class HcfTerrainDirector implements Listener {
         double bowl=bowlShape*bowlMask*amp*0.30;
 
         relief += ridge - bowl;
+
+        // v11 contour breakup: Minecraft must quantize continuous terrain to
+        // integer Y, but broad smooth slopes were crossing those thresholds in
+        // kilometer-long lines. Two low-amplitude, smoothly interpolated fields
+        // bend the rounding thresholds without introducing one-block white noise.
+        // Event pads/roads are flattened after this, so their combat cores remain
+        // exact while wilderness contours stop reading like topographic rings.
+        relief += valueNoise(wx+37.0,wz-61.0,58.0,0x6A17L)*0.36;
+        relief += valueNoise(wx-29.0,wz+43.0,31.0,0x6B2DL)*0.14;
 
         // Regional identity remains subtle; geometry never becomes a mountain.
         if(x<-650 && z>160) relief+=1.0+valueNoise(x,z,210.0,0xD114L)*0.9;

@@ -1111,14 +1111,49 @@ final class HcfBaseBuilder {
     }
 
     private boolean surfaceInside(HcfBasePlan p,int x,int z) {
-        int ax=Math.abs(x-p.cx),az=Math.abs(z-p.cz);
+        int dx=x-p.cx,dz=z-p.cz;
+        int ax=Math.abs(dx),az=Math.abs(dz);
         if(ax>p.surfaceHalfX || az>p.surfaceHalfZ) return false;
-        if(p.surfaceShape==1) {
-            // Three-block chamfers approximate the rounded/angled player bases
-            // seen in period footage while remaining cheap and easy to navigate.
-            return ax+az<=p.surfaceHalfX+p.surfaceHalfZ-3;
+
+        // v8: family identity starts in the footprint, not in trim. These masks
+        // deliberately remain deterministic and orthogonally navigable while
+        // breaking the old "same rectangle, different materials" silhouette.
+        switch(p.primaryFamily) {
+            case 0: { // Redemption: compact clipped bunker with a recessed front.
+                int clip=3;
+                if(ax+az>p.surfaceHalfX+p.surfaceHalfZ-clip) return false;
+                int front=-p.surfaceHalfZ;
+                if(dz<=front+2 && Math.abs(dx-(p.frontGateOffset))>Math.max(4,p.surfaceHalfX-3))
+                    return false;
+                return true;
+            }
+            case 1: { // Base-HCF: broad classic shell, asymmetric rear shoulder.
+                if(ax+az>p.surfaceHalfX+p.surfaceHalfZ-2) return false;
+                if(dz>p.surfaceHalfZ-3 && dx*p.utilitySide<-(p.surfaceHalfX-4)) return false;
+                return true;
+            }
+            case 2: { // ModernHCF: stepped/octagonal plan with one offset utility face.
+                int cut=Math.max(3,Math.min(5,Math.min(p.surfaceHalfX,p.surfaceHalfZ)/3));
+                if(ax+az>p.surfaceHalfX+p.surfaceHalfZ-cut) return false;
+                if(dx*p.utilitySide>p.surfaceHalfX-2 && az>p.surfaceHalfZ/2) return false;
+                return true;
+            }
+            case 3: { // Tunnel: long buried spine; surface mouth is intentionally narrow.
+                int mouthHalf=Math.max(4,p.surfaceHalfX/2);
+                int widen=Math.max(0,(dz+p.surfaceHalfZ)/4);
+                int allowed=Math.min(p.surfaceHalfX,mouthHalf+widen);
+                return ax<=allowed && dz<=p.surfaceHalfZ-1;
+            }
+            case 4: { // Cave: lopsided rock chamber, intentionally non-rectilinear.
+                double nx=dx/(double)Math.max(1,p.surfaceHalfX);
+                double nz=dz/(double)Math.max(1,p.surfaceHalfZ);
+                double wobble=0.10*(cradleNoise(x,z,p.seed+417)-0.5);
+                double skew=(dx*p.utilitySide>0?-0.05:0.04);
+                return nx*nx+nz*nz <= 1.0+wobble+skew;
+            }
+            default:
+                return p.surfaceShape!=1 || ax+az<=p.surfaceHalfX+p.surfaceHalfZ-3;
         }
-        return true;
     }
 
     private boolean surfaceBoundary(HcfBasePlan p,int x,int z) {
@@ -1351,9 +1386,18 @@ final class HcfBaseBuilder {
 
                 double falloff=Math.max(0.0,1.0-dist/(extra+1.0));
                 double backBias=z>=p.cz?1.12:(z<minZ?0.72:1.0);
+
+                // Follow the actual site's slope instead of drawing a generic
+                // circular berm. Uphill sides get more cover; downhill/front
+                // sides stay lower so the base feels cut into existing relief.
+                int naturalY=solidSurfaceY(w,x,z);
+                int slopeDelta=Math.max(-4,Math.min(4,naturalY-p.surfaceY));
+                double slopeBias=1.0+slopeDelta*0.09;
+                double lateralBias=1.0+0.08*p.utilitySide*Math.signum(x-p.cx);
                 double n=0.62+cradleNoise(x,z,p.seed)*0.58;
-                int h=(int)Math.round(maxHeight*falloff*n*familyFactor*tierFactor*backBias);
-                h=Math.max(0,Math.min(maxHeight+1,h));
+                int h=(int)Math.round(maxHeight*falloff*n*familyFactor*tierFactor*
+                    backBias*slopeBias*lateralBias);
+                h=Math.max(0,Math.min(maxHeight+2,h));
                 if(h<=0) continue;
 
                 for(int yy=p.surfaceY+1;yy<p.surfaceY+h;yy++) {
@@ -1367,9 +1411,11 @@ final class HcfBaseBuilder {
 
         // Partial soil roof. Tunnel/Cave hide most of their surface roof,
         // Redemption/Base-HCF hide roughly half, Modern leaves more craft visible.
-        double cover=p.primaryFamily==3?0.78:(p.primaryFamily==4?0.84:
-            (p.primaryFamily==2?0.28:(p.primaryFamily==0?0.58:0.48)));
-        cover=Math.min(0.92,cover+conceal*0.06);
+        double cover=p.primaryFamily==3?0.88:(p.primaryFamily==4?0.91:
+            (p.primaryFamily==2?0.22:(p.primaryFamily==0?0.62:0.50)));
+        // Wealth/skill changes finish and concealment discipline without making
+        // poor factions neon targets. Tunnel/Cave remain fundamentally buried.
+        cover=Math.min(0.96,cover+conceal*0.055+(p.finishTier>=2?0.025:-0.015));
 
         for(int x=p.cx-p.surfaceHalfX;x<=p.cx+p.surfaceHalfX;x++) {
             for(int z=p.cz-p.surfaceHalfZ;z<=p.cz+p.surfaceHalfZ;z++) {
@@ -1393,6 +1439,23 @@ final class HcfBaseBuilder {
         for(int x=gx-2;x<=gx+2;x++) {
             queue.add(new Op(w,x,p.surfaceY+3,minZ-1,
                 (Math.abs(x-gx)==2)?p.surfaceFrame:Material.COBBLESTONE));
+        }
+        // Irregular 5-3-2-1 entrance shoulders: readable up close, visually
+        // absorbed by terrain at distance, and never extended into a fake road.
+        int[] shoulder={5,3,2,1};
+        for(int depth=0;depth<shoulder.length;depth++) {
+            int z=minZ-1-depth;
+            int span=shoulder[depth];
+            int bend=p.utilitySide*(depth/2);
+            for(int dx=-span;dx<=span;dx++) {
+                if(Math.abs(dx)<=2) continue;
+                int h=Math.max(1,3-depth/2);
+                for(int yy=1;yy<=h;yy++) {
+                    Material m=(yy==h)?Material.GRASS:
+                        (((Math.abs(dx)+depth+p.seed)&3)==0?Material.COBBLESTONE:Material.DIRT);
+                    queue.add(new Op(w,gx+bend+dx,p.surfaceY+yy,z,m));
+                }
+            }
         }
 
         if(p.primaryFamily==0) {

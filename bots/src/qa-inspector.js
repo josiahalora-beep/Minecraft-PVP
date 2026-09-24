@@ -114,9 +114,16 @@ async function aim(x,y,z){
   try{await bot.lookAt(new Vec3(Number(x),Number(y),Number(z)),true)}catch{}
 }
 function ignorableSurface(name){
-  return ['air','tall_grass','grass','dandelion','poppy','oak_leaves','spruce_leaves',
-    'birch_leaves','jungle_leaves','acacia_leaves','dark_oak_leaves',
-    'oak_log','spruce_log','birch_log','jungle_log','acacia_log','dark_oak_log'].includes(name)
+  // Mineflayer uses legacy 1.8 names on this server (tallgrass/leaves/log),
+  // while newer protocol registries use split names. Support both. Do NOT
+  // ignore "grass": in 1.8 that is the actual grass ground block (id 2).
+  return ['air','tallgrass','tall_grass','double_plant',
+    'yellow_flower','red_flower','dandelion','poppy',
+    'leaves','leaves2','log','log2',
+    'oak_leaves','spruce_leaves','birch_leaves','jungle_leaves',
+    'acacia_leaves','dark_oak_leaves',
+    'oak_log','spruce_log','birch_log','jungle_log','acacia_log','dark_oak_log',
+    'vine'].includes(name)
 }
 function sampleTerrain(cx,cz,radius=40,step=8){
   const ys=[],materials={}
@@ -140,6 +147,44 @@ function sampleTerrain(cx,cz,radius=40,step=8){
     samples:ys.length,minY:min,maxY:max,relief:max-min,
     meanY:Number((ys.reduce((a,b)=>a+b,0)/ys.length).toFixed(2)),
     materials
+  }
+}
+
+const dressingNames=new Set([
+  'tallgrass','tall_grass','double_plant',
+  'yellow_flower','red_flower','dandelion','poppy'
+])
+const foliageNames=new Set([
+  'leaves','leaves2','log','log2','vine',
+  'oak_leaves','spruce_leaves','birch_leaves','jungle_leaves',
+  'acacia_leaves','dark_oak_leaves',
+  'oak_log','spruce_log','birch_log','jungle_log','acacia_log','dark_oak_log'
+])
+function sampleSurfaceDressing(cx,cz,radius=40,step=8){
+  let columns=0,dressedColumns=0,totalBlocks=0
+  const byType={}
+  for(let x=Math.round(cx-radius);x<=Math.round(cx+radius);x+=step){
+    for(let z=Math.round(cz-radius);z<=Math.round(cz+radius);z+=step){
+      columns++
+      let dressed=false
+      for(let y=100;y>=35;y--){
+        const b=bot.blockAt(new Vec3(x,y,z),false)
+        if(!b || b.name==='air') continue
+        if(dressingNames.has(b.name)){
+          totalBlocks++
+          byType[b.name]=(byType[b.name]||0)+1
+          dressed=true
+          continue
+        }
+        if(foliageNames.has(b.name)) continue
+        break
+      }
+      if(dressed) dressedColumns++
+    }
+  }
+  return {
+    columns,dressedColumns,totalBlocks,byType,
+    density:Number((columns?dressedColumns/columns:0).toFixed(3))
   }
 }
 
@@ -174,7 +219,8 @@ async function capture(name,position,target,settleMs=3200){
   await saveFrame(ov)
 
   const terrainSample=sampleTerrain(actual.x,actual.z)
-  manifest.captures.push({name,id,position,target,actual,terrainSample,files:[fp,ov],at:new Date().toISOString()})
+  const surfaceDressing=sampleSurfaceDressing(actual.x,actual.z)
+  manifest.captures.push({name,id,position,target,actual,terrainSample,surfaceDressing,files:[fp,ov],at:new Date().toISOString()})
   writeManifest()
 }
 

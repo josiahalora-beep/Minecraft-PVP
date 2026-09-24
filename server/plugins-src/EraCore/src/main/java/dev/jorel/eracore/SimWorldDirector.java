@@ -9170,6 +9170,19 @@ final class SimWorldDirector {
             data.set(b + ".base-x", f.baseX);
             data.set(b + ".base-y", f.baseY);
             data.set(b + ".base-z", f.baseZ);
+            // Persist the deterministic architecture identity for diagnostics,
+            // visual QA and future migrations. These are derived fields only;
+            // HcfBasePlan remains authoritative and recomputes them from the
+            // same faction/profile/location inputs.
+            if(f.baseX!=0 || f.baseZ!=0) {
+                HcfBasePlan visualPlan=HcfBasePlan.of(
+                    f.name,f.baseX,f.baseY,f.baseZ,baseProfile(f.name));
+                data.set(b + ".primary-family", visualPlan.primaryFamilyName());
+                data.set(b + ".secondary-family", visualPlan.secondaryFamilyName());
+            } else {
+                data.set(b + ".primary-family", null);
+                data.set(b + ".secondary-family", null);
+            }
             data.set(b + ".claim-radius-chunks", f.claimRadiusChunks);
             data.set(b + ".build-progress", f.buildProgress);
             data.set(b + ".build-target", f.buildTarget);

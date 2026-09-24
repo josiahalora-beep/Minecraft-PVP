@@ -159,11 +159,18 @@ final class HcfBaseBuilder {
     }
 
     private void clearBrokenBaseVolumes(World w,HcfBasePlan p) {
-        // Surface: remove every previous generated shell/wing/roof in this
-        // faction work pad. Grade itself is rebuilt by prepareTerrainPad().
-        int pad=p.terrainCradleRadius()+3;
+        // v11: clear the old visible shell by distance to the REAL family mask,
+        // never by a square terrainCradleRadius box. The old maintenance path
+        // erased natural hills down to surfaceY across a rectangle before the
+        // terrain blender ran; that was the source of the giant dirt cutouts in
+        // headless QA. The canonical grade pass below repairs the small organic
+        // work halo and also makes repeated rebuilds idempotent.
+        int clearX=p.surfaceHalfX+7;
+        int clearZ=p.surfaceHalfZ+7;
         int top=Math.min(w.getMaxHeight()-1,p.surfaceY+p.surfaceHeight+10);
-        for(int x=p.cx-pad;x<=p.cx+pad;x++) for(int z=p.cz-pad;z<=p.cz+pad;z++) {
+        for(int x=p.cx-clearX;x<=p.cx+clearX;x++) for(int z=p.cz-clearZ;z<=p.cz+clearZ;z++) {
+            double d=surfaceDistanceFromMaskExact(p,x,z,7);
+            if(d>5.5) continue;
             for(int yy=p.surfaceY+1;yy<=top;yy++)
                 queue.add(new Op(w,x,yy,z,Material.AIR));
         }
@@ -392,35 +399,24 @@ final class HcfBaseBuilder {
         Material[] sitePalette=sampleLocalPalette(w,p);
         Material gradeTop=sitePalette[0],gradeFill=sitePalette[1];
 
-        // v9: footprint-relative terraforming. The grade follows the real family
-        // mask rather than a rectangular work box, so Cave/Tunnel/Modern sites
-        // cannot leave square lawns around non-square shells.
+        // v11: grade from the deterministic canonical wilderness, not from the
+        // CURRENT column height. Current height may already contain an older
+        // cradle, so using it as "nature" made /baserebuild accumulate terraces.
+        // Euclidean + smoothly warped mask distance removes the old square
+        // contour bands while keeping the actual shell/frontage safely graded.
         for(int x=p.cx-outer;x<=p.cx+outer;x++) {
             for(int z=p.cz-outer;z<=p.cz+outer;z++) {
+                double maskDistance=warpedMaskDistance(p,x,z,blendReach+2);
+                if(maskDistance>blendReach+1.25) continue;
+
                 int surface=solidSurfaceY(w,x,z);
-                int maskDistance=surfaceDistanceFromMask(p,x,z,blendReach+2);
-                if(maskDistance>blendReach+1) continue;
-
-                double raw=(maskDistance<=2)?0.0:
-                    (maskDistance-2)/(double)Math.max(1,blendReach-2);
-                double t=Math.max(0.0,Math.min(1.0,raw));
-                t=t*t*(3.0-2.0*t);
-
-                int naturalDelta=Math.max(-6,Math.min(6,surface-p.surfaceY));
-                int target=(int)Math.round(p.surfaceY+naturalDelta*t);
-                target=Math.max(p.surfaceY-6,Math.min(p.surfaceY+6,target));
-
-                boolean structureWork=maskDistance<=3;
+                int target=gradedSurfaceY(p,x,z,blendReach);
+                boolean structureWork=maskDistance<=3.0;
                 boolean elevationChange=target!=surface;
                 if(!structureWork && !elevationChange) continue;
 
                 int clearTop=Math.min(w.getMaxHeight()-1,
                     Math.max(target+10,w.getHighestBlockYAt(x,z)+3));
-                // Any column whose grade changes must be clean above its new
-                // surface. The previous predicate accidentally preserved
-                // logs/leaves/water outside the inner work mask, which could
-                // leave floating trees or liquid shelves after cutting a base
-                // into a natural slope.
                 for(int yy=target+1;yy<=clearTop;yy++) {
                     Material existing=w.getBlockAt(x,yy,z).getType();
                     if(existing!=Material.AIR)
@@ -434,6 +430,30 @@ final class HcfBaseBuilder {
                 queue.add(new Op(w,x,target,z,gradeTop));
             }
         }
+    }
+
+    private int gradedSurfaceY(HcfBasePlan p,int x,int z,int blendReach) {
+        double d=warpedMaskDistance(p,x,z,blendReach+2);
+        double start=1.35;
+        double raw=d<=start?0.0:(d-start)/Math.max(1.0,blendReach-start);
+        double t=Math.max(0.0,Math.min(1.0,raw));
+        t=t*t*(3.0-2.0*t);
+
+        int natural=plugin.canonicalHcfTerrainY(x,z);
+        int delta=Math.max(-6,Math.min(6,natural-p.surfaceY));
+        return Math.max(p.surfaceY-6,Math.min(p.surfaceY+6,
+            (int)Math.round(p.surfaceY+delta*t)));
+    }
+
+    private double warpedMaskDistance(HcfBasePlan p,int x,int z,int limit) {
+        double d=surfaceDistanceFromMaskExact(p,x,z,limit);
+        if(d<=0.0) return 0.0;
+
+        // Low-frequency deterministic bending only changes contour position; it
+        // does not create random one-block height noise.
+        double bend=(cradleNoise(x,z,p.seed+601)-0.5)*1.55+
+            (cradleNoise(x+23,z-17,p.seed+907)-0.5)*0.75;
+        return Math.max(0.0,d+bend);
     }
 
     /**
@@ -1240,16 +1260,28 @@ final class HcfBaseBuilder {
         return max;
     }
 
-    private int surfaceDistanceFromMask(HcfBasePlan p,int x,int z,int limit) {
-        if(surfaceInside(p,x,z)) return 0;
+    private double surfaceDistanceFromMaskExact(HcfBasePlan p,int x,int z,int limit) {
+        if(surfaceInside(p,x,z)) return 0.0;
         int max=Math.max(1,limit);
-        for(int r=1;r<=max;r++) {
-            for(int d=-r;d<=r;d++) {
-                if(surfaceInside(p,x+d,z-r) || surfaceInside(p,x+d,z+r) ||
-                   surfaceInside(p,x-r,z+d) || surfaceInside(p,x+r,z+d)) return r;
+        double best=Double.MAX_VALUE;
+
+        int minX=Math.max(p.cx-p.surfaceHalfX,x-max);
+        int maxX=Math.min(p.cx+p.surfaceHalfX,x+max);
+        int minZ=Math.max(p.cz-p.surfaceHalfZ,z-max);
+        int maxZ=Math.min(p.cz+p.surfaceHalfZ,z+max);
+        for(int sx=minX;sx<=maxX;sx++) {
+            for(int sz=minZ;sz<=maxZ;sz++) {
+                if(!surfaceInside(p,sx,sz)) continue;
+                double dx=x-sx,dz=z-sz;
+                double d2=dx*dx+dz*dz;
+                if(d2<best) best=d2;
             }
         }
-        return max+1;
+        return best==Double.MAX_VALUE?max+1.0:Math.sqrt(best);
+    }
+
+    private int surfaceDistanceFromMask(HcfBasePlan p,int x,int z,int limit) {
+        return (int)Math.ceil(surfaceDistanceFromMaskExact(p,x,z,limit));
     }
 
     private void buildSurfaceBay(World w,HcfBasePlan p,int bx,int bz,int side,int top) {
@@ -1451,17 +1483,19 @@ final class HcfBaseBuilder {
         int gateX=p.cx+p.frontGateOffset;
         int frontZ=surfaceFrontZ(p,gateX);
 
-        double familyFactor=p.primaryFamily==3?1.25:(p.primaryFamily==4?1.30:
-            (p.primaryFamily==2?0.78:(p.primaryFamily==0?1.05:0.96)));
-        double tierFactor=conceal==0?0.74:(conceal==1?0.94:1.10);
+        // Concealment comes mostly from embedding + roof cover. Large radial
+        // earth berms made every family look like a generated mound.
+        double familyFactor=p.primaryFamily==3?1.00:(p.primaryFamily==4?1.06:
+            (p.primaryFamily==2?0.55:(p.primaryFamily==0?0.84:0.74)));
+        double tierFactor=conceal==0?0.76:(conceal==1?0.91:1.04);
 
         int outerX=p.surfaceHalfX+extra;
         int outerZ=p.surfaceHalfZ+extra;
         for(int x=p.cx-outerX;x<=p.cx+outerX;x++) {
             for(int z=p.cz-outerZ;z<=p.cz+outerZ;z++) {
                 if(surfaceInside(p,x,z)) continue;
-                int dist=surfaceDistanceFromMask(p,x,z,extra+2);
-                if(dist<=0 || dist>extra+1) continue;
+                double dist=warpedMaskDistance(p,x,z,extra+2);
+                if(dist<=0.0 || dist>extra+1.0) continue;
 
                 // Bent, unmarked approach corridor: walkable but never a road
                 // or direct visual arrow from wilderness to the primary gate.
@@ -1471,39 +1505,46 @@ final class HcfBaseBuilder {
                     if(Math.abs(x-(gateX+bend))<=2) continue;
                 }
 
-                // 5-3-2-1 concealment grammar follows the actual footprint edge.
-                // Noise and site slope break the bands so they read as earthwork,
-                // not concentric retaining rings.
-                int stepHeight=dist<=2?maxHeight:
-                    (dist<=4?Math.min(maxHeight,3):
-                    (dist<=6?Math.min(maxHeight,2):1));
+                double ft=(dist-0.65)/Math.max(1.0,extra+0.35-0.65);
+                ft=Math.max(0.0,Math.min(1.0,ft));
+                ft=ft*ft*(3.0-2.0*ft);
+                double falloff=1.0-ft;
+                falloff=Math.pow(falloff,1.22);
 
-                int naturalY=solidSurfaceY(w,x,z);
+                int naturalY=plugin.canonicalHcfTerrainY(x,z);
                 int slopeDelta=Math.max(-5,Math.min(5,naturalY-p.surfaceY));
-                double slopeBias=1.0+slopeDelta*0.085;
-                double frontBias=z<frontZ?0.70:(z>=p.cz?1.14:1.0);
-                double lateralBias=1.0+0.08*p.utilitySide*Math.signum(x-p.cx);
-                double n=0.78+cradleNoise(x,z,p.seed)*0.36;
-                int h=(int)Math.round(stepHeight*n*familyFactor*tierFactor*
-                    slopeBias*frontBias*lateralBias);
-                h=Math.max(0,Math.min(maxHeight+2,h));
+                double slopeBias=1.0+slopeDelta*0.055;
+                double frontBias=z<frontZ?0.58:(z>=p.cz?1.05:0.94);
+                double lateralBias=1.0+0.045*p.utilitySide*Math.signum(x-p.cx);
+                double n=0.86+cradleNoise(x,z,p.seed+271)*0.28;
+
+                double raw=maxHeight*falloff*familyFactor*tierFactor*
+                    slopeBias*frontBias*lateralBias*n;
+                int h=Math.max(0,Math.min(maxHeight+1,(int)Math.round(raw)));
                 if(h<=0) continue;
 
-                for(int yy=p.surfaceY+1;yy<p.surfaceY+h;yy++) {
-                    Material m=(yy<=p.surfaceY+1 && h>=4 && cradleNoise(x+9,z-7,p.seed)>0.73)
-                        ?accent:fillMat;
+                // Build only the earth actually needed above the canonical
+                // graded surface. Uphill terrain can conceal the shell by itself;
+                // downhill terrain gets a small organic shoulder.
+                int groundY=gradedSurfaceY(p,x,z,extra+3);
+                int desiredTop=Math.max(groundY,p.surfaceY+h);
+                if(desiredTop<=groundY) continue;
+
+                for(int yy=groundY+1;yy<desiredTop;yy++) {
+                    Material m=(yy==groundY+1 && desiredTop-groundY>=4 &&
+                        cradleNoise(x+9,z-7,p.seed+383)>0.76)?accent:fillMat;
                     queue.add(new Op(w,x,yy,z,m));
                 }
                 Material exposed=terrainSurfacePatch(topMat,fillMat,accent,x,z,p.seed);
-                queue.add(new Op(w,x,p.surfaceY+h,z,exposed));
+                queue.add(new Op(w,x,desiredTop,z,exposed));
             }
         }
 
-        // Family-relative soil roof cover. Smooth mask noise creates broad
-        // patches; per-column roofs prevent one flat covered rectangle.
-        double cover=p.primaryFamily==3?0.91:(p.primaryFamily==4?0.93:
-            (p.primaryFamily==2?0.20:(p.primaryFamily==0?0.66:0.52)));
-        cover=Math.min(0.97,cover+conceal*0.05+(p.finishTier>=2?0.025:-0.015));
+        // Family-relative soil roof cover. Tunnel/Cave remain the most buried,
+        // Modern exposes its deliberate stepped roof, and the others sit between.
+        double cover=p.primaryFamily==3?0.93:(p.primaryFamily==4?0.95:
+            (p.primaryFamily==2?0.16:(p.primaryFamily==0?0.64:0.48)));
+        cover=Math.min(0.98,cover+conceal*0.04+(p.finishTier>=2?0.02:-0.01));
 
         for(int x=p.cx-p.surfaceHalfX;x<=p.cx+p.surfaceHalfX;x++) {
             for(int z=p.cz-p.surfaceHalfZ;z<=p.cz+p.surfaceHalfZ;z++) {

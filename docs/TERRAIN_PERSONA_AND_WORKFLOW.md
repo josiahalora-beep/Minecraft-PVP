@@ -24,7 +24,7 @@ Avoid repeated circles, perfect rings, symmetric mounds, long straight retaining
 1. Read the existing site before changing it: median grade, local relief, uphill/downhill sides, nearby road/event exclusions, local surface palette and vegetation.
 2. Select a base family and footprint before terraforming. Terrain serves the chosen architecture; architecture does not force every site into the same rectangle.
 3. Establish only the minimum safe structural grade needed for the shell and PvP entrance.
-4. Blend the structural grade into the original terrain using the site's real slope. Uphill sides may climb and wrap; downhill sides should taper earlier.
+4. Blend the structural grade into the original terrain using the site's real slope. The actual uphill direction is the primary concealment driver. Uphill sides may climb and wrap; downhill sides should taper earlier. A rear-side preference may only be a minor entrance-readability adjustment, never a substitute for site slope.
 5. Embed the shell. Use banks, shoulders, partial roof soil and broken rock/earth edges to make the base look excavated into the site rather than placed on it.
 6. Preserve an unmarked, walkable entrance approach. Occlude sightlines with terrain shoulders, not gravel paths or artificial roads.
 7. Add clustered vegetation/details after the macro shape works. Empty space is intentional.
@@ -58,6 +58,16 @@ The independent Build Viewer / QA server is the visual authority before producti
 ## Surface-mask integration v9
 Faction-site grading is footprint-relative, not bounding-box-relative. Distance to the actual family mask controls where grade is normalized and where natural relief takes back over. This is required for Cave ellipses, Tunnel spines and Modern stepped plans; a rectangular lawn around a non-rectangular shell is a failure.
 
-Concealment earthwork follows the same real footprint edge with an irregular 5-3-2-1 height rhythm, then site slope and clustered noise break the rhythm so it does not become a visible ring. Uphill/back sides may carry more mass; downhill/front sides taper sooner. Entrance corridors remain unmarked and open.
+Concealment earthwork follows the same real footprint edge with an irregular 5-3-2-1 height rhythm, then site slope and clustered noise break the rhythm so it does not become a visible ring. The site's measured uphill direction carries the mass; downhill sides taper sooner. Rear bias is secondary and must never create a radial/rear berm when the real terrain slopes elsewhere. Entrance corridors remain unmarked and open.
 
 Exposed cradle surfaces use coherent clustered local-palette patches at roughly 70/20/10 dominant/support/accent. The patch field must be spatially correlated; random per-block material confetti is not acceptable.
+
+
+## Visually tested terrain integration v14
+The independent five-family renderer is now a required regression check for terrain/base changes. v14 specifically freezes these lessons from screenshot review:
+- do not use radial concealment berms around faction shells;
+- use the canonical terrain gradient to find the site's real uphill side and let that terrain do most of the concealment;
+- keep only a tiny structural grading apron, returning immediately to canonical wilderness height outside it;
+- Tunnel/Cave conceal mainly through roof burial plus natural uphill relief, not artificial surrounding mounds;
+- integer-Y terrain contours must be broken with coherent medium-scale relief so they form short natural shelves rather than long parallel layer-cake seams;
+- surface-material scars must remain clustered and subordinate to grass, never broad geometric carpets.

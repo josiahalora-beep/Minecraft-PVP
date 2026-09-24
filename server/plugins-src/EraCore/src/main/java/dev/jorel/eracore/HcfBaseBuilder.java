@@ -416,9 +416,14 @@ final class HcfBaseBuilder {
 
                 int clearTop=Math.min(w.getMaxHeight()-1,
                     Math.max(target+10,w.getHighestBlockYAt(x,z)+3));
+                // Any column whose grade changes must be clean above its new
+                // surface. The previous predicate accidentally preserved
+                // logs/leaves/water outside the inner work mask, which could
+                // leave floating trees or liquid shelves after cutting a base
+                // into a natural slope.
                 for(int yy=target+1;yy<=clearTop;yy++) {
                     Material existing=w.getBlockAt(x,yy,z).getType();
-                    if(structureWork || !isVegetationOrLiquid(existing))
+                    if(existing!=Material.AIR)
                         queue.add(new Op(w,x,yy,z,Material.AIR));
                 }
 

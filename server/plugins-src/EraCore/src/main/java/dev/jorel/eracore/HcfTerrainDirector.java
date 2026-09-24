@@ -40,6 +40,18 @@ final class HcfTerrainDirector implements Listener {
         this.plugin=plugin;
     }
 
+    void start() {
+        if(!authoredWorld()) return;
+        Bukkit.getScheduler().runTaskLater(plugin,new Runnable() {
+            public void run() {
+                World world=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
+                if(world==null) return;
+                for(Chunk chunk:world.getLoadedChunks()) maintainAuthoredChunk(chunk);
+                plugin.getLogger().info("[terrain] authored HCF surface maintenance active: sparse clustered grass + terrain-following gravel roads.");
+            }
+        },2L);
+    }
+
     boolean busy() {
         return productionTask!=null || !productionQueue.isEmpty();
     }
@@ -48,9 +60,12 @@ final class HcfTerrainDirector implements Listener {
         if(authoredWorld()) {
             stop();
             normalizedThisRun.clear();
+            World world=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
+            if(world!=null)
+                for(Chunk chunk:world.getLoadedChunks()) maintainAuthoredChunk(chunk);
             plugin.getConfig().set("world-build.terrain-complete",true);
             plugin.saveConfig();
-            plugin.getLogger().info("[terrain] authored HCF world is authoritative; wilderness normalization skipped.");
+            plugin.getLogger().info("[terrain] authored HCF world is authoritative; elevation normalization skipped.");
             return true;
         }
         if(busy()) return false;
@@ -114,12 +129,20 @@ final class HcfTerrainDirector implements Listener {
 
     @EventHandler(priority=EventPriority.MONITOR)
     public void onChunkLoad(final ChunkLoadEvent e) {
-        if(authoredWorld()) return;
-        if(!plugin.getConfig().getBoolean("terrain.normalize-new-chunks",true)) return;
         if(e.getWorld().getEnvironment()!=World.Environment.NORMAL) return;
         if(Bukkit.getWorlds().isEmpty() || !e.getWorld().equals(Bukkit.getWorlds().get(0))) return;
 
         final Chunk chunk=e.getChunk();
+        if(authoredWorld()) {
+            Bukkit.getScheduler().runTaskLater(plugin,new Runnable() {
+                public void run() {
+                    if(chunk.isLoaded()) maintainAuthoredChunk(chunk);
+                }
+            },1L);
+            return;
+        }
+
+        if(!plugin.getConfig().getBoolean("terrain.normalize-new-chunks",true)) return;
         boolean production=plugin.getConfig().getBoolean("world-build.active",false);
         boolean terrainDone=plugin.getConfig().getBoolean("world-build.terrain-complete",false);
         boolean structuresDone=plugin.getConfig().getBoolean("map.structures-complete",false);
@@ -207,6 +230,92 @@ final class HcfTerrainDirector implements Listener {
                m==Material.LONG_GRASS || m==Material.YELLOW_FLOWER ||
                m==Material.RED_ROSE || m==Material.DOUBLE_PLANT ||
                m==Material.VINE || m==Material.SNOW;
+    }
+
+    private void maintainAuthoredChunk(Chunk chunk) {
+        if(chunk==null || !plugin.getConfig().getBoolean("terrain.authored-surface-cleanup",true)) return;
+        long key=chunkKey(chunk.getX(),chunk.getZ());
+        if(!normalizedThisRun.add(key)) return;
+
+        World w=chunk.getWorld();
+        int border=Math.max(256,plugin.getConfig().getInt("map.world-border",2000)/2);
+        for(int lx=0;lx<16;lx++) {
+            for(int lz=0;lz<16;lz++) {
+                int x=(chunk.getX()<<4)+lx;
+                int z=(chunk.getZ()<<4)+lz;
+                if(Math.abs(x)>border || Math.abs(z)>border) continue;
+
+                int ground=authoredSurfaceY(x,z);
+                boolean road=isAuthoredRoadColumn(x,z);
+
+                // Stylez's terrain/trees are authoritative. Only thin out the
+                // extremely dense ground-cover layer that obscured PvP sightlines
+                // in Phase-1 screenshots. Broad noise keeps surviving grass in
+                // clusters rather than producing random per-block confetti.
+                for(int yy=ground+1;yy<=Math.min(w.getMaxHeight()-1,ground+3);yy++) {
+                    Block b=w.getBlockAt(x,yy,z);
+                    Material m=b.getType();
+                    if(m==Material.LONG_GRASS || m==Material.DOUBLE_PLANT ||
+                       m==Material.YELLOW_FLOWER || m==Material.RED_ROSE) {
+                        if(road || !keepAuthoredGroundDetail(x,z,m))
+                            setNoPhysics(b,Material.AIR);
+                    }
+                }
+
+                if(!road) continue;
+
+                // Narrow old-HCF gravel lane: follow the authored height exactly.
+                // No broad shoulder flattening, no cobble scatter, no secondary
+                // terrain generator. Trees intersecting the 9-wide road are
+                // cleared only inside the lane so PvP pathing remains readable.
+                Block top=w.getBlockAt(x,ground,z);
+                Material tm=top.getType();
+                if(tm==Material.WATER || tm==Material.STATIONARY_WATER ||
+                   tm==Material.LAVA || tm==Material.STATIONARY_LAVA) {
+                    int y=ground;
+                    while(y>2) {
+                        Block liquid=w.getBlockAt(x,y,z);
+                        Material lm=liquid.getType();
+                        if(lm!=Material.WATER && lm!=Material.STATIONARY_WATER &&
+                           lm!=Material.LAVA && lm!=Material.STATIONARY_LAVA) break;
+                        setNoPhysics(liquid,Material.GRAVEL);
+                        y--;
+                    }
+                } else {
+                    setNoPhysics(top,Material.GRAVEL);
+                }
+
+                for(int yy=ground+1;yy<=Math.min(w.getMaxHeight()-1,ground+12);yy++) {
+                    Block b=w.getBlockAt(x,yy,z);
+                    Material m=b.getType();
+                    if(m==Material.LOG || m==Material.LOG_2 ||
+                       m==Material.LEAVES || m==Material.LEAVES_2 ||
+                       m==Material.VINE || m==Material.LONG_GRASS ||
+                       m==Material.DOUBLE_PLANT || m==Material.YELLOW_FLOWER ||
+                       m==Material.RED_ROSE)
+                        setNoPhysics(b,Material.AIR);
+                }
+            }
+        }
+    }
+
+    private boolean keepAuthoredGroundDetail(int x,int z,Material m) {
+        double broad=valueNoise(x,z,28.0,0x41A9L);
+        double fine=valueNoise(x+13,z-17,8.0,0x41D3L);
+        if(m==Material.LONG_GRASS || m==Material.DOUBLE_PLANT)
+            return broad>0.04 && fine>0.14;
+        return broad>0.20 && fine>0.05;
+    }
+
+    private boolean isAuthoredRoadColumn(int x,int z) {
+        if(!plugin.getConfig().getBoolean("terrain.authored-roads",true)) return false;
+        int half=Math.max(2,Math.min(7,
+            plugin.getConfig().getInt("terrain.authored-road-half-width",4)));
+        int border=Math.max(256,plugin.getConfig().getInt("map.world-border",2000)/2);
+        int exit=Math.max(90,plugin.getConfig().getInt("spawn.road-exit-distance",122));
+        double dist=Math.sqrt((double)x*x+(double)z*z);
+        if(dist<exit || Math.abs(x)>border || Math.abs(z)>border) return false;
+        return Math.abs(x)<=half || Math.abs(z)<=half;
     }
 
     private int targetY(int x,int z,int base) {

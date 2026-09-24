@@ -16,7 +16,7 @@ $JavaSourceDir = Join-Path $Server 'plugins-src\EraCore\src\main\java\dev\jorel\
 
 # This repository is often installed as a plain folder rather than a Git clone.
 # Always sync the exact coordinated source generation before compiling.
-$SourceCommit = 'c9b7a94a82be0b8248cb5d60b1244391104c02ac'
+$SourceCommit = '8f16bb4fc1d9bda7a0f9501a9bfc200ad65075ec'
 $RawBase = 'https://raw.githubusercontent.com/josiahalora-beep/Minecraft-PVP/' + $SourceCommit
 $SourceFiles = @(
     'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/ActorDirectory.java',
@@ -63,7 +63,9 @@ $SourceFiles = @(
     'Start-Daegon-With-Workers.ps1',
     'Start-Daegon-Adaptive.ps1',
     'docs/ACTOR_RUNTIME.md',
-    'docs/BUILD_VIEWER_CONTRACT.md'
+    'docs/BUILD_VIEWER_CONTRACT.md',
+    'docs/TERRAIN_PERSONA_AND_WORKFLOW.md',
+    'docs/HCF_BASE_PERSONA_AND_WORKFLOW.md'
 )
 
 Write-Host ''
@@ -159,6 +161,8 @@ $downloadBaseBuilder = Get-Content -LiteralPath (Join-Path $tempRoot 'server\plu
 $downloadSimWorld = Get-Content -LiteralPath (Join-Path $tempRoot 'server\plugins-src\EraCore\src\main\java\dev\jorel\eracore\SimWorldDirector.java') -Raw
 $downloadStackLauncher = Get-Content -LiteralPath (Join-Path $tempRoot 'Start-Daegon-With-Workers.ps1') -Raw
 $downloadAdaptiveLauncher = Get-Content -LiteralPath (Join-Path $tempRoot 'Start-Daegon-Adaptive.ps1') -Raw
+$downloadTerrainDoctrine = Get-Content -LiteralPath (Join-Path $tempRoot 'docs\TERRAIN_PERSONA_AND_WORKFLOW.md') -Raw
+$downloadBaseDoctrine = Get-Content -LiteralPath (Join-Path $tempRoot 'docs\HCF_BASE_PERSONA_AND_WORKFLOW.md') -Raw
 if ($downloadEra -notmatch 'migrateProductionUnificationConfig') { throw 'Downloaded EraCore is not the production-unification generation.' }
 if ($downloadEra -match 'factionSuffix\s*\(') { throw 'Downloaded EraCore still contains the removed factionSuffix method reference.' }
 if ($downloadEra -notmatch 'cmdSimTab') { throw 'Downloaded EraCore is missing /simtab diagnostics.' }
@@ -172,18 +176,28 @@ if ($downloadTerrain -notmatch 'terrain\.spawn-flat-radius' -or
     throw 'Downloaded terrain director is missing the natural HCF v3 terrain contract.'
 }
 if ($downloadBasePlan -notmatch 'Family selection happens BEFORE dimensions' -or
+    $downloadBasePlan -notmatch 'v9 silhouette proportions' -or
     $downloadBasePlan -notmatch 'coreHalfX\+20' -or
     $downloadBasePlan -notmatch 'war-room' -or
     $downloadBaseBuilder -notmatch 'prepareTerrainPad\(World w,HcfBasePlan p\)' -or
+    $downloadBaseBuilder -notmatch 'v9: footprint-relative terraforming' -or
+    $downloadBaseBuilder -notmatch 'every family owns its footprint AND roof profile' -or
+    $downloadBaseBuilder -notmatch 'surfaceDistanceFromMask' -or
+    $downloadBaseBuilder -notmatch 'surfaceRoofY' -or
+    $downloadBaseBuilder -notmatch 'approximately 70% dominant, 20% support, 10% accent' -or
+    $downloadBaseBuilder -notmatch 'Irregular 5-3-2-1 entrance shoulders' -or
     $downloadBaseBuilder -notmatch 'buildCoreUtilityModules' -or
     $downloadBaseBuilder -notmatch 'surfaceWallMaterial' -or
-    $downloadBaseBuilder -notmatch 'v8: family identity starts in the footprint' -or
-    $downloadBaseBuilder -notmatch 'Follow the actual site''s slope' -or
-    $downloadBaseBuilder -notmatch 'Irregular 5-3-2-1 entrance shoulders' -or
     $downloadBaseBuilder -notmatch 'surfaceRoofMaterial' -or
     $downloadBaseBuilder -notmatch 'setTypeIdAndData\(Material\.AIR\.getId\(\)' -or
     $downloadBaseBuilder -notmatch '\[base-plan\]') {
-    throw 'Downloaded base compiler is missing the Build Viewer topology/terraforming contract.'
+    throw 'Downloaded base compiler is missing the v9 family-geometry/terraforming contract.'
+}
+if ($downloadTerrainDoctrine -notmatch 'Surface-mask integration v9' -or
+    $downloadTerrainDoctrine -notmatch 'footprint-relative' -or
+    $downloadBaseDoctrine -notmatch 'Surface geometry matrix v9' -or
+    $downloadBaseDoctrine -notmatch 'per-column roof profile') {
+    throw 'Downloaded terrain/base doctrines do not match the pinned v9 visual generation.'
 }
 $forbiddenWorkerTravel = @(
     "tryCommand(state,'/warp",
@@ -452,14 +466,15 @@ foreach ($cmd in @('simtab:','mapcompose:','sotw:','baserebuild:','simactor:')) 
 Write-Host '[6/6] Deployment validation complete.' -ForegroundColor Green
 Write-Host ''
 Write-Host 'Installed capabilities:' -ForegroundColor Cyan
-Write-Host '  - scan/write-aware v7 production-map build with Kraken air-padding preserved as terrain'
+Write-Host '  - scan/write-aware v9 production-map build with Kraken air-padding preserved as terrain'
 Write-Host '  - natural HCF terrain v3: ~175 flat spawn apron, 175-300 transition, +/-7 domain-warped wilderness'
 Write-Host '  - narrow readable roads + event-specific terrain pads sized to the real KOTH/Conquest builds'
 Write-Host '  - clustered grass-dominant terrain materials: restrained dirt/gravel/rock/dry-region patches'
 Write-Host '  - permanent clear noon presentation: rain/thunder rejected and time automatically restored'
-Write-Host '  - blended faction-site terraforming: flat PvP frontage without giant square plateaus'
+Write-Host '  - footprint-relative faction-site terraforming: no rectangular lawns around non-rectangular families'
 Write-Host '  - five real base topologies: Redemption / Base-HCF / ModernHCF / Tunnel / Cave'
-Write-Host '  - family-specific exterior silhouettes/walls/roofs instead of one repeated glass-box shell'
+Write-Host '  - family-specific masks, per-column roof profiles, real-boundary gates and family-aware sealing'
+Write-Host '  - slope-aware 5-3-2-1 concealment with clustered local 70/20/10 terrain palette'
 Write-Host '  - underground compiler modules: dropdown/elevator, 14-dub storage, enchant, war-room, utility, farm, brewer, portals, traps'
 Write-Host '  - claim envelope covers the farthest compiled module plus the configured outside buffer'
 Write-Host '  - minimal Kraken crate row: Vote chest + donor Ender Chest + KOTH chest'

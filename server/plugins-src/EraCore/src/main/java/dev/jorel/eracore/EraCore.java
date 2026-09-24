@@ -1305,6 +1305,12 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         return !active || getConfig().getBoolean("world-build.complete",false);
     }
 
+    int canonicalHcfTerrainY(int x,int z) {
+        return terrainDirector==null
+            ?getConfig().getInt("map.surface-y",63)
+            :terrainDirector.canonicalSurfaceY(x,z);
+    }
+
     String activeHcfEventSummary() {
         if(eventDirector==null) return "";
         String s=eventDirector.publicSummary();

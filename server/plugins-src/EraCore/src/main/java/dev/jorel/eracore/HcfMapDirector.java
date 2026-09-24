@@ -274,7 +274,7 @@ final class HcfMapDirector implements Listener {
         }
         if("routes".equals(sub)) {
             int halfBorder=Math.max(256,plugin.getConfig().getInt("map.world-border",2000)/2);
-            p.sendMessage(EraCore.colorText("&6Roads &8» &fKraken roads run N/S/E/W from 0,0 to the +/-"+halfBorder+" border."));
+            p.sendMessage(EraCore.colorText("&6Roads &8» &fThe approved spawn's four road exits are extended with the same schematic road pattern to the +/-"+halfBorder+" border."));
             p.sendMessage(EraCore.colorText("&7KOTH quadrants are centered at &f+/-"+
                 plugin.getConfig().getInt("map-layout.koth-offset",650)+"&7. End portal plazas are at &f+/-"+
                 plugin.getConfig().getInt("map-layout.portal-offset",1000)+"&7."));

@@ -579,8 +579,11 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     private void migrateProductionUnificationConfig() {
         int version=getConfig().getInt("migration.production-unification-version",0);
-        if(version>=7) return;
+        if(version>=8) return;
 
+        // Legacy v7 values are still applied for installations that skipped the
+        // earlier migration, then Phase-1 authored-world values below become
+        // authoritative.
         // Canonical v7 map geometry.
         getConfig().set("map-layout.koth-offset",500);
         getConfig().set("map-layout.portal-offset",1000);
@@ -686,9 +689,24 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         getConfig().set("worker-pool.creator-bodies",Arrays.asList(
             "Stimpy","PainfulPvP","lolitsalex","Skimpy"));
 
-        getConfig().set("migration.production-unification-version",7);
+        // Phase 1 authored HCF world foundation. These values intentionally
+        // override the old 3k procedural-terrain layout above on both upgrades
+        // and clean installs.
+        getConfig().set("map.world-border",2000);
+        getConfig().set("map-layout.koth-offset",500);
+        getConfig().set("map-layout.portal-offset",800);
+        getConfig().set("map-layout.conquest-x",0);
+        getConfig().set("map-layout.conquest-z",775);
+        getConfig().set("terrain.authored-world",true);
+        getConfig().set("terrain.authored-world-asset","FreeMap.rar");
+        getConfig().set("terrain.authored-world-sha256",
+            "af9c214979fcde0b1c41e435a6359940a930ffa97c8e2ad09667f74203afba95");
+        getConfig().set("terrain.normalize-new-chunks",false);
+        getConfig().set("terrain.custom-decoration",false);
+
+        getConfig().set("migration.production-unification-version",8);
         saveConfig();
-        getLogger().info("Applied production unification v7: natural HCF terrain, protected PvP roads, concealed terrain-integrated bases and period-accurate identity weighting.");
+        getLogger().info("Applied production unification v8: verified authored 2k HCF world, protected PvP roads and in-border event layout.");
     }
 
     private void bindCommands() {

@@ -207,6 +207,11 @@ final class HcfMapDirector implements Listener {
 
         int x1=Math.min(minX,maxX),x2=Math.max(minX,maxX);
         int z1=Math.min(minZ,maxZ),z2=Math.max(minZ,maxZ);
+
+        int border=Math.max(256,plugin.getConfig().getInt("map.world-border",2000)/2);
+        if(x1 < -border || x2 > border || z1 < -border || z2 > border)
+            return "Claim would extend beyond the Overworld border.";
+
         if(rectIntersectsProtectedRoad(x1,x2,z1,z2))
             return "Canonical HCF roads are no-claim corridors.";
         for(Region r:regions) {

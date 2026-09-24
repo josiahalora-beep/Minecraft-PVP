@@ -258,6 +258,9 @@ terrain:
   authored-world: true
   authored-world-asset: FreeMap.rar
   authored-world-sha256: af9c214979fcde0b1c41e435a6359940a930ffa97c8e2ad09667f74203afba95
+  authored-surface-cleanup: true
+  authored-roads: true
+  authored-road-half-width: 4
   normalize-new-chunks: false
   cleanup-height: 46
   # Visual HCF terrain v3: warped natural relief, readable PvP lanes and

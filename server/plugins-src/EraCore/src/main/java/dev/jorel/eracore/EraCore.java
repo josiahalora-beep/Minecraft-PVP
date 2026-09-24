@@ -1567,6 +1567,16 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             return true;
         }
 
+        if(a.length==1 && "showcase".equalsIgnoreCase(a[0])) {
+            if(!getConfig().getBoolean("base-builder.qa-showcase",false)) {
+                p.sendMessage(color("&cQA showcase is disabled on this server."));
+                return true;
+            }
+            hcfBaseBuilder.queueQaFamilyShowcase();
+            p.sendMessage(color("&aQueued deterministic five-family HCF visual QA showcase."));
+            return true;
+        }
+
         String selector;
         if(a.length==0 || (a.length==1 && "nearest".equalsIgnoreCase(a[0]))) {
             selector=simWorld.nearestBaseFaction(p.getLocation(),128.0);

@@ -47,3 +47,10 @@ The requested central 2000 x 2000 playable crop was inspected directly from the 
 - Existing map trees/terrain are authoritative; EraCore must not add random rock/grass decoration to wilderness.
 
 This audit is descriptive only. Final Phase-1 approval requires the independent Spigot 1.8.8 screenshot run.
+
+
+## Production spawn asset
+
+| Production filename | Source upload | Dimensions / offset | SHA-256 | Usage |
+| --- | --- | --- | --- | --- |
+| `HCF-Spawn-101-production.schematic` | `spawnhcf100x10010100248(2).schematic` | 101 x 37 x 101; WE offset -50,-1,-50 | `3f41d2ac7d329f96c0d33c8ec2ba3807d74f35d4b01b0b544644a585d7d2e378` | Overworld spawn at 0,0. Its own four terminal road patterns are the sole source for road extension to the 2k border. |

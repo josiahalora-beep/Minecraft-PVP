@@ -2,6 +2,11 @@ name: visual-qa-hcf-bases
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/visual-qa-hcf-bases.yml'
+      - 'bots/src/qa-inspector.js'
 
 permissions:
   contents: read
@@ -47,7 +52,7 @@ jobs:
           npm install --no-audit --no-fund
           npm install --no-save --no-audit --no-fund prismarine-viewer canvas github:PrismarineJS/node-canvas-webgl
           node --check src/qa-inspector.js
-          xvfb-run -a -s "-screen 0 1280x720x24" node --input-type=module -e "const {createCanvas}=await import('node-canvas-webgl/lib/index.js'); const c=createCanvas(64,64); const gl=c.getContext('webgl'); if(!gl) throw new Error('headless WebGL context unavailable'); console.log('headless visual QA ready:',gl.getParameter(gl.VERSION))"
+          xvfb-run -a -s "-screen 0 1600x900x24" node --input-type=module -e "const {createCanvas}=await import('node-canvas-webgl/lib/index.js'); const c=createCanvas(64,64); const gl=c.getContext('webgl'); if(!gl) throw new Error('headless WebGL context unavailable'); console.log('headless visual QA ready:',gl.getParameter(gl.VERSION))"
 
       - name: Prepare isolated terrain and base QA server
         shell: bash
@@ -146,13 +151,14 @@ jobs:
           ERACORE_CONFIG: ${{ github.workspace }}/server/plugins/EraCore/config.yml
           QA_BASES_ONLY: '1'
           QA_SHOWCASE: '1'
+          QA_DETAIL_PASS: '1'
           QA_REBUILD_BASES: '1'
           QA_TEST_ATMOSPHERE: '1'
           QA_VIEW_DISTANCE: '10'
-          QA_WIDTH: '1280'
-          QA_HEIGHT: '720'
+          QA_WIDTH: '1600'
+          QA_HEIGHT: '900'
           QA_REBUILD_TIMEOUT_MS: '180000'
-        run: timeout 28m xvfb-run -a -s "-screen 0 1280x720x24" node src/qa-inspector.js
+        run: timeout 28m xvfb-run -a -s "-screen 0 1600x900x24" node src/qa-inspector.js
 
       - name: Preserve server diagnostics
         if: always()

@@ -12,28 +12,23 @@ export const HCF_MAP = Object.freeze({
     surfaceY: 63,
     spawn: Object.freeze({ name: 'Spawn', x: 0, y: 66, z: 0, safeRadius: 110, buildRadius: 190, claimRadius: 500 }),
     terrain: Object.freeze({
-      profile: 'NATURAL_HCF_V3',
+      profile: 'AUTHORED_STYLEZ_HCF',
       surfaceY: 63,
-      spawnFlatRadius: 175,
-      spawnTransitionRadius: 300,
-      wildernessAmplitude: 7,
-      roadFlatHalfWidth: 16,
-      roadShoulderHalfWidth: 50,
+      preserveAuthoredWorld: true,
       surfaceHolesAllowed: false,
-      mountainsAllowed: false,
-      ravinesAllowed: false,
-      roadSurface: 'gravel-spine-with-broken-dirt-shoulders',
-      navigationRule: 'prefer-road-for-distance; use-gentle-natural-contours-for-claims-pvp-and-events'
+      roadSurface: 'copied-from-approved-spawn-schematic',
+      navigationRule: 'prefer-the-copied-spawn-roads-for-distance; otherwise-follow-the-authored-world-terrain'
     }),
     roads: Object.freeze({
       protectedHalfWidth: 32,
       claimable: false,
       build: false,
       pvp: true,
-      north: Object.freeze({ x: 0, z: -1000 }),
-      south: Object.freeze({ x: 0, z: 1000 }),
-      east: Object.freeze({ x: 1000, z: 0 }),
-      west: Object.freeze({ x: -1000, z: 0 })
+      // Exit centers measured from HCF-Spawn-101-production.schematic.
+      north: Object.freeze({ x: 8, z: -1000 }),
+      south: Object.freeze({ x: 1, z: 1000 }),
+      east: Object.freeze({ x: 1000, z: -20 }),
+      west: Object.freeze({ x: -1000, z: 5 })
     }),
     koths: Object.freeze([
       Object.freeze({ id: 'classic', name: 'Classic', x: 500, y: 64, z: -500, radius: 165 }),

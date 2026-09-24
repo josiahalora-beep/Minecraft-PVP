@@ -2,13 +2,13 @@
 // Keep this deterministic and dependency-free: the server-side HcfMapDirector uses
 // the same coordinates/radii from config.yml.
 //
-// Canonical v7 production geometry. The four Overworld KOTHs use +/-500
+// Phase-1 authored 2k production geometry. The four Overworld KOTHs use +/-500
 // quadrants, matching EraCore's production compositor and map-layout config.
 
 export const HCF_MAP = Object.freeze({
   overworld: Object.freeze({
     world: 'world',
-    border: 1500,
+    border: 1000,
     surfaceY: 63,
     spawn: Object.freeze({ name: 'Spawn', x: 0, y: 66, z: 0, safeRadius: 110, buildRadius: 190, claimRadius: 500 }),
     terrain: Object.freeze({
@@ -30,10 +30,10 @@ export const HCF_MAP = Object.freeze({
       claimable: false,
       build: false,
       pvp: true,
-      north: Object.freeze({ x: 0, z: -1500 }),
-      south: Object.freeze({ x: 0, z: 1500 }),
-      east: Object.freeze({ x: 1500, z: 0 }),
-      west: Object.freeze({ x: -1500, z: 0 })
+      north: Object.freeze({ x: 0, z: -1000 }),
+      south: Object.freeze({ x: 0, z: 1000 }),
+      east: Object.freeze({ x: 1000, z: 0 }),
+      west: Object.freeze({ x: -1000, z: 0 })
     }),
     koths: Object.freeze([
       Object.freeze({ id: 'classic', name: 'Classic', x: 500, y: 64, z: -500, radius: 165 }),
@@ -42,12 +42,12 @@ export const HCF_MAP = Object.freeze({
       Object.freeze({ id: 'frost', name: 'Frost', x: -500, y: 64, z: 500, radius: 165 })
     ]),
     endPortals: Object.freeze([
-      Object.freeze({ id: 'ne-end', x: 1000, y: 64, z: -1000, radius: 125 }),
-      Object.freeze({ id: 'nw-end', x: -1000, y: 64, z: -1000, radius: 125 }),
-      Object.freeze({ id: 'se-end', x: 1000, y: 64, z: 1000, radius: 125 }),
-      Object.freeze({ id: 'sw-end', x: -1000, y: 64, z: 1000, radius: 125 })
+      Object.freeze({ id: 'ne-end', x: 800, y: 64, z: -800, radius: 125 }),
+      Object.freeze({ id: 'nw-end', x: -800, y: 64, z: -800, radius: 125 }),
+      Object.freeze({ id: 'se-end', x: 800, y: 64, z: 800, radius: 125 }),
+      Object.freeze({ id: 'sw-end', x: -800, y: 64, z: 800, radius: 125 })
     ]),
-    conquest: Object.freeze({ id: 'conquest', name: 'Conquest', x: 0, y: 64, z: 1125, radius: 175 })
+    conquest: Object.freeze({ id: 'conquest', name: 'Conquest', x: 0, y: 64, z: 775, radius: 175 })
   }),
   nether: Object.freeze({
     world: 'world_nether',

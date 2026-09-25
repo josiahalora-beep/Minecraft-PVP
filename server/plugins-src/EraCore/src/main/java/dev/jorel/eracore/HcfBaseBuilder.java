@@ -608,20 +608,19 @@ final class HcfBaseBuilder {
     }
 
     private void fillFoundationOnly(World w,HcfBasePlan p) {
-        // Support only the actual shell plus a one-block construction lip.
-        // The authored FreeMap outside that tiny envelope is never filled into
-        // a platform/terrace just because a faction base exists nearby.
-        int rx=p.surfaceHalfX+1,rz=p.surfaceHalfZ+1;
-        for(int x=p.cx-rx;x<=p.cx+rx;x++) {
-            for(int z=p.cz-rz;z<=p.cz+rz;z++) {
-                if(!surfaceInside(p,x,z) && surfaceDistanceFromMaskExact(p,x,z,2)>1.25) continue;
+        // Maintenance must obey the same Phase 2B terrain-contact contract as
+        // first construction. Support hidden voids only beneath the exact
+        // schematic bounding box; never create a visible one-block repair lip.
+        int hx=(HcfSurfaceReferenceTemplates.width(p.primaryFamily)-1)/2;
+        int hz=(HcfSurfaceReferenceTemplates.length(p.primaryFamily)-1)/2;
+        for(int x=p.cx-hx;x<=p.cx+hx;x++) {
+            for(int z=p.cz-hz;z<=p.cz+hz;z++) {
                 int surface=solidSurfaceY(w,x,z);
                 if(surface>=p.surfaceY-1) continue;
 
                 Material nativeTop=nativeSurfaceMaterial(w,x,z);
                 Material fill=nativeFillMaterial(nativeTop);
-                int from=Math.max(2,surface+1);
-                for(int yy=from;yy<p.surfaceY;yy++)
+                for(int yy=Math.max(2,surface+1);yy<p.surfaceY;yy++)
                     queue.add(new Op(w,x,yy,z,yy>=p.surfaceY-2?fill:Material.STONE));
             }
         }

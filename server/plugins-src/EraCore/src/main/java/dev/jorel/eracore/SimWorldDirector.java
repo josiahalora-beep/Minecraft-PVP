@@ -6554,12 +6554,21 @@ final class SimWorldDirector {
         if (f.treasury < 20) return;
 
         if(!f.surfaceQueued) {
-            int need=surfaceMaterialCost(f)[4]-f.glass;
+            int[] surfaceBill=surfaceMaterialCost(f);
+            int need=surfaceBill[4]-f.glass;
             if(need>0) {
+                // Glass is deliberately cheap in the server shop; buying it is
+                // usually more efficient than wasting SOTW labor smelting sand.
                 double unit=plugin.buyUnitPrice("glass");
                 int n=Math.min(need,(int)(f.treasury/unit));
                 if(n>0) { f.glass+=n; f.treasury-=n*unit; }
             }
+
+            // Dye is tiny relative to the glass bill (1 per 8 colored glass).
+            // Reserve its exact shop cost; the actual cash is deducted at build.
+            double dyeCost=surfaceDyeCashCost(f,surfaceBill);
+            if(!Double.isInfinite(dyeCost) && f.treasury<dyeCost)
+                fundSotwEssentials(f,dyeCost+60.0);
         }
 
         if (f.obsidian < 14 && f.treasury >= plugin.buyUnitPrice("obsidian")) {
@@ -8350,20 +8359,73 @@ final class SimWorldDirector {
         mirrorConsumeFromStorage(f,Material.GLASS,cost[4]);
     }
 
+    private HcfBasePlan currentSurfacePlan(SimFaction f) {
+        HcfBasePlan.Profile p=baseProfile(f.name);
+        return HcfBasePlan.of(f.name,f.baseX,f.baseY,f.baseZ,p);
+    }
+
     private int[] surfaceMaterialCost(SimFaction f) {
-        int members=Math.max(2,Math.max(f.targetSize,f.members.size()));
-        return new int[]{22+members*6,90+members*24,8+members,0,105+members*18};
+        // Exact bill derived from the SAME RLE schematic/palette path used by
+        // the builder. This replaces the old member-count approximation.
+        return HcfSurfaceReferenceTemplates.acquisitionBill(currentSurfacePlan(f));
+    }
+
+    private double surfaceDyeCashCost(SimFaction f,int[] bill) {
+        if(bill==null || bill.length<6 || bill[5]<=0) return 0.0;
+        String dye=HcfSurfaceReferenceTemplates.dyeShopKey(currentSurfacePlan(f));
+        if(dye==null || dye.isEmpty()) return 0.0;
+        double unit=plugin.buyUnitPrice(dye);
+        if(Double.isInfinite(unit) || Double.isNaN(unit)) return Double.POSITIVE_INFINITY;
+        return bill[5]*unit;
     }
 
     private boolean surfaceMaterialsReady(SimFaction f) {
         int[] c=surfaceMaterialCost(f);
+        double dyeCost=surfaceDyeCashCost(f,c);
         return f.wood>=c[0] && f.stone>=c[1] && f.iron>=c[2] &&
-            f.obsidian>=c[3] && f.glass>=c[4];
+            f.obsidian>=c[3] && f.glass>=c[4] &&
+            f.treasury>=dyeCost;
     }
 
     private void consumeSurfaceMaterials(SimFaction f) {
         int[] c=surfaceMaterialCost(f);
         f.wood-=c[0]; f.stone-=c[1]; f.iron-=c[2]; f.obsidian-=c[3]; f.glass-=c[4];
+        double dyeCost=surfaceDyeCashCost(f,c);
+        if(!Double.isInfinite(dyeCost)) f.treasury=Math.max(0.0,f.treasury-dyeCost);
+    }
+
+    String surfaceMaterialPlanFor(String factionName) {
+        SimFaction f=factions.get(key(factionName));
+        if(f==null || (f.baseX==0 && f.baseZ==0)) return "No planned base site yet.";
+
+        HcfBasePlan p=currentSurfacePlan(f);
+        int[] c=surfaceMaterialCost(f);
+        java.util.Map<String,Integer> finished=HcfSurfaceReferenceTemplates.materialBill(p);
+        int missWood=Math.max(0,c[0]-f.wood);
+        int missStone=Math.max(0,c[1]-f.stone);
+        int missIron=Math.max(0,c[2]-f.iron);
+        int missObby=Math.max(0,c[3]-f.obsidian);
+        int missGlass=Math.max(0,c[4]-f.glass);
+        String dyeKey=HcfSurfaceReferenceTemplates.dyeShopKey(p);
+
+        StringBuilder top=new StringBuilder();
+        int shown=0;
+        for(java.util.Map.Entry<String,Integer> e:finished.entrySet()) {
+            if(e.getValue()<=0) continue;
+            if(shown++>=10) break;
+            if(top.length()>0) top.append(", ");
+            top.append(e.getKey()).append(" x").append(e.getValue());
+        }
+
+        return "palette="+HcfSurfaceReferenceTemplates.paletteName(p)+
+            " | finished: "+top+
+            " | raw/common: logs="+c[0]+" stone="+c[1]+" iron="+c[2]+
+            " obsidian="+c[3]+" glass="+c[4]+" dye="+c[5]+
+            (dyeKey.isEmpty()?"":"("+dyeKey+")")+
+            " | missing: logs="+missWood+" stone="+missStone+" iron="+missIron+
+            " obsidian="+missObby+" glass="+missGlass+
+            " | route: chop logs; mine stone/iron/obsidian; buy cheap glass"+
+            (dyeKey.isEmpty()?"":" + "+dyeKey)+" only for remaining shortage.";
     }
 
     private org.bukkit.inventory.Inventory factionStorageInventory(SimFaction f,String category) {

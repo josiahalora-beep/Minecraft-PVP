@@ -8538,12 +8538,10 @@ final class SimWorldDirector {
         if (f.basePreset == null || f.basePreset.isEmpty()) f.basePreset = chooseBasePreset(f);
 
         int terrainRadius = baseSiteTerrainRadius(f);
-        int minRelief = Math.max(0, plugin.getConfig().getInt("sim-world.min-base-site-relief", 3));
-        int maxRelief = Math.max(minRelief+2, plugin.getConfig().getInt("sim-world.max-base-site-relief", 10));
+        int minRelief = Math.max(0, plugin.getConfig().getInt("sim-world.min-base-site-relief", 0));
+        int maxRelief = Math.max(minRelief+2, plugin.getConfig().getInt("sim-world.max-base-site-relief", 6));
         int maxLiquids = Math.max(0, plugin.getConfig().getInt("sim-world.max-base-site-liquid-samples", 1));
-        String siteArch=f.archetype==null?"BALANCED":f.archetype.toUpperCase(Locale.ENGLISH);
-        int targetRelief=("TRAPPER".equals(siteArch)||"UNDERDOG".equals(siteArch))?7:
-            ("ECONOMY".equals(siteArch)?5:6);
+        HcfBasePlan.Profile siteProfile=baseProfile(f.name);
 
         int[] bestPoint = null;
         int[] bestEval = null;
@@ -8572,10 +8570,23 @@ final class SimWorldDirector {
             int maxY = Math.min(110, plugin.getConfig().getInt("sim-world.max-base-y", 110));
             if (eval[0] < minY || eval[0] > maxY) continue;
 
-            int reliefPenalty=Math.abs(eval[1]-targetRelief)*18;
-            if(eval[1]<minRelief) reliefPenalty+=(minRelief-eval[1])*24;
-            if(eval[1]>maxRelief) reliefPenalty+=(eval[1]-maxRelief)*45;
-            int score = reliefPenalty + eval[2] * 120;
+            HcfBasePlan candidatePlan=HcfBasePlan.of(f.name,x,eval[0],z,siteProfile);
+            int targetRelief;
+            switch(candidatePlan.primaryFamily) {
+                case 4: targetRelief=4; break; // Cave can use a natural shoulder.
+                case 3: targetRelief=3; break; // Tunnel tolerates modest relief.
+                case 0: targetRelief=3; break; // Redemption can seat into a shallow rise.
+                default: targetRelief=2; break; // Base-HCF/Modern prefer PvP-friendly grade.
+            }
+            if(siteProfile.builderQuality>=76) targetRelief=Math.max(1,targetRelief-1);
+            else if(siteProfile.builderQuality<42) targetRelief=Math.min(5,targetRelief+1);
+
+            int reliefPenalty=Math.abs(eval[1]-targetRelief)*24;
+            if(eval[1]<minRelief) reliefPenalty+=(minRelief-eval[1])*20;
+            if(eval[1]>maxRelief) reliefPenalty+=(eval[1]-maxRelief)*55;
+
+            int biomeEdges=baseSiteBiomeTransitions(world,x,z,Math.max(12,terrainRadius));
+            int score = reliefPenalty + eval[2] * 120 + biomeEdges * 90;
             if (score < bestScore) {
                 bestScore = score;
                 bestPoint = new int[]{x,z};
@@ -8583,7 +8594,8 @@ final class SimWorldDirector {
             }
 
             if (eval[1] >= minRelief && eval[1] <= maxRelief &&
-                Math.abs(eval[1]-targetRelief)<=1 && eval[2] <= maxLiquids) break;
+                Math.abs(eval[1]-targetRelief)<=1 && eval[2] <= maxLiquids &&
+                biomeEdges==0) break;
         }
 
         if (bestPoint == null || bestEval == null) return false;
@@ -8610,6 +8622,17 @@ final class SimWorldDirector {
 
     private int alignChunkCenter(int block) {
         return ((block >> 4) << 4) + 8;
+    }
+
+    private int baseSiteBiomeTransitions(org.bukkit.World world,int x,int z,int radius) {
+        if(world==null) return 4;
+        int r=Math.max(8,Math.min(48,radius));
+        java.util.Set<org.bukkit.block.Biome> biomes=
+            new java.util.HashSet<org.bukkit.block.Biome>();
+        int[][] pts={{0,0},{r,0},{-r,0},{0,r},{0,-r},
+                     {r,r},{r,-r},{-r,r},{-r,-r}};
+        for(int[] pt:pts) biomes.add(world.getBiome(x+pt[0],z+pt[1]));
+        return Math.max(0,biomes.size()-1);
     }
 
     private int baseSiteTerrainRadius(SimFaction f) {

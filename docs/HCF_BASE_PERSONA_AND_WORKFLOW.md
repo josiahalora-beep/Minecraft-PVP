@@ -198,3 +198,21 @@ Manual visual review of the resulting screenshots specifically confirmed the cor
 
 This freeze is deliberately narrow: it freezes the canonical exterior voxel templates and their gate/glass/roof proportions. It does **not** declare every terrain placement visually perfect. Site scouting, terrain seam quality and unobstructed QA camera placement may still be improved provided they do not mutate the canonical template voxels. Any future exterior variation must be derived from this baseline and must pass the same exact-template regression before its own visual review.
 
+
+
+## Deferred gameplay phase — embodied HCF base intelligence
+
+This is explicitly **not** part of Phase 2 exterior generation. Preserve it as a later gameplay/AI phase after the architectural work is visually accepted.
+
+Requirements:
+- Mineflayer/HOT bodies must consume the real `HcfBasePlan` anchors and physical base geometry instead of treating home as one coordinate.
+- Bots must learn and remember valid primary/secondary entrances, fence-gate sheets, dropdowns, elevators, stairs, refill/storage/brewer/farm routes and safe exits.
+- Fence gates are interactive transit. Bots must approach the correct panel, open only the gate needed for passage, move through without oscillating/stalling, and close/secure it when appropriate.
+- Movement inside a faction base must look intentional: sprint between known destinations when safe, slow/hold at dangerous access points, avoid repeated wall collisions and recover from blocked routes.
+- Owned traps must have semantic state and geometry: bait route, capture zone, trigger mechanism, ally exclusion, escape route and kill/loot zone.
+- A trap-capable bot must know when an enemy is actually committed to the trap, avoid triggering on allies or too early, activate the correct mechanism, coordinate with faction members, secure the kill and collect useful dropped gear/potions.
+- Opponents should be able to learn from observed trap behavior; repeated identical baiting should become less effective against experienced simulated players.
+- Persistent faction memory should retain entrance knowledge, trap state, recent breaches, dangerous routes and preferred refill/escape paths across HOT body swaps.
+- The resulting behavior must be evaluated from spectator view for human-like purpose, not only pathfinding success metrics.
+
+Phase-boundary rule: exterior/site/palette corrections in Phase 2 must not be justified by special-casing bot navigation. Later AI must learn the accepted physical base, just as a human HCF player would.

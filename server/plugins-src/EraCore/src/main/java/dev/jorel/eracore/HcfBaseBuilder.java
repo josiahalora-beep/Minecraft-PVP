@@ -124,14 +124,15 @@ final class HcfBaseBuilder {
 
     private int naturalFitScore(int[] fit,int distancePenalty) {
         int perimeter=fit[5]+fit[6];
+        int entranceTrees=fit.length>7?fit[7]:999;
         return perimeter*260 + fit[1]*200 + fit[2]*30 +
-            fit[3]*12 + fit[4]*400 + distancePenalty;
+            fit[3]*12 + fit[4]*400 + entranceTrees*180 + distancePenalty;
     }
 
     private boolean idealNaturalFit(int[] fit) {
-        return fit!=null && fit.length>=7 &&
+        return fit!=null && fit.length>=8 &&
             (fit[5]+fit[6])==0 && fit[1]<=1 &&
-            fit[2]<=6 && fit[3]<=10 && fit[4]==0;
+            fit[2]<=6 && fit[3]<=10 && fit[4]==0 && fit[7]==0;
     }
 
     private int[] findNearbyPaletteQaSite(String faction,int seedX,int seedZ) {
@@ -607,13 +608,14 @@ final class HcfBaseBuilder {
      * [4] liquid samples in footprint + one-block context ring
      * [5] visible perimeter columns below grade
      * [6] visible perimeter columns above grade
+     * [7] tree-trunk columns in the primary entrance approach
      *
      * The visible-perimeter grade, rather than a broad-area median or interior
      * mode, makes a schematic sit ON the land instead of becoming a raised stage.
      */
     int[] evaluateReferenceSite(String faction,int cx,int cz) {
         World world=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
-        if(world==null) return new int[]{64,999,999,999,999,999,999};
+        if(world==null) return new int[]{64,999,999,999,999,999,999,999};
 
         HcfBasePlan probe=planFor(faction,cx,64,cz);
         int hx=(HcfSurfaceReferenceTemplates.width(probe.primaryFamily)-1)/2;
@@ -677,7 +679,41 @@ final class HcfBaseBuilder {
         }
 
         int relief=(min==Integer.MAX_VALUE||max==Integer.MIN_VALUE)?999:(max-min);
-        return new int[]{grade,relief,offGrade,outerOff,liquids,perimeterLow,perimeterHigh};
+        HcfBasePlan graded=planFor(faction,cx,grade,cz);
+        int entranceTrees=countEntranceTreeColumns(world,graded);
+        return new int[]{grade,relief,offGrade,outerOff,liquids,perimeterLow,perimeterHigh,entranceTrees};
+    }
+
+    /**
+     * Count trunks in the exterior approach to the exact schematic entrance.
+     * These blocks are OUTSIDE the building footprint, so normal construction
+     * intentionally does not clear them. Site selection should therefore avoid
+     * them instead of silently chopping a decorative clearing around the base.
+     */
+    private int countEntranceTreeColumns(World world,HcfBasePlan p) {
+        if(world==null || p==null) return 999;
+        int hz=(HcfSurfaceReferenceTemplates.length(p.primaryFamily)-1)/2;
+        int gateX=p.cx+HcfSurfaceReferenceTemplates.primaryGateOffsetX(p.primaryFamily);
+        int frontOutsideZ=p.cz-hz-1;
+        int blocked=0;
+
+        for(int x=gateX-5;x<=gateX+5;x++) {
+            for(int z=frontOutsideZ-12;z<=frontOutsideZ;z++) {
+                int ground=solidSurfaceY(world,x,z);
+                int top=Math.min(world.getMaxHeight()-1,
+                    Math.max(ground+14,world.getHighestBlockYAt(x,z)+2));
+                boolean trunk=false;
+                for(int y=Math.max(1,ground+1);y<=top;y++) {
+                    Material m=world.getBlockAt(x,y,z).getType();
+                    if(m==Material.LOG || m==Material.LOG_2) {
+                        trunk=true;
+                        break;
+                    }
+                }
+                if(trunk) blocked++;
+            }
+        }
+        return blocked;
     }
 
     void queueFoundationRepair(String faction, String preset, String trapPreset, int cx, int y, int cz) {

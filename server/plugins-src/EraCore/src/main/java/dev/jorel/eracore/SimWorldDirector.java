@@ -8538,64 +8538,80 @@ final class SimWorldDirector {
         if (f.basePreset == null || f.basePreset.isEmpty()) f.basePreset = chooseBasePreset(f);
 
         int terrainRadius = baseSiteTerrainRadius(f);
-        int minRelief = Math.max(0, plugin.getConfig().getInt("sim-world.min-base-site-relief", 0));
-        int maxRelief = Math.max(minRelief+2, plugin.getConfig().getInt("sim-world.max-base-site-relief", 6));
         int maxLiquids = Math.max(0, plugin.getConfig().getInt("sim-world.max-base-site-liquid-samples", 1));
+        int scoutAttempts=Math.max(32,Math.min(96,
+            plugin.getConfig().getInt("sim-world.base-site-scout-attempts",64)));
         HcfBasePlan.Profile siteProfile=baseProfile(f.name);
 
         int[] bestPoint = null;
         int[] bestEval = null;
         int bestScore = Integer.MAX_VALUE;
 
-        // Prefer useful natural cover rather than the flattest possible lawn.
-        // Twenty samples are still bounded, but give the faction a realistic
-        // chance to find a shallow ridge/bowl that can conceal its surface entry.
-        for (int attempt=0; attempt<20; attempt++) {
+        // Phase 2B final siting rule:
+        // factions scout for land that is ALREADY flat where the reference
+        // building touches the world. They do not manufacture a PvP platform.
+        // Broad terrain may still slope naturally away from Cave/Tunnel/other
+        // bases; the visible building perimeter itself should meet native grade.
+        for (int attempt=0; attempt<scoutAttempts; attempt++) {
             int[] raw = chooseBasePoint(f);
             int x = alignChunkCenter(raw[0]);
             int z = alignChunkCenter(raw[1]);
-            int[] eval;
+
+            int[] broad;
+            int[] fit;
             if(plugin.getConfig().getBoolean("terrain.authored-world",false) ||
                plugin.getConfig().getBoolean("terrain.normalize-new-chunks",false)) {
-                // The authored Phase-1 map is pre-generated and authoritative.
-                // Read its real median grade/relief/liquid state even though the
-                // old wilderness normalizer is intentionally disabled.
-                eval=plugin.evaluateSimBaseSite(x,z,terrainRadius);
+                broad=plugin.evaluateSimBaseSite(x,z,terrainRadius);
+                fit=plugin.evaluateSimReferenceSite(f.name,x,z);
             } else {
-                // Legacy flat-map fallback only.
-                eval=new int[]{plugin.getConfig().getInt("map.surface-y",63),0,0};
+                int flatY=plugin.getConfig().getInt("map.surface-y",63);
+                broad=new int[]{flatY,0,0};
+                fit=new int[]{flatY,0,0,0,0,0,0};
             }
 
             int minY = Math.max(50, plugin.getConfig().getInt("sim-world.min-base-y", 50));
             int maxY = Math.min(110, plugin.getConfig().getInt("sim-world.max-base-y", 110));
-            if (eval[0] < minY || eval[0] > maxY) continue;
+            if (fit[0] < minY || fit[0] > maxY) continue;
 
-            HcfBasePlan candidatePlan=HcfBasePlan.of(f.name,x,eval[0],z,siteProfile);
-            int targetRelief;
-            switch(candidatePlan.primaryFamily) {
-                case 4: targetRelief=4; break; // Cave can use a natural shoulder.
-                case 3: targetRelief=3; break; // Tunnel tolerates modest relief.
-                case 0: targetRelief=3; break; // Redemption can seat into a shallow rise.
-                default: targetRelief=2; break; // Base-HCF/Modern prefer PvP-friendly grade.
-            }
-            if(siteProfile.builderQuality>=76) targetRelief=Math.max(1,targetRelief-1);
-            else if(siteProfile.builderQuality<42) targetRelief=Math.min(5,targetRelief+1);
-
-            int reliefPenalty=Math.abs(eval[1]-targetRelief)*24;
-            if(eval[1]<minRelief) reliefPenalty+=(minRelief-eval[1])*20;
-            if(eval[1]>maxRelief) reliefPenalty+=(eval[1]-maxRelief)*55;
+            HcfBasePlan candidatePlan=HcfBasePlan.of(f.name,x,fit[0],z,siteProfile);
+            int maxInteriorOff=candidatePlan.primaryFamily==1?12:
+                (candidatePlan.primaryFamily==0?8:6);
+            int maxOuterOff=candidatePlan.primaryFamily==4||candidatePlan.primaryFamily==3?18:10;
 
             int biomeEdges=baseSiteBiomeTransitions(world,x,z,Math.max(12,terrainRadius));
-            int score = reliefPenalty + eval[2] * 120 + biomeEdges * 90;
+            int visiblePerimeterMismatch=fit[5]+fit[6];
+
+            // Perimeter mismatch is by far the most important defect because it
+            // creates the exact one-block "stage/platform" silhouette rejected
+            // in manual review. Interior deviations are largely hidden under the
+            // structure and therefore receive a much smaller penalty.
+            int score =
+                visiblePerimeterMismatch*220 +
+                fit[1]*180 +
+                fit[2]*28 +
+                fit[3]*12 +
+                fit[4]*350 +
+                broad[2]*120 +
+                biomeEdges*90;
+
+            // Very steep surrounding land is still undesirable, but unlike the
+            // old algorithm we never target a non-zero relief on purpose.
+            int broadLimit=(candidatePlan.primaryFamily==3||candidatePlan.primaryFamily==4)?8:5;
+            if(broad[1]>broadLimit) score+=(broad[1]-broadLimit)*45;
+
             if (score < bestScore) {
                 bestScore = score;
                 bestPoint = new int[]{x,z};
-                bestEval = eval;
+                bestEval = fit;
             }
 
-            if (eval[1] >= minRelief && eval[1] <= maxRelief &&
-                Math.abs(eval[1]-targetRelief)<=1 && eval[2] <= maxLiquids &&
-                biomeEdges==0) break;
+            // Ideal natural fit: native perimeter is already at one grade,
+            // footprint is at most a one-block interior variation, no liquids,
+            // and the immediate exterior ring remains substantially level.
+            if (visiblePerimeterMismatch==0 &&
+                fit[1]<=1 && fit[2]<=maxInteriorOff &&
+                fit[3]<=maxOuterOff && fit[4]<=maxLiquids &&
+                broad[2]<=maxLiquids && biomeEdges==0) break;
         }
 
         if (bestPoint == null || bestEval == null) return false;

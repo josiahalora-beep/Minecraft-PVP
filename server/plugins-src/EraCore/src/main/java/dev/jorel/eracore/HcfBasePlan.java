@@ -119,9 +119,9 @@ final class HcfBasePlan {
         if(family==1 || family==4) this.surfaceShape=1;
         else if(family==2) this.surfaceShape=2;
         else this.surfaceShape=(seed/37)%2;
-        // Reference-facing approach anchors. These offsets point at the real
-        // north/recessed entrance zone of each canonical surface component.
-        this.frontGateOffset=(family==0?3:(family==1?-1:(family==2?-1:0)));
+        // Reference-facing primary gate center measured directly from the
+        // selected canonical surface component.
+        this.frontGateOffset=HcfSurfaceReferenceTemplates.primaryGateOffsetX(family);
 
         int finish=this.profile.builderQuality>=76?2:(this.profile.builderQuality>=48?1:0);
         if(this.profile.wealthTier>=2 && finish<2) finish++;
@@ -151,7 +151,11 @@ final class HcfBasePlan {
 
     int[] anchor(String kind) {
         String k=kind==null?"":kind.toLowerCase(Locale.ENGLISH);
-        if("gate".equals(k)) return new int[]{cx+frontGateOffset,surfaceY+1,cz-surfaceHalfZ};
+        if("gate".equals(k)) return new int[]{
+            cx+HcfSurfaceReferenceTemplates.primaryGateOffsetX(primaryFamily),
+            surfaceY+HcfSurfaceReferenceTemplates.primaryGateOffsetY(primaryFamily),
+            cz+HcfSurfaceReferenceTemplates.primaryGateOffsetZ(primaryFamily)
+        };
         if("core".equals(k) || "home".equals(k)) return new int[]{cx,undergroundY+1,cz};
         if("drop".equals(k)) return new int[]{cx-3,surfaceY+1,cz-1};
         if("drop-bottom".equals(k)) return new int[]{cx-3,undergroundY+1,cz-1};

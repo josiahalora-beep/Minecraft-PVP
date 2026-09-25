@@ -129,15 +129,11 @@ The accepted corrective direction is:
 - visual QA must show the full building, entrance, windows and terrain seam clearly before Phase 2 can be frozen again.
 
 
-## Phase 2B final acceptance
+## Phase 2B previous acceptance — invalidated
 
-The earlier Phase-2 freeze is superseded by this acceptance. The terrain-first version was visually rejected after reviewing the actual QA screenshots.
+The acceptance at commit `02c52be58215f1923e6965ef98c25b6d7e800e83` / run `36114554213` is retained only as historical evidence. Manual comparison against the actual source schematics on 2026-09-25 found material visual mismatch in entrance geometry, fence-gate usage, glass massing and family silhouette. Passing the workflow did not establish schematic fidelity.
 
-Final accepted evidence:
-- production commit: `02c52be58215f1923e6965ef98c25b6d7e800e83`
-- five-family authored-FreeMap visual QA run: `36114554213`
-- artifact: `10855001657`
-- 45 visual captures, all five primary families represented, zero inspector errors.
+The following contract items remain useful, but the visual freeze is revoked until the exact-surface corrective run is manually approved:
 
 Accepted Phase-2B exterior contract:
 - the authored FreeMap is the terrain; faction generation must not manufacture concentric terrain rings, soil caps, biome-bleed fields or claim-sized grading;
@@ -153,3 +149,31 @@ Accepted Phase-2B exterior contract:
 - Cave/Devhorah is a visible timber/stone house with an irregular taller side tower; terrain provides context rather than artificial camouflage.
 
 Phase 3 may change interiors, room circulation, storage, refill/brewer/farm layout, dropdown/elevator presentation and internal craftsmanship. It must preserve the Phase-2B structure-first terrain rule and the five exterior family identities unless a new reference-backed visual regression proves a replacement is better.
+
+
+## Phase 2B exact-reference corrective pass
+
+Status: **OPEN / NOT FROZEN**.
+
+The corrective pass replaces the procedural facade interpretation with exact selected surface components reconstructed from the user-supplied canonical schematics:
+
+| Family | Canonical selected surface component |
+| --- | --- |
+| Redemption | 19 x 21 x 19 |
+| Base-HCF | 29 x 20 x 26 |
+| ModernHCF | 17 x 9 x 17 |
+| Tunnel | 11 x 12 x 11, placed one block above grade |
+| Cave / Devhorah | 13 x 12 x 13, placed one block above grade |
+
+Hard requirements:
+- fence gates are preserved where the reference actually uses entrance/exit gate sheets; they are not generated as decorative windows;
+- glass/stained glass is preserved as architectural mass exactly where the selected reference component uses it;
+- no procedural upper tower, gable, shutter band or window-bay pass may overwrite the canonical surface component;
+- authored FreeMap terrain stays authoritative outside the reference-sized footprint;
+- the underground HCF compiler remains independent and is not replaced by the reference schematic during this Phase 2 correction;
+- no Phase 2 freeze is valid until fresh five-family screenshots are manually reviewed against the reference geometry.
+
+Implementation baseline began at:
+- `9d5fc9cba11b97231b1c51b48ea69213ea998548` — exact surface template class
+- `5a140f5b9451dcba08ca5310e96c49182d6ff01b` — procedural surface path replaced
+- `647eaa518a98c718b73a860aec7dab1646dcc22a` — Tunnel/Cave vertical alignment corrected

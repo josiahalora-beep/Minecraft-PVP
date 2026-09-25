@@ -151,6 +151,20 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         final Set<String> officers = new LinkedHashSet<String>();
         final Set<String> invites = new LinkedHashSet<String>();
         final Set<String> claims = new LinkedHashSet<String>();
+
+        // Per-faction rulebook and weekly contribution ledger. These rules are
+        // authoritative for BOTH human players and simulated identities.
+        int weeklyDiamondQuota = 16;
+        int weeklyContributionQuota = 80;
+        boolean officersCanInvite = true;
+        boolean officersCanKick = false;
+        boolean tryoutRequired = false;
+        long rulesWeekStartedAt = System.currentTimeMillis();
+        final Map<String,Integer> weeklyDiamonds = new LinkedHashMap<String,Integer>();
+        final Map<String,Integer> weeklyContribution = new LinkedHashMap<String,Integer>();
+        final Map<String,Integer> ruleStrikes = new LinkedHashMap<String,Integer>();
+        final Map<String,Long> memberJoinedAt = new LinkedHashMap<String,Long>();
+
         Location home;
         double dtr = 1.1;
         long dtrFrozenUntil = 0L;

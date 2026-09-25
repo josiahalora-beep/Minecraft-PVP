@@ -211,11 +211,53 @@ function sampleSurfaceDressing(cx,cz,radius=40,step=8){
   }
 }
 
+function observerCell(x,y,z){
+  const bx=Math.floor(x),by=Math.floor(y),bz=Math.floor(z)
+  const feet=bot.blockAt(new Vec3(bx,by,bz),false)?.name||'unloaded'
+  const head=bot.blockAt(new Vec3(bx,by+1,bz),false)?.name||'unloaded'
+  return {x:bx,y:by,z:bz,feet,head,clear:feet==='air'&&head==='air'}
+}
+
+function nearestClearObserver(position,maxRadius=4){
+  const px=Math.round(position.x),py=Math.round(position.y),pz=Math.round(position.z)
+  const offsets=[]
+  for(let dx=-maxRadius;dx<=maxRadius;dx++){
+    for(let dz=-maxRadius;dz<=maxRadius;dz++){
+      offsets.push({dx,dz,d2:dx*dx+dz*dz,manhattan:Math.abs(dx)+Math.abs(dz)})
+    }
+  }
+  offsets.sort((a,b)=>a.d2-b.d2 || a.manhattan-b.manhattan || a.dx-b.dx || a.dz-b.dz)
+  for(const o of offsets){
+    const c=observerCell(px+o.dx,py,pz+o.dz)
+    if(c.clear) return {x:px+o.dx,y:py,z:pz+o.dz,offset:{x:o.dx,z:o.dz}}
+  }
+  return null
+}
+
 async function capture(name,position,target,settleMs=3200){
   const id=slug(name)
   await teleport(position.x,position.y,position.z)
   await aim(target.x,target.y,target.z)
   await sleep(settleMs)
+
+  // Visual QA cameras must represent a place a real player can stand. HCF
+  // interiors intentionally contain dense chest banks, glass dividers and
+  // refill fixtures, so resolve a clipped preferred camera to the nearest
+  // two-block-clear cell. If no such cell exists nearby, keep the requested
+  // position and let the obstruction gate fail the run.
+  let resolvedPosition={x:Math.round(position.x),y:Math.round(position.y),z:Math.round(position.z),offset:{x:0,z:0}}
+  if(interiorOnly){
+    const clear=nearestClearObserver(position,4)
+    if(clear){
+      resolvedPosition=clear
+      if(clear.offset.x!==0 || clear.offset.z!==0){
+        await teleport(clear.x,clear.y,clear.z)
+        await aim(target.x,target.y,target.z)
+        await sleep(650)
+      }
+    }
+  }
+
   await worldView.updatePosition(bot.entity.position,true)
   await waitRender()
 
@@ -224,13 +266,11 @@ async function capture(name,position,target,settleMs=3200){
     y:Number(bot.entity.position.y.toFixed(2)),
     z:Number(bot.entity.position.z.toFixed(2))
   }
-  const bx=Math.floor(actual.x),by=Math.floor(actual.y),bz=Math.floor(actual.z)
-  const feetBlock=bot.blockAt(new Vec3(bx,by,bz),false)?.name||'unloaded'
-  const headBlock=bot.blockAt(new Vec3(bx,by+1,bz),false)?.name||'unloaded'
-  const observerBlocks={feet:feetBlock,head:headBlock}
-  if(interiorOnly && (feetBlock!=='air' || headBlock!=='air'))
-    manifest.errors.push('blocked interior camera '+id+' feet='+feetBlock+' head='+headBlock+
-      ' at='+bx+','+by+','+bz)
+  const finalCell=observerCell(actual.x,actual.y,actual.z)
+  const observerBlocks={feet:finalCell.feet,head:finalCell.head}
+  if(interiorOnly && !finalCell.clear)
+    manifest.errors.push('no clear interior camera '+id+' feet='+finalCell.feet+' head='+finalCell.head+
+      ' at='+finalCell.x+','+finalCell.y+','+finalCell.z)
 
   // Deterministic observer POV. prismarine-viewer's 1.8 yaw/pitch
   // conversion can point headless captures away from the intended target; for
@@ -250,7 +290,7 @@ async function capture(name,position,target,settleMs=3200){
 
   const terrainSample=sampleTerrain(actual.x,actual.z)
   const surfaceDressing=sampleSurfaceDressing(actual.x,actual.z)
-  manifest.captures.push({name,id,position,target,actual,observerBlocks,terrainSample,surfaceDressing,files:[fp,ov],at:new Date().toISOString()})
+  manifest.captures.push({name,id,position,resolvedPosition,target,actual,observerBlocks,terrainSample,surfaceDressing,files:[fp,ov],at:new Date().toISOString()})
   writeManifest()
 }
 

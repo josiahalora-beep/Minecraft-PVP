@@ -1145,7 +1145,7 @@ final class HcfBaseBuilder {
         // tunnel masks no longer receive doors on empty bounding-box air.
         int frontX=p.cx+p.frontGateOffset;
         int frontZ=surfaceFrontZ(p,frontX);
-        bufferedGateZ(w,frontX,p.surfaceY,frontZ,+1,p.surfaceFrame);
+        bufferedGateZ(w,frontX,p.surfaceY,frontZ,+1,frontGateHalfWidth(p),p.surfaceFrame);
         if(p.entrances>=2) {
             int sideX=surfaceSideX(p,p.cz,p.utilitySide);
             bufferedGateX(w,sideX,p.surfaceY,p.cz,p.utilitySide>0?-1:+1,p.surfaceFrame);
@@ -1153,7 +1153,7 @@ final class HcfBaseBuilder {
         if(p.entrances>=3) {
             int backX=p.cx-p.frontGateOffset;
             int rearZ=surfaceRearZ(p,backX);
-            bufferedGateZ(w,backX,p.surfaceY,rearZ,-1,p.surfaceFrame);
+            bufferedGateZ(w,backX,p.surfaceY,rearZ,-1,1,p.surfaceFrame);
         }
 
         int[] d=p.anchor("drop");
@@ -1226,35 +1226,101 @@ final class HcfBaseBuilder {
         }
     }
 
-    private Material surfaceWallMaterial(HcfBasePlan p,int x,int yy,int z,int top,boolean beam) {
+    private boolean nearBay(int v,int width,int... centers) {
+        for(int c:centers) if(Math.abs(v-c)<=width) return true;
+        return false;
+    }
+
+    private boolean surfaceWindowCell(HcfBasePlan p,int x,int yy,int z,int top) {
         int level=yy-p.surfaceY;
+        int maxLevel=top-p.surfaceY;
+        if(level<3 || level>=maxLevel) return false;
+
+        boolean front=z==surfaceFrontZ(p,x);
+        boolean rear=z==surfaceRearZ(p,x);
+        boolean sideNeg=x==surfaceSideX(p,z,-1);
+        boolean sidePos=x==surfaceSideX(p,z,+1);
+        if(!front && !rear && !sideNeg && !sidePos) return false;
+
+        int along=(front||rear)?x-p.cx:z-p.cz;
+
+        switch(p.primaryFamily) {
+            case 0: // Redemption: repeated lower + upper facade bays.
+                if(level>=4 && level<=5 && nearBay(along,1,-4,4)) return true;
+                if(level>=8 && level<=9 && nearBay(along,1,-4,4)) return true;
+                return (sideNeg||sidePos) && level>=6 && level<=7 && nearBay(along,0,-2,3);
+            case 1: // Base-HCF: strong vertical window rhythm across broad walls.
+                if(level>=4 && level<=7 && nearBay(along,1,-8,0,8)) return true;
+                return level>=9 && level<=10 && nearBay(along,1,-5,5);
+            case 2: // ModernHCF: larger clean glass panels with deliberate spacing.
+                if(level>=3 && level<=7 && nearBay(along,1,-4,4)) return true;
+                return (rear||sidePos) && level>=6 && level<=8 && nearBay(along,0,0);
+            case 3: // Tunnel reference: compact tower with two stacked window tiers.
+                if((level>=4 && level<=5) || (level>=8 && level<=9))
+                    return nearBay(along,0,-2,2);
+                return false;
+            case 4: // Cave/Devhorah: sparse irregular openings, never random speckle.
+                if(level>=4 && level<=5)
+                    return nearBay(along,0,-4,p.utilitySide*3);
+                return level==7 && along==-p.utilitySide*2;
+            default:
+                return false;
+        }
+    }
+
+    private boolean surfaceTrimCell(HcfBasePlan p,int x,int yy,int z,int top) {
+        int level=yy-p.surfaceY;
+        boolean front=z==surfaceFrontZ(p,x);
+        boolean rear=z==surfaceRearZ(p,x);
+        boolean side=x==surfaceSideX(p,z,-1)||x==surfaceSideX(p,z,+1);
+        int along=(front||rear)?x-p.cx:z-p.cz;
+        if(!(front||rear||side)) return false;
+
+        if(p.primaryFamily==0)
+            return level==6 || nearBay(along,0,-7,7);
+        if(p.primaryFamily==1)
+            return level==3 || level==8 || nearBay(along,0,-11,-5,5,11);
+        if(p.primaryFamily==2)
+            return level==3 || nearBay(along,0,-7,7);
+        if(p.primaryFamily==3)
+            return level==3 || level==7 || nearBay(along,0,-4,4);
+        return nearBay(along,0,-5,5) && level<=7;
+    }
+
+    private Material surfaceWallMaterial(HcfBasePlan p,int x,int yy,int z,int top,boolean beam) {
         int pattern=Math.abs(x*31+z*17+p.seed)%11;
+        if(!beam && surfaceWindowCell(p,x,yy,z,top))
+            return p.primaryFamily==2?Material.STAINED_GLASS:Material.GLASS;
+
         if(beam) {
-            // Buried families should never reveal a polished structural cage.
-            // Their load-bearing edges read as local rock/rough support instead.
             if(p.primaryFamily==4)
                 return pattern<4?Material.MOSSY_COBBLESTONE:
                     (pattern<8?Material.COBBLESTONE:Material.STONE);
             if(p.primaryFamily==3)
-                return pattern<6?Material.COBBLESTONE:Material.STONE;
+                return p.finishTier==0?Material.COBBLESTONE:Material.SMOOTH_BRICK;
             return p.surfaceFrame;
         }
 
+        if(surfaceTrimCell(p,x,yy,z,top)) {
+            if(p.primaryFamily==0 || p.primaryFamily==3) return Material.LOG;
+            if(p.primaryFamily==2) return Material.QUARTZ_BLOCK;
+            if(p.primaryFamily==1) return p.finishTier>=1?Material.QUARTZ_BLOCK:p.undergroundTrim;
+            return pattern<5?Material.MOSSY_COBBLESTONE:Material.COBBLESTONE;
+        }
+
         switch(p.primaryFamily) {
-            case 0: // Redemption: compact stone bunker, tiny upper slits.
-                return level>=3 && pattern==0?Material.GLASS:p.surfaceFrame;
-            case 1: // Base-HCF: classic solid shell with sparse windows.
-                return level>=2 && pattern<=1?Material.GLASS:
-                    (pattern==2?Material.COBBLESTONE:p.surfaceFrame);
-            case 2: // ModernHCF: controlled glass, never a glass box.
-                return level>=2 && pattern<=3?Material.STAINED_GLASS:p.surfaceFrame;
-            case 3: // Tunnel: almost completely earth/stone concealed.
-                return pattern==0 && level==2?Material.IRON_FENCE:
-                    (p.finishTier==0?Material.COBBLESTONE:p.surfaceFrame);
-            case 4: // Cave: rough local-rock language.
+            case 0:
+                return p.finishTier==0?Material.COBBLESTONE:Material.SMOOTH_BRICK;
+            case 1:
+                return p.finishTier>=1?Material.SMOOTH_BRICK:Material.COBBLESTONE;
+            case 2:
+                return p.finishTier>=1?Material.SMOOTH_BRICK:Material.QUARTZ_BLOCK;
+            case 3:
+                return p.finishTier==0?Material.COBBLESTONE:Material.SMOOTH_BRICK;
+            case 4:
                 if(pattern<=2) return Material.MOSSY_COBBLESTONE;
                 if(pattern<=6) return Material.COBBLESTONE;
-                return p.finishTier==0?Material.STONE:p.surfaceFrame;
+                return Material.STONE;
             default:
                 return p.surfaceFrame;
         }
@@ -1269,11 +1335,16 @@ final class HcfBaseBuilder {
         return p.surfaceFrame;
     }
 
+    private int frontGateHalfWidth(HcfBasePlan p) {
+        return p.primaryFamily==4?1:2;
+    }
+
     private int surfaceGateData(HcfBasePlan p,int x,int yy,int z) {
         if(yy<p.surfaceY+1 || yy>p.surfaceY+2) return -1;
 
         int frontX=p.cx+p.frontGateOffset;
-        if(Math.abs(x-frontX)<=1 && z==surfaceFrontZ(p,x)) return 0;
+        int frontHalf=frontGateHalfWidth(p);
+        if(Math.abs(x-frontX)<=frontHalf && z==surfaceFrontZ(p,x)) return 0;
 
         if(p.entrances>=2 && Math.abs(z-p.cz)<=1) {
             int sideX=surfaceSideX(p,z,p.utilitySide);
@@ -1389,25 +1460,27 @@ final class HcfBaseBuilder {
         int base=p.surfaceY+p.surfaceHeight;
         int roof=base;
         switch(p.primaryFamily) {
-            case 0: // Redemption: raised rear core behind a lower defensive nose.
-                if(dz>=0 && Math.abs(dx)<=Math.max(2,p.surfaceHalfX/2)) roof++;
+            case 0: // Redemption: distinct upper center/rear story.
+                if(dz>=-1 && Math.abs(dx)<=Math.max(3,p.surfaceHalfX/2)) roof+=2;
                 break;
-            case 1: // Base-HCF: practical single-height roof.
+            case 1: // Base-HCF: broad shell with a raised central roof mass.
+                if(Math.abs(dx)<=Math.max(3,p.surfaceHalfX/2) &&
+                   Math.abs(dz)<=Math.max(3,p.surfaceHalfZ/2)) roof+=2;
                 break;
-            case 2: // ModernHCF: one clean offset upper slab, not a universal tower.
-                if(dx*p.utilitySide>0 && dz>-(p.surfaceHalfZ/3)) roof++;
+            case 2: // ModernHCF: clean offset upper slab.
+                if(dx*p.utilitySide>0 && dz>-(p.surfaceHalfZ/3)) roof+=1;
                 break;
-            case 3: // Tunnel: mouth low; buried spine rises behind it.
-                if(dz<-p.surfaceHalfZ/3) roof--;
+            case 3: // Tunnel reference: tall compact tower, not a buried mouth.
+                if(Math.abs(dx)<=Math.max(2,p.surfaceHalfX-2) &&
+                   dz>=-(p.surfaceHalfZ/2)) roof+=2;
                 break;
-            case 4: // Cave: rough low rock roof with clustered variation.
-                roof--;
-                if(cradleNoise(x,z,p.seed+733)>0.66) roof++;
+            case 4: // Cave/Devhorah: visible irregular roofline.
+                if(cradleNoise(x,z,p.seed+733)>0.62) roof+=1;
                 break;
             default:
                 break;
         }
-        return Math.max(p.surfaceY+3,roof);
+        return Math.max(p.surfaceY+7,roof);
     }
 
     private int surfaceMaxTop(HcfBasePlan p) {
@@ -1458,17 +1531,22 @@ final class HcfBaseBuilder {
                     queue.add(new Op(w,x,yy,z,Material.AIR));
     }
 
-    private void bufferedGateZ(World w,int cx,int y,int wallZ,int inward,Material frame) {
+    private void bufferedGateZ(World w,int cx,int y,int wallZ,int inward,int halfWidth,Material frame) {
         int inner=wallZ+inward*3;
         int lo=Math.min(wallZ-1,inner-1),hi=Math.max(wallZ+1,inner+1);
-        for(int z=lo;z<=hi;z++) for(int x=cx-1;x<=cx+1;x++)
+        for(int z=lo;z<=hi;z++) for(int x=cx-halfWidth;x<=cx+halfWidth;x++)
             for(int yy=y+1;yy<=y+2;yy++) queue.add(new Op(w,x,yy,z,Material.AIR));
 
-        for(int z:new int[]{wallZ,inner}) for(int x=cx-1;x<=cx+1;x++) {
+        for(int z:new int[]{wallZ,inner}) for(int x=cx-halfWidth;x<=cx+halfWidth;x++) {
             for(int yy=y+1;yy<=y+2;yy++) queue.add(new Op(w,x,yy,z,Material.FENCE_GATE,(byte)0));
-            // The old buffer cleared y+3 but never replaced it, leaving a
-            // permanent horizontal hole above every entrance.
             queue.add(new Op(w,x,y+3,z,frame));
+        }
+        // Deliberate entrance frame posts like the supplied HCF references.
+        for(int z:new int[]{wallZ,inner}) {
+            queue.add(new Op(w,cx-halfWidth-1,y+1,z,frame));
+            queue.add(new Op(w,cx-halfWidth-1,y+2,z,frame));
+            queue.add(new Op(w,cx+halfWidth+1,y+1,z,frame));
+            queue.add(new Op(w,cx+halfWidth+1,y+2,z,frame));
         }
     }
 
@@ -1643,107 +1721,15 @@ final class HcfBaseBuilder {
     }
 
     private void buildTerrainCradle(World w,HcfBasePlan p,int maxTop) {
-        Material[] palette=sampleLocalPalette(w,p);
-        Material topMat=palette[0],fillMat=palette[1],accent=palette[2];
-
-        int extra=Math.max(7,plugin.getConfig().getInt("base-builder.cradle-extra-radius",11));
-        int maxHeight=Math.max(3,plugin.getConfig().getInt("base-builder.concealment-max-height",5));
-        int approach=Math.max(6,plugin.getConfig().getInt("base-builder.entrance-approach-length",9));
-        int conceal=p.concealmentTier();
-        int gateX=p.cx+p.frontGateOffset;
-        int frontZ=surfaceFrontZ(p,gateX);
-
-        // v14: terrain cover follows the site's REAL uphill side. A fixed
-        // radial/rear-biased berm still looked player-generated from overview
-        // cameras. Broken uphill shoulders make the shell feel excavated into
-        // existing relief and leave downhill/frontage views naturally open.
-        double familyFactor=p.primaryFamily==3?0.72:(p.primaryFamily==4?0.76:
-            (p.primaryFamily==2?0.34:(p.primaryFamily==0?0.54:0.34)));
-        double tierFactor=conceal==0?0.70:(conceal==1?0.88:1.00);
-        double patchThreshold=p.primaryFamily==3?0.58:(p.primaryFamily==4?0.56:
-            (p.primaryFamily==2?0.78:(p.primaryFamily==0?0.67:0.79)));
-
-        int outerX=p.surfaceHalfX+extra;
-        int outerZ=p.surfaceHalfZ+extra;
-        for(int x=p.cx-outerX;x<=p.cx+outerX;x++) {
-            for(int z=p.cz-outerZ;z<=p.cz+outerZ;z++) {
-                if(surfaceInside(p,x,z)) continue;
-                double dist=warpedMaskDistance(p,x,z,extra+2);
-                if(dist<=0.0 || dist>extra+0.75) continue;
-
-                // Keep the primary approach as an unmarked, naturally graded cut.
-                if(z<=frontZ && z>=frontZ-approach) {
-                    int depth=frontZ-z;
-                    int bend=p.utilitySide*(depth/4);
-                    if(Math.abs(x-(gateX+bend))<=3) continue;
-                }
-
-                double ft=(dist-0.45)/Math.max(1.0,extra+0.30-0.45);
-                ft=Math.max(0.0,Math.min(1.0,ft));
-                ft=ft*ft*(3.0-2.0*ft);
-                double falloff=Math.pow(1.0-ft,1.48);
-
-                int naturalY=plugin.canonicalHcfTerrainY(x,z);
-                int groundY=gradedSurfaceY(p,x,z,extra+3);
-                double uphill=terrainUphillBias(p,x,z);
-
-                double patch=0.70*cradleBroadNoise(x,z,p.seed+271)+
-                    0.30*cradleNoise(x,z,p.seed+811);
-                double coverField=0.64*patch+0.30*uphill;
-
-                // Faint rear preference preserves HCF entrance readability, but
-                // it is intentionally much weaker than actual terrain direction.
-                if(z>=p.cz) coverField+=0.05;
-                if(z<frontZ+2) coverField-=0.12;
-
-                double threshold=patchThreshold+Math.max(0.0,dist-1.0)*0.018;
-                if(coverField<threshold) continue;
-
-                // Natural uphill terrain should do most of the concealment.
-                // Do not pile dirt on a column already high enough to hide the
-                // shell; only bridge a shallow low spot into the same landform.
-                int naturalNeed=Math.max(0,(p.surfaceY+2)-naturalY);
-                if(naturalNeed==0 && dist>2.25) continue;
-
-                double raw=(maxHeight-1)*falloff*familyFactor*tierFactor*
-                    (0.76+uphill*0.34)*(0.94+patch*0.12);
-                int h=Math.max(0,Math.min(maxHeight-1,(int)Math.round(raw)));
-                if(h<=0) continue;
-
-                int desiredTop=Math.max(groundY,
-                    Math.min(p.surfaceY+h,groundY+Math.max(1,naturalNeed+1)));
-                if(desiredTop<=groundY) continue;
-
-                for(int yy=groundY+1;yy<desiredTop;yy++) {
-                    Material m=(yy==groundY+1 && desiredTop-groundY>=3 &&
-                        cradleNoise(x+9,z-7,p.seed+383)>0.82)?accent:fillMat;
-                    queue.add(new Op(w,x,yy,z,m));
-                }
-                queue.add(new Op(w,x,desiredTop,z,
-                    terrainSurfacePatch(topMat,fillMat,accent,x,z,p.seed)));
-            }
-        }
-
-        buildBuriedFamilyBanks(w,p,topMat,fillMat,accent,gateX,frontZ,extra);
-
-        // Soil cover is now the main concealment mechanism for Tunnel/Cave.
-        // That is visually quieter than surrounding the building with a mound.
-        double cover=p.primaryFamily==3?0.96:(p.primaryFamily==4?0.97:
-            (p.primaryFamily==2?0.12:(p.primaryFamily==0?0.58:0.40)));
-        cover=Math.min(0.99,cover+conceal*0.035+(p.finishTier>=2?0.015:-0.01));
-
-        for(int x=p.cx-p.surfaceHalfX;x<=p.cx+p.surfaceHalfX;x++) {
-            for(int z=p.cz-p.surfaceHalfZ;z<=p.cz+p.surfaceHalfZ;z++) {
-                if(!surfaceInside(p,x,z)) continue;
-                if(z<=frontZ+2 && Math.abs(x-gateX)<=3) continue;
-                if(cradleNoise(x,z,p.seed+991)>cover) continue;
-
-                int roofY=surfaceRoofY(p,x,z);
-                queue.add(new Op(w,x,roofY+2,z,fillMat));
-                queue.add(new Op(w,x,roofY+3,z,
-                    terrainSurfacePatch(topMat,fillMat,accent,x,z,p.seed+229)));
-            }
-        }
+        // Phase 2B: intentionally no generated concealment landform.
+        //
+        // The authored FreeMap is the landscape. prepareTerrainPad() has already
+        // handled the only human-scale work allowed here: shell support and a
+        // tiny optional PvP apron. Do not add rings, soil caps, biome bleed,
+        // random texture fields or artificial banks after the building exists.
+        //
+        // Cave/Tunnel identity now comes from their actual reference-derived
+        // architecture and site selection, not from burying a tiny placeholder.
     }
 
     private void buildBuriedFamilyBanks(World w,HcfBasePlan p,
@@ -1836,62 +1822,55 @@ final class HcfBaseBuilder {
     private void decorateSurfaceGrammar(World w,HcfBasePlan p,int top) {
         int gx=p.cx+p.frontGateOffset;
         int frontZ=surfaceFrontZ(p,gx);
-        Material[] palette=sampleLocalPalette(w,p);
-        Material topMat=palette[0],fillMat=palette[1],accent=palette[2];
 
-        // Close-range craftsmanship only. From range the terrain cradle should
-        // dominate; these details become visible at the actual entrance.
-        for(int x=gx-2;x<=gx+2;x++) {
-            queue.add(new Op(w,x,p.surfaceY+3,frontZ-1,
-                (Math.abs(x-gx)==2)?p.surfaceFrame:accent));
-        }
-
-        // Irregular 5-3-2-1 entrance shoulders. Skill may clean one side up,
-        // but the center corridor remains completely open and unmarked.
-        int[] shoulder={5,3,2,1};
-        int conceal=p.concealmentTier();
-        for(int depth=0;depth<shoulder.length;depth++) {
-            int z=frontZ-1-depth;
-            int span=shoulder[depth];
-            int bend=p.utilitySide*(depth/2);
-            for(int dx=-span;dx<=span;dx++) {
-                if(Math.abs(dx)<=2) continue;
-                int sideBias=(dx*p.utilitySide>0 && conceal>0)?1:0;
-                int h=Math.max(1,3-depth/2+sideBias);
-                for(int yy=1;yy<=h;yy++) {
-                    Material m=yy==h
-                        ?terrainSurfacePatch(topMat,fillMat,accent,gx+bend+dx,z,p.seed+depth*17)
-                        :((cradleNoise(gx+dx,z,p.seed+87)>0.82)?accent:fillMat);
-                    queue.add(new Op(w,gx+bend+dx,p.surfaceY+yy,z,m));
-                }
-            }
-        }
-
+        // Architectural detail only. No terrain shoulders, no fake approach
+        // mounds and no random exterior texturing: the building is the subject.
         if(p.primaryFamily==0) {
-            // Redemption: compact recessed stone brow over the defended mouth.
+            // Redemption: strong entry brow, timber band and upper parapet.
             for(int x=gx-3;x<=gx+3;x++)
                 queue.add(new Op(w,x,p.surfaceY+4,frontZ,p.surfaceFrame));
+            for(int x=p.cx-5;x<=p.cx+5;x++)
+                queue.add(new Op(w,x,p.surfaceY+7,surfaceFrontZ(p,x),Material.LOG));
+            int ry=surfaceMaxTop(p)+1;
+            for(int x=p.cx-4;x<=p.cx+4;x+=4)
+                queue.add(new Op(w,x,ry,p.cz+2,p.surfaceFrame));
         } else if(p.primaryFamily==1) {
-            // Classic HCF: two imperfect buttresses on real shell boundaries.
-            int z1=Math.min(p.cz+2,surfaceRearZ(p,p.cx));
-            int z2=Math.max(p.cz-3,frontZ+2);
-            queue.add(new Op(w,surfaceSideX(p,z1,-1),p.surfaceY+2,z1,p.undergroundTrim));
-            queue.add(new Op(w,surfaceSideX(p,z2,+1),p.surfaceY+2,z2,p.undergroundTrim));
+            // Base-HCF: broad framed facade with visible buttresses/parapet.
+            int[] zs={Math.max(frontZ+2,p.cz-4),Math.min(surfaceRearZ(p,p.cx)-2,p.cz+4)};
+            for(int z:zs) {
+                queue.add(new Op(w,surfaceSideX(p,z,-1),p.surfaceY+3,z,p.undergroundTrim));
+                queue.add(new Op(w,surfaceSideX(p,z,+1),p.surfaceY+3,z,p.undergroundTrim));
+            }
+            int ry=surfaceMaxTop(p)+1;
+            for(int x=p.cx-p.surfaceHalfX+2;x<=p.cx+p.surfaceHalfX-2;x+=4)
+                queue.add(new Op(w,x,ry,p.cz,p.surfaceFrame));
         } else if(p.primaryFamily==2) {
-            // Modern: restrained rear window strip on the stepped upper volume.
-            for(int x=p.cx-2;x<=p.cx+2;x++) {
+            // Modern: restrained quartz frame around the primary entrance and
+            // one clean rear window band.
+            Material trim=Material.QUARTZ_BLOCK;
+            for(int x=gx-3;x<=gx+3;x++)
+                queue.add(new Op(w,x,p.surfaceY+4,frontZ,trim));
+            for(int x=p.cx-4;x<=p.cx+4;x++) {
                 int rz=surfaceRearZ(p,x);
-                queue.add(new Op(w,x,p.surfaceY+2,rz,Material.STAINED_GLASS,(byte)0));
+                queue.add(new Op(w,x,p.surfaceY+6,rz,Material.STAINED_GLASS,(byte)0));
             }
         } else if(p.primaryFamily==3) {
-            // Tunnel: the only strong surface read is a compact portal-like mouth.
-            for(int x=gx-2;x<=gx+2;x++)
-                queue.add(new Op(w,x,p.surfaceY+1,frontZ-1,Material.COBBLESTONE));
+            // Tunnel reference is a visible stacked tower: reinforced entry,
+            // mid-level band and short roof prongs.
+            for(int x=gx-3;x<=gx+3;x++)
+                queue.add(new Op(w,x,p.surfaceY+4,frontZ,p.surfaceFrame));
+            for(int x=p.cx-4;x<=p.cx+4;x++)
+                queue.add(new Op(w,x,p.surfaceY+7,surfaceFrontZ(p,x),Material.LOG));
+            int ry=surfaceMaxTop(p)+1;
+            queue.add(new Op(w,p.cx-2,ry,p.cz,p.surfaceFrame));
+            queue.add(new Op(w,p.cx+2,ry,p.cz,p.surfaceFrame));
         } else {
-            // Cave: irregular rock fracture around the cut-in entrance.
-            queue.add(new Op(w,gx-3,p.surfaceY+1,frontZ,Material.MOSSY_COBBLESTONE));
-            queue.add(new Op(w,gx+2,p.surfaceY+2,frontZ-1,Material.COBBLESTONE));
-            queue.add(new Op(w,gx+p.utilitySide*4,p.surfaceY+1,frontZ+1,accent));
+            // Cave/Devhorah: visible cut-in facade with irregular rock supports.
+            queue.add(new Op(w,gx-4,p.surfaceY+1,frontZ,Material.MOSSY_COBBLESTONE));
+            queue.add(new Op(w,gx-4,p.surfaceY+2,frontZ,Material.COBBLESTONE));
+            queue.add(new Op(w,gx+3,p.surfaceY+1,frontZ,Material.COBBLESTONE));
+            queue.add(new Op(w,gx+p.utilitySide*5,p.surfaceY+1,frontZ+1,Material.STONE));
+            queue.add(new Op(w,gx+p.utilitySide*5,p.surfaceY+2,frontZ+1,Material.MOSSY_COBBLESTONE));
         }
     }
 

@@ -454,13 +454,18 @@ final class HcfSurfaceReferenceTemplates {
         if(plan.faction.startsWith("QA")) return 0;
 
         int roll=Math.abs((plan.seed/131)%3);
+        // Production never uses the literal reference palette. Several source
+        // schematics contain mass quartz / biome-specific blocks that are fine
+        // as visual references but poor SOTW requirements. Variant 0 is reserved
+        // for byte-exact canonical QA; real factions always get a common-material
+        // palette while retaining identical voxel geometry.
         switch(plan.primaryFamily) {
-            case 0: return roll==0?0:(roll==1?3:1); // classic / redline / cyan
-            case 1: return roll==0?0:(roll==1?1:2); // classic / cyan / arctic
+            case 0: return roll==0?4:(roll==1?3:1); // smoke / redline / cyan
+            case 1: return roll==0?4:(roll==1?1:2); // smoke / cyan / arctic
             case 2: return roll==0?1:(roll==1?2:4); // cyan / arctic / smoke
             case 3: return roll==0?1:(roll==1?4:3); // cyan / smoke / redline
-            case 4: return roll==0?0:(roll==1?4:3); // classic / smoke / redline
-            default:return 0;
+            case 4: return roll==0?1:(roll==1?4:3); // cyan / smoke / redline
+            default:return 4;
         }
     }
 
@@ -491,10 +496,16 @@ final class HcfSurfaceReferenceTemplates {
         if(id==102) return Material.getMaterial(160); // pane -> stained pane
 
         // Production palette variants must be realistic SOTW builds. Replace
-        // mass quartz with common stone-brick equivalents while preserving the
-        // exact reference geometry. Canonical REFERENCE QA remains untouched.
-        if(id==155) return Material.SMOOTH_BRICK;
-        if(id==156) return Material.SMOOTH_STAIRS;
+        // mass quartz and biome-/tool-gated structural blocks with common 1.8
+        // equivalents while preserving the exact reference voxel geometry.
+        // Canonical REFERENCE QA remains untouched.
+        if(id==24 || id==97 || id==155) return Material.SMOOTH_BRICK;
+        if(id==128 || id==156) return Material.SMOOTH_STAIRS;
+        if(id==159) return Material.WOOL;
+        if(id==162) return Material.LOG;
+        if(id==134 || id==135 || id==136 || id==163 || id==164) return Material.WOOD_STAIRS;
+        if(id>=183 && id<=187) return Material.FENCE_GATE;
+        if(id>=188 && id<=192) return Material.FENCE;
         return material;
     }
 
@@ -503,6 +514,16 @@ final class HcfSurfaceReferenceTemplates {
         if(variant==0 || source==null) return data;
 
         int id=source.getId();
+
+        // Normalize metadata when a material family is replaced. Stair
+        // orientation remains valid across stair types; LOG_2 needs only its
+        // axis bits when converted to oak LOG; stone-brick replacements must
+        // not accidentally become mossy/cracked variants because source quartz
+        // used metadata for a different purpose.
+        if(id==24 || id==97 || id==155) return (byte)0;
+        if(id==162) return (byte)(data&0x0c);
+        if(id>=183 && id<=192) return (byte)0;
+
         boolean glass=id==20 || id==95 || id==102 || id==160;
         boolean dyed=id==35 || id==159 || id==171;
         if(!glass && !dyed) return data;
@@ -583,7 +604,7 @@ final class HcfSurfaceReferenceTemplates {
     }
 
     static int[] acquisitionBillFromMaterialBill(java.util.Map<String,Integer> bill) {
-        int woodPlanks=0,stone=0,iron=0,obsidian=0,glassBlocks=0,glassPanes=0,coloredGlass=0;
+        int woodPlanks=0,stone=0,iron=0,obsidian=0,glassBlocks=0,glassPanes=0;
 
         for(java.util.Map.Entry<String,Integer> e:bill.entrySet()) {
             String k=e.getKey();
@@ -593,16 +614,23 @@ final class HcfSurfaceReferenceTemplates {
 
             if(m.equals("LOG")||m.equals("LOG_2")) woodPlanks+=n*4;
             else if(m.equals("WOOD")) woodPlanks+=n;
-            else if(m.equals("FENCE_GATE")) woodPlanks+=n*4;
-            else if(m.equals("FENCE")) woodPlanks+=(int)Math.ceil(n*(5.0/3.0));
+            else if(m.equals("FENCE_GATE")||m.endsWith("_FENCE_GATE")) woodPlanks+=n*4;
+            else if(m.equals("FENCE")||m.endsWith("_FENCE")) woodPlanks+=(int)Math.ceil(n*(5.0/3.0));
             else if(m.contains("WOOD_STAIRS")) woodPlanks+=(int)Math.ceil(n*1.5);
+            else if(m.equals("WOOD_STEP")) woodPlanks+=(int)Math.ceil(n*0.5);
+            else if(m.equals("WOOD_DOUBLE_STEP")) woodPlanks+=n;
+            else if(m.equals("TRAP_DOOR")) woodPlanks+=n*3;
+            else if(m.equals("LADDER")) woodPlanks+=((n+2)/3)*4;
+            else if(m.equals("WOOD_BUTTON")) woodPlanks+=n;
             else if(m.equals("CHEST")||m.equals("TRAPPED_CHEST")) woodPlanks+=n*8;
             else if(m.equals("WORKBENCH")) woodPlanks+=n*4;
             else if(m.equals("SIGN_POST")||m.equals("WALL_SIGN")) woodPlanks+=n*2;
+            else if(m.equals("WALL_BANNER")||m.equals("STANDING_BANNER")) woodPlanks+=n;
 
             if(m.equals("STONE")||m.equals("COBBLESTONE")||m.equals("SMOOTH_BRICK")||
                m.equals("BRICK")||m.equals("SMOOTH_STAIRS")||m.equals("COBBLESTONE_STAIRS")||
-               m.equals("STEP")||m.equals("DOUBLE_STEP")||m.equals("STONE_PLATE")) stone+=n;
+               m.equals("STEP")||m.equals("DOUBLE_STEP")||m.equals("STONE_PLATE")||
+               m.equals("COBBLE_WALL")||m.equals("STONE_BUTTON")) stone+=n;
             else if(m.equals("FURNACE")) stone+=n*8;
 
             if(m.equals("IRON_BLOCK")) iron+=n*9;
@@ -611,18 +639,118 @@ final class HcfSurfaceReferenceTemplates {
             else if(m.equals("IRON_DOOR_BLOCK")||m.equals("IRON_DOOR")) iron+=(int)Math.ceil(n/3.0)*6;
             else if(m.equals("ANVIL")) iron+=n*31;
             else if(m.equals("CAULDRON")) iron+=n*7;
+            else if(m.equals("IRON_PLATE")) iron+=n*2;
 
             if(m.equals("OBSIDIAN")) obsidian+=n;
             if(m.equals("GLASS")) glassBlocks+=n;
             else if(m.equals("THIN_GLASS")) glassPanes+=n;
-            else if(m.equals("STAINED_GLASS")) { glassBlocks+=n; coloredGlass+=n; }
-            else if(m.equals("STAINED_GLASS_PANE")) { glassPanes+=n; coloredGlass+=n; }
+            else if(m.equals("STAINED_GLASS")) glassBlocks+=n;
+            else if(m.equals("STAINED_GLASS_PANE")) glassPanes+=n;
         }
 
         int rawGlass=glassBlocks+(int)Math.ceil(glassPanes*6.0/16.0);
-        int dye=(int)Math.ceil(coloredGlass/8.0);
+        int dye=0;
+        for(Integer n:dyeSupplyBillFromMaterialBill(bill).values()) dye+=n==null?0:n;
         int logs=(int)Math.ceil(woodPlanks/4.0);
         return new int[]{logs,stone,iron,obsidian,rawGlass,dye};
+    }
+
+    private static void addSupply(java.util.Map<String,Integer> out,String key,int amount) {
+        if(out==null || key==null || key.isEmpty() || amount<=0) return;
+        Integer old=out.get(key);
+        out.put(key,(old==null?0:old)+amount);
+    }
+
+    private static int dataFromBillKey(String key) {
+        if(key==null) return 0;
+        int split=key.indexOf(':');
+        if(split<0 || split+1>=key.length()) return 0;
+        try { return Integer.parseInt(key.substring(split+1)); }
+        catch(Exception ignored) { return 0; }
+    }
+
+    private static String dyeKeyForBlockData(int data) {
+        switch(data&15) {
+            case 15:return "dyeblack";
+            case 14:return "dyered";
+            case 9:return "dyecyan";
+            case 8:return "dyelightgray";
+            case 7:return "dyegray";
+            case 3:return "dyelightblue";
+            case 0:return "dyewhite";
+            default:return "dyewhite";
+        }
+    }
+
+    static java.util.Map<String,Integer> dyeSupplyBill(HcfBasePlan plan) {
+        return dyeSupplyBillFromMaterialBill(materialBill(plan));
+    }
+
+    static java.util.Map<String,Integer> dyeSupplyBillFromMaterialBill(java.util.Map<String,Integer> bill) {
+        java.util.Map<String,Integer> out=new java.util.LinkedHashMap<String,Integer>();
+        java.util.Map<Integer,Integer> coloredGlassRaw=new java.util.LinkedHashMap<Integer,Integer>();
+
+        for(java.util.Map.Entry<String,Integer> e:bill.entrySet()) {
+            String k=e.getKey();
+            int n=e.getValue();
+            int split=k.indexOf(':');
+            String m=split<0?k:k.substring(0,split);
+            int data=dataFromBillKey(k)&15;
+
+            if(m.equals("STAINED_GLASS")) {
+                Integer old=coloredGlassRaw.get(data);
+                coloredGlassRaw.put(data,(old==null?0:old)+n);
+            } else if(m.equals("STAINED_GLASS_PANE")) {
+                int raw=(int)Math.ceil(n*6.0/16.0);
+                Integer old=coloredGlassRaw.get(data);
+                coloredGlassRaw.put(data,(old==null?0:old)+raw);
+            } else if(m.equals("WOOL") && data!=0) {
+                addSupply(out,dyeKeyForBlockData(data),n);
+            }
+        }
+
+        for(java.util.Map.Entry<Integer,Integer> e:coloredGlassRaw.entrySet())
+            addSupply(out,dyeKeyForBlockData(e.getKey()),(int)Math.ceil(e.getValue()/8.0));
+        return out;
+    }
+
+    /**
+     * Exact just-in-time shop bill for small/common surface supplies that are
+     * deliberately not promoted to full SimFaction inventory fields. Every
+     * finished material remains visible in materialBill(); this map only tells
+     * the economy which raw items must be bought at build time.
+     */
+    static java.util.Map<String,Integer> specialtySupplyBill(HcfBasePlan plan) {
+        java.util.Map<String,Integer> out=new java.util.LinkedHashMap<String,Integer>();
+        java.util.Map<String,Integer> bill=materialBill(plan);
+
+        for(java.util.Map.Entry<String,Integer> e:bill.entrySet()) {
+            String k=e.getKey();
+            int n=e.getValue();
+            int split=k.indexOf(':');
+            String m=split<0?k:k.substring(0,split);
+
+            if(m.equals("GRASS")||m.equals("DIRT")) addSupply(out,"dirt",n);
+            else if(m.equals("SAND")) addSupply(out,"sand",n);
+            else if(m.equals("GRAVEL")) addSupply(out,"gravel",n);
+            else if(m.equals("LEAVES")||m.equals("LEAVES_2")) addSupply(out,"leaves",n);
+            else if(m.equals("LONG_GRASS")) addSupply(out,"longgrass",n);
+            else if(m.equals("YELLOW_FLOWER")) addSupply(out,"yellowflower",n);
+            else if(m.equals("RED_ROSE")) addSupply(out,"redrose",n);
+            else if(m.equals("WOOL")) addSupply(out,"wool",n);
+            else if(m.equals("TORCH")) addSupply(out,"coal",(n+3)/4);
+            else if(m.equals("TRIPWIRE")) addSupply(out,"string",n);
+            else if(m.equals("GLOWSTONE")) addSupply(out,"glowstone",n*4);
+            else if(m.equals("REDSTONE_LAMP_ON")||m.equals("REDSTONE_LAMP_OFF")) {
+                addSupply(out,"glowstone",n*4);
+                addSupply(out,"redstone",n*4);
+            } else if(m.equals("REDSTONE_BLOCK")) addSupply(out,"redstone",n*9);
+            else if(m.equals("REDSTONE_TORCH_ON")||m.equals("REDSTONE_TORCH_OFF"))
+                addSupply(out,"redstone",n);
+            else if(m.equals("WALL_BANNER")||m.equals("STANDING_BANNER"))
+                addSupply(out,"wool",n*6);
+        }
+        return out;
     }
 
     static String dyeShopKey(HcfBasePlan plan) {

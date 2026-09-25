@@ -145,6 +145,10 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         String name;
         String leader;
         final Set<String> members = new LinkedHashSet<String>();
+        // Authoritative faction role state. This applies equally to real players
+        // and simulated identities; SimWorld may propose promotions, but EraCore
+        // owns command permissions and persistence.
+        final Set<String> officers = new LinkedHashSet<String>();
         final Set<String> invites = new LinkedHashSet<String>();
         final Set<String> claims = new LinkedHashSet<String>();
         Location home;
@@ -3638,7 +3642,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
                 return true;
             }
             target.invites.remove(p.getName().toLowerCase(Locale.ENGLISH));
-            target.members.add(p.getName());
+            removeIgnoreCase(target.officers,p.getName());
+            addCasePreserving(target.members,p.getName());
             target.dtr = Math.min(maxDtr(target), Math.max(target.dtr, 0.1));
             saveFactions();
             p.sendMessage(color("&aJoined &f"+target.name));
@@ -3673,10 +3678,12 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         }
 
         boolean leader=f.leader.equalsIgnoreCase(p.getName());
+        boolean officer=!leader && isFactionOfficer(f,p.getName());
+        boolean manager=leader || officer;
 
         if(sub.equals("invite")) {
-            if(!leader) {
-                p.sendMessage(color("&cLeader only."));
+            if(!manager) {
+                p.sendMessage(color("&cLeader or officer only."));
                 return true;
             }
             if(a.length!=2) {
@@ -3698,7 +3705,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
                 p.sendMessage(color("&cLeader must disband or transfer later; cannot leave now."));
                 return true;
             }
-            f.members.remove(p.getName());
+            removeIgnoreCase(f.members,p.getName());
+            removeIgnoreCase(f.officers,p.getName());
             if(f.members.isEmpty()) removeFaction(f);
             saveFactions();
             p.sendMessage(color("&eYou left "+f.name));
@@ -3706,21 +3714,61 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         }
 
         if(sub.equals("kick")) {
-            if(!leader) {
-                p.sendMessage(color("&cLeader only."));
+            if(!manager) {
+                p.sendMessage(color("&cLeader or officer only."));
                 return true;
             }
             if(a.length!=2) {
                 p.sendMessage("/f kick <player>");
                 return true;
             }
-            if(a[1].equalsIgnoreCase(f.leader)) {
+            String targetName=factionMemberName(f,a[1]);
+            if(targetName==null) {
+                p.sendMessage(color("&cThat player is not in your faction."));
+                return true;
+            }
+            if(targetName.equalsIgnoreCase(f.leader)) {
                 p.sendMessage(color("&cCannot kick leader."));
                 return true;
             }
-            f.members.remove(a[1]);
+            if(officer && isFactionOfficer(f,targetName)) {
+                p.sendMessage(color("&cOfficers cannot kick other officers."));
+                return true;
+            }
+            removeIgnoreCase(f.members,targetName);
+            removeIgnoreCase(f.officers,targetName);
+            if(simWorld!=null && simWorld.contains(targetName))
+                simWorld.setFactionTitleFromAuthority(targetName,"member");
             saveFactions();
-            p.sendMessage(color("&aKicked "+a[1]));
+            p.sendMessage(color("&aKicked "+targetName));
+            return true;
+        }
+
+        if(sub.equals("promote") || sub.equals("demote")) {
+            if(!leader) {
+                p.sendMessage(color("&cLeader only."));
+                return true;
+            }
+            if(a.length!=2) {
+                p.sendMessage("/f "+sub+" <player>");
+                return true;
+            }
+            String targetName=factionMemberName(f,a[1]);
+            if(targetName==null) {
+                p.sendMessage(color("&cThat player is not in your faction."));
+                return true;
+            }
+            if(targetName.equalsIgnoreCase(f.leader)) {
+                p.sendMessage(color("&cThe leader already has full faction authority."));
+                return true;
+            }
+            boolean promoting=sub.equals("promote");
+            if(promoting) addCasePreserving(f.officers,targetName);
+            else removeIgnoreCase(f.officers,targetName);
+            if(simWorld!=null && simWorld.contains(targetName))
+                simWorld.setFactionTitleFromAuthority(targetName,promoting?"officer":"member");
+            saveFactions();
+            p.sendMessage(color(promoting?"&aPromoted "+targetName+" to officer.":"&eDemoted "+targetName+" to member."));
             return true;
         }
 
@@ -3736,8 +3784,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         }
 
         if(sub.equals("claim")) {
-            if(!leader) {
-                p.sendMessage(color("&cLeader only."));
+            if(!manager) {
+                p.sendMessage(color("&cLeader or officer only."));
                 return true;
             }
             if(claimDirector==null) {
@@ -3761,8 +3809,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         }
 
         if(sub.equals("unclaim")) {
-            if(!leader) {
-                p.sendMessage(color("&cLeader only."));
+            if(!manager) {
+                p.sendMessage(color("&cLeader or officer only."));
                 return true;
             }
             boolean removed=claimDirector!=null && claimDirector.clearFactionClaim(f.name);
@@ -3784,8 +3832,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         }
 
         if(sub.equals("sethome")) {
-            if(!leader) {
-                p.sendMessage(color("&cLeader only."));
+            if(!manager) {
+                p.sendMessage(color("&cLeader or officer only."));
                 return true;
             }
             if(claimDirector!=null && claimDirector.claim(f.name)!=null &&
@@ -3864,7 +3912,9 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             String marker=logical?"&a●":"&7●";
             String title="";
             if(q.leader.equalsIgnoreCase(member)) title=" &6★ Leader";
-            else if(simWorld!=null && "officer".equalsIgnoreCase(simWorld.factionTitleFor(member))) title=" &e◆ Officer";
+            else if(isFactionOfficer(q,member) ||
+                    (simWorld!=null && "officer".equalsIgnoreCase(simWorld.factionTitleFor(member))))
+                title=" &e◆ Officer";
             int kills=simWorld!=null && simWorld.contains(member)?simWorld.killsFor(member):statsData.getInt("players."+member.toLowerCase(Locale.ENGLISH)+".kills",0);
             viewer.sendMessage(color(" "+marker+" "+identityPrefix(member,rank)+rankNameColor(rank)+member+
                 "&7  Kills: &f"+kills+title));
@@ -3908,7 +3958,47 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     private void sendFactionHelp(Player p) {
-        p.sendMessage(color("&6/f create, invite, join, leave, kick, disband, claim, unclaim, map, sethome, home, stuck, show, who, list, c"));
+        p.sendMessage(color("&6/f create, invite, join, leave, kick, promote, demote, disband, claim, unclaim, map, sethome, home, stuck, show, who, list, c"));
+    }
+
+    private boolean containsIgnoreCase(Collection<String> values,String name) {
+        if(values==null || name==null) return false;
+        for(String value:values) if(value!=null && value.equalsIgnoreCase(name)) return true;
+        return false;
+    }
+
+    private boolean removeIgnoreCase(Collection<String> values,String name) {
+        if(values==null || name==null) return false;
+        Iterator<String> it=values.iterator();
+        while(it.hasNext()) {
+            String value=it.next();
+            if(value!=null && value.equalsIgnoreCase(name)) {
+                it.remove();
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void addCasePreserving(Set<String> values,String name) {
+        if(values==null || name==null || containsIgnoreCase(values,name)) return;
+        values.add(name);
+    }
+
+    private String factionMemberName(Faction f,String requested) {
+        if(f==null || requested==null) return null;
+        for(String member:f.members)
+            if(member!=null && member.equalsIgnoreCase(requested)) return member;
+        return null;
+    }
+
+    private boolean isFactionOfficer(Faction f,String name) {
+        return f!=null && name!=null && containsIgnoreCase(f.officers,name);
+    }
+
+    private boolean canManageFaction(Faction f,String name) {
+        return f!=null && name!=null &&
+            (f.leader.equalsIgnoreCase(name) || isFactionOfficer(f,name));
     }
 
     private void removeFaction(Faction f) {
@@ -3930,8 +4020,9 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         String fk = factionName.toLowerCase(Locale.ENGLISH);
         Faction existing = factions.get(fk);
         if (existing != null) {
-            if (!existing.members.contains(leaderName)) existing.members.add(leaderName);
+            if (!containsIgnoreCase(existing.members,leaderName)) existing.members.add(leaderName);
             if (existing.leader == null || existing.leader.isEmpty()) existing.leader = leaderName;
+            removeIgnoreCase(existing.officers,existing.leader);
             existing.dtr = Math.min(existing.dtr <= 0 ? maxDtr(existing) : existing.dtr, maxDtr(existing));
             saveFactions();
             return true;
@@ -3952,7 +4043,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (f == null || f.members.size() >= SimWorldDirector.MAX_FACTION_MEMBERS) return false;
         Faction old = factionOf(memberName);
         if (old != null && !old.name.equalsIgnoreCase(f.name)) return false;
-        f.members.add(memberName);
+        removeIgnoreCase(f.officers,memberName);
+        addCasePreserving(f.members,memberName);
         f.dtr = Math.min(maxDtr(f), Math.max(0.1, f.dtr));
         saveFactions();
         return true;
@@ -3961,7 +4053,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     synchronized boolean inviteHumanToSimFaction(String factionName,String inviterName,String humanName) {
         Faction f=factions.get(factionName.toLowerCase(Locale.ENGLISH));
         if(f==null || humanName==null || humanName.trim().isEmpty()) return false;
-        if(f.leader==null || !f.leader.equalsIgnoreCase(inviterName)) return false;
+        if(!canManageFaction(f,inviterName)) return false;
         if(f.members.size()>=SimWorldDirector.MAX_FACTION_MEMBERS) return false;
 
         Faction existing=factionOf(humanName);
@@ -3982,18 +4074,22 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if(f==null || memberName==null) return false;
         if(f.leader!=null && f.leader.equalsIgnoreCase(memberName)) return false;
 
-        boolean removed=false;
-        Iterator<String> it=f.members.iterator();
-        while(it.hasNext()) {
-            if(it.next().equalsIgnoreCase(memberName)) {
-                it.remove();
-                removed=true;
-                break;
-            }
-        }
+        boolean removed=removeIgnoreCase(f.members,memberName);
         if(!removed) return false;
+        removeIgnoreCase(f.officers,memberName);
 
         f.dtr=Math.min(f.dtr,maxDtr(f));
+        saveFactions();
+        return true;
+    }
+
+    synchronized boolean setSimFactionOfficerAuthority(String factionName,String memberName,boolean officer) {
+        Faction f=factions.get(factionName.toLowerCase(Locale.ENGLISH));
+        if(f==null || memberName==null || f.leader.equalsIgnoreCase(memberName)) return false;
+        String canonical=factionMemberName(f,memberName);
+        if(canonical==null) return false;
+        if(officer) addCasePreserving(f.officers,canonical);
+        else removeIgnoreCase(f.officers,canonical);
         saveFactions();
         return true;
     }
@@ -4699,6 +4795,12 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
                 f.name=s.getString("name",k);
                 f.leader=s.getString("leader","");
                 f.members.addAll(s.getStringList("members"));
+                f.officers.addAll(s.getStringList("officers"));
+                // Defensive migration: stale role entries cannot retain authority.
+                for(String officer:new ArrayList<String>(f.officers)) {
+                    if(officer.equalsIgnoreCase(f.leader) || !containsIgnoreCase(f.members,officer))
+                        removeIgnoreCase(f.officers,officer);
+                }
                 f.dtr=s.getDouble("dtr", Math.min(getConfig().getDouble("dtr.max-cap",5.5), Math.max(getConfig().getDouble("dtr.max-per-member",1.1), f.members.size()*getConfig().getDouble("dtr.max-per-member",1.1))));
                 f.dtrFrozenUntil=s.getLong("dtr-frozen-until",0L);
                 f.wasRaidable=isRaidable(f);
@@ -4727,6 +4829,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             factionsData.set(base+".name",f.name);
             factionsData.set(base+".leader",f.leader);
             factionsData.set(base+".members",new ArrayList<String>(f.members));
+            factionsData.set(base+".officers",new ArrayList<String>(f.officers));
             factionsData.set(base+".dtr",f.dtr);
             factionsData.set(base+".dtr-frozen-until",f.dtrFrozenUntil);
             factionsData.set(base+".invites",new ArrayList<String>(f.invites));

@@ -311,7 +311,9 @@ final class HcfBaseBuilder {
         prepareTerrainPad(world,plan);
         auditPlan(plan);
         buildSurfaceShell(world,plan,false);
-        sealSurfaceEnvelope(world,plan,false);
+        // Exact Phase-2B surface templates are already complete envelopes.
+        // Running the retired procedural sealer here would rewrite reference
+        // glass/gates on the live SOTW starter path even though QA rebuilds pass.
         ensureRunner();
     }
 

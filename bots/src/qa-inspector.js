@@ -556,11 +556,28 @@ if(selected.length){
     const prefix='base-'+(b.primaryFamily||'unknown')+'-'+b.name
     if(interiorOnly && Number.isFinite(b.undergroundY)){
       const u=b.undergroundY
+      const us=b.utilitySide||1
       const dropX=b.x-3,dropZ=b.z-1
       const refillZ=b.z-b.coreHalfZ+4
 
       await capture(prefix+'-interior-core',
         {x:b.x,y:u+2,z:b.z+8},{x:b.x,y:u+2,z:b.z},2200)
+
+      // Phase 3 explicitly validates all human traversal systems, not only the
+      // dropdown. The elevator is the classic HCF sign elevator registered by
+      // HcfElevatorDirector; the stair is the physical farm access tunnel.
+      const elevatorX=b.x+3,elevatorZ=b.z+1
+      await capture(prefix+'-interior-elevator',
+        {x:elevatorX,y:u+2,z:elevatorZ+4},{x:elevatorX,y:u+1.5,z:elevatorZ},2000)
+
+      await capture(prefix+'-interior-circulation',
+        {x:b.x-8,y:u+2,z:b.z},{x:b.x+8,y:u+2,z:b.z},2200)
+
+      const stairDir=-us
+      await capture(prefix+'-interior-stairs',
+        {x:b.x+stairDir*3,y:u-2,z:b.z},
+        {x:b.x+stairDir*7,y:u-6,z:b.z},2200)
+
       await capture(prefix+'-interior-dropdown',
         {x:dropX,y:u+2,z:dropZ+8},{x:dropX,y:u+2,z:dropZ},2200)
       await capture(prefix+'-interior-refill',
@@ -570,7 +587,12 @@ if(selected.length){
       await capture(prefix+'-interior-storage-east',
         {x:b.x-2,y:u+3,z:b.z+6},{x:b.x+b.coreHalfX-5,y:u+3,z:b.z+5},2200)
 
-      const us=b.utilitySide||1
+      const utilityX=b.x-us*(b.coreHalfX-5)
+      const utilityZ=b.z+b.coreHalfZ-5
+      await capture(prefix+'-interior-utility',
+        {x:utilityX+us*4,y:u+2,z:utilityZ-4},
+        {x:utilityX,y:u+1.5,z:utilityZ},2200)
+
       const brewerX=b.x+us*(b.coreHalfX-6)
       const brewerZ=b.z+1
       await capture(prefix+'-interior-brewer',

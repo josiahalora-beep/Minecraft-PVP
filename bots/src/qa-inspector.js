@@ -20,6 +20,7 @@ const width=Number(process.env.QA_WIDTH||1280)
 const height=Number(process.env.QA_HEIGHT||720)
 const viewDistance=Number(process.env.QA_VIEW_DISTANCE||8)
 const detailPass=process.env.QA_DETAIL_PASS!=='0'
+const spawnOnly=process.env.QA_SPAWN_ONLY==='1'
 
 fs.mkdirSync(outDir,{recursive:true})
 const manifest={startedAt:new Date().toISOString(),captures:[],messages:[],errors:[]}
@@ -225,6 +226,26 @@ async function capture(name,position,target,settleMs=3200){
   writeManifest()
 }
 
+async function composeSpawnOnly(){
+  const marker=manifest.messages.length
+  bot.chat('/mapcompose spawn')
+  await sleep(1000)
+  let lastProbe=0
+  let sawQueued=false
+  const complete=await waitUntil(()=>{
+    const recent=manifest.messages.slice(marker).map(x=>x.text)
+    if(recent.some(t=>/HCF spawn-only repaste queued/i.test(t))) sawQueued=true
+    if(recent.some(t=>/Could not queue HCF spawn/i.test(t)))
+      throw new Error('Spawn-only composition rejected: '+recent.slice(-6).join(' | '))
+    const now=Date.now()
+    if(now-lastProbe>900){bot.chat('/mapcompose status');lastProbe=now}
+    return sawQueued && recent.some(t=>/busy=false/i.test(t))
+  },Number(process.env.QA_COMPOSE_TIMEOUT_MS||180000),350)
+  manifest.spawnCompose={complete:Boolean(complete),finishedAt:new Date().toISOString()}
+  writeManifest()
+  if(!complete) throw new Error('Spawn-only compositor did not drain before QA timeout')
+}
+
 async function composeProductionWorld(){
   const startedAt=new Date().toISOString()
   const marker=manifest.messages.length
@@ -262,7 +283,11 @@ manifest.worldReady=Boolean(ready)
 writeManifest()
 if(!ready) throw new Error('Production world did not reach READY before QA timeout')
 
-if(process.env.QA_COMPOSE_PRODUCTION==='1') {
+if(process.env.QA_COMPOSE_SPAWN_ONLY==='1') {
+  await composeSpawnOnly()
+  await teleport(900,120,900)
+  await sleep(1200)
+} else if(process.env.QA_COMPOSE_PRODUCTION==='1') {
   await composeProductionWorld()
   // QAInspector begins at spawn while composition is running, so prismarine-
   // viewer can retain pre-compose spawn chunk meshes. Move beyond view distance
@@ -293,7 +318,7 @@ if(process.env.QA_TEST_ATMOSPHERE!=='0') {
 }
 
 if(process.env.QA_BASES_ONLY!=='1') {
-  const fixed=[
+  const spawnViews=[
     ['spawn-overview',{x:0,y:108,z:-48},{x:0,y:64,z:0}],
     ['spawn-ground',{x:0,y:68,z:-82},{x:0,y:68,z:0}],
     ...(detailPass ? [
@@ -304,6 +329,9 @@ if(process.env.QA_BASES_ONLY!=='1') {
       ['spawn-diagonal-texture',{x:42,y:74,z:-42},{x:0,y:67,z:0}],
       ['spawn-ground-seam',{x:34,y:69,z:-34},{x:0,y:65,z:0}]
     ] : []),
+  ]
+  const fixed=spawnOnly ? spawnViews : [
+    ...spawnViews,
     ['north-road-long',{x:0,y:72,z:-255},{x:0,y:64,z:-620}],
     ['north-road-transition',{x:74,y:92,z:-335},{x:0,y:64,z:-470}],
     ['road-shoulder-relief',{x:92,y:88,z:-430},{x:150,y:64,z:-520}],

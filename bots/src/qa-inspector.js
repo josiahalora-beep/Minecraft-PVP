@@ -708,14 +708,30 @@ if(selected.length){
 }
 
 if(process.env.QA_PALETTE_PASS==='1' && showcase && !interiorOnly){
+  const paletteLogPath=path.join(root,'server','phase1-server.log')
+  const drainedBefore=(()=>{
+    try{return (fs.readFileSync(paletteLogPath,'utf8').match(/\[qa-palette\] build queue drained/g)||[]).length}
+    catch{return 0}
+  })()
+
   bot.chat('/baserebuild palettes')
-  await sleep(1600)
-  const paletteRebuilt=await waitForBaseRebuild(Number(process.env.QA_REBUILD_TIMEOUT_MS||180000))
+  await sleep(250)
+
+  // Palette surface builds are intentionally tiny and can finish before the
+  // first /baserebuild status poll observes RUNNING. Wait on the dedicated
+  // server completion marker instead of requiring a transient RUNNING state.
+  const paletteRebuilt=await waitUntil(()=>{
+    try{
+      const txt=fs.readFileSync(paletteLogPath,'utf8')
+      return (txt.match(/\[qa-palette\] build queue drained/g)||[]).length>drainedBefore
+    }catch{return false}
+  },60000,250)
+
   if(!paletteRebuilt){
     manifest.errors.push('palette showcase rebuild timeout')
   }else{
-    await sleep(1000)
-    const serverLog=fs.readFileSync(path.join(root,'server','phase1-server.log'),'utf8')
+    await sleep(750)
+    const serverLog=fs.readFileSync(paletteLogPath,'utf8')
     const re=/\[qa-palette\] queued (\S+) family=(\S+) palette=(\S+) at=(-?\d+),(-?\d+),(-?\d+) naturalFit=\[([^\]]+)\]/g
     const found=[]
     for(const m of serverLog.matchAll(re)){

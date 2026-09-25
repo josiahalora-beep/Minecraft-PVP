@@ -630,7 +630,7 @@ final class HcfBaseBuilder {
      * Evaluate the exact reference footprint against the untouched authored map.
      *
      * Returns:
-     * [0] modal natural grade under the reference footprint
+     * [0] dominant natural grade along the visible reference perimeter
      * [1] footprint relief (maxY-minY)
      * [2] footprint columns not already at the modal grade
      * [3] immediate outside-ring columns not at the modal grade
@@ -638,8 +638,8 @@ final class HcfBaseBuilder {
      * [5] visible perimeter columns below grade
      * [6] visible perimeter columns above grade
      *
-     * The modal grade, rather than a broad-area median, makes a schematic sit
-     * ON an existing flat patch instead of creating a one-block stage around it.
+     * The visible-perimeter grade, rather than a broad-area median or interior
+     * mode, makes a schematic sit ON the land instead of becoming a raised stage.
      */
     int[] evaluateReferenceSite(String faction,int cx,int cz) {
         World world=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
@@ -650,6 +650,7 @@ final class HcfBaseBuilder {
         int hz=(HcfSurfaceReferenceTemplates.length(probe.primaryFamily)-1)/2;
 
         Map<Integer,Integer> grades=new LinkedHashMap<Integer,Integer>();
+        Map<Integer,Integer> perimeterGrades=new LinkedHashMap<Integer,Integer>();
         int min=Integer.MAX_VALUE,max=Integer.MIN_VALUE;
         int liquids=0;
 
@@ -658,14 +659,29 @@ final class HcfBaseBuilder {
                 int y=solidSurfaceY(world,x,z);
                 min=Math.min(min,y); max=Math.max(max,y);
                 Integer n=grades.get(y); grades.put(y,n==null?1:n+1);
+
+                boolean perimeter=x==cx-hx||x==cx+hx||z==cz-hz||z==cz+hz;
+                if(perimeter) {
+                    Integer pn=perimeterGrades.get(y);
+                    perimeterGrades.put(y,pn==null?1:pn+1);
+                }
             }
         }
 
+        // Exterior contact is what determines whether the base reads as a
+        // natural building or a floating one-block stage. Anchor the structure
+        // to the dominant NATIVE perimeter grade first; use the center/whole
+        // footprint only as a tie-breaker. Interior hills/dips are hidden by
+        // the building and must not lift the visible shell off the terrain.
         int centerGrade=solidSurfaceY(world,cx,cz);
         int grade=centerGrade,best=-1;
-        for(Map.Entry<Integer,Integer> e:grades.entrySet()) {
+        Map<Integer,Integer> preferred=perimeterGrades.isEmpty()?grades:perimeterGrades;
+        for(Map.Entry<Integer,Integer> e:preferred.entrySet()) {
+            int whole=grades.containsKey(e.getKey())?grades.get(e.getKey()):0;
+            int chosenWhole=grades.containsKey(grade)?grades.get(grade):0;
             if(e.getValue()>best ||
-               (e.getValue()==best &&
+               (e.getValue()==best && whole>chosenWhole) ||
+               (e.getValue()==best && whole==chosenWhole &&
                 Math.abs(e.getKey()-centerGrade)<Math.abs(grade-centerGrade))) {
                 best=e.getValue(); grade=e.getKey();
             }

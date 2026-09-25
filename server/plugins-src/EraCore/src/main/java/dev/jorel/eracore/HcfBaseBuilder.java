@@ -125,6 +125,7 @@ final class HcfBaseBuilder {
         final String[] expected={
             "REDEMPTION","BASE_HCF","MODERN_HCF","TUNNEL","CAVE"
         };
+        final HcfBasePlan[] qaPlans=new HcfBasePlan[sites.length];
 
         // Preload a bounded neighborhood first. Newly generated chunks are
         // normalized by HcfTerrainDirector on the following tick; delaying the
@@ -148,6 +149,7 @@ final class HcfBaseBuilder {
                     int x=sites[i][0],z=sites[i][1];
                     int y=evaluateSite(x,z,30)[0];
                     HcfBasePlan p=planFor(names[i],x,y,z);
+                    qaPlans[i]=p;
                     if(!expected[i].equals(p.primaryFamilyName())) {
                         plugin.getLogger().warning("[qa-showcase] family seed drift name="+names[i]+
                             " expected="+expected[i]+" actual="+p.primaryFamilyName());
@@ -169,6 +171,19 @@ final class HcfBaseBuilder {
                 new BukkitRunnable() {
                     public void run() {
                         if(queue.isEmpty()) {
+                            int totalMismatches=0;
+                            for(int i=0;i<qaPlans.length;i++) {
+                                HcfBasePlan p=qaPlans[i];
+                                if(p==null) continue;
+                                int mismatches=HcfSurfaceReferenceTemplates.facadeMismatches(world,p);
+                                totalMismatches+=mismatches;
+                                plugin.getLogger().info("[reference-exterior-verify] faction="+p.faction+
+                                    " family="+p.primaryFamilyName()+" mismatches="+mismatches);
+                            }
+                            if(totalMismatches==0)
+                                plugin.getLogger().info("[reference-exterior-verify] all five facades block-perfect.");
+                            else
+                                plugin.getLogger().severe("[reference-exterior-verify] FAILED totalMismatches="+totalMismatches);
                             plugin.getLogger().info("[qa-showcase] build queue drained; captures may begin.");
                             cancel();
                             return;

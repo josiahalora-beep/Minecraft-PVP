@@ -575,7 +575,16 @@ final class HcfSurfaceReferenceTemplates {
                 int q=cursor/t.width;
                 int z=q%t.length;
                 int y=q/t.length;
-                queue.add(new HcfBaseBuilder.Op(world,originX+x,plan.surfaceY+t.yOffset+y,originZ+z,material,data));
+                int worldY=plan.surfaceY+t.yOffset+y;
+
+                // The schematic bounding box contains AIR at its ground plane.
+                // Pasting that AIR would shave the authored FreeMap into a
+                // rectangular cutout around the structure. Preserve native
+                // terrain at/below grade when the reference voxel is AIR; solid
+                // reference floor/foundation blocks still replace that column.
+                if(material==Material.AIR && worldY<=plan.surfaceY) continue;
+
+                queue.add(new HcfBaseBuilder.Op(world,originX+x,worldY,originZ+z,material,data));
             }
         }
 

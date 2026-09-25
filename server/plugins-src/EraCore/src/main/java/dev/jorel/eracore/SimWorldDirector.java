@@ -6580,11 +6580,12 @@ final class SimWorldDirector {
                 if(n>0) { f.glass+=n; f.treasury-=n*unit; }
             }
 
-            // Dye is tiny relative to the glass bill (1 per 8 colored glass).
-            // Reserve its exact shop cost; the actual cash is deducted at build.
-            double dyeCost=surfaceDyeCashCost(f,surfaceBill);
-            if(!Double.isInfinite(dyeCost) && f.treasury<dyeCost)
-                fundSotwEssentials(f,dyeCost+60.0);
+            // Reserve the exact just-in-time cost of dyes, wool, flora and
+            // other small common schematic supplies. The actual cash is
+            // deducted only when construction begins.
+            double supplyCost=surfaceShopCashCost(f);
+            if(!Double.isInfinite(supplyCost) && f.treasury<supplyCost)
+                fundSotwEssentials(f,supplyCost+60.0);
         }
 
         if (f.obsidian < 14 && f.treasury >= plugin.buyUnitPrice("obsidian")) {
@@ -8406,28 +8407,58 @@ final class SimWorldDirector {
         return HcfSurfaceReferenceTemplates.acquisitionBill(currentSurfacePlan(f));
     }
 
-    private double surfaceDyeCashCost(SimFaction f,int[] bill) {
-        if(bill==null || bill.length<6 || bill[5]<=0) return 0.0;
-        String dye=HcfSurfaceReferenceTemplates.dyeShopKey(currentSurfacePlan(f));
-        if(dye==null || dye.isEmpty()) return 0.0;
-        double unit=plugin.buyUnitPrice(dye);
-        if(Double.isInfinite(unit) || Double.isNaN(unit)) return Double.POSITIVE_INFINITY;
-        return bill[5]*unit;
+    private java.util.Map<String,Integer> surfaceShopSupplyBill(SimFaction f) {
+        HcfBasePlan p=currentSurfacePlan(f);
+        java.util.Map<String,Integer> out=new java.util.LinkedHashMap<String,Integer>();
+        mergeSupply(out,HcfSurfaceReferenceTemplates.dyeSupplyBill(p));
+        mergeSupply(out,HcfSurfaceReferenceTemplates.specialtySupplyBill(p));
+        return out;
+    }
+
+    private java.util.Map<String,Integer> fullShopSupplyBill(java.util.Map<String,Integer> finished) {
+        java.util.Map<String,Integer> out=new java.util.LinkedHashMap<String,Integer>();
+        mergeSupply(out,HcfSurfaceReferenceTemplates.dyeSupplyBillFromMaterialBill(finished));
+        mergeSupply(out,HcfSurfaceReferenceTemplates.specialtySupplyBillFromMaterialBill(finished));
+        return out;
+    }
+
+    private void mergeSupply(java.util.Map<String,Integer> into,java.util.Map<String,Integer> add) {
+        if(into==null || add==null) return;
+        for(java.util.Map.Entry<String,Integer> e:add.entrySet()) {
+            if(e.getKey()==null || e.getValue()==null || e.getValue()<=0) continue;
+            Integer old=into.get(e.getKey());
+            into.put(e.getKey(),(old==null?0:old)+e.getValue());
+        }
+    }
+
+    private double shopSupplyCashCost(java.util.Map<String,Integer> supply) {
+        double total=0.0;
+        if(supply==null) return total;
+        for(java.util.Map.Entry<String,Integer> e:supply.entrySet()) {
+            double unit=plugin.buyUnitPrice(e.getKey());
+            if(Double.isInfinite(unit) || Double.isNaN(unit)) return Double.POSITIVE_INFINITY;
+            total+=unit*Math.max(0,e.getValue());
+        }
+        return total;
+    }
+
+    private double surfaceShopCashCost(SimFaction f) {
+        return shopSupplyCashCost(surfaceShopSupplyBill(f));
     }
 
     private boolean surfaceMaterialsReady(SimFaction f) {
         int[] c=surfaceMaterialCost(f);
-        double dyeCost=surfaceDyeCashCost(f,c);
+        double shopCost=surfaceShopCashCost(f);
         return f.wood>=c[0] && f.stone>=c[1] && f.iron>=c[2] &&
             f.obsidian>=c[3] && f.glass>=c[4] &&
-            f.treasury>=dyeCost;
+            f.treasury>=shopCost;
     }
 
     private void consumeSurfaceMaterials(SimFaction f) {
         int[] c=surfaceMaterialCost(f);
         f.wood-=c[0]; f.stone-=c[1]; f.iron-=c[2]; f.obsidian-=c[3]; f.glass-=c[4];
-        double dyeCost=surfaceDyeCashCost(f,c);
-        if(!Double.isInfinite(dyeCost)) f.treasury=Math.max(0.0,f.treasury-dyeCost);
+        double shopCost=surfaceShopCashCost(f);
+        if(!Double.isInfinite(shopCost)) f.treasury=Math.max(0.0,f.treasury-shopCost);
     }
 
     String surfaceMaterialPlanFor(String factionName) {
@@ -8458,7 +8489,8 @@ final class SimWorldDirector {
         int missIron=Math.max(0,(remaining.length>2?remaining[2]:0)-f.iron);
         int missObby=Math.max(0,(remaining.length>3?remaining[3]:0)-f.obsidian);
         int missGlass=Math.max(0,(remaining.length>4?remaining[4]:0)-f.glass);
-        String dyeKey=HcfSurfaceReferenceTemplates.dyeShopKey(p);
+        java.util.Map<String,Integer> supplies=fullShopSupplyBill(finished);
+        double supplyCash=shopSupplyCashCost(supplies);
 
         java.util.List<java.util.Map.Entry<String,Integer>> ordered=
             new java.util.ArrayList<java.util.Map.Entry<String,Integer>>(finished.entrySet());
@@ -8481,7 +8513,9 @@ final class SimWorldDirector {
             " | exact compiled blocks(top): "+top+
             " | exact raw/common TOTAL: logs="+at(total,0)+" stone="+at(total,1)+
             " iron="+at(total,2)+" obsidian="+at(total,3)+" glass="+at(total,4)+
-            " dye="+at(total,5)+(dyeKey.isEmpty()?"":"("+dyeKey+")")+
+            " dye="+at(total,5)+
+            " | exact shop/craft supplies: "+formatSupplyBill(supplies)+
+            " (cash="+(Double.isInfinite(supplyCash)?"UNAVAILABLE":String.format(Locale.ENGLISH,"%.1f",supplyCash))+")"+
             " | still required at current stage: logs="+at(remaining,0)+
             " stone="+at(remaining,1)+" iron="+at(remaining,2)+
             " obsidian="+at(remaining,3)+" glass="+at(remaining,4)+
@@ -8489,8 +8523,19 @@ final class SimWorldDirector {
             " | shortage vs stock: logs="+missWood+" stone="+missStone+
             " iron="+missIron+" obsidian="+missObby+" glass="+missGlass+
             " | acquisition: chop common logs; mine stone/iron/obsidian; "+
-            "buy cheap glass when faster than smelting sand"+
-            (dyeKey.isEmpty()?"; no dye needed":("; buy/craft "+dyeKey+" x"+at(total,5)))+".";
+            "buy cheap glass when faster than smelting sand; buy/craft the listed "+
+            "small supplies exactly at build time.";
+    }
+
+    private String formatSupplyBill(java.util.Map<String,Integer> supply) {
+        if(supply==null || supply.isEmpty()) return "none";
+        StringBuilder out=new StringBuilder();
+        for(java.util.Map.Entry<String,Integer> e:supply.entrySet()) {
+            if(e.getValue()==null || e.getValue()<=0) continue;
+            if(out.length()>0) out.append(", ");
+            out.append(e.getKey()).append(" x").append(e.getValue());
+        }
+        return out.length()==0?"none":out.toString();
     }
 
     private int at(int[] a,int i) {

@@ -500,7 +500,32 @@ if(showcase){
   await sleep(2500)
   const rebuilt=await waitForBaseRebuild(Number(process.env.QA_REBUILD_TIMEOUT_MS||180000))
   if(!rebuilt) manifest.errors.push('five-family QA showcase rebuild timeout')
-  else await sleep(1200) // let final block/chunk updates settle before first teleport
+  else {
+    await sleep(1200) // let final block/chunk updates settle before first teleport
+
+    // Fail before the expensive screenshot pass when the production builder
+    // changed any schematic-derived facade voxel or primary gate anchor.
+    // The showcase has already been queued by this QA player, so unlike the
+    // workflow-level preflight this check cannot race ahead of construction.
+    try {
+      const serverLog=fs.readFileSync(path.join(root,'server','phase1-server.log'),'utf8')
+      const proof=serverLog.split(/\r?\n/).filter(line=>
+        line.includes('[reference-exterior-verify]') ||
+        line.includes('[reference-exterior-mismatch]')
+      )
+      manifest.referenceExteriorProof=proof.slice(-50)
+      const failed=proof.find(line=>line.includes('[reference-exterior-verify] FAILED'))
+      const zeroCount=proof.filter(line=>/\[reference-exterior-verify\].*mismatches=0/.test(line)).length
+      const gateCount=proof.filter(line=>/\[reference-exterior-verify\].*gateAnchor=FENCE_GATE/.test(line)).length
+      if(failed || zeroCount<5 || gateCount<5) {
+        writeManifest()
+        throw new Error('Exact Phase 2B exterior preflight failed: '+proof.slice(-20).join(' || '))
+      }
+    } catch(e) {
+      if(String(e?.message||e).includes('Exact Phase 2B exterior preflight failed')) throw e
+      manifest.errors.push('unable to read exact exterior proof: '+String(e?.message||e))
+    }
+  }
 
   // These Y values are the terrain-selected showcase anchors from the
   // checksum-pinned authored FreeMap. They are intentionally explicit: the

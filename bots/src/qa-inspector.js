@@ -577,11 +577,10 @@ if(showcase){
     // its perimeter), which prevents a continuous platform while allowing the
     // structure to sit on real authored terrain.
     const perimeterMismatch=(fit[5]||0)+(fit[6]||0)
-    const allowed=b.primaryFamily==='BASE_HCF'?5:0
-    // fit[7] is the number of tree-trunk columns in the exterior entrance
-    // approach. A valid Phase 2 screenshot/prod site must not hide the gate
-    // behind a tree the builder would never legitimately clear.
-    return fit.length<8 || perimeterMismatch>allowed || fit[4]!==0 || fit[7]!==0
+    // No family gets a platform exception anymore. Interior relief can be
+    // hidden beneath the exact structure, but every visible perimeter column
+    // must meet the native grade and the entrance approach must stay clear.
+    return fit.length<8 || perimeterMismatch!==0 || fit[4]!==0 || fit[7]!==0
   })
   manifest.naturalSiteProof=selected.map(b=>({
     name:b.name,family:b.primaryFamily,x:b.x,y:b.y,z:b.z,naturalFit:b.naturalFit

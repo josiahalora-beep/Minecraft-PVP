@@ -416,22 +416,17 @@ if(showcase){
   const rebuilt=await waitForBaseRebuild(Number(process.env.QA_REBUILD_TIMEOUT_MS||180000))
   if(!rebuilt) manifest.errors.push('five-family QA showcase rebuild timeout')
 
+  // These Y values are the terrain-selected showcase anchors from the
+  // checksum-pinned authored FreeMap. They are intentionally explicit: the
+  // showcase sites are deterministic and the previous generic y=64 / roof-scan
+  // heuristic aimed cameras into terrain on sloped or buried families.
   selected=[
-    {name:'QARedemption2',x:-900,y:64,z:-900,primaryFamily:'REDEMPTION',secondaryFamily:''},
-    {name:'QABase0',x:-450,y:64,z:-900,primaryFamily:'BASE_HCF',secondaryFamily:''},
-    {name:'QAModern14',x:450,y:64,z:-900,primaryFamily:'MODERN_HCF',secondaryFamily:''},
-    {name:'QATunnel21',x:900,y:64,z:-900,primaryFamily:'TUNNEL',secondaryFamily:''},
-    {name:'QACave55',x:-900,y:64,z:900,primaryFamily:'CAVE',secondaryFamily:''}
+    {name:'QARedemption2',x:-900,y:72,z:-900,primaryFamily:'REDEMPTION',secondaryFamily:''},
+    {name:'QABase0',x:-450,y:69,z:-900,primaryFamily:'BASE_HCF',secondaryFamily:''},
+    {name:'QAModern14',x:450,y:66,z:-900,primaryFamily:'MODERN_HCF',secondaryFamily:''},
+    {name:'QATunnel21',x:900,y:67,z:-900,primaryFamily:'TUNNEL',secondaryFamily:''},
+    {name:'QACave55',x:-900,y:65,z:900,primaryFamily:'CAVE',secondaryFamily:''}
   ]
-  for(const b of selected){
-    const top=topStructuralY(b.x,b.z)
-    if(top>0) {
-      // Surface families are roughly 5-8 blocks tall; using top-6 centers the
-      // camera on entrances/walls while remaining correct for buried Tunnel/Cave.
-      b.y=Math.max(35,top-6)
-      b.qaResolvedTopY=top
-    }
-  }
   bases=selected
 }else{
   bases=await waitUntil(()=>{

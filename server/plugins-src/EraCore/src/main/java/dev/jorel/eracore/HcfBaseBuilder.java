@@ -1252,7 +1252,8 @@ final class HcfBaseBuilder {
             " size="+HcfSurfaceReferenceTemplates.width(p.primaryFamily)+"x"+
                 HcfSurfaceReferenceTemplates.height(p.primaryFamily)+"x"+
                 HcfSurfaceReferenceTemplates.length(p.primaryFamily)+
-            " source=schematic-surface-component");
+            " source=schematic-surface-component"+
+            " palette="+HcfSurfaceReferenceTemplates.paletteName(p));
 
         // The authored FreeMap remains authoritative outside the template
         // footprint. buildTerrainCradle() is intentionally a no-op in Phase 2B.

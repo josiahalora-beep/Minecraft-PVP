@@ -210,6 +210,10 @@ jobs:
           c['base-builder']['qa-showcase']=true
           c['base-builder']['qa-fast-rebuild']=true
           c['base-builder']['qa-fast-rebuild-blocks-per-run']=3000
+          c['base-builder']['qa-showcase-storage-tier']=3
+          c['base-builder']['qa-showcase-brewer']=true
+          c['base-builder']['qa-showcase-nether-portal']=true
+          c['base-builder']['qa-showcase-end-portal']=false
 
           fs.writeFileSync(p,YAML.stringify(c))
           NODE
@@ -273,6 +277,9 @@ jobs:
           test "$(find qa-output -maxdepth 1 -name '*interior-dropdown-first.jpg' | wc -l)" -eq 5
           test "$(find qa-output -maxdepth 1 -name '*interior-refill-first.jpg' | wc -l)" -eq 5
           test "$(find qa-output -maxdepth 1 -name '*interior-farm-first.jpg' | wc -l)" -eq 5
+          test "$(find qa-output -maxdepth 1 -name '*interior-brewer-first.jpg' | wc -l)" -eq 5
+          test "$(find qa-output -maxdepth 1 -name '*interior-nether-portal-first.jpg' | wc -l)" -eq 5
+          test "$(find qa-output -maxdepth 1 -name '*interior-enchant-first.jpg' | wc -l)" -eq 5
           if grep -q "production terrain repair chunks=" server/phase1-server.log; then
             echo "ERROR: old wilderness normalizer ran on authored world" >&2
             exit 1

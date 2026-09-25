@@ -559,9 +559,12 @@ final class HcfBaseBuilder {
             }
         }
 
-        int grade=64,best=-1;
+        int centerGrade=solidSurfaceY(world,cx,cz);
+        int grade=centerGrade,best=-1;
         for(Map.Entry<Integer,Integer> e:grades.entrySet()) {
-            if(e.getValue()>best || (e.getValue()==best && Math.abs(e.getKey()-64)<Math.abs(grade-64))) {
+            if(e.getValue()>best ||
+               (e.getValue()==best &&
+                Math.abs(e.getKey()-centerGrade)<Math.abs(grade-centerGrade))) {
                 best=e.getValue(); grade=e.getKey();
             }
         }

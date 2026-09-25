@@ -448,6 +448,42 @@ final class HcfSurfaceReferenceTemplates {
     static int length(int family) { return forFamily(family).length; }
 
     /**
+     * Compare the materialized above-grade reference component against the exact
+     * encoded schematic voxels after every queued production operation has run.
+     * The surface floor layer is excluded because the functional 3x3 dropdown
+     * intentionally cuts that layer; every facade/roof/gate/glass voxel above
+     * grade must remain block-and-data exact.
+     */
+    static int facadeMismatches(World world,HcfBasePlan plan) {
+        Template t=forFamily(plan.primaryFamily);
+        int originX=plan.cx-((t.width-1)/2);
+        int originZ=plan.cz-((t.length-1)/2);
+        int cursor=0;
+        int total=t.width*t.height*t.length;
+        int mismatches=0;
+
+        for(int i=0;i+3<t.rle.length;i+=4) {
+            int count=((t.rle[i]&0xff)<<8)|(t.rle[i+1]&0xff);
+            int id=t.rle[i+2]&0xff;
+            byte data=t.rle[i+3];
+
+            for(int n=0;n<count && cursor<total;n++,cursor++) {
+                int x=cursor%t.width;
+                int q=cursor/t.width;
+                int z=q%t.length;
+                int y=q/t.length;
+
+                int worldY=plan.surfaceY+t.yOffset+y;
+                if(worldY<=plan.surfaceY) continue;
+
+                org.bukkit.block.Block actual=world.getBlockAt(originX+x,worldY,originZ+z);
+                if(actual.getTypeId()!=id || actual.getData()!=data) mismatches++;
+            }
+        }
+        return mismatches;
+    }
+
+    /**
      * Queue the exact selected surface component centered on the production
      * plan. RLE traversal order is Y, Z, X and includes AIR so old procedural
      * facade cells cannot survive a rebuild.

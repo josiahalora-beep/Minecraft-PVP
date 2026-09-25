@@ -186,6 +186,9 @@ final class HcfBaseBuilder {
                                     " family="+p.primaryFamilyName()+" mismatches="+mismatches+
                                     " gateAnchor="+gateMaterial.name()+
                                     " gateAt="+gate[0]+","+gate[1]+","+gate[2]);
+                                if(mismatches>0)
+                                    plugin.getLogger().warning("[reference-exterior-mismatch] faction="+p.faction+
+                                        " family="+p.primaryFamilyName()+" "+HcfSurfaceReferenceTemplates.facadeMismatchSample(world,p));
                             }
                             if(totalMismatches==0 && gateAnchorFailures==0)
                                 plugin.getLogger().info("[reference-exterior-verify] all five facades block-perfect; all primary gate anchors exact.");

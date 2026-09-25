@@ -2579,7 +2579,18 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
                 :"&cCould not queue HCF spawn. Check console and map-assets/HCF-Spawn-101-production.schematic."));
             return true;
         }
-        p.sendMessage("/mapcompose <status|start|spawn>");
+        if("roads".equals(sub)) {
+            if(schematicComposer.busy()) {
+                p.sendMessage(color("&cA composition pass is already running."));
+                return true;
+            }
+            boolean ok=schematicComposer.queueRoadsOnly();
+            p.sendMessage(color(ok
+                ?"&aHCF roads-only pass queued. &7Use &f/mapcompose status &7until busy=false."
+                :"&cCould not queue HCF roads. Check console/spawn asset."));
+            return true;
+        }
+        p.sendMessage("/mapcompose <status|start|spawn|roads>");
         return true;
     }
 

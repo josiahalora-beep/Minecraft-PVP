@@ -8653,7 +8653,7 @@ final class SimWorldDirector {
             } else {
                 int flatY=plugin.getConfig().getInt("map.surface-y",63);
                 broad=new int[]{flatY,0,0};
-                fit=new int[]{flatY,0,0,0,0,0,0};
+                fit=new int[]{flatY,0,0,0,0,0,0,0};
             }
 
             int minY = Math.max(50, plugin.getConfig().getInt("sim-world.min-base-y", 50));
@@ -8678,6 +8678,7 @@ final class SimWorldDirector {
                 fit[2]*28 +
                 fit[3]*12 +
                 fit[4]*350 +
+                (fit.length>7?fit[7]:999)*180 +
                 broad[2]*120 +
                 biomeEdges*90;
 
@@ -8698,6 +8699,7 @@ final class SimWorldDirector {
             if (visiblePerimeterMismatch==0 &&
                 fit[1]<=1 && fit[2]<=maxInteriorOff &&
                 fit[3]<=maxOuterOff && fit[4]<=maxLiquids &&
+                fit.length>7 && fit[7]==0 &&
                 broad[2]<=maxLiquids && biomeEdges==0) break;
         }
 
@@ -8705,8 +8707,8 @@ final class SimWorldDirector {
         // nearby blocks rather than accepting the first sampled center. This
         // does not modify terrain; it only moves the planned base center onto a
         // naturally better shelf/plateau.
-        boolean visibleFitAlreadyPerfect=bestEval!=null && bestEval.length>=7 &&
-            (bestEval[5]+bestEval[6])==0 && bestEval[4]==0;
+        boolean visibleFitAlreadyPerfect=bestEval!=null && bestEval.length>=8 &&
+            (bestEval[5]+bestEval[6])==0 && bestEval[4]==0 && bestEval[7]==0;
         if(bestPoint!=null && bestEval!=null && !visibleFitAlreadyPerfect &&
            (plugin.getConfig().getBoolean("terrain.authored-world",false) ||
             plugin.getConfig().getBoolean("terrain.normalize-new-chunks",false))) {
@@ -8736,6 +8738,7 @@ final class SimWorldDirector {
                             fit[2]*30 +
                             fit[3]*14 +
                             fit[4]*400 +
+                            (fit.length>7?fit[7]:999)*210 +
                             broad[2]*120 +
                             biomeEdges*90;
                         int broadLimit=(candidatePlan.primaryFamily==3||candidatePlan.primaryFamily==4)?8:5;

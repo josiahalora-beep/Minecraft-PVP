@@ -6,8 +6,8 @@ This directory/document is the canonical provenance index for user-supplied HCF 
 
 - Phase 1 uses only the authored terrain map.
 - Base schematics/world saves are reference material; Phase 2 has now consumed their exterior/entrance/roof design language into the canonical family doctrine.
-- Do not directly paste or clone a reference into production generator logic. References inform original deterministic variations after inspecting exterior, entrance, roof, interior circulation and storage layout.
-- Do not claim authorship of third-party work. References inform style/geometry; generated production bases must be original variations.
+- Phase 2B fidelity baseline may reconstruct the user-supplied reference's visible surface component directly so entrance, glass, facade and roof geometry are no longer guessed by a generic facade algorithm.
+- This direct surface baseline does not imply authorship or redistribution rights for third-party work. Provenance remains explicit. EraCore's underground compiler, terrain integration and later controlled variation remain separate systems.
 
 ## Authored Phase-1 world
 
@@ -56,9 +56,11 @@ This audit is descriptive only. Final Phase-1 approval requires the independent 
 | `HCF-Spawn-101-production.schematic` | `spawnhcf100x10010100248(2).schematic` | 101 x 37 x 101; WE offset -50,-1,-50 | `3f41d2ac7d329f96c0d33c8ec2ba3807d74f35d4b01b0b544644a585d7d2e378` | Overworld spawn at 0,0. Its own four terminal road patterns are the sole source for road extension to the 2k border. |
 
 
-### Phase-2 reference consumption lock
+### Phase-2 reference consumption lock — superseded
 
-Phase 2 uses these user-supplied files as provenance/style references, not as production paste assets. The accepted generator expresses their useful HCF design principles through the five deterministic families (Redemption, Base-HCF, ModernHCF, Tunnel and Cave), family-specific masks/roof profiles, recessed entrances, local terrain seating and functional HCF semantics. Future work must not claim third-party authorship or collapse the families into direct schematic copies.
+The earlier style-only rule was superseded after manual screenshot review showed that procedural interpretation had materially changed the supplied entrance, glass and facade language.
+
+The current corrective baseline reconstructs only the selected visible surface component of each canonical family reference (Redemption, Base-HCF, ModernHCF, Tunnel and Devhorah/Cave). Surrounding reference terrain and underground reference volumes are not imported. Authored FreeMap terrain and EraCore's functional underground compiler remain independent. Provenance must remain explicit and no third-party authorship may be claimed.
 
 
 ## Measured Phase-2 surface reference geometry
@@ -74,3 +76,21 @@ These measurements come from direct NBT inspection of the supplied MCEdit/Schema
 | `Devhorah HCF Cave Base Design.schematic` | primary visible component about 13 x 13 x 12, with adjacent terrain/cave context | clear central doorway, small deliberate windows/openings, visible architecture integrated with terrain rather than swallowed by it |
 
 Additional user references (`Base15`, `CinnamonBunzOfficialBaze`, `Hcf Base Design By Mevi`) reinforce the same Phase-2 rule: the building remains visually legible and uses authored facade rhythm, while landscaping is secondary and local.
+
+
+## Phase-2B exact-surface corrective baseline
+
+Manual review on 2026-09-25 invalidated the previous visual acceptance. The principal defects were:
+- decorative fence-gate "window/shutter" bands where the references use real entrance/exit assemblies;
+- conventional small window bays where Base-HCF/Modern references use glass as a large architectural surface;
+- procedural tower/house additions that changed family silhouette;
+- family dimensions and roof massing drifting from the actual selected surface components.
+
+Corrective implementation:
+- `HcfSurfaceReferenceTemplates.java` stores the exact selected above-grade voxel component for each canonical family, including AIR so stale procedural facade cells are erased;
+- surface work-zone dimensions now come from those templates;
+- Tunnel and Devhorah/Cave preserve their real four-sided 3x3 gate sheets one block above grade;
+- the legacy `buildExteriorGateBanks()`, procedural `surfaceWindowCell()` facade path and extra `decorateSurfaceGrammar()` additions are bypassed for canonical Phase 2B surfaces;
+- the final underground integrity pass no longer re-seals/overwrites surface template cells.
+
+This section is a corrective baseline, not visual acceptance. Phase 2B remains open until a fresh five-family authored-FreeMap screenshot artifact is manually reviewed.

@@ -224,6 +224,13 @@ async function capture(name,position,target,settleMs=3200){
     y:Number(bot.entity.position.y.toFixed(2)),
     z:Number(bot.entity.position.z.toFixed(2))
   }
+  const bx=Math.floor(actual.x),by=Math.floor(actual.y),bz=Math.floor(actual.z)
+  const feetBlock=bot.blockAt(new Vec3(bx,by,bz),false)?.name||'unloaded'
+  const headBlock=bot.blockAt(new Vec3(bx,by+1,bz),false)?.name||'unloaded'
+  const observerBlocks={feet:feetBlock,head:headBlock}
+  if(interiorOnly && (feetBlock!=='air' || headBlock!=='air'))
+    manifest.errors.push('blocked interior camera '+id+' feet='+feetBlock+' head='+headBlock+
+      ' at='+bx+','+by+','+bz)
 
   // Deterministic observer POV. prismarine-viewer's 1.8 yaw/pitch
   // conversion can point headless captures away from the intended target; for
@@ -243,7 +250,7 @@ async function capture(name,position,target,settleMs=3200){
 
   const terrainSample=sampleTerrain(actual.x,actual.z)
   const surfaceDressing=sampleSurfaceDressing(actual.x,actual.z)
-  manifest.captures.push({name,id,position,target,actual,terrainSample,surfaceDressing,files:[fp,ov],at:new Date().toISOString()})
+  manifest.captures.push({name,id,position,target,actual,observerBlocks,terrainSample,surfaceDressing,files:[fp,ov],at:new Date().toISOString()})
   writeManifest()
 }
 
@@ -422,14 +429,23 @@ if(process.env.QA_TERRAIN_ONLY==='1') {
 const wantedFamilies=['REDEMPTION','BASE_HCF','MODERN_HCF','TUNNEL','CAVE']
 
 async function waitForBaseRebuild(timeoutMs=180000){
+  // Status polling can emit IDLE before the server-side showcase's delayed
+  // construction task starts. Completion is valid only when the LATEST status
+  // observed after a RUNNING/non-zero status is IDLE with zero queued ops.
+  const marker=manifest.messages.length
   let lastProbe=0
   let sawRunning=false
   return await waitUntil(()=>{
     const now=Date.now()
     if(now-lastProbe>1200){bot.chat('/baserebuild status');lastProbe=now}
-    const recent=manifest.messages.slice(-50).map(x=>x.text)
-    if(recent.some(t=>/Base rebuild:\s*RUNNING/i.test(t) || /queuedOps=[1-9][0-9]*/i.test(t))) sawRunning=true
-    return sawRunning && recent.some(t=>/Base rebuild:\s*IDLE/i.test(t) && /queuedOps=0/i.test(t))
+    const statuses=manifest.messages.slice(marker)
+      .map(x=>x.text)
+      .filter(t=>/Base rebuild:/i.test(t))
+    if(!statuses.length) return false
+    const latest=statuses[statuses.length-1]
+    if(/Base rebuild:\s*RUNNING/i.test(latest) || /queuedOps=[1-9][0-9]*/i.test(latest))
+      sawRunning=true
+    return sawRunning && /Base rebuild:\s*IDLE/i.test(latest) && /queuedOps=0/i.test(latest)
   },timeoutMs,350)
 }
 
@@ -452,9 +468,9 @@ if(showcase){
   selected=[
     {name:'QARedemption2',x:-900,y:72,z:-900,undergroundY:55,coreHalfX:16,coreHalfZ:14,utilitySide:1,primaryFamily:'REDEMPTION',secondaryFamily:''},
     {name:'QABase0',x:-450,y:69,z:-900,undergroundY:50,coreHalfX:16,coreHalfZ:16,utilitySide:1,primaryFamily:'BASE_HCF',secondaryFamily:''},
-    {name:'QAModern14',x:450,y:66,z:-900,undergroundY:46,coreHalfX:19,coreHalfZ:15,utilitySide:1,primaryFamily:'MODERN_HCF',secondaryFamily:''},
+    {name:'QAModern14',x:450,y:66,z:-900,undergroundY:46,coreHalfX:19,coreHalfZ:15,utilitySide:-1,primaryFamily:'MODERN_HCF',secondaryFamily:''},
     {name:'QATunnel21',x:900,y:67,z:-900,undergroundY:44,coreHalfX:20,coreHalfZ:13,utilitySide:1,primaryFamily:'TUNNEL',secondaryFamily:''},
-    {name:'QACave55',x:-900,y:65,z:900,undergroundY:43,coreHalfX:17,coreHalfZ:16,utilitySide:1,primaryFamily:'CAVE',secondaryFamily:''}
+    {name:'QACave55',x:-900,y:65,z:900,undergroundY:43,coreHalfX:17,coreHalfZ:16,utilitySide:-1,primaryFamily:'CAVE',secondaryFamily:''}
   ]
   bases=selected
 }else{

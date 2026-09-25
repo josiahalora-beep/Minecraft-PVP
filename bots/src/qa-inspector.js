@@ -21,6 +21,7 @@ const height=Number(process.env.QA_HEIGHT||720)
 const viewDistance=Number(process.env.QA_VIEW_DISTANCE||8)
 const detailPass=process.env.QA_DETAIL_PASS!=='0'
 const spawnOnly=process.env.QA_SPAWN_ONLY==='1'
+const roadOnly=process.env.QA_ROADS_ONLY==='1'
 
 fs.mkdirSync(outDir,{recursive:true})
 const manifest={startedAt:new Date().toISOString(),captures:[],messages:[],errors:[]}
@@ -265,6 +266,26 @@ async function composeSpawnOnly(){
   if(!complete) throw new Error('Spawn-only compositor did not drain before QA timeout')
 }
 
+async function composeRoadsOnly(){
+  const marker=manifest.messages.length
+  bot.chat('/mapcompose roads')
+  await sleep(900)
+  let lastProbe=0
+  let sawQueued=false
+  const complete=await waitUntil(()=>{
+    const recent=manifest.messages.slice(marker).map(x=>x.text)
+    if(recent.some(t=>/HCF roads-only pass queued/i.test(t))) sawQueued=true
+    if(recent.some(t=>/Could not queue HCF roads/i.test(t)))
+      throw new Error('Road-only composition rejected: '+recent.slice(-6).join(' | '))
+    const now=Date.now()
+    if(now-lastProbe>800){bot.chat('/mapcompose status');lastProbe=now}
+    return sawQueued && recent.some(t=>/busy=false/i.test(t))
+  },Number(process.env.QA_COMPOSE_TIMEOUT_MS||180000),300)
+  manifest.roadCompose={complete:Boolean(complete),finishedAt:new Date().toISOString()}
+  writeManifest()
+  if(!complete) throw new Error('Road-only compositor did not drain before QA timeout')
+}
+
 async function composeProductionWorld(){
   const startedAt=new Date().toISOString()
   const marker=manifest.messages.length
@@ -302,7 +323,11 @@ manifest.worldReady=Boolean(ready)
 writeManifest()
 if(!ready) throw new Error('Production world did not reach READY before QA timeout')
 
-if(process.env.QA_COMPOSE_SPAWN_ONLY==='1') {
+if(process.env.QA_COMPOSE_ROADS_ONLY==='1') {
+  await composeRoadsOnly()
+  await teleport(900,120,900)
+  await sleep(900)
+} else if(process.env.QA_COMPOSE_SPAWN_ONLY==='1') {
   await composeSpawnOnly()
   await teleport(900,120,900)
   await sleep(1200)
@@ -349,15 +374,18 @@ if(process.env.QA_BASES_ONLY!=='1') {
       ['spawn-ground-seam',{x:34,y:69,z:-34},{x:0,y:65,z:0}]
     ] : []),
   ]
-  const fixed=spawnOnly ? spawnViews : [
-    ...spawnViews,
+  const roadViews=[
     ['north-road-long',{x:0,y:72,z:-255},{x:0,y:64,z:-620}],
     ['north-road-transition',{x:74,y:92,z:-335},{x:0,y:64,z:-470}],
     ['north-road-border',{x:34,y:84,z:-930},{x:0,y:64,z:-995}],
     ['south-road-border',{x:-34,y:84,z:930},{x:0,y:64,z:995}],
     ['west-road-border',{x:-930,y:84,z:-34},{x:-995,y:64,z:0}],
     ['east-road-border',{x:930,y:84,z:34},{x:995,y:64,z:0}],
-    ['road-shoulder-relief',{x:92,y:88,z:-430},{x:150,y:64,z:-520}],
+    ['road-shoulder-relief',{x:92,y:88,z:-430},{x:150,y:64,z:-520}]
+  ]
+  const fixed=roadOnly ? roadViews : (spawnOnly ? spawnViews : [
+    ...spawnViews,
+    ...roadViews,
     ['northwest-bowl',{x:-610,y:94,z:-650},{x:-720,y:63,z:-720}],
     ['northeast-wooded-rise',{x:650,y:96,z:-650},{x:760,y:65,z:-760}],
     ['southwest-rocky-rise',{x:-690,y:98,z:650},{x:-790,y:66,z:760}],
@@ -377,8 +405,8 @@ if(process.env.QA_BASES_ONLY!=='1') {
     ['conquest',{x:0,y:120,z:710},{x:0,y:68,z:775}],
     ['conquest-approach',{x:0,y:92,z:575},{x:0,y:68,z:775}],
     ...(detailPass ? [['conquest-detail',{x:42,y:78,z:733},{x:0,y:70,z:775}]] : [])
-  ]
-  for(const [name,pos,target] of fixed) await capture(name,pos,target,3800)
+  ])
+  for(const [name,pos,target] of fixed) await capture(name,pos,target,roadOnly?2200:3800)
 }
 
 if(process.env.QA_TERRAIN_ONLY==='1') {

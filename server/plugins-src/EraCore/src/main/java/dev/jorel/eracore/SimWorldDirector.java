@@ -8359,10 +8359,21 @@ final class SimWorldDirector {
     }
 
     private int[] baseMaterialCost(SimFaction f) {
-        int members=Math.max(2,Math.max(f.targetSize,f.members.size()));
-        // wood, stone, iron, obsidian, glass.  The underground core is mostly
-        // mined stone/stone brick; glass is charged in the separate surface bill.
-        return new int[]{48+members*14,240+members*58,12+members*2,0,0};
+        // Compile the exact starter base (surface + core + tier-1 storage +
+        // selected trap), then subtract the surface bill because SOTW already
+        // consumes that when the protective shell is queued.
+        int[] full=plugin.previewSimBaseAcquisitionBill(
+            f.name,f.basePreset,f.trapPreset,f.baseX,f.baseY,f.baseZ,
+            1,false,false,false);
+        int[] surface=surfaceMaterialCost(f);
+        int len=Math.max(full.length,surface.length);
+        int[] remaining=new int[len];
+        for(int i=0;i<len;i++) {
+            int fv=i<full.length?full[i]:0;
+            int sv=i<surface.length?surface[i]:0;
+            remaining[i]=Math.max(0,fv-sv);
+        }
+        return remaining;
     }
 
     private boolean baseMaterialsReady(SimFaction f) {
@@ -8422,33 +8433,66 @@ final class SimWorldDirector {
         if(f==null || (f.baseX==0 && f.baseZ==0)) return "No planned base site yet.";
 
         HcfBasePlan p=currentSurfacePlan(f);
-        int[] c=surfaceMaterialCost(f);
-        java.util.Map<String,Integer> finished=HcfSurfaceReferenceTemplates.materialBill(p);
-        int missWood=Math.max(0,c[0]-f.wood);
-        int missStone=Math.max(0,c[1]-f.stone);
-        int missIron=Math.max(0,c[2]-f.iron);
-        int missObby=Math.max(0,c[3]-f.obsidian);
-        int missGlass=Math.max(0,c[4]-f.glass);
+        java.util.Map<String,Integer> finished=plugin.previewSimBaseMaterialBill(
+            f.name,f.basePreset,f.trapPreset,f.baseX,f.baseY,f.baseZ,
+            Math.max(1,f.storageTier),f.brewer,f.netherPortal,f.endPortal);
+        int[] total=HcfSurfaceReferenceTemplates.acquisitionBillFromMaterialBill(finished);
+        int[] surface=surfaceMaterialCost(f);
+
+        // Remaining resources honor work already committed to construction.
+        int[] remaining=total.clone();
+        if(f.surfaceQueued) {
+            for(int i=0;i<remaining.length && i<surface.length;i++)
+                remaining[i]=Math.max(0,remaining[i]-surface[i]);
+        }
+        if(f.baseQueued) {
+            int[] core=baseMaterialCost(f);
+            for(int i=0;i<remaining.length && i<core.length;i++)
+                remaining[i]=Math.max(0,remaining[i]-core[i]);
+        }
+
+        int missWood=Math.max(0,(remaining.length>0?remaining[0]:0)-f.wood);
+        int missStone=Math.max(0,(remaining.length>1?remaining[1]:0)-f.stone);
+        int missIron=Math.max(0,(remaining.length>2?remaining[2]:0)-f.iron);
+        int missObby=Math.max(0,(remaining.length>3?remaining[3]:0)-f.obsidian);
+        int missGlass=Math.max(0,(remaining.length>4?remaining[4]:0)-f.glass);
         String dyeKey=HcfSurfaceReferenceTemplates.dyeShopKey(p);
 
+        java.util.List<java.util.Map.Entry<String,Integer>> ordered=
+            new java.util.ArrayList<java.util.Map.Entry<String,Integer>>(finished.entrySet());
+        java.util.Collections.sort(ordered,new java.util.Comparator<java.util.Map.Entry<String,Integer>>() {
+            public int compare(java.util.Map.Entry<String,Integer> a,java.util.Map.Entry<String,Integer> b) {
+                int n=Integer.compare(b.getValue(),a.getValue());
+                return n!=0?n:a.getKey().compareTo(b.getKey());
+            }
+        });
         StringBuilder top=new StringBuilder();
         int shown=0;
-        for(java.util.Map.Entry<String,Integer> e:finished.entrySet()) {
+        for(java.util.Map.Entry<String,Integer> e:ordered) {
             if(e.getValue()<=0) continue;
-            if(shown++>=10) break;
+            if(shown++>=14) break;
             if(top.length()>0) top.append(", ");
             top.append(e.getKey()).append(" x").append(e.getValue());
         }
 
         return "palette="+HcfSurfaceReferenceTemplates.paletteName(p)+
-            " | finished: "+top+
-            " | raw/common: logs="+c[0]+" stone="+c[1]+" iron="+c[2]+
-            " obsidian="+c[3]+" glass="+c[4]+" dye="+c[5]+
-            (dyeKey.isEmpty()?"":"("+dyeKey+")")+
-            " | missing: logs="+missWood+" stone="+missStone+" iron="+missIron+
-            " obsidian="+missObby+" glass="+missGlass+
-            " | route: chop logs; mine stone/iron/obsidian; buy cheap glass"+
-            (dyeKey.isEmpty()?"":" + "+dyeKey)+" only for remaining shortage.";
+            " | exact compiled blocks(top): "+top+
+            " | exact raw/common TOTAL: logs="+at(total,0)+" stone="+at(total,1)+
+            " iron="+at(total,2)+" obsidian="+at(total,3)+" glass="+at(total,4)+
+            " dye="+at(total,5)+(dyeKey.isEmpty()?"":"("+dyeKey+")")+
+            " | still required at current stage: logs="+at(remaining,0)+
+            " stone="+at(remaining,1)+" iron="+at(remaining,2)+
+            " obsidian="+at(remaining,3)+" glass="+at(remaining,4)+
+            " dye="+at(remaining,5)+
+            " | shortage vs stock: logs="+missWood+" stone="+missStone+
+            " iron="+missIron+" obsidian="+missObby+" glass="+missGlass+
+            " | acquisition: chop common logs; mine stone/iron/obsidian; "+
+            "buy cheap glass when faster than smelting sand"+
+            (dyeKey.isEmpty()?"; no dye needed":("; buy/craft "+dyeKey+" x"+at(total,5)))+".";
+    }
+
+    private int at(int[] a,int i) {
+        return a!=null && i>=0 && i<a.length?a[i]:0;
     }
 
     private org.bukkit.inventory.Inventory factionStorageInventory(SimFaction f,String category) {

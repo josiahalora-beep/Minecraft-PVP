@@ -1521,41 +1521,44 @@ final class HcfBaseBuilder {
 
     private int surfaceRoofY(HcfBasePlan p,int x,int z) {
         int dx=x-p.cx,dz=z-p.cz;
-        int base=p.surfaceY+p.surfaceHeight;
-        int roof=base;
+        int roof;
         switch(p.primaryFamily) {
-            case 0: { // Redemption: broad timber house with a shallow stepped crown.
+            case 0: { // Redemption: full two-level timber house.
+                roof=p.surfaceY+p.surfaceHeight;
                 int ridge=Math.max(0,2-(Math.abs(dx)/4));
                 roof+=ridge;
                 if(dz>=1 && Math.abs(dx)<=Math.max(3,p.surfaceHalfX/2)) roof++;
                 break;
             }
-            case 1: { // Base-HCF: broad shallow gable + raised central roof mass.
+            case 1: { // Base-HCF: broad full-height shell.
+                roof=p.surfaceY+p.surfaceHeight;
                 int ridge=Math.max(0,3-(Math.abs(dx)/4));
                 roof+=ridge;
                 if(Math.abs(dx)<=Math.max(3,p.surfaceHalfX/3) &&
                    Math.abs(dz)<=Math.max(3,p.surfaceHalfZ/2)) roof++;
                 break;
             }
-            case 2: // ModernHCF: clean offset upper slab.
-                if(dx*p.utilitySide>0 && dz>-(p.surfaceHalfZ/3)) roof+=1;
-                break;
-            case 3: { // Tunnel reference: pronounced stacked tower/gable.
-                int ridge=Math.max(0,4-(Math.abs(dx)/2));
-                roof+=ridge;
-                if(Math.abs(dx)<=1 && dz>=0) roof++;
+            case 2: { // Modern: low main volume; upper glass room supplies height.
+                roof=p.surfaceY+5;
+                if(dx*p.utilitySide>0 && dz>-(p.surfaceHalfZ/3)) roof++;
                 break;
             }
-            case 4: { // Devhorah/Cave: wood gable with asymmetric stone-side rise.
-                int ridge=Math.max(0,3-(Math.abs(dx)/2));
+            case 3: { // Tunnel: low entrance block; stacked tiers supply height.
+                roof=p.surfaceY+4;
+                if(Math.abs(dx)<=2 && Math.abs(dz)<=2) roof++;
+                break;
+            }
+            case 4: { // Cave/Devhorah: short house; side tower supplies vertical mass.
+                roof=p.surfaceY+6;
+                int ridge=Math.max(0,2-(Math.abs(dx)/3));
                 roof+=ridge;
-                if(dx*p.utilitySide>1 && dz>=0) roof++;
                 break;
             }
             default:
+                roof=p.surfaceY+p.surfaceHeight;
                 break;
         }
-        return Math.max(p.surfaceY+7,roof);
+        return Math.max(p.surfaceY+4,roof);
     }
 
     private int surfaceMaxTop(HcfBasePlan p) {

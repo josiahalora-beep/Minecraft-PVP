@@ -478,11 +478,15 @@ if(selected.length){
       {x:b.x+52,y:b.y+30,z:b.z-52},{x:b.x,y:b.y-2,z:b.z},5200)
     if(detailPass){
       await capture(prefix+'-detail-diagonal',
-        {x:b.x+32,y:b.y+6,z:b.z-32},{x:b.x,y:b.y,z:b.z},3000)
+        {x:b.x+32,y:b.y+6,z:b.z-32},{x:b.x,y:b.y+4,z:b.z},3000)
+      await capture(prefix+'-entrance-close',
+        {x:b.x+7,y:b.y+5,z:b.z-22},{x:b.x,y:b.y+4,z:b.z-6},2800)
+      await capture(prefix+'-window-close',
+        {x:b.x+24,y:b.y+9,z:b.z+3},{x:b.x+5,y:b.y+7,z:b.z},2800)
       await capture(prefix+'-terrain-seam',
-        {x:b.x-30,y:b.y+4,z:b.z-30},{x:b.x-6,y:b.y-1,z:b.z-6},3000)
+        {x:b.x-30,y:b.y+5,z:b.z-30},{x:b.x-6,y:b.y+1,z:b.z-6},3000)
       await capture(prefix+'-rear-detail',
-        {x:b.x-34,y:b.y+7,z:b.z+34},{x:b.x,y:b.y,z:b.z},3000)
+        {x:b.x-34,y:b.y+8,z:b.z+34},{x:b.x,y:b.y+5,z:b.z},3000)
     }
   }
 }

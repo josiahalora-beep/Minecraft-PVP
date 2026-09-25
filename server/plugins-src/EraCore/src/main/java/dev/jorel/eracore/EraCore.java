@@ -3628,6 +3628,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             f.name=a[1];
             f.leader=p.getName();
             f.members.add(p.getName());
+            initializeFactionRules(f);
+            registerFactionMemberState(f,p.getName());
             f.dtr = maxDtr(f);
             factions.put(key,f);
             saveFactions();
@@ -3658,6 +3660,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             target.invites.remove(p.getName().toLowerCase(Locale.ENGLISH));
             removeIgnoreCase(target.officers,p.getName());
             addCasePreserving(target.members,p.getName());
+            registerFactionMemberState(target,p.getName());
             target.dtr = Math.min(maxDtr(target), Math.max(target.dtr, 0.1));
             saveFactions();
             p.sendMessage(color("&aJoined &f"+target.name));
@@ -3700,6 +3703,10 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
                 p.sendMessage(color("&cLeader or officer only."));
                 return true;
             }
+            if(officer && !f.officersCanInvite) {
+                p.sendMessage(color("&cYour faction rules do not allow officers to invite."));
+                return true;
+            }
             if(a.length!=2) {
                 p.sendMessage("/f invite <player>");
                 return true;
@@ -3721,6 +3728,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             }
             removeIgnoreCase(f.members,p.getName());
             removeIgnoreCase(f.officers,p.getName());
+            clearFactionMemberState(f,p.getName());
             if(f.members.isEmpty()) removeFaction(f);
             saveFactions();
             p.sendMessage(color("&eYou left "+f.name));
@@ -3730,6 +3738,10 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if(sub.equals("kick")) {
             if(!manager) {
                 p.sendMessage(color("&cLeader or officer only."));
+                return true;
+            }
+            if(officer && !f.officersCanKick) {
+                p.sendMessage(color("&cYour faction rules do not allow officers to kick members."));
                 return true;
             }
             if(a.length!=2) {
@@ -3751,6 +3763,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             }
             removeIgnoreCase(f.members,targetName);
             removeIgnoreCase(f.officers,targetName);
+            clearFactionMemberState(f,targetName);
             if(simWorld!=null && simWorld.contains(targetName))
                 simWorld.setFactionTitleFromAuthority(targetName,"member");
             saveFactions();
@@ -3783,6 +3796,79 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
                 simWorld.setFactionTitleFromAuthority(targetName,promoting?"officer":"member");
             saveFactions();
             p.sendMessage(color(promoting?"&aPromoted "+targetName+" to officer.":"&eDemoted "+targetName+" to member."));
+            return true;
+        }
+
+        if(sub.equals("rules")) {
+            if(a.length==1) {
+                sendFactionRules(p,f);
+                return true;
+            }
+            if(!leader) {
+                p.sendMessage(color("&cOnly the faction leader can change rules."));
+                return true;
+            }
+            if(a.length<3 || !a[1].equalsIgnoreCase("set")) {
+                p.sendMessage(color("&7/f rules set <diamonds|contribution|officerinvite|officerkick|tryout> <value>"));
+                return true;
+            }
+            String rule=a[2].toLowerCase(Locale.ENGLISH);
+            String value=a.length>=4?a[3]:"";
+            try {
+                if(rule.equals("diamonds")) f.weeklyDiamondQuota=Math.max(0,Math.min(64,Integer.parseInt(value)));
+                else if(rule.equals("contribution")) f.weeklyContributionQuota=Math.max(0,Math.min(500,Integer.parseInt(value)));
+                else if(rule.equals("officerinvite")) f.officersCanInvite=parseOnOff(value,f.officersCanInvite);
+                else if(rule.equals("officerkick")) f.officersCanKick=parseOnOff(value,f.officersCanKick);
+                else if(rule.equals("tryout")) f.tryoutRequired=parseOnOff(value,f.tryoutRequired);
+                else {
+                    p.sendMessage(color("&cUnknown rule."));
+                    return true;
+                }
+            } catch(Exception ex) {
+                p.sendMessage(color("&cInvalid value."));
+                return true;
+            }
+            saveFactions();
+            broadcastFactionSystem(f,"Rules updated by "+p.getName()+".");
+            sendFactionRules(p,f);
+            return true;
+        }
+
+        if(sub.equals("contribution") || sub.equals("quota")) {
+            String who=a.length>1?a[1]:p.getName();
+            String canonical=factionMemberName(f,who);
+            if(canonical==null) {
+                p.sendMessage(color("&cThat player is not in your faction."));
+                return true;
+            }
+            sendFactionContribution(p,f,canonical);
+            return true;
+        }
+
+        if(sub.equals("materials")) {
+            if(simWorld==null) {
+                p.sendMessage(color("&cMaterial planner is unavailable."));
+                return true;
+            }
+            p.sendMessage(color("&6--- "+f.name+" Base Materials ---"));
+            p.sendMessage(color("&7"+simWorld.surfaceMaterialPlanFor(f.name)));
+            return true;
+        }
+
+        if(sub.equals("order")) {
+            if(!manager) {
+                p.sendMessage(color("&cLeader or officer only."));
+                return true;
+            }
+            if(a.length!=2) {
+                p.sendMessage(color("&7/f order <mine|gather|build|brew|farm|refill|base|pvp|koth|recruit>"));
+                return true;
+            }
+            if(simWorld==null || !simWorld.issueFactionOrder(f.name,p.getName(),a[1])) {
+                p.sendMessage(color("&cThat order is not available."));
+                return true;
+            }
+            broadcastFactionSystem(f,p.getName()+" ordered: "+a[1].toLowerCase(Locale.ENGLISH));
             return true;
         }
 
@@ -3972,7 +4058,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     private void sendFactionHelp(Player p) {
-        p.sendMessage(color("&6/f create, invite, join, leave, kick, promote, demote, disband, claim, unclaim, map, sethome, home, stuck, show, who, list, c"));
+        p.sendMessage(color("&6/f create, invite, join, leave, kick, promote, demote, rules, contribution, materials, order, disband, claim, unclaim, map, sethome, home, stuck, show, who, list, c"));
     }
 
     private boolean containsIgnoreCase(Collection<String> values,String name) {

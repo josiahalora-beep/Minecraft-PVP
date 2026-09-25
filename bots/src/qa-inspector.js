@@ -517,17 +517,17 @@ if(selected.length){
       const brewerX=b.x+us*(b.coreHalfX-6)
       const brewerZ=b.z+1
       await capture(prefix+'-interior-brewer',
-        {x:brewerX-us*5,y:u+3,z:brewerZ},{x:brewerX,y:u+2,z:brewerZ},2400)
+        {x:brewerX-us*4,y:u+3,z:brewerZ-6},{x:brewerX,y:u+2,z:brewerZ},2400)
 
       const portalX=b.x+us*(b.coreHalfX-3)
       const portalZ=b.z-b.coreHalfZ+5
       await capture(prefix+'-interior-nether-portal',
-        {x:portalX-us*5,y:u+3,z:portalZ+3},{x:portalX,y:u+3,z:portalZ},2200)
+        {x:portalX,y:u+3,z:portalZ+5},{x:portalX,y:u+3,z:portalZ},2200)
 
       const enchantX=b.x+us*(b.coreHalfX-5)
       const enchantZ=b.z+b.coreHalfZ-5
       await capture(prefix+'-interior-enchant',
-        {x:enchantX-us*5,y:u+3,z:enchantZ-4},{x:enchantX,y:u+2,z:enchantZ},2200)
+        {x:enchantX-us*4,y:u+3,z:enchantZ-5},{x:enchantX,y:u+2,z:enchantZ},2200)
 
       await capture(prefix+'-interior-farm',
         {x:b.x,y:u-5,z:b.z+12},{x:b.x,y:u-5,z:b.z+5},2400)

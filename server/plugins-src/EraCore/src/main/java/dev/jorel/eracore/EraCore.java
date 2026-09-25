@@ -4579,6 +4579,17 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
                         hp.sendMessage(color("&cFaction rule strike "+strikes+"/2. &7You finished "+diamonds+
                             "/"+f.weeklyDiamondQuota+" diamonds and "+points+"/"+f.weeklyContributionQuota+" contribution."));
 
+                    // Officer is responsibility, not a permanent cosmetic tag.
+                    // The same first-strike demotion applies to simulated and
+                    // human officers before a repeated failure becomes a kick.
+                    if(strikes==1 && isFactionOfficer(f,member)) {
+                        removeIgnoreCase(f.officers,member);
+                        if(simWorld!=null && simWorld.contains(member))
+                            simWorld.setFactionTitleFromAuthority(member,"member");
+                        broadcastFactionSystem(f,member+" was demoted from officer after missing faction requirements.");
+                        if(hp!=null) hp.sendMessage(color("&eYou were demoted to member after missing faction requirements."));
+                    }
+
                     if(strikes>=2) {
                         removeIgnoreCase(f.members,member);
                         removeIgnoreCase(f.officers,member);

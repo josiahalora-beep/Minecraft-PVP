@@ -8540,7 +8540,7 @@ final class SimWorldDirector {
         int terrainRadius = baseSiteTerrainRadius(f);
         int maxLiquids = Math.max(0, plugin.getConfig().getInt("sim-world.max-base-site-liquid-samples", 1));
         int scoutAttempts=Math.max(32,Math.min(96,
-            plugin.getConfig().getInt("sim-world.base-site-scout-attempts",64)));
+            plugin.getConfig().getInt("sim-world.base-site-scout-attempts",96)));
         HcfBasePlan.Profile siteProfile=baseProfile(f.name);
 
         int[] bestPoint = null;
@@ -8554,8 +8554,10 @@ final class SimWorldDirector {
         // bases; the visible building perimeter itself should meet native grade.
         for (int attempt=0; attempt<scoutAttempts; attempt++) {
             int[] raw = chooseBasePoint(f);
-            int x = alignChunkCenter(raw[0]);
-            int z = alignChunkCenter(raw[1]);
+            // Do not chunk-center-lock faction bases. Real HCF players shift a
+            // claim/base several blocks to use the natural plateau they find.
+            int x = raw[0];
+            int z = raw[1];
 
             int[] broad;
             int[] fit;

@@ -195,6 +195,7 @@ jobs:
           c['world-composer']=c['world-composer']||{}
           c['world-composer'].enabled=true
           c['world-composer']['blocks-per-tick']=5000
+          c['world-composer']['qa-overworld-only']=true
           c['ai-chat']=c['ai-chat']||{}
           c['ai-chat'].enabled=false
           c['sim-chat']=c['sim-chat']||{}

@@ -262,8 +262,15 @@ manifest.worldReady=Boolean(ready)
 writeManifest()
 if(!ready) throw new Error('Production world did not reach READY before QA timeout')
 
-if(process.env.QA_COMPOSE_PRODUCTION==='1') await composeProductionWorld()
-else {
+if(process.env.QA_COMPOSE_PRODUCTION==='1') {
+  await composeProductionWorld()
+  // QAInspector begins at spawn while composition is running, so prismarine-
+  // viewer can retain pre-compose spawn chunk meshes. Move beyond view distance
+  // once, forcing server unload/reload packets, then the first spawn capture
+  // proves the freshly composed structure rather than stale cached terrain.
+  await teleport(900,120,900)
+  await sleep(1200)
+} else {
   bot.chat('/mapcompose status')
   await sleep(800)
 }

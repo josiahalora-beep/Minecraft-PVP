@@ -8620,7 +8620,9 @@ final class SimWorldDirector {
         // nearby blocks rather than accepting the first sampled center. This
         // does not modify terrain; it only moves the planned base center onto a
         // naturally better shelf/plateau.
-        if(bestPoint!=null && bestEval!=null &&
+        boolean visibleFitAlreadyPerfect=bestEval!=null && bestEval.length>=7 &&
+            (bestEval[5]+bestEval[6])==0 && bestEval[4]==0;
+        if(bestPoint!=null && bestEval!=null && !visibleFitAlreadyPerfect &&
            (plugin.getConfig().getBoolean("terrain.authored-world",false) ||
             plugin.getConfig().getBoolean("terrain.normalize-new-chunks",false))) {
             int refineX=bestPoint[0],refineZ=bestPoint[1];

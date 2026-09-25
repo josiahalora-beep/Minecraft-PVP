@@ -250,6 +250,12 @@ final class HcfBaseBuilder {
                         " naturalFit="+java.util.Arrays.toString(evaluateReferenceSite(names[i],x,z)));
                 }
 
+                // Queue the four cost-conscious palette proofs in the SAME build
+                // transaction. The prior second /baserebuild command was fragile
+                // after a long headless capture session and could time out even
+                // though the five canonical exteriors had already passed.
+                final int[][] paletteSites=queueQaPaletteSurfacesNow(world);
+
                 // Spigot may unload remote showcase chunks because the inspector
                 // begins at spawn. Keep only these disposable QA neighborhoods
                 // hot until the real production build queue reaches zero; this
@@ -282,6 +288,7 @@ final class HcfBaseBuilder {
                             else
                                 plugin.getLogger().severe("[reference-exterior-verify] FAILED totalMismatches="+
                                     totalMismatches+" gateAnchorFailures="+gateAnchorFailures);
+                            plugin.getLogger().info("[qa-palette] build queue drained; palette captures may begin.");
                             plugin.getLogger().info("[qa-showcase] build queue drained; captures may begin.");
                             cancel();
                             return;
@@ -292,63 +299,7 @@ final class HcfBaseBuilder {
                                 for(int dz=-4;dz<=4;dz++)
                                     world.loadChunk(ccx+dx,ccz+dz);
                         }
-                    }
-                }.runTaskTimer(plugin,1L,10L);
-            }
-        },20L);
-    }
-
-    void queueQaPaletteShowcase() {
-        if(!plugin.getConfig().getBoolean("base-builder.qa-showcase",false)) return;
-        final World world=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
-        if(world==null) return;
-
-        final String[] names={
-            "QAPaletteCyan","QAPaletteArctic","QAPaletteRed","QAPaletteSmoke"
-        };
-        final int[][] sites={
-            {-700,650},{-250,650},{250,650},{700,650}
-        };
-
-        Bukkit.getScheduler().runTaskLater(plugin,new Runnable() {
-            public void run() {
-                for(int i=0;i<names.length;i++) {
-                    int[] natural=findNearbyPaletteQaSite(names[i],sites[i][0],sites[i][1]);
-                    int x=natural[0],y=natural[1],z=natural[2];
-                    sites[i][0]=x; sites[i][1]=z;
-                    HcfBasePlan p=planFor(names[i],x,y,z);
-                    if(!"MODERN_HCF".equals(p.primaryFamilyName())) {
-                        plugin.getLogger().warning("[qa-palette] family seed drift name="+names[i]+
-                            " expected=MODERN_HCF actual="+p.primaryFamilyName());
-                    }
-                    // Palette QA proves the visible surface only. Building four
-                    // complete underground HCF bases here added hundreds of thousands
-                    // of irrelevant operations and could consume the entire screenshot
-                    // timeout. These sites are disposable/fresh, so queue only the
-                    // production surface path being reviewed.
-                    maintenanceRebuild=true;
-                    prepareTerrainPad(world,p);
-                    auditPlan(p);
-                    buildSurfaceShell(world,p,true);
-                    completed.add("surface:"+names[i].toLowerCase(java.util.Locale.ENGLISH));
-
-                    plugin.getLogger().info("[qa-palette] queued "+names[i]+
-                        " family="+p.primaryFamilyName()+
-                        " palette="+HcfSurfaceReferenceTemplates.paletteName(p)+
-                        " at="+x+","+y+","+z+
-                        " naturalFit="+java.util.Arrays.toString(evaluateReferenceSite(names[i],x,z)));
-                }
-
-                ensureRunner();
-
-                new BukkitRunnable() {
-                    public void run() {
-                        if(queue.isEmpty()) {
-                            plugin.getLogger().info("[qa-palette] build queue drained; palette captures may begin.");
-                            cancel();
-                            return;
-                        }
-                        for(int[] site:sites) {
+                        for(int[] site:paletteSites) {
                             int ccx=site[0]>>4,ccz=site[1]>>4;
                             for(int dx=-3;dx<=3;dx++)
                                 for(int dz=-3;dz<=3;dz++)
@@ -357,7 +308,72 @@ final class HcfBaseBuilder {
                     }
                 }.runTaskTimer(plugin,1L,10L);
             }
-        },10L);
+        },20L);
+    }
+
+    private int[][] queueQaPaletteSurfacesNow(World world) {
+        final String[] names={
+            "QAPaletteCyan","QAPaletteArctic","QAPaletteRed","QAPaletteSmoke"
+        };
+        final int[][] sites={
+            {-700,650},{-250,650},{250,650},{700,650}
+        };
+
+        for(int i=0;i<names.length;i++) {
+            int[] natural=findNearbyPaletteQaSite(names[i],sites[i][0],sites[i][1]);
+            int x=natural[0],y=natural[1],z=natural[2];
+            sites[i][0]=x; sites[i][1]=z;
+
+            int ccx=x>>4,ccz=z>>4;
+            for(int dx=-3;dx<=3;dx++)
+                for(int dz=-3;dz<=3;dz++)
+                    world.loadChunk(ccx+dx,ccz+dz);
+
+            HcfBasePlan p=planFor(names[i],x,y,z);
+            if(!"MODERN_HCF".equals(p.primaryFamilyName())) {
+                plugin.getLogger().warning("[qa-palette] family seed drift name="+names[i]+
+                    " expected=MODERN_HCF actual="+p.primaryFamilyName());
+            }
+
+            // Surface-only palette proof. Same production terrain preparation
+            // and surface compiler, no irrelevant underground queue.
+            maintenanceRebuild=true;
+            prepareTerrainPad(world,p);
+            auditPlan(p);
+            buildSurfaceShell(world,p,true);
+            completed.add("surface:"+names[i].toLowerCase(java.util.Locale.ENGLISH));
+
+            plugin.getLogger().info("[qa-palette] queued "+names[i]+
+                " family="+p.primaryFamilyName()+
+                " palette="+HcfSurfaceReferenceTemplates.paletteName(p)+
+                " at="+x+","+y+","+z+
+                " naturalFit="+java.util.Arrays.toString(evaluateReferenceSite(names[i],x,z)));
+        }
+        ensureRunner();
+        return sites;
+    }
+
+    void queueQaPaletteShowcase() {
+        if(!plugin.getConfig().getBoolean("base-builder.qa-showcase",false)) return;
+        final World world=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
+        if(world==null) return;
+        final int[][] sites=queueQaPaletteSurfacesNow(world);
+
+        new BukkitRunnable() {
+            public void run() {
+                if(queue.isEmpty()) {
+                    plugin.getLogger().info("[qa-palette] build queue drained; palette captures may begin.");
+                    cancel();
+                    return;
+                }
+                for(int[] site:sites) {
+                    int ccx=site[0]>>4,ccz=site[1]>>4;
+                    for(int dx=-3;dx<=3;dx++)
+                        for(int dz=-3;dz<=3;dz++)
+                            world.loadChunk(ccx+dx,ccz+dz);
+                }
+            }
+        }.runTaskTimer(plugin,1L,10L);
     }
 
     void lazyMaterialize(String faction,String preset,String trapPreset,int cx,int y,int cz,

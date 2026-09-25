@@ -401,8 +401,7 @@ final class HcfBaseBuilder {
         if (world == null) return;
 
         HcfBasePlan plan=planFor(faction,cx,y,cz);
-        int cradle=plan.terrainCradleRadius()+3;
-        fillFoundationOnly(world,cx,y,cz,cradle,cradle);
+        fillFoundationOnly(world,plan);
         buildSurfaceShell(world,plan,false);
         buildUndergroundCore(world,plan);
         sealCriticalEnvelope(world,plan,true);
@@ -410,17 +409,22 @@ final class HcfBaseBuilder {
         ensureRunner();
     }
 
-    private void fillFoundationOnly(World w,int cx,int y,int cz,int rx,int rz) {
-        for(int x=cx-rx;x<=cx+rx;x++) {
-            for(int z=cz-rz;z<=cz+rz;z++) {
+    private void fillFoundationOnly(World w,HcfBasePlan p) {
+        // Support only the actual shell plus a one-block construction lip.
+        // The authored FreeMap outside that tiny envelope is never filled into
+        // a platform/terrace just because a faction base exists nearby.
+        int rx=p.surfaceHalfX+1,rz=p.surfaceHalfZ+1;
+        for(int x=p.cx-rx;x<=p.cx+rx;x++) {
+            for(int z=p.cz-rz;z<=p.cz+rz;z++) {
+                if(!surfaceInside(p,x,z) && surfaceDistanceFromMaskExact(p,x,z,2)>1.25) continue;
                 int surface=solidSurfaceY(w,x,z);
-                if(surface>=y-1) continue;
+                if(surface>=p.surfaceY-1) continue;
 
+                Material nativeTop=nativeSurfaceMaterial(w,x,z);
+                Material fill=nativeFillMaterial(nativeTop);
                 int from=Math.max(2,surface+1);
-                for(int yy=from;yy<y;yy++) {
-                    Material fill=(yy>=y-3)?Material.DIRT:Material.STONE;
-                    queue.add(new Op(w,x,yy,z,fill));
-                }
+                for(int yy=from;yy<p.surfaceY;yy++)
+                    queue.add(new Op(w,x,yy,z,yy>=p.surfaceY-2?fill:Material.STONE));
             }
         }
     }
@@ -461,44 +465,109 @@ final class HcfBaseBuilder {
      * infrastructure.
      */
     private void prepareTerrainPad(World w,HcfBasePlan p) {
-        int configuredExtra=Math.max(7,plugin.getConfig().getInt("base-builder.cradle-extra-radius",11));
-        int outer=Math.max(p.terrainCradleRadius(),
-            Math.max(p.surfaceHalfX,p.surfaceHalfZ)+configuredExtra);
-        int blendReach=configuredExtra+3;
-        Material[] sitePalette=sampleLocalPalette(w,p);
-        Material gradeTop=sitePalette[0],gradeFill=sitePalette[1];
+        // Phase 2B: structure first, authored terrain second.
+        //
+        // Do NOT generate a terrain feature around the base. Real HCF builders
+        // mostly cleared the footprint and, depending on skill/intent, flattened
+        // a very small PvP apron. The checksum-pinned FreeMap remains authoritative
+        // immediately outside that work zone.
+        int apron=p.profile.builderQuality>=75?4:(p.profile.builderQuality>=45?3:2);
+        int minX=p.cx-p.surfaceHalfX-apron,maxX=p.cx+p.surfaceHalfX+apron;
+        int minZ=p.cz-p.surfaceHalfZ-apron,maxZ=p.cz+p.surfaceHalfZ+apron;
+        int gateX=p.cx+p.frontGateOffset;
+        int frontZ=surfaceFrontZ(p,gateX);
 
-        // v11: grade from the deterministic canonical wilderness, not from the
-        // CURRENT column height. Current height may already contain an older
-        // cradle, so using it as "nature" made /baserebuild accumulate terraces.
-        // Euclidean + smoothly warped mask distance removes the old square
-        // contour bands while keeping the actual shell/frontage safely graded.
-        for(int x=p.cx-outer;x<=p.cx+outer;x++) {
-            for(int z=p.cz-outer;z<=p.cz+outer;z++) {
-                double maskDistance=warpedMaskDistance(p,x,z,blendReach+2);
-                if(maskDistance>blendReach+1.25) continue;
+        for(int x=minX;x<=maxX;x++) {
+            for(int z=minZ;z<=maxZ;z++) {
+                boolean inside=surfaceInside(p,x,z);
+                double dist=inside?0.0:surfaceDistanceFromMaskExact(p,x,z,apron+1);
+                boolean frontApron=z<=frontZ && z>=frontZ-4 && Math.abs(x-gateX)<=4;
+                if(!inside && !frontApron && dist>apron+0.25) continue;
 
-                int surface=solidSurfaceY(w,x,z);
-                int target=gradedSurfaceY(p,x,z,blendReach);
-                boolean structureWork=maskDistance<=3.0;
-                boolean elevationChange=target!=surface;
-                if(!structureWork && !elevationChange) continue;
+                int natural=plugin.canonicalHcfTerrainY(x,z);
+                int current=solidSurfaceY(w,x,z);
+                int target;
 
+                if(inside) {
+                    target=p.surfaceY;
+                } else {
+                    // Human-like PvP grading: only columns already within one
+                    // vertical block of the base grade are flattened. Larger
+                    // authored hills/dips remain natural instead of becoming
+                    // concentric terraces.
+                    int delta=natural-p.surfaceY;
+                    boolean skilledApron=p.profile.builderQuality>=45 && (frontApron || dist<=apron);
+                    if(!skilledApron || Math.abs(delta)>1) continue;
+                    target=p.surfaceY;
+                }
+
+                Material nativeTop=nativeSurfaceMaterial(w,x,z);
+                Material fill=nativeFillMaterial(nativeTop);
+
+                // Clear only the build/apron column. Nothing outside this tiny
+                // work zone has vegetation, trees, cliffs or biome materials touched.
                 int clearTop=Math.min(w.getMaxHeight()-1,
-                    Math.max(target+10,w.getHighestBlockYAt(x,z)+3));
+                    Math.max(target+(inside?p.surfaceHeight+8:4),w.getHighestBlockYAt(x,z)+2));
                 for(int yy=target+1;yy<=clearTop;yy++) {
                     Material existing=w.getBlockAt(x,yy,z).getType();
                     if(existing!=Material.AIR)
                         queue.add(new Op(w,x,yy,z,Material.AIR));
                 }
 
-                if(surface<target) {
-                    for(int yy=Math.max(2,surface+1);yy<target;yy++)
-                        queue.add(new Op(w,x,yy,z,yy>=target-3?gradeFill:Material.STONE));
+                if(current<target) {
+                    for(int yy=Math.max(2,current+1);yy<target;yy++)
+                        queue.add(new Op(w,x,yy,z,yy>=target-2?fill:Material.STONE));
                 }
-                queue.add(new Op(w,x,target,z,gradeTop));
+
+                // The shell floor replaces inside cells later. Apron cells keep
+                // their own native surface material, which naturally respects
+                // desert/grass/gravel boundaries without synthetic 70/20/10 noise.
+                if(!inside)
+                    queue.add(new Op(w,x,target,z,nativeTop));
             }
         }
+    }
+
+    private Material nativeSurfaceMaterial(World w,int x,int z) {
+        int y=solidSurfaceY(w,x,z);
+        Material m=w.getBlockAt(x,y,z).getType();
+        if(m==Material.GRASS || m==Material.DIRT || m==Material.SAND ||
+           m==Material.GRAVEL || m==Material.STONE || m==Material.COBBLESTONE ||
+           m==Material.MOSSY_COBBLESTONE || m==Material.SANDSTONE)
+            return m;
+        Material[] fallback=sampleLocalPaletteAt(w,x,z);
+        return fallback[0];
+    }
+
+    private Material nativeFillMaterial(Material top) {
+        if(top==Material.SAND || top==Material.SANDSTONE) return Material.SAND;
+        if(top==Material.STONE || top==Material.COBBLESTONE || top==Material.MOSSY_COBBLESTONE)
+            return Material.STONE;
+        if(top==Material.GRAVEL) return Material.DIRT;
+        return Material.DIRT;
+    }
+
+    private Material[] sampleLocalPaletteAt(World w,int cx,int cz) {
+        Map<Material,Integer> count=new LinkedHashMap<Material,Integer>();
+        for(int x=cx-5;x<=cx+5;x+=2) for(int z=cz-5;z<=cz+5;z+=2) {
+            int y=solidSurfaceY(w,x,z);
+            Material m=w.getBlockAt(x,y,z).getType();
+            if(m==Material.GRASS || m==Material.DIRT || m==Material.SAND ||
+               m==Material.GRAVEL || m==Material.STONE || m==Material.COBBLESTONE ||
+               m==Material.MOSSY_COBBLESTONE || m==Material.SANDSTONE) {
+                Integer n=count.get(m); count.put(m,n==null?1:n+1);
+            }
+        }
+        Material dominant=Material.GRASS; int best=-1;
+        for(Map.Entry<Material,Integer> e:count.entrySet())
+            if(e.getValue()>best){best=e.getValue();dominant=e.getKey();}
+        if(dominant==Material.SAND || dominant==Material.SANDSTONE)
+            return new Material[]{dominant,Material.SAND,Material.SANDSTONE};
+        if(dominant==Material.STONE || dominant==Material.COBBLESTONE || dominant==Material.MOSSY_COBBLESTONE)
+            return new Material[]{dominant,Material.STONE,Material.GRAVEL};
+        if(dominant==Material.GRAVEL)
+            return new Material[]{Material.GRAVEL,Material.DIRT,Material.STONE};
+        return new Material[]{Material.GRASS,Material.DIRT,Material.STONE};
     }
 
     private int gradedSurfaceY(HcfBasePlan p,int x,int z,int blendReach) {

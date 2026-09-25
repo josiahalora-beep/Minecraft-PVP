@@ -721,8 +721,11 @@ final class HcfSurfaceReferenceTemplates {
      * the economy which raw items must be bought at build time.
      */
     static java.util.Map<String,Integer> specialtySupplyBill(HcfBasePlan plan) {
+        return specialtySupplyBillFromMaterialBill(materialBill(plan));
+    }
+
+    static java.util.Map<String,Integer> specialtySupplyBillFromMaterialBill(java.util.Map<String,Integer> bill) {
         java.util.Map<String,Integer> out=new java.util.LinkedHashMap<String,Integer>();
-        java.util.Map<String,Integer> bill=materialBill(plan);
 
         for(java.util.Map.Entry<String,Integer> e:bill.entrySet()) {
             String k=e.getKey();

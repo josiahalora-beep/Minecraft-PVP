@@ -4810,10 +4810,34 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
                 f.leader=s.getString("leader","");
                 f.members.addAll(s.getStringList("members"));
                 f.officers.addAll(s.getStringList("officers"));
+                f.weeklyDiamondQuota=s.getInt("rules.weekly-diamond-quota",16);
+                f.weeklyContributionQuota=s.getInt("rules.weekly-contribution-quota",80);
+                f.officersCanInvite=s.getBoolean("rules.officers-can-invite",true);
+                f.officersCanKick=s.getBoolean("rules.officers-can-kick",false);
+                f.tryoutRequired=s.getBoolean("rules.tryout-required",false);
+                f.rulesWeekStartedAt=s.getLong("rules.week-started-at",System.currentTimeMillis());
+
+                ConfigurationSection diamonds=s.getConfigurationSection("rules.weekly-diamonds");
+                if(diamonds!=null) for(String n:diamonds.getKeys(false))
+                    f.weeklyDiamonds.put(n.toLowerCase(Locale.ENGLISH),diamonds.getInt(n,0));
+                ConfigurationSection contrib=s.getConfigurationSection("rules.weekly-contribution");
+                if(contrib!=null) for(String n:contrib.getKeys(false))
+                    f.weeklyContribution.put(n.toLowerCase(Locale.ENGLISH),contrib.getInt(n,0));
+                ConfigurationSection strikes=s.getConfigurationSection("rules.strikes");
+                if(strikes!=null) for(String n:strikes.getKeys(false))
+                    f.ruleStrikes.put(n.toLowerCase(Locale.ENGLISH),strikes.getInt(n,0));
+                ConfigurationSection joined=s.getConfigurationSection("rules.joined-at");
+                if(joined!=null) for(String n:joined.getKeys(false))
+                    f.memberJoinedAt.put(n.toLowerCase(Locale.ENGLISH),joined.getLong(n,System.currentTimeMillis()));
+
                 // Defensive migration: stale role entries cannot retain authority.
                 for(String officer:new ArrayList<String>(f.officers)) {
                     if(officer.equalsIgnoreCase(f.leader) || !containsIgnoreCase(f.members,officer))
                         removeIgnoreCase(f.officers,officer);
+                }
+                for(String member:f.members) {
+                    String mk=member.toLowerCase(Locale.ENGLISH);
+                    if(!f.memberJoinedAt.containsKey(mk)) f.memberJoinedAt.put(mk,System.currentTimeMillis());
                 }
                 f.dtr=s.getDouble("dtr", Math.min(getConfig().getDouble("dtr.max-cap",5.5), Math.max(getConfig().getDouble("dtr.max-per-member",1.1), f.members.size()*getConfig().getDouble("dtr.max-per-member",1.1))));
                 f.dtrFrozenUntil=s.getLong("dtr-frozen-until",0L);
@@ -4844,6 +4868,20 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             factionsData.set(base+".leader",f.leader);
             factionsData.set(base+".members",new ArrayList<String>(f.members));
             factionsData.set(base+".officers",new ArrayList<String>(f.officers));
+            factionsData.set(base+".rules.weekly-diamond-quota",f.weeklyDiamondQuota);
+            factionsData.set(base+".rules.weekly-contribution-quota",f.weeklyContributionQuota);
+            factionsData.set(base+".rules.officers-can-invite",f.officersCanInvite);
+            factionsData.set(base+".rules.officers-can-kick",f.officersCanKick);
+            factionsData.set(base+".rules.tryout-required",f.tryoutRequired);
+            factionsData.set(base+".rules.week-started-at",f.rulesWeekStartedAt);
+            for(Map.Entry<String,Integer> e:f.weeklyDiamonds.entrySet())
+                factionsData.set(base+".rules.weekly-diamonds."+e.getKey(),e.getValue());
+            for(Map.Entry<String,Integer> e:f.weeklyContribution.entrySet())
+                factionsData.set(base+".rules.weekly-contribution."+e.getKey(),e.getValue());
+            for(Map.Entry<String,Integer> e:f.ruleStrikes.entrySet())
+                factionsData.set(base+".rules.strikes."+e.getKey(),e.getValue());
+            for(Map.Entry<String,Long> e:f.memberJoinedAt.entrySet())
+                factionsData.set(base+".rules.joined-at."+e.getKey(),e.getValue());
             factionsData.set(base+".dtr",f.dtr);
             factionsData.set(base+".dtr-frozen-until",f.dtrFrozenUntil);
             factionsData.set(base+".invites",new ArrayList<String>(f.invites));

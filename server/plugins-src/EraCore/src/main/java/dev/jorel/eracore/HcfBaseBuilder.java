@@ -246,6 +246,58 @@ final class HcfBaseBuilder {
         return new int[]{seedX,fit[0],seedZ};
     }
 
+    private int[] findNearbyPaletteQaSite(String faction,int seedX,int seedZ) {
+        World world=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
+        if(world==null) return new int[]{seedX,64,seedZ};
+
+        int[] best=null;
+        int bestScore=Integer.MAX_VALUE;
+
+        // Palette QA only needs a nearby clean Modern shell backdrop. Never run
+        // the expensive whole-map plateau search here; the canonical five-family
+        // pass already proves the production terrain-contact contract.
+        for(int dx=-96;dx<=96;dx+=8) {
+            for(int dz=-96;dz<=96;dz+=8) {
+                int x=seedX+dx,z=seedZ+dz;
+                if(Math.abs(x)>940 || Math.abs(z)>940) continue;
+                HcfBasePlan probe=planFor(faction,x,64,z);
+                if(!"MODERN_HCF".equals(probe.primaryFamilyName())) continue;
+                if(quickReferenceRelief(world,x,z,probe.primaryFamily)>2) continue;
+
+                world.loadChunk(x>>4,z>>4);
+                int[] fit=evaluateReferenceSite(faction,x,z);
+                int score=naturalFitScore(fit,(Math.abs(dx)+Math.abs(dz))/4);
+                if(score<bestScore) {
+                    bestScore=score;
+                    best=new int[]{x,fit[0],z};
+                }
+                if((fit[5]+fit[6])==0 && fit[4]==0) return new int[]{x,fit[0],z};
+            }
+        }
+
+        if(best!=null) {
+            int bx=best[0],bz=best[2];
+            for(int dx=-7;dx<=7;dx++) {
+                for(int dz=-7;dz<=7;dz++) {
+                    int x=bx+dx,z=bz+dz;
+                    HcfBasePlan probe=planFor(faction,x,64,z);
+                    if(!"MODERN_HCF".equals(probe.primaryFamilyName())) continue;
+                    int[] fit=evaluateReferenceSite(faction,x,z);
+                    int score=naturalFitScore(fit,0);
+                    if(score<bestScore) {
+                        bestScore=score;
+                        best=new int[]{x,fit[0],z};
+                    }
+                    if((fit[5]+fit[6])==0 && fit[4]==0) return new int[]{x,fit[0],z};
+                }
+            }
+            return best;
+        }
+
+        int[] fit=evaluateReferenceSite(faction,seedX,seedZ);
+        return new int[]{seedX,fit[0],seedZ};
+    }
+
     void queueQaFamilyShowcase() {
         if(!plugin.getConfig().getBoolean("base-builder.qa-showcase",false)) return;
         final World world=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
@@ -258,8 +310,11 @@ final class HcfBaseBuilder {
         final String[] names={
             "QARedemption2","QABase0","QAModern14","QATunnel21","QACave55"
         };
+        // Pinned natural-contact proof sites discovered on the checksum-pinned
+        // authored FreeMap. QA must be deterministic and must never freeze the
+        // server rescanning the full 2000x2000 world during screenshot capture.
         final int[][] sites={
-            {-900,-900},{-450,-900},{450,-900},{900,-900},{-900,900}
+            {-131,769},{-402,-344},{490,-876},{780,-796},{-900,892}
         };
         final String[] expected={
             "REDEMPTION","BASE_HCF","MODERN_HCF","TUNNEL","CAVE"
@@ -285,10 +340,9 @@ final class HcfBaseBuilder {
         Bukkit.getScheduler().runTaskLater(plugin,new Runnable() {
             public void run() {
                 for(int i=0;i<sites.length;i++) {
-                    int[] natural=findNaturalQaSite(names[i],expected[i],sites[i][0],sites[i][1]);
-                    int x=natural[0],y=natural[1],z=natural[2];
-                    sites[i][0]=x;
-                    sites[i][1]=z;
+                    int x=sites[i][0],z=sites[i][1];
+                    int[] fit=evaluateReferenceSite(names[i],x,z);
+                    int y=fit[0];
                     HcfBasePlan p=planFor(names[i],x,y,z);
                     qaPlans[i]=p;
                     if(!expected[i].equals(p.primaryFamilyName())) {
@@ -371,7 +425,7 @@ final class HcfBaseBuilder {
         Bukkit.getScheduler().runTaskLater(plugin,new Runnable() {
             public void run() {
                 for(int i=0;i<names.length;i++) {
-                    int[] natural=findNaturalQaSite(names[i],"MODERN_HCF",sites[i][0],sites[i][1]);
+                    int[] natural=findNearbyPaletteQaSite(names[i],sites[i][0],sites[i][1]);
                     int x=natural[0],y=natural[1],z=natural[2];
                     sites[i][0]=x; sites[i][1]=z;
                     HcfBasePlan p=planFor(names[i],x,y,z);

@@ -9019,6 +9019,19 @@ final class SimWorldDirector {
         return out;
     }
 
+    private int[] keepBaseInsideWorldBorder(SimFaction f,org.bukkit.Location spawn,int x,int z) {
+        int diameter=Math.max(256,plugin.getConfig().getInt("map.world-border",2000));
+        int half=diameter/2;
+        int buffer=Math.max(4,plugin.getConfig().getInt("claims.sim-base-buffer-blocks",8));
+        int margin=Math.max(24,baseTerrainRadius(f)+buffer+8);
+
+        int minX=spawn.getBlockX()-half+margin;
+        int maxX=spawn.getBlockX()+half-margin;
+        int minZ=spawn.getBlockZ()-half+margin;
+        int maxZ=spawn.getBlockZ()+half-margin;
+        return new int[]{Math.max(minX,Math.min(maxX,x)),Math.max(minZ,Math.min(maxZ,z))};
+    }
+
     private int[] chooseBasePoint(SimFaction f) {
         org.bukkit.Location spawn = Bukkit.getWorlds().get(0).getSpawnLocation();
         List<SimFaction> creatorAnchors = new ArrayList<SimFaction>();
@@ -9036,10 +9049,9 @@ final class SimWorldDirector {
             recordRivalry(f.name,anchor.name,f.powerFaction ? 7 : 3);
             double angle = rng.nextDouble() * Math.PI * 2.0;
             int distance = (f.powerFaction ? 140 : 220) + rng.nextInt(f.powerFaction ? 160 : 260);
-            return new int[]{
+            return keepBaseInsideWorldBorder(f,spawn,
                 anchor.baseX + (int)Math.round(Math.cos(angle) * distance),
-                anchor.baseZ + (int)Math.round(Math.sin(angle) * distance)
-            };
+                anchor.baseZ + (int)Math.round(Math.sin(angle) * distance));
         }
 
         String archetype=f.archetype==null?"BALANCED":f.archetype.toUpperCase(Locale.ENGLISH);
@@ -9057,18 +9069,22 @@ final class SimWorldDirector {
             else if(road==1){x=lateral;z=along;}
             else if(road==2){x=-along;z=lateral;}
             else{x=along;z=lateral;}
-            return new int[]{spawn.getBlockX()+x,spawn.getBlockZ()+z};
+            return keepBaseInsideWorldBorder(f,spawn,spawn.getBlockX()+x,spawn.getBlockZ()+z);
         }
 
-        int minRadius="ECONOMY".equals(archetype)||"UNDERDOG".equals(archetype)?850:650;
-        int maxRadius="ECONOMY".equals(archetype)||"UNDERDOG".equals(archetype)?1325:1250;
+        int minRadius="ECONOMY".equals(archetype)||"UNDERDOG".equals(archetype)?720:620;
+        int configuredMax="ECONOMY".equals(archetype)||"UNDERDOG".equals(archetype)?900:880;
+        int half=Math.max(128,plugin.getConfig().getInt("map.world-border",2000)/2);
+        int buffer=Math.max(4,plugin.getConfig().getInt("claims.sim-base-buffer-blocks",8));
+        int legalMax=Math.max(320,half-baseTerrainRadius(f)-buffer-16);
+        int maxRadius=Math.min(configuredMax,legalMax);
+        minRadius=Math.min(minRadius,maxRadius);
         // Creator status itself deliberately does not improve land value.
         double angle = rng.nextDouble() * Math.PI * 2.0;
         int radius=minRadius+rng.nextInt(Math.max(1,maxRadius-minRadius+1));
-        return new int[]{
+        return keepBaseInsideWorldBorder(f,spawn,
             spawn.getBlockX() + (int)Math.round(Math.cos(angle) * radius),
-            spawn.getBlockZ() + (int)Math.round(Math.sin(angle) * radius)
-        };
+            spawn.getBlockZ() + (int)Math.round(Math.sin(angle) * radius));
     }
 
     private List<String> squareClaims(String world, int cx, int cz, int radius) {

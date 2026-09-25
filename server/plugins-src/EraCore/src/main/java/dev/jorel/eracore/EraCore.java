@@ -4101,6 +4101,127 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             (f.leader.equalsIgnoreCase(name) || isFactionOfficer(f,name));
     }
 
+    private void initializeFactionRules(Faction f) {
+        if(f==null) return;
+        int h=Math.abs((f.name==null?"":f.name.toLowerCase(Locale.ENGLISH)).hashCode());
+        int strict=h%101;
+        f.weeklyDiamondQuota=strict>=72?32:(strict>=38?24:16);
+        f.weeklyContributionQuota=60+(strict/10)*10;
+        f.officersCanInvite=true;
+        f.officersCanKick=((h/101)%100)>=68;
+        f.tryoutRequired=strict>=62;
+        f.rulesWeekStartedAt=System.currentTimeMillis();
+    }
+
+    private void registerFactionMemberState(Faction f,String name) {
+        if(f==null || name==null) return;
+        String k=name.toLowerCase(Locale.ENGLISH);
+        if(!f.memberJoinedAt.containsKey(k)) f.memberJoinedAt.put(k,System.currentTimeMillis());
+        if(!f.weeklyDiamonds.containsKey(k)) f.weeklyDiamonds.put(k,0);
+        if(!f.weeklyContribution.containsKey(k)) f.weeklyContribution.put(k,0);
+        if(!f.ruleStrikes.containsKey(k)) f.ruleStrikes.put(k,0);
+    }
+
+    private void clearFactionMemberState(Faction f,String name) {
+        if(f==null || name==null) return;
+        String k=name.toLowerCase(Locale.ENGLISH);
+        f.weeklyDiamonds.remove(k);
+        f.weeklyContribution.remove(k);
+        f.ruleStrikes.remove(k);
+        f.memberJoinedAt.remove(k);
+    }
+
+    private boolean parseOnOff(String value,boolean current) {
+        if(value==null) return current;
+        if(value.equalsIgnoreCase("on")||value.equalsIgnoreCase("true")||value.equalsIgnoreCase("yes")) return true;
+        if(value.equalsIgnoreCase("off")||value.equalsIgnoreCase("false")||value.equalsIgnoreCase("no")) return false;
+        return current;
+    }
+
+    private void sendFactionRules(Player p,Faction f) {
+        if(p==null || f==null) return;
+        p.sendMessage(color("&6--- "+f.name+" Rules ---"));
+        p.sendMessage(color("&7Weekly diamonds: &f"+f.weeklyDiamondQuota+
+            " &8| &7Contribution points: &f"+f.weeklyContributionQuota));
+        p.sendMessage(color("&7Officer invite: "+(f.officersCanInvite?"&aON":"&cOFF")+
+            " &8| &7Officer kick: "+(f.officersCanKick?"&aON":"&cOFF")+
+            " &8| &7Tryout required: "+(f.tryoutRequired?"&aYES":"&cNO")));
+        p.sendMessage(color("&7Failing a weekly rule adds a strike; two unresolved strikes can remove a member."));
+        sendFactionContribution(p,f,p.getName());
+    }
+
+    private int ledger(Map<String,Integer> map,String name) {
+        if(map==null || name==null) return 0;
+        Integer n=map.get(name.toLowerCase(Locale.ENGLISH));
+        return n==null?0:n;
+    }
+
+    private void sendFactionContribution(Player p,Faction f,String member) {
+        if(p==null || f==null || member==null) return;
+        int diamonds=ledger(f.weeklyDiamonds,member);
+        int points=ledger(f.weeklyContribution,member);
+        int strikes=ledger(f.ruleStrikes,member);
+        p.sendMessage(color("&7"+member+": &bdiamonds "+diamonds+"/"+f.weeklyDiamondQuota+
+            " &8| &acontribution "+points+"/"+f.weeklyContributionQuota+
+            " &8| &cstrikes "+strikes+"/2"));
+    }
+
+    private void broadcastFactionSystem(Faction f,String message) {
+        if(f==null || message==null) return;
+        String line=color("&7[&aF&7] &6SYSTEM&7: &f"+message);
+        for(String member:f.members) {
+            Player target=Bukkit.getPlayerExact(member);
+            if(target!=null) target.sendMessage(line);
+        }
+    }
+
+    synchronized void noteFactionContribution(String memberName,int diamonds,int points) {
+        Faction f=factionOf(memberName);
+        if(f==null) return;
+        registerFactionMemberState(f,memberName);
+        String k=memberName.toLowerCase(Locale.ENGLISH);
+        if(diamonds>0) f.weeklyDiamonds.put(k,ledger(f.weeklyDiamonds,k)+diamonds);
+        if(points>0) f.weeklyContribution.put(k,ledger(f.weeklyContribution,k)+points);
+        saveFactions();
+    }
+
+    synchronized void setFactionRulesAuthority(String factionName,int diamonds,int contribution,
+                                                boolean officerInvite,boolean officerKick,boolean tryout) {
+        Faction f=factions.get(factionName==null?"":factionName.toLowerCase(Locale.ENGLISH));
+        if(f==null) return;
+        f.weeklyDiamondQuota=Math.max(0,Math.min(64,diamonds));
+        f.weeklyContributionQuota=Math.max(0,Math.min(500,contribution));
+        f.officersCanInvite=officerInvite;
+        f.officersCanKick=officerKick;
+        f.tryoutRequired=tryout;
+        saveFactions();
+    }
+
+    synchronized boolean factionManagerAuthority(String factionName,String name) {
+        Faction f=factions.get(factionName==null?"":factionName.toLowerCase(Locale.ENGLISH));
+        return canManageFaction(f,name);
+    }
+
+    synchronized int factionContributionPoints(String factionName,String name) {
+        Faction f=factions.get(factionName==null?"":factionName.toLowerCase(Locale.ENGLISH));
+        return f==null?0:ledger(f.weeklyContribution,name);
+    }
+
+    synchronized int factionDiamondContribution(String factionName,String name) {
+        Faction f=factions.get(factionName==null?"":factionName.toLowerCase(Locale.ENGLISH));
+        return f==null?0:ledger(f.weeklyDiamonds,name);
+    }
+
+    void broadcastSimulatedFactionChat(String factionName,String speaker,String message) {
+        Faction f=factions.get(factionName==null?"":factionName.toLowerCase(Locale.ENGLISH));
+        if(f==null || speaker==null || message==null) return;
+        String msg=color("&7[&aF&7] &f"+speaker+"&7: &f"+message);
+        for(String member:f.members) {
+            Player target=Bukkit.getPlayerExact(member);
+            if(target!=null && !target.getName().equalsIgnoreCase(speaker)) target.sendMessage(msg);
+        }
+    }
+
     private void removeFaction(Faction f) {
         factions.remove(f.name.toLowerCase(Locale.ENGLISH));
         for(String c:new ArrayList<String>(f.claims)) claimOwners.remove(c);
@@ -4122,6 +4243,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (existing != null) {
             if (!containsIgnoreCase(existing.members,leaderName)) existing.members.add(leaderName);
             if (existing.leader == null || existing.leader.isEmpty()) existing.leader = leaderName;
+            registerFactionMemberState(existing,leaderName);
             removeIgnoreCase(existing.officers,existing.leader);
             existing.dtr = Math.min(existing.dtr <= 0 ? maxDtr(existing) : existing.dtr, maxDtr(existing));
             saveFactions();
@@ -4132,6 +4254,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         f.name = factionName;
         f.leader = leaderName;
         f.members.add(leaderName);
+        initializeFactionRules(f);
+        registerFactionMemberState(f,leaderName);
         f.dtr = maxDtr(f);
         factions.put(fk, f);
         saveFactions();
@@ -4145,6 +4269,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (old != null && !old.name.equalsIgnoreCase(f.name)) return false;
         removeIgnoreCase(f.officers,memberName);
         addCasePreserving(f.members,memberName);
+        registerFactionMemberState(f,memberName);
         f.dtr = Math.min(maxDtr(f), Math.max(0.1, f.dtr));
         saveFactions();
         return true;
@@ -4177,6 +4302,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         boolean removed=removeIgnoreCase(f.members,memberName);
         if(!removed) return false;
         removeIgnoreCase(f.officers,memberName);
+        clearFactionMemberState(f,memberName);
 
         f.dtr=Math.min(f.dtr,maxDtr(f));
         saveFactions();

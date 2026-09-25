@@ -92,3 +92,20 @@ The production family compiler passed the independent five-family visual QA at t
 - Base-HCF/Redemption remain visibly player-built but must sit into the site rather than on a lawn;
 - ModernHCF may expose more architecture, but surrounding terrain must remain canonical rather than planed flat;
 - the QA showcase must render all five primary families and fail if coverage is incomplete.
+
+
+## Phase 2 base-style reset lock
+
+Phase 2 is frozen after authored-FreeMap five-family visual QA.
+
+Acceptance evidence:
+- GitHub Actions run `36078370969` completed successfully on the authored FreeMap and rendered deterministic primary examples of Redemption, Base-HCF, ModernHCF, Tunnel and Cave.
+- Each family is distinguishable by footprint, roof profile, shell exposure and terrain relationship before palette is considered.
+- Redemption remains compact/recessed; Base-HCF remains broad/practical; ModernHCF is the cleanest and most architecturally exposed; Tunnel reads primarily as a buried mouth/spine; Cave reads as an irregular terrain/rock cut-in.
+- Tunnel/Cave roof and side exposure are materially lower than ModernHCF.
+- The old square-lawn/radial-berm failure mode is not present in the accepted authored-world overviews.
+- Entrances retain the production fence-gate/transit semantics; exterior concealment may not block those anchors.
+- No decorative faction roads are introduced. Canonical spawn roads remain a separate protected map system.
+- The follow-up inspector change at `252023e5` only corrects QA camera height to the real terrain-selected base Y and adds explicit four-border road proof shots; it does not alter accepted Phase-2 base geometry.
+
+Phase-3 work may improve rooms, storage/refill circulation, dropdown/elevator presentation, brewer/farm usability and interior craftsmanship, but it must not replace the accepted Phase-2 family masks, roof profiles, terrain-cradle rules or entrance semantics without a new five-family visual regression run.

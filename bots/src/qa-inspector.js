@@ -521,6 +521,15 @@ if(showcase){
         writeManifest()
         throw new Error('Exact Phase 2B exterior preflight failed: '+proof.slice(-20).join(' || '))
       }
+
+      const materialProof=serverLog.split(/\r?\n/).filter(line=>line.includes('[qa-material]'))
+      manifest.productionMaterialProof=materialProof.slice(-20)
+      const materialFailed=materialProof.find(line=>line.includes('[qa-material] FAILED'))
+      const materialOk=materialProof.filter(line=>line.includes('[qa-material] OK')).length
+      if(materialFailed || materialOk<5) {
+        writeManifest()
+        throw new Error('Phase 2 production material audit failed: '+materialProof.slice(-10).join(' || '))
+      }
     } catch(e) {
       if(String(e?.message||e).includes('Exact Phase 2B exterior preflight failed')) throw e
       manifest.errors.push('unable to read exact exterior proof: '+String(e?.message||e))

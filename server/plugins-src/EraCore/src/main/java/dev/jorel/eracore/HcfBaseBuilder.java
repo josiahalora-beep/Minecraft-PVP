@@ -201,14 +201,24 @@ final class HcfBaseBuilder {
     private int naturalFitScore(int[] fit,int distancePenalty) {
         int perimeter=fit[5]+fit[6];
         int entranceTrees=fit.length>7?fit[7]:999;
-        return perimeter*260 + fit[1]*200 + fit[2]*30 +
-            fit[3]*12 + fit[4]*400 + entranceTrees*180 + distancePenalty;
+        // Exterior contact dominates everything hidden below the reference.
+        // One visible platform/seam column must never beat dozens of harmless
+        // interior deviations that construction completely covers.
+        return perimeter*6000 + fit[4]*9000 + entranceTrees*4500 +
+            fit[3]*24 + fit[1]*18 + fit[2]*5 + distancePenalty;
     }
 
-    private boolean idealNaturalFit(int[] fit) {
-        return fit!=null && fit.length>=8 &&
-            (fit[5]+fit[6])==0 && fit[1]<=1 &&
-            fit[2]<=6 && fit[3]<=10 && fit[4]==0 && fit[7]==0;
+    private boolean idealNaturalFit(int[] fit,int family) {
+        if(fit==null || fit.length<8) return false;
+        if((fit[5]+fit[6])!=0 || fit[4]!=0 || fit[7]!=0) return false;
+
+        // Interior relief is hidden by the exact schematic. Wider Base-HCF is
+        // therefore allowed to bridge a naturally irregular interior so long
+        // as its entire visible perimeter meets native grade cleanly.
+        if(family==1) return fit[1]<=12 && fit[3]<=28;
+        if(family==0) return fit[1]<=5 && fit[3]<=18;
+        if(family==2) return fit[1]<=3 && fit[3]<=18;
+        return fit[1]<=5 && fit[3]<=22;
     }
 
     private int[] findNearbyFamilyQaSite(String faction,int seedX,int seedZ) {
@@ -227,14 +237,18 @@ final class HcfBaseBuilder {
                 int x=seedX+dx,z=seedZ+dz;
                 if(Math.abs(x)>940 || Math.abs(z)>940) continue;
                 HcfBasePlan probe=planFor(faction,x,64,z);
-                if(quickReferenceRelief(world,x,z,probe.primaryFamily)>3) continue;
-                int[] candidate=evaluateReferenceSite(faction,x,z);
+                int quickLimit=probe.primaryFamily==1?12:(probe.primaryFamily==0?6:4);
+                if(quickReferenceRelief(world,x,z,probe.primaryFamily)>quickLimit) continue;
+                int[] terrain=evaluateReferenceSite(faction,x,z,false);
+                int lowerBound=naturalFitScore(terrain,(Math.abs(dx)+Math.abs(dz))/6);
+                if(lowerBound>=bestScore) continue;
+                int[] candidate=evaluateReferenceSite(faction,x,z,true);
                 int score=naturalFitScore(candidate,(Math.abs(dx)+Math.abs(dz))/6);
                 if(score<bestScore) {
                     bestScore=score;
                     best=new int[]{x,candidate[0],z};
                 }
-                if(idealNaturalFit(candidate)) return new int[]{x,candidate[0],z};
+                if(idealNaturalFit(candidate,probe.primaryFamily)) return new int[]{x,candidate[0],z};
             }
         }
 
@@ -243,13 +257,17 @@ final class HcfBaseBuilder {
             for(int dz=-12;dz<=12;dz++) {
                 int x=bx+dx,z=bz+dz;
                 if(Math.abs(x)>940 || Math.abs(z)>940) continue;
-                int[] candidate=evaluateReferenceSite(faction,x,z);
+                HcfBasePlan probe=planFor(faction,x,64,z);
+                int[] terrain=evaluateReferenceSite(faction,x,z,false);
+                int lowerBound=naturalFitScore(terrain,0);
+                if(lowerBound>=bestScore) continue;
+                int[] candidate=evaluateReferenceSite(faction,x,z,true);
                 int score=naturalFitScore(candidate,0);
                 if(score<bestScore) {
                     bestScore=score;
                     best=new int[]{x,candidate[0],z};
                 }
-                if(idealNaturalFit(candidate)) return new int[]{x,candidate[0],z};
+                if(idealNaturalFit(candidate,probe.primaryFamily)) return new int[]{x,candidate[0],z};
             }
         }
         return best;
@@ -275,13 +293,16 @@ final class HcfBaseBuilder {
                 if(quickReferenceRelief(world,x,z,probe.primaryFamily)>1) continue;
 
                 world.loadChunk(x>>4,z>>4);
-                int[] fit=evaluateReferenceSite(faction,x,z);
+                int[] terrain=evaluateReferenceSite(faction,x,z,false);
+                int lowerBound=naturalFitScore(terrain,(Math.abs(dx)+Math.abs(dz))/4);
+                if(lowerBound>=bestScore) continue;
+                int[] fit=evaluateReferenceSite(faction,x,z,true);
                 int score=naturalFitScore(fit,(Math.abs(dx)+Math.abs(dz))/4);
                 if(score<bestScore) {
                     bestScore=score;
                     best=new int[]{x,fit[0],z};
                 }
-                if(idealNaturalFit(fit)) return new int[]{x,fit[0],z};
+                if(idealNaturalFit(fit,probe.primaryFamily)) return new int[]{x,fit[0],z};
             }
         }
 
@@ -292,13 +313,16 @@ final class HcfBaseBuilder {
                     int x=bx+dx,z=bz+dz;
                     HcfBasePlan probe=planFor(faction,x,64,z);
                     if(!"MODERN_HCF".equals(probe.primaryFamilyName())) continue;
-                    int[] fit=evaluateReferenceSite(faction,x,z);
+                    int[] terrain=evaluateReferenceSite(faction,x,z,false);
+                    int lowerBound=naturalFitScore(terrain,0);
+                    if(lowerBound>=bestScore) continue;
+                    int[] fit=evaluateReferenceSite(faction,x,z,true);
                     int score=naturalFitScore(fit,0);
                     if(score<bestScore) {
                         bestScore=score;
                         best=new int[]{x,fit[0],z};
                     }
-                    if(idealNaturalFit(fit)) return new int[]{x,fit[0],z};
+                    if(idealNaturalFit(fit,probe.primaryFamily)) return new int[]{x,fit[0],z};
                 }
             }
             // Returning a visibly bad fallback defeats the purpose of Phase 2
@@ -306,7 +330,8 @@ final class HcfBaseBuilder {
             // contract; otherwise signal failure with the seed so the inspector
             // rejects it explicitly rather than photographing compromised work.
             int[] finalFit=evaluateReferenceSite(faction,best[0],best[2]);
-            if(idealNaturalFit(finalFit)) return best;
+            HcfBasePlan finalPlan=planFor(faction,best[0],finalFit[0],best[2]);
+            if(idealNaturalFit(finalFit,finalPlan.primaryFamily)) return best;
         }
 
         int[] fit=evaluateReferenceSite(faction,seedX,seedZ);
@@ -783,8 +808,16 @@ final class HcfBaseBuilder {
      * mode, makes a schematic sit ON the land instead of becoming a raised stage.
      */
     int[] evaluateReferenceSite(String faction,int cx,int cz) {
+        return evaluateReferenceSite(faction,cx,cz,true);
+    }
+
+    int[] evaluateReferenceTerrainSite(String faction,int cx,int cz) {
+        return evaluateReferenceSite(faction,cx,cz,false);
+    }
+
+    private int[] evaluateReferenceSite(String faction,int cx,int cz,boolean includeEntranceTrees) {
         World world=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
-        if(world==null) return new int[]{64,999,999,999,999,999,999,999};
+        if(world==null) return new int[]{64,999,999,999,999,999,999,includeEntranceTrees?999:0};
 
         HcfBasePlan probe=planFor(faction,cx,64,cz);
         int hx=(HcfSurfaceReferenceTemplates.width(probe.primaryFamily)-1)/2;
@@ -848,8 +881,11 @@ final class HcfBaseBuilder {
         }
 
         int relief=(min==Integer.MAX_VALUE||max==Integer.MIN_VALUE)?999:(max-min);
-        HcfBasePlan graded=planFor(faction,cx,grade,cz);
-        int entranceTrees=countEntranceTreeColumns(world,graded);
+        int entranceTrees=0;
+        if(includeEntranceTrees) {
+            HcfBasePlan graded=planFor(faction,cx,grade,cz);
+            entranceTrees=countEntranceTreeColumns(world,graded);
+        }
         return new int[]{grade,relief,offGrade,outerOff,liquids,perimeterLow,perimeterHigh,entranceTrees};
     }
 

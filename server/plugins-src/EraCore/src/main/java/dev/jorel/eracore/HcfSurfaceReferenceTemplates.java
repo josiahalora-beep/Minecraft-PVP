@@ -440,6 +440,80 @@ final class HcfSurfaceReferenceTemplates {
         }
     }
 
+    static int paletteVariant(HcfBasePlan plan) {
+        // The canonical QA factions must remain byte-for-byte reference exact.
+        if(plan==null || plan.faction==null || plan.faction.startsWith("QA")) return 0;
+
+        int roll=Math.abs((plan.seed/131)%3);
+        switch(plan.primaryFamily) {
+            case 0: return roll==0?0:(roll==1?3:1); // classic / redline / cyan
+            case 1: return roll==0?0:(roll==1?1:2); // classic / cyan / arctic
+            case 2: return roll==0?1:(roll==1?2:4); // cyan / arctic / smoke
+            case 3: return roll==0?1:(roll==1?4:3); // cyan / smoke / redline
+            case 4: return roll==0?0:(roll==1?4:3); // classic / smoke / redline
+            default:return 0;
+        }
+    }
+
+    static String paletteName(HcfBasePlan plan) {
+        switch(paletteVariant(plan)) {
+            case 1:return "CYAN_CHARCOAL";
+            case 2:return "ARCTIC_BLUE";
+            case 3:return "RED_BLACK_WHITE";
+            case 4:return "SMOKE_GRAY";
+            default:return "REFERENCE";
+        }
+    }
+
+    private static boolean neutralDye(int data) {
+        return data==0 || data==7 || data==8 || data==15;
+    }
+
+    /**
+     * Era-compatible color variation. Geometry and block placement never move:
+     * only glass and dyed accent blocks are recolored. The exact source palette
+     * remains variant 0 and is always used by canonical visual QA.
+     */
+    private static Material paletteMaterial(HcfBasePlan plan,Material material) {
+        int variant=paletteVariant(plan);
+        if(variant==0 || material==null) return material;
+        int id=material.getId();
+        if(id==20) return Material.getMaterial(95);   // glass -> stained glass
+        if(id==102) return Material.getMaterial(160); // pane -> stained pane
+        return material;
+    }
+
+    private static byte paletteData(HcfBasePlan plan,Material source,byte data) {
+        int variant=paletteVariant(plan);
+        if(variant==0 || source==null) return data;
+
+        int id=source.getId();
+        boolean glass=id==20 || id==95 || id==102 || id==160;
+        boolean dyed=id==35 || id==159 || id==171;
+        if(!glass && !dyed) return data;
+
+        int d=data&0xff;
+        switch(variant) {
+            case 1: // Cyan + charcoal/light-gray framing.
+                if(neutralDye(d)) return (byte)(d==15?7:(d==0?8:d));
+                return (byte)9;
+            case 2: // Light-blue/cyan + white/light-gray.
+                if(d==15 || d==7) return (byte)8;
+                if(d==0 || d==8) return (byte)0;
+                return (byte)(d==9?9:3);
+            case 3: // Competitive red / black / white.
+                if(d==15 || d==7) return (byte)15;
+                if(d==0 || d==8) return (byte)0;
+                return (byte)14;
+            case 4: // Smoke gray / light gray.
+                if(d==15) return (byte)15;
+                if(d==0 || d==8) return (byte)8;
+                return (byte)7;
+            default:
+                return data;
+        }
+    }
+
     static int width(int family) { return forFamily(family).width; }
     static int height(int family) {
         Template t=forFamily(family);
@@ -567,8 +641,10 @@ final class HcfSurfaceReferenceTemplates {
             int count=((t.rle[i]&0xff)<<8)|(t.rle[i+1]&0xff);
             int id=t.rle[i+2]&0xff;
             byte data=t.rle[i+3];
-            Material material=Material.getMaterial(id);
-            if(material==null) material=Material.AIR;
+            Material sourceMaterial=Material.getMaterial(id);
+            if(sourceMaterial==null) sourceMaterial=Material.AIR;
+            Material material=paletteMaterial(plan,sourceMaterial);
+            byte placedData=paletteData(plan,sourceMaterial,data);
 
             for(int n=0;n<count && cursor<total;n++,cursor++) {
                 int x=cursor%t.width;
@@ -584,7 +660,7 @@ final class HcfSurfaceReferenceTemplates {
                 // reference floor/foundation blocks still replace that column.
                 if(material==Material.AIR && worldY<=plan.surfaceY) continue;
 
-                queue.add(new HcfBaseBuilder.Op(world,originX+x,worldY,originZ+z,material,data));
+                queue.add(new HcfBaseBuilder.Op(world,originX+x,worldY,originZ+z,material,placedData));
             }
         }
 

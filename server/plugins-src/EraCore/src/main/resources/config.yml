@@ -205,6 +205,10 @@ sim-world:
   logical-online-late-night: 52
   session-min-minutes: 25
   session-max-minutes: 140
+  officer-order-hold-ticks: 18
+
+faction-rules:
+  week-hours: 168
 
 spawn-presence:
   enabled: false

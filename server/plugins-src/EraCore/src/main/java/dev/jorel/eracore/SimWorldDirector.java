@@ -8785,6 +8785,36 @@ final class SimWorldDirector {
         f.diamonds-=sold;
     }
 
+    private int referenceSiteScore(int[] fit,int[] broad,int biomeEdges,int family) {
+        int perimeter=fit[5]+fit[6];
+        int trees=fit.length>7?fit[7]:999;
+        int interiorReliefWeight=family==1?5:18;
+        int interiorOffWeight=family==1?1:5;
+        int score=
+            perimeter*6000 +
+            fit[4]*9000 +
+            trees*4500 +
+            broad[2]*1800 +
+            biomeEdges*180 +
+            fit[3]*24 +
+            fit[1]*interiorReliefWeight +
+            fit[2]*interiorOffWeight;
+
+        int broadLimit=(family==3||family==4)?8:(family==1?10:6);
+        if(broad[1]>broadLimit) score+=(broad[1]-broadLimit)*18;
+        return score;
+    }
+
+    private boolean idealReferenceSite(int[] fit,int[] broad,int biomeEdges,int family,int maxLiquids) {
+        if(fit==null || fit.length<8 || broad==null || broad.length<3) return false;
+        if((fit[5]+fit[6])!=0 || fit[4]>maxLiquids || fit[7]!=0 ||
+           broad[2]>maxLiquids || biomeEdges!=0) return false;
+        if(family==1) return fit[1]<=12 && fit[3]<=28;
+        if(family==0) return fit[1]<=5 && fit[3]<=18;
+        if(family==2) return fit[1]<=3 && fit[3]<=18;
+        return fit[1]<=5 && fit[3]<=22;
+    }
+
     private boolean planAndClaimBase(SimFaction f) {
         if (f.baseX != 0 || f.baseZ != 0) return true;
 
@@ -8816,47 +8846,33 @@ final class SimWorldDirector {
             int z = raw[1];
 
             int[] broad;
-            int[] fit;
-            if(plugin.getConfig().getBoolean("terrain.authored-world",false) ||
-               plugin.getConfig().getBoolean("terrain.normalize-new-chunks",false)) {
+            int[] terrainFit;
+            boolean authored=plugin.getConfig().getBoolean("terrain.authored-world",false) ||
+                plugin.getConfig().getBoolean("terrain.normalize-new-chunks",false);
+            if(authored) {
                 broad=plugin.evaluateSimBaseSite(x,z,terrainRadius);
-                fit=plugin.evaluateSimReferenceSite(f.name,x,z);
+                terrainFit=plugin.evaluateSimReferenceTerrainSite(f.name,x,z);
             } else {
                 int flatY=plugin.getConfig().getInt("map.surface-y",63);
                 broad=new int[]{flatY,0,0};
-                fit=new int[]{flatY,0,0,0,0,0,0,0};
+                terrainFit=new int[]{flatY,0,0,0,0,0,0,0};
             }
 
             int minY = Math.max(50, plugin.getConfig().getInt("sim-world.min-base-y", 50));
             int maxY = Math.min(110, plugin.getConfig().getInt("sim-world.max-base-y", 110));
-            if (fit[0] < minY || fit[0] > maxY) continue;
+            if (terrainFit[0] < minY || terrainFit[0] > maxY) continue;
 
-            HcfBasePlan candidatePlan=HcfBasePlan.of(f.name,x,fit[0],z,siteProfile);
-            int maxInteriorOff=candidatePlan.primaryFamily==1?12:
-                (candidatePlan.primaryFamily==0?8:6);
-            int maxOuterOff=candidatePlan.primaryFamily==4||candidatePlan.primaryFamily==3?18:10;
-
+            HcfBasePlan candidatePlan=HcfBasePlan.of(f.name,x,terrainFit[0],z,siteProfile);
             int biomeEdges=baseSiteBiomeTransitions(world,x,z,Math.max(12,terrainRadius));
-            int visiblePerimeterMismatch=fit[5]+fit[6];
 
-            // Perimeter mismatch is by far the most important defect because it
-            // creates the exact one-block "stage/platform" silhouette rejected
-            // in manual review. Interior deviations are largely hidden under the
-            // structure and therefore receive a much smaller penalty.
-            int score =
-                visiblePerimeterMismatch*220 +
-                fit[1]*180 +
-                fit[2]*28 +
-                fit[3]*12 +
-                fit[4]*350 +
-                (fit.length>7?fit[7]:999)*180 +
-                broad[2]*120 +
-                biomeEdges*90;
+            // Tree scanning is the expensive part. The no-tree score is a true
+            // lower bound, so only candidates capable of beating the current
+            // best pay for the full entrance-obstruction pass.
+            int lowerBound=referenceSiteScore(terrainFit,broad,biomeEdges,candidatePlan.primaryFamily);
+            if(lowerBound>=bestScore) continue;
 
-            // Very steep surrounding land is still undesirable, but unlike the
-            // old algorithm we never target a non-zero relief on purpose.
-            int broadLimit=(candidatePlan.primaryFamily==3||candidatePlan.primaryFamily==4)?8:5;
-            if(broad[1]>broadLimit) score+=(broad[1]-broadLimit)*45;
+            int[] fit=authored?plugin.evaluateSimReferenceSite(f.name,x,z):terrainFit;
+            int score=referenceSiteScore(fit,broad,biomeEdges,candidatePlan.primaryFamily);
 
             if (score < bestScore) {
                 bestScore = score;
@@ -8864,22 +8880,21 @@ final class SimWorldDirector {
                 bestEval = fit;
             }
 
-            // Ideal natural fit: native perimeter is already at one grade,
-            // footprint is at most a one-block interior variation, no liquids,
-            // and the immediate exterior ring remains substantially level.
-            if (visiblePerimeterMismatch==0 &&
-                fit[1]<=1 && fit[2]<=maxInteriorOff &&
-                fit[3]<=maxOuterOff && fit[4]<=maxLiquids &&
-                fit.length>7 && fit[7]==0 &&
-                broad[2]<=maxLiquids && biomeEdges==0) break;
+            if(idealReferenceSite(fit,broad,biomeEdges,candidatePlan.primaryFamily,maxLiquids)) break;
         }
 
         // Human-like final walk-around: once a good area is found, inspect the
         // nearby blocks rather than accepting the first sampled center. This
         // does not modify terrain; it only moves the planned base center onto a
         // naturally better shelf/plateau.
-        boolean visibleFitAlreadyPerfect=bestEval!=null && bestEval.length>=8 &&
-            (bestEval[5]+bestEval[6])==0 && bestEval[4]==0 && bestEval[7]==0;
+        boolean visibleFitAlreadyPerfect=false;
+        if(bestPoint!=null && bestEval!=null) {
+            int[] bestBroad=plugin.evaluateSimBaseSite(bestPoint[0],bestPoint[1],terrainRadius);
+            HcfBasePlan bestPlan=HcfBasePlan.of(f.name,bestPoint[0],bestEval[0],bestPoint[1],siteProfile);
+            int bestBiome=baseSiteBiomeTransitions(world,bestPoint[0],bestPoint[1],Math.max(12,terrainRadius));
+            visibleFitAlreadyPerfect=idealReferenceSite(
+                bestEval,bestBroad,bestBiome,bestPlan.primaryFamily,maxLiquids);
+        }
         if(bestPoint!=null && bestEval!=null && !visibleFitAlreadyPerfect &&
            (plugin.getConfig().getBoolean("terrain.authored-world",false) ||
             plugin.getConfig().getBoolean("terrain.normalize-new-chunks",false))) {
@@ -8894,32 +8909,28 @@ final class SimWorldDirector {
                     for(int dz=-reach;dz<=reach;dz+=step) {
                         int x=originX+dx,z=originZ+dz;
                         int[] broad=plugin.evaluateSimBaseSite(x,z,terrainRadius);
-                        int[] fit=plugin.evaluateSimReferenceSite(f.name,x,z);
+                        int[] terrainFit=plugin.evaluateSimReferenceTerrainSite(f.name,x,z);
 
                         int minY=Math.max(50,plugin.getConfig().getInt("sim-world.min-base-y",50));
                         int maxY=Math.min(110,plugin.getConfig().getInt("sim-world.max-base-y",110));
-                        if(fit[0]<minY || fit[0]>maxY) continue;
+                        if(terrainFit[0]<minY || terrainFit[0]>maxY) continue;
 
-                        HcfBasePlan candidatePlan=HcfBasePlan.of(f.name,x,fit[0],z,siteProfile);
+                        HcfBasePlan candidatePlan=HcfBasePlan.of(f.name,x,terrainFit[0],z,siteProfile);
                         int biomeEdges=baseSiteBiomeTransitions(world,x,z,Math.max(12,terrainRadius));
-                        int visiblePerimeterMismatch=fit[5]+fit[6];
-                        int score=
-                            visiblePerimeterMismatch*260 +
-                            fit[1]*210 +
-                            fit[2]*30 +
-                            fit[3]*14 +
-                            fit[4]*400 +
-                            (fit.length>7?fit[7]:999)*210 +
-                            broad[2]*120 +
-                            biomeEdges*90;
-                        int broadLimit=(candidatePlan.primaryFamily==3||candidatePlan.primaryFamily==4)?8:5;
-                        if(broad[1]>broadLimit) score+=(broad[1]-broadLimit)*50;
+                        int lowerBound=referenceSiteScore(
+                            terrainFit,broad,biomeEdges,candidatePlan.primaryFamily);
+                        if(lowerBound>=bestScore) continue;
+
+                        int[] fit=plugin.evaluateSimReferenceSite(f.name,x,z);
+                        int score=referenceSiteScore(fit,broad,biomeEdges,candidatePlan.primaryFamily);
 
                         if(score<bestScore) {
                             bestScore=score;
                             bestPoint=new int[]{x,z};
                             bestEval=fit;
                             refineX=x; refineZ=z;
+                            if(idealReferenceSite(fit,broad,biomeEdges,
+                                candidatePlan.primaryFamily,maxLiquids)) break;
                         }
                     }
                 }

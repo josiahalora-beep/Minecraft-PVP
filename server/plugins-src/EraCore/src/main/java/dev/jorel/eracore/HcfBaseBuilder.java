@@ -219,15 +219,17 @@ final class HcfBaseBuilder {
         int[] best=new int[]{seedX,fit[0],seedZ};
         int bestScore=naturalFitScore(fit,0);
 
-        // The pinned QA coordinates are stable starting neighborhoods, not a
-        // requirement to photograph a tree. Search only the already-preloaded
-        // local area so this remains bounded and deterministic.
-        for(int dx=-32;dx<=32;dx+=4) {
-            for(int dz=-32;dz<=32;dz+=4) {
+        // The pinned coordinates are starting neighborhoods only. Search a
+        // bounded wider area so a dense custom-tree grove cannot force a bad
+        // screenshot even though a clean site exists nearby.
+        for(int dx=-192;dx<=192;dx+=8) {
+            for(int dz=-192;dz<=192;dz+=8) {
                 int x=seedX+dx,z=seedZ+dz;
                 if(Math.abs(x)>940 || Math.abs(z)>940) continue;
+                HcfBasePlan probe=planFor(faction,x,64,z);
+                if(quickReferenceRelief(world,x,z,probe.primaryFamily)>3) continue;
                 int[] candidate=evaluateReferenceSite(faction,x,z);
-                int score=naturalFitScore(candidate,(Math.abs(dx)+Math.abs(dz))/4);
+                int score=naturalFitScore(candidate,(Math.abs(dx)+Math.abs(dz))/6);
                 if(score<bestScore) {
                     bestScore=score;
                     best=new int[]{x,candidate[0],z};
@@ -237,8 +239,8 @@ final class HcfBaseBuilder {
         }
 
         int bx=best[0],bz=best[2];
-        for(int dx=-6;dx<=6;dx++) {
-            for(int dz=-6;dz<=6;dz++) {
+        for(int dx=-12;dx<=12;dx++) {
+            for(int dz=-12;dz<=12;dz++) {
                 int x=bx+dx,z=bz+dz;
                 if(Math.abs(x)>940 || Math.abs(z)>940) continue;
                 int[] candidate=evaluateReferenceSite(faction,x,z);
@@ -327,7 +329,7 @@ final class HcfBaseBuilder {
         // authored FreeMap. QA must be deterministic and must never freeze the
         // server rescanning the full 2000x2000 world during screenshot capture.
         final int[][] sites={
-            {-131,769},{-402,-344},{490,-876},{780,-796},{-900,892}
+            {-131,769},{-402,-344},{490,-876},{780,-796},{-600,600}
         };
         final String[] expected={
             "REDEMPTION","BASE_HCF","MODERN_HCF","TUNNEL","CAVE"
@@ -864,8 +866,12 @@ final class HcfBaseBuilder {
         int frontOutsideZ=p.cz-hz-1;
         int blocked=0;
 
-        for(int x=gateX-5;x<=gateX+5;x++) {
-            for(int z=frontOutsideZ-12;z<=frontOutsideZ;z++) {
+        // Cover the real human approach and the entrance QA camera, not just a
+        // narrow five-block lane immediately outside the gate. This catches the
+        // large custom FreeMap trees that previously sat one block outside the
+        // old test and still obscured most of the facade.
+        for(int x=gateX-9;x<=gateX+9;x++) {
+            for(int z=frontOutsideZ-24;z<=frontOutsideZ+2;z++) {
                 int ground=solidSurfaceY(world,x,z);
                 int top=Math.min(world.getMaxHeight()-1,
                     Math.max(ground+14,world.getHighestBlockYAt(x,z)+2));

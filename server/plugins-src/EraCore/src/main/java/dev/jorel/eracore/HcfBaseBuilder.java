@@ -1687,7 +1687,9 @@ final class HcfBaseBuilder {
     private void buildUndergroundCore(World w,HcfBasePlan p) {
         int minX=p.cx-p.coreHalfX,maxX=p.cx+p.coreHalfX;
         int minZ=p.cz-p.coreHalfZ,maxZ=p.cz+p.coreHalfZ;
-        int floor=p.undergroundY,ceiling=floor+6;
+        // Real reference bases use tall storage/refill walls and layered utility
+        // rooms. Six-block cores made every interior read like one low bunker.
+        int floor=p.undergroundY,ceiling=floor+(p.finishTier==0?7:8);
 
         for(int x=minX;x<=maxX;x++) for(int z=minZ;z<=maxZ;z++) {
             queue.add(new Op(w,x,floor,z,p.undergroundFloor));
@@ -1712,15 +1714,75 @@ final class HcfBaseBuilder {
         }
 
         buildVerticalTransit(w,p);
+        buildDropdownLanding(w,p);
         buildStorageTier(w,p,1);
+        buildRefillGallery(w,p);
         buildFarmLevel(w,p,"cane");
         buildReferenceGrammar(w,p);
         buildCoreUtilityModules(w,p);
+    }
 
-        int[] refill=p.anchor("refill");
-        queue.add(new Op(w,refill[0],refill[1],refill[2],Material.ENDER_CHEST));
-        queue.add(new Op(w,refill[0]+1,refill[1],refill[2],Material.ANVIL));
-        queue.add(new Op(w,refill[0]-1,refill[1],refill[2],Material.WORKBENCH));
+    private void buildDropdownLanding(World w,HcfBasePlan p) {
+        int[] d=p.anchor("drop-bottom");
+        int floor=p.undergroundY;
+        int cx=d[0],cz=d[2];
+
+        // Classic HCF dropdown landing: water center, framed glass/gate sightlines,
+        // and immediate emergency supplies on the dry exit side.
+        byte glass=(byte)(p.primaryFamily==1?15:9);
+        for(int z=cz-3;z<=cz+2;z++) {
+            for(int x=cx-3;x<=cx+3;x++) {
+                boolean edge=x==cx-3||x==cx+3||z==cz-3;
+                if(!edge) continue;
+                for(int yy=floor+1;yy<=floor+3;yy++) {
+                    if(z==cz+2 && Math.abs(x-cx)<=1) continue;
+                    Material m=(yy==floor+2 && ((x+z)&1)==0)?Material.STAINED_GLASS:p.undergroundTrim;
+                    queue.add(new Op(w,x,yy,z,m,m==Material.STAINED_GLASS?glass:(byte)0));
+                }
+            }
+        }
+
+        // Dry landing supplies. These do not replace the semantic storage
+        // anchors; they are visible emergency capacity like real faction bases.
+        doubleChest(w,cx-5,floor+1,cz+3,"Quick Pots");
+        doubleChest(w,cx+3,floor+1,cz+3,"Pearls");
+        queue.add(new Op(w,cx-2,floor+1,cz+4,Material.ANVIL));
+        queue.add(new Op(w,cx+2,floor+1,cz+4,Material.ENDER_CHEST));
+        queue.add(new Op(w,cx,floor+5,cz+3,Material.GLOWSTONE));
+    }
+
+    private void buildRefillGallery(World w,HcfBasePlan p) {
+        int[] a=p.anchor("refill");
+        int floor=p.undergroundY;
+        int z=a[2];
+        int levels=p.profile.organization>=72?3:2;
+        int[] starts={-8,-5,3,6};
+        String[] labels={"Pots","Pearls","Armor","Kits"};
+
+        // Leave the middle three blocks completely clear so a HOT bot can sprint
+        // straight through the refill line instead of zig-zagging around chests.
+        for(int i=0;i<starts.length;i++) {
+            int x=p.cx+starts[i];
+            stackedDoubleChest(w,x,floor+1,z,labels[i],levels);
+        }
+
+        queue.add(new Op(w,p.cx-1,floor+1,z,Material.WORKBENCH));
+        queue.add(new Op(w,p.cx,floor+1,z,Material.ENDER_CHEST));
+        queue.add(new Op(w,p.cx+1,floor+1,z,Material.ANVIL));
+
+        // Glass divider + fence-gate center gives the classic visible refill-room
+        // language while remaining fully traversable.
+        byte glass=(byte)(p.primaryFamily==1?15:9);
+        for(int x=p.cx-9;x<=p.cx+9;x++) {
+            if(Math.abs(x-p.cx)<=1) {
+                queue.add(new Op(w,x,floor+1,z+2,Material.FENCE_GATE,(byte)0));
+                queue.add(new Op(w,x,floor+2,z+2,Material.FENCE_GATE,(byte)0));
+            } else if((Math.abs(x-p.cx)%3)==0) {
+                queue.add(new Op(w,x,floor+1,z+2,Material.STAINED_GLASS,glass));
+                queue.add(new Op(w,x,floor+2,z+2,Material.STAINED_GLASS,glass));
+            }
+        }
+        queue.add(new Op(w,p.cx,floor+6,z,Material.GLOWSTONE));
     }
 
     private void buildCoreUtilityModules(World w,HcfBasePlan p) {
@@ -2299,15 +2361,40 @@ final class HcfBaseBuilder {
             "Helmets","Chestplates","Leggings","Boots","Swords","Bows","Kits"};
         int count=tier<=1?8:(tier==2?11:14);
 
+        // Even a starter HCF faction has dense wall storage. Upgrades expand both
+        // the number of categories and vertical capacity instead of spawning one
+        // lonely chest per resource type.
+        int levels=tier<=1?2:3;
+        if(p.profile.organization<38 && tier<=1) levels=1;
+
         for(int i=0;i<count;i++) {
             int[] a=p.storageSlot(i);
-            doubleChest(w,a[0],a[1],a[2],labels[i]);
+            stackedDoubleChest(w,a[0],a[1],a[2],labels[i],levels);
         }
 
-        // Function is decoration: organized chest banks, signs and lighting make
-        // the room look intentional without a fantasy-build shell around it.
-        for(int x=p.cx-p.coreHalfX+2;x<=p.cx+p.coreHalfX-2;x+=8)
-            queue.add(new Op(w,x,p.undergroundY+5,p.cz,Material.GLOWSTONE));
+        // Ceiling strips intentionally line the storage aisles rather than the
+        // central combat/dropdown path.
+        for(int x=p.cx-p.coreHalfX+2;x<=p.cx+p.coreHalfX-2;x+=8) {
+            queue.add(new Op(w,x,p.undergroundY+6,p.cz-6,Material.GLOWSTONE));
+            queue.add(new Op(w,x,p.undergroundY+6,p.cz+6,Material.GLOWSTONE));
+        }
+    }
+
+    private void stackedDoubleChest(World w,int x,int baseY,int z,String label,int levels) {
+        int n=Math.max(1,Math.min(3,levels));
+        for(int level=0;level<n;level++) {
+            int y=baseY+level*2;
+            Material chest=(level&1)==0?Material.CHEST:Material.TRAPPED_CHEST;
+            queue.add(new Op(w,x,y,z,chest));
+            queue.add(new Op(w,x+1,y,z,chest));
+            if(level==0)
+                queue.add(new Op(w,x,y+1,z,Material.SIGN_POST,(byte)8,label));
+            else
+                queue.add(new Op(w,x,y+1,z,Material.AIR));
+            queue.add(new Op(w,x+1,y+1,z,Material.AIR));
+        }
+        queue.add(new Op(w,x,baseY+n*2,z,Material.AIR));
+        queue.add(new Op(w,x+1,baseY+n*2,z,Material.AIR));
     }
 
     private int storageCategoryIndex(String category) {
@@ -2411,6 +2498,13 @@ final class HcfBaseBuilder {
             for(int yy=farmFloor+1;yy<=farmFloor+2;yy++)
                 queue.add(new Op(w,x,yy,z,Material.AIR));
         }
+
+        // Harvest staging directly at the stair landing.
+        int landingX=endX+dir*2;
+        doubleChest(w,landingX-2,farmFloor+1,z-3,"Cane");
+        doubleChest(w,landingX-2,farmFloor+1,z+3,"Wart");
+        doubleChest(w,landingX+1,farmFloor+1,z+3,"Melon");
+        queue.add(new Op(w,landingX,farmFloor+4,z,Material.GLOWSTONE));
     }
 
     private void buildUndergroundBrewer(World w,HcfBasePlan p) {
@@ -2446,6 +2540,28 @@ final class HcfBaseBuilder {
             queue.add(new Op(w,cx-4,floor+2,z,Material.REDSTONE_TORCH_ON));
         }
         queue.add(new Op(w,cx-4,floor+1,cz-halfZ+1,Material.LEVER));
+
+        // Reference-style supply wall and manual backup stands. The six center
+        // lanes above remain the ONLY lanes owned by HcfAutoBrewerDirector.
+        stackedDoubleChest(w,cx-halfX+1,floor+1,cz-halfZ+2,"Water Bottles",2);
+        stackedDoubleChest(w,cx+halfX-2,floor+1,cz-halfZ+2,"Ingredients",2);
+        stackedDoubleChest(w,cx-halfX+1,floor+1,cz+halfZ-2,"Gunpowder",2);
+        stackedDoubleChest(w,cx+halfX-2,floor+1,cz+halfZ-2,"Finished Pots",2);
+
+        for(int i=0;i<4;i++) {
+            int z=cz-3+i*2;
+            queue.add(new Op(w,cx+3,floor+1,z,Material.BREWING_STAND));
+            queue.add(new Op(w,cx+4,floor+1,z,Material.CHEST));
+        }
+
+        // Three-wide gate line makes the brewer read as a room, not machinery
+        // sprinkled in the core, without blocking sprint circulation.
+        int gateZ=cz-halfZ+1;
+        for(int x=cx-1;x<=cx+1;x++) {
+            queue.add(new Op(w,x,floor+1,gateZ,Material.FENCE_GATE,(byte)0));
+            queue.add(new Op(w,x,floor+2,gateZ,Material.FENCE_GATE,(byte)0));
+        }
+        queue.add(new Op(w,cx,floor+5,cz,Material.GLOWSTONE));
     }
 
     private void buildFactionPortal(World w,HcfBasePlan p,String type) {

@@ -626,6 +626,14 @@ final class SimWorldDirector {
 
     void start() {
         if (task != null) return;
+
+        // Reconcile any officer titles saved by older SimWorld versions into the
+        // authoritative faction layer before players can issue /f commands.
+        for(SimPlayer p:players.values()) {
+            if(p.faction!=null && !p.faction.isEmpty() && "officer".equalsIgnoreCase(p.factionTitle))
+                plugin.setSimFactionOfficerAuthority(p.faction,p.name,true);
+        }
+
         long period = Math.max(20L * 10L, plugin.getConfig().getLong("sim-world.tick-seconds", 30L) * 20L);
         task = Bukkit.getScheduler().runTaskTimer(plugin, new Runnable() {
             public void run() { tick(); }
@@ -5746,7 +5754,7 @@ final class SimWorldDirector {
             passed=rel.affinity>=28 || rel.trust>=68 || rng.nextInt(100)<18;
         }
 
-        if(passed) {
+        if(passed && plugin.setSimFactionOfficerAuthority(f.name,candidate.name,true)) {
             candidate.factionTitle="officer";
             rel.trust=clampSocial(rel.trust+4);
             rel.respect=clampSocial(rel.respect+5);
@@ -9124,6 +9132,15 @@ final class SimWorldDirector {
     String factionTitleFor(String name) {
         SimPlayer p=players.get(key(name));
         return p==null?"member":p.factionTitle;
+    }
+
+    void setFactionTitleFromAuthority(String name,String title) {
+        SimPlayer p=players.get(key(name));
+        if(p==null) return;
+        String normalized="officer".equalsIgnoreCase(title)?"officer":"member";
+        if(normalized.equalsIgnoreCase(p.factionTitle)) return;
+        p.factionTitle=normalized;
+        save();
     }
 
     String publicLeaderStyleFor(String name) {

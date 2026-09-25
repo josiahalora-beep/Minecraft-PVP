@@ -5,8 +5,8 @@ This directory/document is the canonical provenance index for user-supplied HCF 
 ## Phase discipline
 
 - Phase 1 uses only the authored terrain map.
-- Base schematics/world saves are frozen references until Phase 2.
-- Do not convert a reference into generator logic without first inspecting its exterior, entrance, roof, interior circulation and storage layout.
+- Base schematics/world saves are reference material; Phase 2 has now consumed their exterior/entrance/roof design language into the canonical family doctrine.
+- Do not directly paste or clone a reference into production generator logic. References inform original deterministic variations after inspecting exterior, entrance, roof, interior circulation and storage layout.
 - Do not claim authorship of third-party work. References inform style/geometry; generated production bases must be original variations.
 
 ## Authored Phase-1 world
@@ -20,7 +20,7 @@ This directory/document is the canonical provenance index for user-supplied HCF 
 - Author README rules: do not claim the map was made by you; do not sell it.
 - The production installer/reset must verify the SHA-256 before use.
 
-## Base references reserved for Phase 2
+## Base references used for Phase 2 style/geometry study
 
 | Reference | Type | SHA-256 | Notes |
 | --- | --- | --- | --- |
@@ -54,3 +54,8 @@ This audit is descriptive only. Final Phase-1 approval requires the independent 
 | Production filename | Source upload | Dimensions / offset | SHA-256 | Usage |
 | --- | --- | --- | --- | --- |
 | `HCF-Spawn-101-production.schematic` | `spawnhcf100x10010100248(2).schematic` | 101 x 37 x 101; WE offset -50,-1,-50 | `3f41d2ac7d329f96c0d33c8ec2ba3807d74f35d4b01b0b544644a585d7d2e378` | Overworld spawn at 0,0. Its own four terminal road patterns are the sole source for road extension to the 2k border. |
+
+
+### Phase-2 reference consumption lock
+
+Phase 2 uses these user-supplied files as provenance/style references, not as production paste assets. The accepted generator expresses their useful HCF design principles through the five deterministic families (Redemption, Base-HCF, ModernHCF, Tunnel and Cave), family-specific masks/roof profiles, recessed entrances, local terrain seating and functional HCF semantics. Future work must not claim third-party authorship or collapse the families into direct schematic copies.

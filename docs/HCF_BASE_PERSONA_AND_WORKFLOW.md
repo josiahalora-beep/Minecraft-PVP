@@ -33,10 +33,12 @@ Surface architecture is a mouth, not a building. Use a narrow entrance that wide
 ### Cave
 Irregular, lopsided and rock-led. Use an organic/elliptical footprint with deterministic wobble, rough stone/moss/cobble language and strong terrain integration. Avoid rectangular roof reads. The entrance should feel cut into existing rock rather than attached to a bunker.
 
-## Concealment silhouette
-Use irregular stepped shoulders rather than continuous rings. A 5-3-2-1 run-length rhythm is a useful starting grammar around entrances and exposed edges. Break symmetry, vary height, and follow the site's measured uphill/downhill direction. The uphill side is authoritative; a rear-side preference is only a minor readability adjustment. Keep the actual walking corridor open.
+## Structure-first terrain relationship
+The authored FreeMap is authoritative. A faction base is placed into existing terrain; base generation does not create a new landform around it.
 
-Roof cover targets are family-relative: Tunnel and Cave should hide most roof area; Redemption should hide a majority/large portion; Base-HCF roughly half; ModernHCF less. Finish/concealment tier can adjust these values modestly but must not erase family identity.
+Allowed terraforming is human-scale only: clear the footprint, support the foundation, optionally flatten a 2–4 block PvP apron when the faction builder profile supports it, and make a short usable entrance cut. Do not generate concentric terraces, concealment rings, soil caps, fake hills, biome-bleed fields or claim-sized grading.
+
+Terrain concealment comes from site selection when appropriate, not from burying the building after generation. Cave/Tunnel may prefer modest natural relief; polished/Base-HCF factions usually prefer flatter PvP-friendly ground. The building must remain the visual subject.
 
 ## Entrance doctrine
 Entrances must be discoverable at close range and usable during combat, while avoiding a straight visual runway from wilderness to gate. Use recessed gates, offset shoulders, bends in terrain cover and short-range detail. Never mark the route with a road. Do not create holes above gates or collision traps.
@@ -55,15 +57,15 @@ Wealth does not mean bigger glass walls, taller towers or brighter materials.
 1. Read faction profile and select primary/secondary family.
 2. Evaluate the site and local palette.
 3. Resolve family-specific footprint and entrances.
-4. Prepare only the compact structural grade.
-5. Build the functional shell and underground topology.
-6. Build the terrain cradle from real site slope.
-7. Apply family-relative roof cover and irregular entrance shoulders.
-8. Add close-range grammar based on family and finish tier.
+4. Prepare only the footprint plus a tiny optional human-flattened PvP apron.
+5. Build the reference-scaled functional shell and underground topology.
+6. Preserve the authored terrain outside that work zone.
+7. Build deliberate family-specific entrances, windows, facade bands and roof massing.
+8. Add close-range architectural grammar based on family and finish tier.
 9. Seal critical envelopes and reopen only intentional transit.
 10. Validate claim containment, protected-road exclusion, collision safety and movement.
-11. Inspect at 8/25/50/100 blocks in clear daylight.
-12. Rework any base that reads as a generated box, repeated clone, exposed roof slab, terrain ring or fake-road target.
+11. Inspect at 8/25/50/100 blocks in clear daylight, with the full building visible in frame.
+12. Rework any base that reads as a tiny stub, generated box, repeated clone, terrain feature with a building attached, exposed roof slab, terrain ring or fake-road target.
 
 ## Visual acceptance tests
 Across a five-family test set, a reviewer should be able to distinguish each family from silhouette and terrain relationship without relying on block palette. Tunnel/Cave must have dramatically less exposed roof/shell than ModernHCF. Neighboring bases must not share identical berm outlines. Entrances must remain traversable by humans and Mineflayer. No base may require duplicating road, auto-step, terrain, weather or claim systems.
@@ -109,3 +111,19 @@ Acceptance evidence:
 - The follow-up inspector change at `252023e5` only corrects QA camera height to the real terrain-selected base Y and adds explicit four-border road proof shots; it does not alter accepted Phase-2 base geometry.
 
 Phase-3 work may improve rooms, storage/refill circulation, dropdown/elevator presentation, brewer/farm usability and interior craftsmanship, but it must not replace the accepted Phase-2 family masks, roof profiles, terrain-cradle rules or entrance semantics without a new five-family visual regression run.
+
+
+## Phase 2B corrective lock
+
+The earlier Phase-2 freeze was invalidated by manual visual review of the actual QA screenshots. Passing a workflow is not visual approval.
+
+The accepted corrective direction is:
+- authored FreeMap terrain remains untouched outside the footprint and a 2–4 block optional PvP apron;
+- reference structures are measured directly for visible scale, facade height, entrance width, window bays and roof massing;
+- the old five-block surface-height cap is prohibited;
+- the 5-3-2-1 terrain shoulder rule is prohibited around faction bases;
+- 70/20/10 random terrain texturing is prohibited around faction bases;
+- Tunnel is a visible stacked reference-style structure, not a buried mouth-only placeholder;
+- Cave/Devhorah remains visibly architectural and may use natural terrain context, but may not be swallowed by generated terrain;
+- site scouting prefers flatter coherent-biome locations for PvP factions and only modest natural relief for Cave/Tunnel;
+- visual QA must show the full building, entrance, windows and terrain seam clearly before Phase 2 can be frozen again.

@@ -21,18 +21,19 @@ final class HcfSurfaceReferenceTemplates {
     private HcfSurfaceReferenceTemplates() {}
 
     static final class Template {
-        final int width, height, length;
+        final int width, height, length, yOffset;
         final byte[] rle;
-        Template(int width,int height,int length,String encoded) {
+        Template(int width,int height,int length,int yOffset,String encoded) {
             this.width=width;
             this.height=height;
             this.length=length;
+            this.yOffset=yOffset;
             this.rle=Base64.getDecoder().decode(encoded);
         }
     }
 
     // REDEMPTION: 19x21x19, 2758 non-air cells; exact selected surface component.
-    private static final Template REDEMPTION=new Template(19,21,19,
+    private static final Template REDEMPTION=new Template(19,21,19,0,
         "AOgBAAADAAAAEAEAAAMAAAAQAQAAAwAAAFgBAAApAgAAAQMAAAMCAAABAwAAAwIAAAEDAAADAgAAAQMAAAUCAAADAwAAAQIAAAMD" +
         "AAABAgAAAwMAAAECAAADAwAABQIAAA0DAAAHAgAAAQMAAAEEAAABAQAAAQQAAAJhAgABAQAAAQQAAAIBAAABAwAABwIAAAIDAAAB" +
         "AQAAAWECAAIEAAABAQAAAWECAAEBAAACBAAAAgMAAAUCAAADAwAAAQEAAAFhAgADAQAAAQQAAAFhAgABAQAAAQQAAAMDAAAFAgAA" +
@@ -157,7 +158,7 @@ final class HcfSurfaceReferenceTemplates {
         "DAAPAAAAAgUBABIAAAABBQEAEgAAAAFDAwAtAAA=");
 
     // BASE_HCF: 29x20x26, 3976 non-air cells; exact selected surface component.
-    private static final Template BASE_HCF=new Template(29,20,26,
+    private static final Template BASE_HCF=new Template(29,20,26,0,
         "AvKbAAAmAAAAAywFAAIBBgADLAUAEwAAAAIsBQADAQYAAQAAAAFBAwADAQYAAiwFABAAAAABLAUAAgEGAAMFAQACAAAAAwUBAAIB" +
         "BgABLAUADgAAAAFVAAABAQYAAQEAAAMAAAABBQEAAmsAAAEFAQADAAAAAQUBAAEBBgABVQAADAAAAAEsBQABAQYAAQEAAAEFAQAK" +
         "AAAAAgUBAAEBBgABLAUACgAAAAEsBQABAQYAAgUBAAwAAAACBQEAAQEGAAEsBQAIAAAAASwFAAEBBgABBQEAEAAAAAEFAQABAQYA" +
@@ -326,7 +327,7 @@ final class HcfSurfaceReferenceTemplates {
         "AAABYQIAAiwNAAFhAgAZAAAAAWECAAIAAAABYQIAGgAAAAJhAgEUAAA=");
 
     // MODERN_HCF: 17x9x17, 805 non-air cells; exact selected surface component.
-    private static final Template MODERN_HCF=new Template(17,9,17,
+    private static final Template MODERN_HCF=new Template(17,9,17,0,
         "AAECAAABAwAAApsAAAEDAAAFAgAAAQMAAAIFAQABAwAABAIAAAGbAAADBQEAAQMAAAMFAQACAwAAAwUBAAEDAAADAgAAAZsAAAcF" +
         "AQABAwAABAUBAAIDAAACAgAAAZsAAAIFAQABAwAABwUBAAKEAgABBQEAAZsAAAICAAABAwAACgUBAAKEAgABBQEAAZsAAAICAAAB" +
         "AwAAAgUBAAEDAAAEBQEAAQMAAAQFAQACAwAAAgIAAAEDAAACBQEAAgMAAAMFAQACAwAAAwUBAAEDAAABmwAAAgIAAAEDAAACAgAA" +
@@ -358,7 +359,7 @@ final class HcfSurfaceReferenceTemplates {
         "AAIAAAABnwkADQAAAAGfCQACAAAAAZ8JAA0AAAABnwkAAgAAAAGfCQANAAAABJ8JAA0AAAAEnwkAnAAA");
 
     // TUNNEL: 11x12x11, 447 non-air cells; exact selected surface component.
-    private static final Template TUNNEL=new Template(11,12,11,
+    private static final Template TUNNEL=new Template(11,12,11,1,
         "AAFtAAABEQAAAW0BAAUAAAABbQAAAREAAAFtAQABAAAAAW0DAAJiAAADawQAAmIAAAFtAwADAAAAAWIAAAUAAAABYgAABAAAAAFr" +
         "AwAFAAAAAWsBAAQAAAABawEABQAAAAFrAQAEAAAAAWsBAAUAAAABawMABAAAAAFiAAAFAAAAAWIAAAMAAAABbQIAAmIAAAJrAgAB" +
         "awYAAmIAAAFtAgABAAAAAW0AAAERAAABbQEABQAAAAFtAAABEQAAAW0BAAEAAAABbQMAASUAAAYAAAABbQMABAAAAAMfAQABAAAA" +
@@ -391,7 +392,7 @@ final class HcfSurfaceReferenceTemplates {
         "BAADKwUAAW0FAAYAAAABLAUAAW0HAAEAAAABbQcAASwFAFQAAAABLAUAAQAAAAEsBQATAAAAASwFAAEAAAABLAUAOwAA");
 
     // CAVE: 13x12x13, 600 non-air cells; exact selected surface component.
-    private static final Template CAVE=new Template(13,12,13,
+    private static final Template CAVE=new Template(13,12,13,1,
         "AAEAAAABogEAATUCAAGiAQABNQEAAwAAAAE1AAABogEAATUCAAGiAQACAAAAATUAAAOfCwADawAAA58LAAE1AQACAAAAAaIBAAGf" +
         "CwAHAAAAAZ8LAAGiAQACAAAAATUDAAGfCwAHAAAAAZ8LAAE1AwADAAAAAWsHAAcAAAABawEABAAAAAFrAwAHAAAAAWsFAAQAAAAB" +
         "awEABwAAAAFrAwADAAAAATUCAAGfCwAHAAAAAZ8LAAE1AgACAAAAAaIBAAGfCwAHAAAAAZ8LAAGiAQACAAAAATUAAAOfCwADawIA" +
@@ -440,7 +441,10 @@ final class HcfSurfaceReferenceTemplates {
     }
 
     static int width(int family) { return forFamily(family).width; }
-    static int height(int family) { return forFamily(family).height; }
+    static int height(int family) {
+        Template t=forFamily(family);
+        return t.height+t.yOffset;
+    }
     static int length(int family) { return forFamily(family).length; }
 
     /**
@@ -467,7 +471,7 @@ final class HcfSurfaceReferenceTemplates {
                 int q=cursor/t.width;
                 int z=q%t.length;
                 int y=q/t.length;
-                queue.add(new HcfBaseBuilder.Op(world,originX+x,plan.surfaceY+y,originZ+z,material,data));
+                queue.add(new HcfBaseBuilder.Op(world,originX+x,plan.surfaceY+t.yOffset+y,originZ+z,material,data));
             }
         }
 

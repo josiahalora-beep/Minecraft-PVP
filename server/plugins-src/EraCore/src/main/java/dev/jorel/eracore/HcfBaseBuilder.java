@@ -278,7 +278,7 @@ final class HcfBaseBuilder {
                     bestScore=score;
                     best=new int[]{x,fit[0],z};
                 }
-                if((fit[5]+fit[6])==0 && fit[4]==0) return new int[]{x,fit[0],z};
+                if(idealNaturalFit(fit)) return new int[]{x,fit[0],z};
             }
         }
 
@@ -295,7 +295,7 @@ final class HcfBaseBuilder {
                         bestScore=score;
                         best=new int[]{x,fit[0],z};
                     }
-                    if((fit[5]+fit[6])==0 && fit[4]==0) return new int[]{x,fit[0],z};
+                    if(idealNaturalFit(fit)) return new int[]{x,fit[0],z};
                 }
             }
             return best;
@@ -369,6 +369,47 @@ final class HcfBaseBuilder {
                         " coreHalf="+p.coreHalfX+","+p.coreHalfZ+
                         " utilitySide="+p.utilitySide+
                         " naturalFit="+java.util.Arrays.toString(evaluateReferenceSite(names[i],x,z)));
+                }
+
+                // Material-economy proof for all five real production families.
+                // These identities do NOT start with QA, so they exercise the
+                // cost-controlled production palettes rather than variant 0.
+                final String[] costNames={
+                    "CostAudit2","CostAudit1","CostAudit7","CostAudit8","CostAudit0"
+                };
+                for(int i=0;i<costNames.length;i++) {
+                    int x=sites[i][0],z=sites[i][1];
+                    int[] fit=evaluateReferenceSite(costNames[i],x,z);
+                    HcfBasePlan cp=planFor(costNames[i],x,fit[0],z);
+                    java.util.Map<String,Integer> gaps=
+                        HcfSurfaceReferenceTemplates.unaccountedSurfaceMaterialBill(cp);
+                    java.util.Map<String,Integer> supplies=
+                        new java.util.LinkedHashMap<String,Integer>();
+                    java.util.Map<String,Integer> dye=
+                        HcfSurfaceReferenceTemplates.dyeSupplyBill(cp);
+                    java.util.Map<String,Integer> specialty=
+                        HcfSurfaceReferenceTemplates.specialtySupplyBill(cp);
+                    for(java.util.Map.Entry<String,Integer> e:dye.entrySet())
+                        supplies.put(e.getKey(),e.getValue());
+                    for(java.util.Map.Entry<String,Integer> e:specialty.entrySet()) {
+                        Integer old=supplies.get(e.getKey());
+                        supplies.put(e.getKey(),(old==null?0:old)+e.getValue());
+                    }
+                    boolean shopOk=true;
+                    for(String key:supplies.keySet()) {
+                        double price=plugin.buyUnitPrice(key);
+                        if(Double.isInfinite(price)||Double.isNaN(price)) { shopOk=false; break; }
+                    }
+                    int[] raw=HcfSurfaceReferenceTemplates.acquisitionBill(cp);
+                    boolean familyOk=expected[i].equals(cp.primaryFamilyName());
+                    if(familyOk && gaps.isEmpty() && shopOk)
+                        plugin.getLogger().info("[qa-material] OK family="+cp.primaryFamilyName()+
+                            " palette="+HcfSurfaceReferenceTemplates.paletteName(cp)+
+                            " raw="+java.util.Arrays.toString(raw)+" shop="+supplies);
+                    else
+                        plugin.getLogger().severe("[qa-material] FAILED family="+cp.primaryFamilyName()+
+                            " expected="+expected[i]+" palette="+HcfSurfaceReferenceTemplates.paletteName(cp)+
+                            " unaccounted="+gaps+" shopAvailable="+shopOk+" shop="+supplies);
                 }
 
                 // Queue the four cost-conscious palette proofs in the SAME build

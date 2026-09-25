@@ -539,7 +539,7 @@ if(showcase){
   }
   const serverLog=fs.readFileSync(path.join(root,'server','phase1-server.log'),'utf8')
   const resolved=[]
-  const re=/\[qa-showcase\] queued (\S+) family=(\S+) secondary=(\S+) storageTier=\d+ brewer=\S+ nether=\S+ end=\S+ at=(-?\d+),(-?\d+),(-?\d+) undergroundY=(-?\d+) coreHalf=(\d+),(\d+) utilitySide=(-?\d+)/g
+  const re=/\[qa-showcase\] queued (\S+) family=(\S+) secondary=(\S+) storageTier=\d+ brewer=\S+ nether=\S+ end=\S+ at=(-?\d+),(-?\d+),(-?\d+) undergroundY=(-?\d+) coreHalf=(\d+),(\d+) utilitySide=(-?\d+) naturalFit=\[([^\]]+)\]/g
   for(const m of serverLog.matchAll(re)){
     const meta=showcaseMeta[m[1]]
     if(!meta) continue
@@ -547,7 +547,9 @@ if(showcase){
       name:m[1],primaryFamily:m[2],secondaryFamily:m[3],
       x:Number(m[4]),y:Number(m[5]),z:Number(m[6]),
       undergroundY:Number(m[7]),coreHalfX:Number(m[8]),coreHalfZ:Number(m[9]),
-      utilitySide:Number(m[10]),...meta
+      utilitySide:Number(m[10]),
+      naturalFit:m[11].split(',').map(v=>Number(v.trim())),
+      ...meta
     })
   }
   const byName=new Map(resolved.map(x=>[x.name,x]))
@@ -556,6 +558,18 @@ if(showcase){
   if(selected.length!==5){
     writeManifest()
     throw new Error('Could not resolve all five natural Phase 2B showcase sites from server log')
+  }
+  const badNaturalFit=selected.filter(b=>{
+    const fit=b.naturalFit||[]
+    return fit.length<7 || fit[1]>1 || (fit[5]+fit[6])!==0 || fit[4]!==0
+  })
+  manifest.naturalSiteProof=selected.map(b=>({
+    name:b.name,family:b.primaryFamily,x:b.x,y:b.y,z:b.z,naturalFit:b.naturalFit
+  }))
+  if(badNaturalFit.length){
+    writeManifest()
+    throw new Error('Phase 2B natural siting failed: '+badNaturalFit.map(b=>
+      b.name+' fit='+JSON.stringify(b.naturalFit)).join(' | '))
   }
   bases=selected
 }else{

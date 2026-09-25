@@ -396,10 +396,11 @@ final class LegacySchematicComposer {
         }
         try {
             World over=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
-            World nether=firstWorld(World.Environment.NETHER);
-            World end=firstWorld(World.Environment.THE_END);
-            if(over==null || nether==null || end==null) {
-                plugin.getLogger().warning("Cannot compose HCF map until Overworld, Nether and End are loaded.");
+            final boolean qaOverworldOnly=plugin.getConfig().getBoolean("world-composer.qa-overworld-only",false);
+            World nether=qaOverworldOnly?null:firstWorld(World.Environment.NETHER);
+            World end=qaOverworldOnly?null:firstWorld(World.Environment.THE_END);
+            if(over==null || (!qaOverworldOnly && (nether==null || end==null))) {
+                plugin.getLogger().warning("Cannot compose HCF map until required worlds are loaded.");
                 return false;
             }
 
@@ -432,10 +433,14 @@ final class LegacySchematicComposer {
             jobs.add(new PasteJob("Conquest",over,load(asset("conquest","conquest.schematic")),
                 conquestX,conquestY,conquestZ,false));
 
-            jobs.add(new PasteJob("Nether Spawn",nether,load(asset("nether-spawn","NetherSpawnWillzaTeam.schematic")),
-                0,plugin.getConfig().getInt("world-composer.nether-anchor-y",70),0,true));
-            jobs.add(new PasteJob("Magic End",end,load(asset("end","magical-hcf-end-xayden-bt.schematic")),
-                0,plugin.getConfig().getInt("world-composer.end-anchor-y",68),0,true));
+            if(!qaOverworldOnly) {
+                jobs.add(new PasteJob("Nether Spawn",nether,load(asset("nether-spawn","NetherSpawnWillzaTeam.schematic")),
+                    0,plugin.getConfig().getInt("world-composer.nether-anchor-y",70),0,true));
+                jobs.add(new PasteJob("Magic End",end,load(asset("end","magical-hcf-end-xayden-bt.schematic")),
+                    0,plugin.getConfig().getInt("world-composer.end-anchor-y",68),0,true));
+            } else {
+                plugin.getLogger().info("[composer] QA Overworld-only mode: skipping Nether Spawn and Magic End composition.");
+            }
 
             int border=plugin.getConfig().getInt("map.world-border",2000)/2;
             // Continue the uploaded spawn's own road design to the 2k border.

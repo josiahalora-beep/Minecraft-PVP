@@ -735,6 +735,7 @@ final class HcfSurfaceReferenceTemplates {
             String m=split<0?k:k.substring(0,split);
 
             if(m.equals("GRASS")||m.equals("DIRT")) addSupply(out,"dirt",n);
+            else if(m.equals("WATER")||m.equals("STATIONARY_WATER")) addSupply(out,"waterbucket",1);
             else if(m.equals("SAND")) addSupply(out,"sand",n);
             else if(m.equals("GRAVEL")) addSupply(out,"gravel",n);
             else if(m.equals("LEAVES")||m.equals("LEAVES_2")) addSupply(out,"leaves",n);
@@ -791,7 +792,9 @@ final class HcfSurfaceReferenceTemplates {
             return true;
 
         // Exact just-in-time common shop/craft categories.
-        return m.equals("GRASS")||m.equals("DIRT")||m.equals("SAND")||m.equals("GRAVEL")||
+        return m.equals("GRASS")||m.equals("DIRT")||
+            m.equals("WATER")||m.equals("STATIONARY_WATER")||
+            m.equals("SAND")||m.equals("GRAVEL")||
             m.equals("LEAVES")||m.equals("LEAVES_2")||m.equals("LONG_GRASS")||
             m.equals("YELLOW_FLOWER")||m.equals("RED_ROSE")||m.equals("WOOL")||
             m.equals("TORCH")||m.equals("TRIPWIRE")||m.equals("GLOWSTONE")||

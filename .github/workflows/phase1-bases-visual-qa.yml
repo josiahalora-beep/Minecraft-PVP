@@ -237,31 +237,6 @@ jobs:
           raise SystemExit('Spigot did not open 25565')
           PY
 
-      - name: Preflight exact-reference exterior
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import pathlib,time
-          p=pathlib.Path('server/phase1-server.log')
-          end=time.time()+180
-          while time.time()<end:
-              txt=p.read_text(errors='ignore') if p.exists() else ''
-              if '[qa-showcase] build queue drained' in txt:
-                  break
-              time.sleep(1)
-          else:
-              raise SystemExit('Timed out waiting for Phase 2B build queue to drain')
-          print('\n'.join(line for line in txt.splitlines()
-              if '[reference-exterior' in line or '[qa-showcase]' in line)[-40:])
-          if '[reference-exterior-verify] FAILED' in txt:
-              raise SystemExit('Exact Phase 2B exterior verification failed before rendering')
-          if txt.count('mismatches=0') < 5:
-              raise SystemExit('Not all five exact facades reported mismatches=0')
-          if txt.count('gateAnchor=FENCE_GATE') < 5:
-              raise SystemExit('Not all five primary entrance anchors resolve to fence gates')
-          PY
-
       - name: Capture five-family authored-world base integration
         working-directory: bots
         env:

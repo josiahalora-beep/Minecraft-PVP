@@ -569,7 +569,10 @@ if(showcase){
     // structure to sit on real authored terrain.
     const perimeterMismatch=(fit[5]||0)+(fit[6]||0)
     const allowed=b.primaryFamily==='BASE_HCF'?5:0
-    return fit.length<7 || perimeterMismatch>allowed || fit[4]!==0
+    // fit[7] is the number of tree-trunk columns in the exterior entrance
+    // approach. A valid Phase 2 screenshot/prod site must not hide the gate
+    // behind a tree the builder would never legitimately clear.
+    return fit.length<8 || perimeterMismatch>allowed || fit[4]!==0 || fit[7]!==0
   })
   manifest.naturalSiteProof=selected.map(b=>({
     name:b.name,family:b.primaryFamily,x:b.x,y:b.y,z:b.z,naturalFit:b.naturalFit
@@ -730,8 +733,8 @@ if(process.env.QA_PALETTE_PASS==='1' && showcase && !interiorOnly){
   }else{
     const bad=palettes.filter(p=>{
       const fit=p.naturalFit||[]
-      return p.family!=='MODERN_HCF' || fit.length<7 ||
-        (fit[5]+fit[6])!==0 || fit[4]!==0
+      return p.family!=='MODERN_HCF' || fit.length<8 ||
+        (fit[5]+fit[6])!==0 || fit[4]!==0 || fit[7]!==0
     })
     if(bad.length)
       manifest.errors.push('palette showcase natural-fit failure: '+

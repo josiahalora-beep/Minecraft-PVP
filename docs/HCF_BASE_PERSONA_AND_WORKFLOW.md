@@ -153,7 +153,7 @@ Phase 3 may change interiors, room circulation, storage, refill/brewer/farm layo
 
 ## Phase 2B exact-reference corrective pass
 
-Status: **OPEN / NOT FROZEN**.
+Status: **FROZEN — exact-reference Phase 2B baseline accepted after manual screenshot review**.
 
 The corrective pass replaces the procedural facade interpretation with exact selected surface components reconstructed from the user-supplied canonical schematics:
 
@@ -177,3 +177,24 @@ Implementation baseline began at:
 - `9d5fc9cba11b97231b1c51b48ea69213ea998548` — exact surface template class
 - `5a140f5b9451dcba08ca5310e96c49182d6ff01b` — procedural surface path replaced
 - `647eaa518a98c718b73a860aec7dab1646dcc22a` — Tunnel/Cave vertical alignment corrected
+
+### Phase 2B exact-reference acceptance — 2026-09-25
+
+Accepted production baseline:
+- code HEAD: `b67937beef22f0cc5c4416d9bb3b12205c4652a0`;
+- five-family authored-FreeMap QA run: `36147294842`;
+- QA artifact: `10870034692`, SHA-256 `21257ea4a07ba4bef4ed541dcc3ab5f4e678d685fdc5718799a39f3a6047e5f4`;
+- 45 exterior captures, all five canonical families represented, zero inspector errors;
+- exact post-build verification reported `mismatches=0` for Redemption, Base-HCF, ModernHCF, Tunnel and Cave;
+- every canonical primary entrance anchor resolved to a real `FENCE_GATE` cell;
+- the old procedural gate-bank/window interpretation is not part of the active surface build path.
+
+Manual visual review of the resulting screenshots specifically confirmed the correction requested after the previous rejection:
+- fence gates now appear where the source schematic actually places entrance/exit gate sheets instead of being generated as decorative window bands;
+- Tunnel and Cave expose the source 3x3 gate language;
+- Modern uses the source glass-heavy wall/entrance composition rather than a small procedural white box;
+- Base-HCF preserves its large connected glass architecture and broad facade;
+- Redemption preserves the supplied multi-level timber/stone/glass facade and source access geometry.
+
+This freeze is deliberately narrow: it freezes the canonical exterior voxel templates and their gate/glass/roof proportions. It does **not** declare every terrain placement visually perfect. Site scouting, terrain seam quality and unobstructed QA camera placement may still be improved provided they do not mutate the canonical template voxels. Any future exterior variation must be derived from this baseline and must pass the same exact-template regression before its own visual review.
+

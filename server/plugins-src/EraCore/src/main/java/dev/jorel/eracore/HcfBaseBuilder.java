@@ -38,7 +38,26 @@ final class HcfBaseBuilder {
     }
 
     private final EraCore plugin;
-    private final ArrayDeque<Op> queue = new ArrayDeque<Op>();
+
+    // The same compiler can run in a non-mutating planning mode. Every normal
+    // queue.add(Op) call is intercepted and reduced to the FINAL block at that
+    // coordinate, so material planning automatically stays exact when Phase 3
+    // changes rooms/storage/brewers/portals later.
+    private boolean materialPlanning;
+    private final Map<String,Op> plannedFinalBlocks = new LinkedHashMap<String,Op>();
+
+    private final class PlanningQueue extends ArrayDeque<Op> {
+        @Override public boolean add(Op op) {
+            if(!materialPlanning) return super.add(op);
+            if(op==null) return true;
+            String k=op.x+":"+op.y+":"+op.z;
+            if(op.material==null || op.material==Material.AIR) plannedFinalBlocks.remove(k);
+            else plannedFinalBlocks.put(k,op);
+            return true;
+        }
+    }
+
+    private final PlanningQueue queue = new PlanningQueue();
     private final Set<String> completed = new HashSet<String>();
     private final Set<String> auditedPlans = new HashSet<String>();
     private BukkitRunnable runner;
@@ -46,6 +65,63 @@ final class HcfBaseBuilder {
 
     HcfBaseBuilder(EraCore plugin) {
         this.plugin = plugin;
+    }
+
+    /**
+     * Compile a full base without touching the world and return the exact final
+     * generated block/data bill. Terrain clearing/fill is intentionally omitted:
+     * naturally chosen land is free terrain, not a faction-purchased material.
+     */
+    synchronized Map<String,Integer> previewFullBuildMaterialBill(String faction,String preset,String trapPreset,
+                                                                  int cx,int y,int cz,int storageTier,
+                                                                  boolean brewer,boolean netherPortal,boolean endPortal) {
+        World world=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
+        Map<String,Integer> out=new LinkedHashMap<String,Integer>();
+        if(world==null || faction==null || faction.trim().isEmpty()) return out;
+
+        boolean oldPlanning=materialPlanning;
+        boolean oldMaintenance=maintenanceRebuild;
+        plannedFinalBlocks.clear();
+        materialPlanning=true;
+        maintenanceRebuild=true;
+        try {
+            HcfBasePlan plan=planFor(faction,cx,y,cz);
+
+            // Deliberately no prepareTerrainPad()/clearBrokenBaseVolumes(): those
+            // operate on free authored terrain and are not faction inventory.
+            buildSurfaceShell(world,plan,true);
+            buildUndergroundCore(world,plan);
+            sealCriticalEnvelope(world,plan,true);
+
+            int tier=Math.max(1,Math.min(3,storageTier));
+            if(tier>1) buildStorageTier(world,plan,tier);
+            if(brewer) buildUndergroundBrewer(world,plan);
+            if(netherPortal) buildFactionPortal(world,plan,"nether");
+            if(endPortal) buildFactionPortal(world,plan,"end");
+
+            if("fall_trap".equalsIgnoreCase(trapPreset)) buildFallTrap(world,cx,y,cz);
+            else if("fence_gate_bow".equalsIgnoreCase(trapPreset)) buildFenceGateBowTrap(world,cx,y,cz);
+            else if("drop_chute".equalsIgnoreCase(trapPreset)) buildDropChute(world,cx,y,cz);
+
+            for(Op op:plannedFinalBlocks.values()) {
+                if(op==null || op.material==null || op.material==Material.AIR) continue;
+                String key=op.material.name()+":"+((int)op.data&0xff);
+                Integer n=out.get(key);
+                out.put(key,n==null?1:n+1);
+            }
+        } finally {
+            materialPlanning=oldPlanning;
+            maintenanceRebuild=oldMaintenance;
+            plannedFinalBlocks.clear();
+        }
+        return out;
+    }
+
+    synchronized int[] previewFullBuildAcquisitionBill(String faction,String preset,String trapPreset,
+                                                        int cx,int y,int cz,int storageTier,
+                                                        boolean brewer,boolean netherPortal,boolean endPortal) {
+        return HcfSurfaceReferenceTemplates.acquisitionBillFromMaterialBill(
+            previewFullBuildMaterialBill(faction,preset,trapPreset,cx,y,cz,storageTier,brewer,netherPortal,endPortal));
     }
 
     void forceRebuild(String faction,String preset,String trapPreset,int cx,int y,int cz,

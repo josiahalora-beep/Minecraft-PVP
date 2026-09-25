@@ -7,10 +7,10 @@ import java.util.Locale;
 /**
  * Deterministic HCF base design contract.
  *
- * This is deliberately not a schematic preset.  A faction profile is converted
- * into stable architectural decisions and semantic anchors.  The physical
- * builder, worker AI and storage/brewer directors all consume the same plan so
- * visual variation never breaks navigation.
+ * Phase 2B now uses an exact schematic-derived visible surface component for
+ * each canonical HCF family. The faction profile still controls semantic anchors,
+ * underground topology and later variation, so worker AI and storage/brewer
+ * directors consume one stable plan without rewriting the reference facade.
  */
 final class HcfBasePlan {
     static final class Profile {
@@ -81,36 +81,14 @@ final class HcfBasePlan {
 
         int members=Math.max(1,Math.min(8,this.profile.members));
 
-        // Phase 2B: reference-measured surface proportions.
-        //
-        // The previous planner capped every surface shell at five blocks high,
-        // which turned the reference families into tiny procedural stubs while
-        // terrain work dominated the scene. The supplied HCF references are
-        // structure-first: Redemption ~19x19 with a tall two-level facade,
-        // Base-HCF ~29x26 with layered/windowed walls, Modern ~17x17 above
-        // grade, Tunnel ~11x11 but vertically stacked, and Cave references use
-        // a compact visible building/cut-in facade rather than a buried dot.
-        //
-        // Member count adds only modest footprint growth; faction capacity
-        // continues to scale mostly underground.
-        int bump=Math.max(0,(members-4)/3);
-        int qualityBump=this.profile.builderQuality>=76?1:0;
-        int sx,sz,sh;
-        if(family==0) {          // Redemption
-            sx=9+bump; sz=9+bump; sh=11+qualityBump;
-        } else if(family==1) {   // Base-HCF
-            sx=13+bump; sz=11+bump; sh=11+qualityBump;
-        } else if(family==2) {   // ModernHCF
-            sx=8+bump; sz=8+bump; sh=9+qualityBump;
-        } else if(family==3) {   // Tunnel reference: compact footprint, tall facade
-            sx=6+bump; sz=7+bump; sh=12+qualityBump;
-        } else {                 // Cave / Devhorah-style visible cut-in structure
-            sx=7+bump; sz=7+bump; sh=10+qualityBump;
-        }
-
-        this.surfaceHalfX=sx;
-        this.surfaceHalfZ=sz;
-        this.surfaceHeight=Math.min(14,sh);
+        // Phase 2B corrective reset: surface dimensions come from the exact
+        // selected visible component of the supplied reference schematic.
+        // Do not resize these during the fidelity phase; member count continues
+        // to scale underground capacity instead. Controlled exterior variation
+        // belongs in the later variation phase, after this canonical baseline.
+        this.surfaceHalfX=HcfSurfaceReferenceTemplates.width(family)/2;
+        this.surfaceHalfZ=HcfSurfaceReferenceTemplates.length(family)/2;
+        this.surfaceHeight=HcfSurfaceReferenceTemplates.height(family)-1;
 
         int access=1;
         if(this.profile.gameSense>=62 || this.profile.pvpIq>=72) access++;
@@ -141,7 +119,9 @@ final class HcfBasePlan {
         if(family==1 || family==4) this.surfaceShape=1;
         else if(family==2) this.surfaceShape=2;
         else this.surfaceShape=(seed/37)%2;
-        this.frontGateOffset=((seed/41)%5)-2;
+        // Reference-facing approach anchors. These offsets point at the real
+        // north/recessed entrance zone of each canonical surface component.
+        this.frontGateOffset=(family==0?3:(family==1?-1:(family==2?-1:0)));
 
         int finish=this.profile.builderQuality>=76?2:(this.profile.builderQuality>=48?1:0);
         if(this.profile.wealthTier>=2 && finish<2) finish++;

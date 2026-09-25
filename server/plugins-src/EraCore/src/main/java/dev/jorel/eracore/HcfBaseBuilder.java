@@ -138,12 +138,22 @@ final class HcfBaseBuilder {
         World world=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
         if(world==null) return new int[]{seedX,64,seedZ};
 
-        int[] best=null;
-        int bestScore=Integer.MAX_VALUE;
+        java.util.List<int[]> finalists=new java.util.ArrayList<int[]>();
 
-        // 1) Search near the intended QA district without chunk-center locking.
-        // A quick 9-point relief probe rejects obvious slopes before the more
-        // expensive exact-footprint scan.
+        // Keep several promising sites instead of trusting one coarse winner.
+        // Large references (especially Base-HCF's 29x26 footprint) can have a
+        // deceptively good center while one side falls off a natural shoulder.
+        java.util.function.Consumer<int[]> keep=new java.util.function.Consumer<int[]>() {
+            public void accept(int[] cand) {
+                finalists.add(cand); // {score,x,y,z}
+                java.util.Collections.sort(finalists,new java.util.Comparator<int[]>() {
+                    public int compare(int[] a,int[] b){ return Integer.compare(a[0],b[0]); }
+                });
+                while(finalists.size()>8) finalists.remove(finalists.size()-1);
+            }
+        };
+
+        // 1) Search the intended district at ordinary block resolution.
         for(int dx=-128;dx<=128;dx+=8) {
             for(int dz=-128;dz<=128;dz+=8) {
                 int x=seedX+dx,z=seedZ+dz;
@@ -155,23 +165,20 @@ final class HcfBaseBuilder {
                 world.loadChunk(x>>4,z>>4);
                 int[] fit=evaluateReferenceSite(faction,x,z);
                 int score=naturalFitScore(fit,(Math.abs(dx)+Math.abs(dz))/3);
-                if(score<bestScore) {
-                    bestScore=score;
-                    best=new int[]{x,fit[0],z};
-                }
+                keep.accept(new int[]{score,x,fit[0],z});
                 if(idealNaturalFit(fit)) return new int[]{x,fit[0],z};
             }
         }
 
-        // 2) If that district simply does not contain a real plateau, search
-        // the authored wilderness itself rather than terraforming one. This is
-        // deterministic QA-only work and never alters production terrain.
-        for(int x=-920;x<=920;x+=24) {
-            for(int z=-920;z<=920;z+=24) {
-                if(x*x+z*z<450*450) continue;        // keep away from spawn
-                if(Math.abs(x)<64 || Math.abs(z)<64) continue; // road corridors
+        // 2) Search the full playable authored wilderness. A 12-block stride
+        // is dense enough that the refinement phase can recover plateaus that
+        // do not happen to align with chunk centers or a coarse 24/32 grid.
+        for(int x=-924;x<=924;x+=12) {
+            for(int z=-924;z<=924;z+=12) {
+                if(x*x+z*z<450*450) continue;
+                if(Math.abs(x)<64 || Math.abs(z)<64) continue;
                 if(Math.abs(Math.abs(x)-500)<120 &&
-                   Math.abs(Math.abs(z)-500)<120) continue;     // event corners
+                   Math.abs(Math.abs(z)-500)<120) continue;
 
                 HcfBasePlan probe=planFor(faction,x,64,z);
                 if(!expectedFamily.equals(probe.primaryFamilyName())) continue;
@@ -180,20 +187,19 @@ final class HcfBaseBuilder {
                 int[] fit=evaluateReferenceSite(faction,x,z);
                 int score=naturalFitScore(fit,120+
                     (Math.abs(x-seedX)+Math.abs(z-seedZ))/8);
-                if(score<bestScore) {
-                    bestScore=score;
-                    best=new int[]{x,fit[0],z};
-                }
+                keep.accept(new int[]{score,x,fit[0],z});
                 if(idealNaturalFit(fit)) return new int[]{x,fit[0],z};
             }
         }
 
-        // 3) Refine the best plateau at one-block resolution.
-        if(best!=null) {
-            int bx=best[0],bz=best[2];
-            for(int dx=-11;dx<=11;dx++) {
-                for(int dz=-11;dz<=11;dz++) {
-                    int x=bx+dx,z=bz+dz;
+        // 3) Refine each of the best coarse candidates on a 2-block grid.
+        int[] best=null;
+        int bestScore=Integer.MAX_VALUE;
+        java.util.List<int[]> seeds=new java.util.ArrayList<int[]>(finalists);
+        for(int[] seed:seeds) {
+            for(int dx=-14;dx<=14;dx+=2) {
+                for(int dz=-14;dz<=14;dz+=2) {
+                    int x=seed[1]+dx,z=seed[3]+dz;
                     if(Math.abs(x)>940 || Math.abs(z)>940) continue;
                     HcfBasePlan probe=planFor(faction,x,64,z);
                     if(!expectedFamily.equals(probe.primaryFamilyName())) continue;
@@ -210,7 +216,32 @@ final class HcfBaseBuilder {
             }
         }
 
-        if(best!=null) return best;
+        // 4) One-block final polish around the best refined center.
+        if(best!=null) {
+            int bx=best[0],bz=best[2];
+            for(int dx=-5;dx<=5;dx++) {
+                for(int dz=-5;dz<=5;dz++) {
+                    int x=bx+dx,z=bz+dz;
+                    if(Math.abs(x)>940 || Math.abs(z)>940) continue;
+                    HcfBasePlan probe=planFor(faction,x,64,z);
+                    if(!expectedFamily.equals(probe.primaryFamilyName())) continue;
+
+                    int[] fit=evaluateReferenceSite(faction,x,z);
+                    int score=naturalFitScore(fit,0);
+                    if(score<bestScore) {
+                        bestScore=score;
+                        best=new int[]{x,fit[0],z};
+                    }
+                    if(idealNaturalFit(fit)) return new int[]{x,fit[0],z};
+                }
+            }
+            return best;
+        }
+
+        if(!finalists.isEmpty()) {
+            int[] q=finalists.get(0);
+            return new int[]{q[1],q[2],q[3]};
+        }
         int[] fit=evaluateReferenceSite(faction,seedX,seedZ);
         return new int[]{seedX,fit[0],seedZ};
     }

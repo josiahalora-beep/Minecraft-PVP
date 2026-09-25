@@ -207,6 +207,11 @@ jobs:
           c['sim-world']=c['sim-world']||{}
           c['sim-world'].population=0
 
+          c['base-builder']=c['base-builder']||{}
+          c['base-builder']['qa-showcase']=true
+          c['base-builder']['qa-fast-rebuild']=true
+          c['base-builder']['qa-fast-rebuild-blocks-per-run']=3000
+
           fs.writeFileSync(p,YAML.stringify(c))
           NODE
 
@@ -245,13 +250,13 @@ jobs:
           QA_SHOWCASE: '1'
           QA_COMPOSE_PRODUCTION: '1'
           QA_COMPOSE_TIMEOUT_MS: '720000'
-          QA_REBUILD_TIMEOUT_MS: '300000'
+          QA_REBUILD_TIMEOUT_MS: '180000'
           QA_DETAIL_PASS: '1'
           QA_TEST_ATMOSPHERE: '1'
           QA_VIEW_DISTANCE: '12'
           QA_WIDTH: '1600'
           QA_HEIGHT: '900'
-        run: timeout 18m xvfb-run -a -s "-screen 0 1600x900x24" node src/qa-inspector.js
+        run: timeout 16m xvfb-run -a -s "-screen 0 1600x900x24" node src/qa-inspector.js
 
       - name: Verify 2k border and authored-world preservation
         if: always()

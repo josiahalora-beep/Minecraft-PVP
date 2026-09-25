@@ -81,25 +81,36 @@ final class HcfBasePlan {
 
         int members=Math.max(1,Math.min(8,this.profile.members));
 
-        // Concealment-first surface planning: visible scale grows much slower
-        // than underground capacity. A large faction needs more storage/farms,
-        // not a 40-block glass advertisement on the surface.
-        int sx=5+(members/2)+((seed/7)&1);
-        int sz=5+((members+1)/3)+((seed/13)&1);
-        int sh=3+Math.min(2,Math.max(0,this.profile.builderQuality-50)/25);
-
-        // v9 silhouette proportions: families differ before any material is
-        // placed. Tunnel is a long buried spine, Cave is broad/low, Modern is a
-        // stepped clean plan, Redemption stays compact, Base-HCF stays broad.
-        if(family==0) { sx=Math.max(5,sx-1); sz=Math.max(5,sz-1); }           // compact/vertical
-        else if(family==1) { sx+=1; sz+=1; }                                 // classic balanced
-        else if(family==2) { sx+=2; sz+=1; sh=Math.min(5,sh+1); }            // polished/stepped
-        else if(family==3) { sx=Math.max(4,sx-2); sz+=4; sh=Math.min(3,sh); } // narrow long tunnel
-        else if(family==4) { sx+=2; sz+=1; sh=Math.max(3,sh-1); }             // broad low cave
+        // Phase 2B: reference-measured surface proportions.
+        //
+        // The previous planner capped every surface shell at five blocks high,
+        // which turned the reference families into tiny procedural stubs while
+        // terrain work dominated the scene. The supplied HCF references are
+        // structure-first: Redemption ~19x19 with a tall two-level facade,
+        // Base-HCF ~29x26 with layered/windowed walls, Modern ~17x17 above
+        // grade, Tunnel ~11x11 but vertically stacked, and Cave references use
+        // a compact visible building/cut-in facade rather than a buried dot.
+        //
+        // Member count adds only modest footprint growth; faction capacity
+        // continues to scale mostly underground.
+        int bump=Math.max(0,(members-4)/3);
+        int qualityBump=this.profile.builderQuality>=76?1:0;
+        int sx,sz,sh;
+        if(family==0) {          // Redemption
+            sx=9+bump; sz=9+bump; sh=11+qualityBump;
+        } else if(family==1) {   // Base-HCF
+            sx=13+bump; sz=11+bump; sh=11+qualityBump;
+        } else if(family==2) {   // ModernHCF
+            sx=8+bump; sz=8+bump; sh=9+qualityBump;
+        } else if(family==3) {   // Tunnel reference: compact footprint, tall facade
+            sx=6+bump; sz=7+bump; sh=12+qualityBump;
+        } else {                 // Cave / Devhorah-style visible cut-in structure
+            sx=7+bump; sz=7+bump; sh=10+qualityBump;
+        }
 
         this.surfaceHalfX=sx;
         this.surfaceHalfZ=sz;
-        this.surfaceHeight=Math.min(5,sh);
+        this.surfaceHeight=Math.min(14,sh);
 
         int access=1;
         if(this.profile.gameSense>=62 || this.profile.pvpIq>=72) access++;
@@ -223,8 +234,11 @@ final class HcfBasePlan {
     }
 
     int terrainCradleRadius() {
-        int extra=primaryFamily==3?9:(primaryFamily==4?13:11);
-        return Math.max(surfaceHalfX,surfaceHalfZ)+extra;
+        // Authored FreeMap terrain is authoritative. This radius is only the
+        // immediate structural support / hand-terraforming envelope, not a
+        // concealment landform. Never let base generation reshape a claim-sized
+        // ring around the structure.
+        return Math.max(surfaceHalfX,surfaceHalfZ)+3;
     }
 
     int surfacePadRadius() {

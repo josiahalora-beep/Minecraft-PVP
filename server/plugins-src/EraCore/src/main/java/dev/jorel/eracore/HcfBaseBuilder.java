@@ -321,13 +321,25 @@ final class HcfBaseBuilder {
                         plugin.getLogger().warning("[qa-palette] family seed drift name="+names[i]+
                             " expected=MODERN_HCF actual="+p.primaryFamilyName());
                     }
-                    forceRebuild(names[i],"hcf_glass_box","none",x,y,z,1,false,false,false);
+                    // Palette QA proves the visible surface only. Building four
+                    // complete underground HCF bases here added hundreds of thousands
+                    // of irrelevant operations and could consume the entire screenshot
+                    // timeout. These sites are disposable/fresh, so queue only the
+                    // production surface path being reviewed.
+                    maintenanceRebuild=true;
+                    prepareTerrainPad(world,p);
+                    auditPlan(p);
+                    buildSurfaceShell(world,p,true);
+                    completed.add("surface:"+names[i].toLowerCase(java.util.Locale.ENGLISH));
+
                     plugin.getLogger().info("[qa-palette] queued "+names[i]+
                         " family="+p.primaryFamilyName()+
                         " palette="+HcfSurfaceReferenceTemplates.paletteName(p)+
                         " at="+x+","+y+","+z+
                         " naturalFit="+java.util.Arrays.toString(evaluateReferenceSite(names[i],x,z)));
                 }
+
+                ensureRunner();
 
                 new BukkitRunnable() {
                     public void run() {

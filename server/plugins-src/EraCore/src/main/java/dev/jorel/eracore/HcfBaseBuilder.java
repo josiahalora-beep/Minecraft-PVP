@@ -141,55 +141,71 @@ final class HcfBaseBuilder {
         int[] best=null;
         int bestScore=Integer.MAX_VALUE;
 
-        // Human-like site scouting is not chunk-center locked. Search a wider
-        // deterministic district on an 8-block grid first, then refine the best
-        // candidate one block at a time. This lets a faction move a few blocks
-        // onto an existing plateau instead of manufacturing a platform.
+        // 1) Search near the intended QA district without chunk-center locking.
+        // A quick 9-point relief probe rejects obvious slopes before the more
+        // expensive exact-footprint scan.
         for(int dx=-128;dx<=128;dx+=8) {
             for(int dz=-128;dz<=128;dz+=8) {
                 int x=seedX+dx,z=seedZ+dz;
-                if(Math.abs(x)>970 || Math.abs(z)>970) continue;
+                if(Math.abs(x)>940 || Math.abs(z)>940) continue;
+                HcfBasePlan probe=planFor(faction,x,64,z);
+                if(!expectedFamily.equals(probe.primaryFamilyName())) continue;
+                if(quickReferenceRelief(world,x,z,probe.primaryFamily)>2) continue;
+
                 world.loadChunk(x>>4,z>>4);
-
                 int[] fit=evaluateReferenceSite(faction,x,z);
-                HcfBasePlan p=planFor(faction,x,fit[0],z);
-                if(!expectedFamily.equals(p.primaryFamilyName())) continue;
-
-                int perimeter=fit[5]+fit[6];
-                int score=perimeter*320 + fit[1]*240 + fit[2]*34 +
-                    fit[3]*14 + fit[4]*500 + (Math.abs(dx)+Math.abs(dz))/3;
+                int score=naturalFitScore(fit,(Math.abs(dx)+Math.abs(dz))/3);
                 if(score<bestScore) {
                     bestScore=score;
                     best=new int[]{x,fit[0],z};
                 }
-
-                if(perimeter==0 && fit[1]<=1 && fit[2]<=6 &&
-                   fit[3]<=10 && fit[4]==0)
-                    return new int[]{x,fit[0],z};
+                if(idealNaturalFit(fit)) return new int[]{x,fit[0],z};
             }
         }
 
+        // 2) If that district simply does not contain a real plateau, search
+        // the authored wilderness itself rather than terraforming one. This is
+        // deterministic QA-only work and never alters production terrain.
+        for(int x=-920;x<=920;x+=24) {
+            for(int z=-920;z<=920;z+=24) {
+                if(x*x+z*z<450*450) continue;        // keep away from spawn
+                if(Math.abs(x)<64 || Math.abs(z)<64) continue; // road corridors
+                if(Math.abs(Math.abs(x)-500)<120 &&
+                   Math.abs(Math.abs(z)-500)<120) continue;     // event corners
+
+                HcfBasePlan probe=planFor(faction,x,64,z);
+                if(!expectedFamily.equals(probe.primaryFamilyName())) continue;
+                if(quickReferenceRelief(world,x,z,probe.primaryFamily)>1) continue;
+
+                int[] fit=evaluateReferenceSite(faction,x,z);
+                int score=naturalFitScore(fit,120+
+                    (Math.abs(x-seedX)+Math.abs(z-seedZ))/8);
+                if(score<bestScore) {
+                    bestScore=score;
+                    best=new int[]{x,fit[0],z};
+                }
+                if(idealNaturalFit(fit)) return new int[]{x,fit[0],z};
+            }
+        }
+
+        // 3) Refine the best plateau at one-block resolution.
         if(best!=null) {
             int bx=best[0],bz=best[2];
-            for(int dx=-7;dx<=7;dx++) {
-                for(int dz=-7;dz<=7;dz++) {
+            for(int dx=-11;dx<=11;dx++) {
+                for(int dz=-11;dz<=11;dz++) {
                     int x=bx+dx,z=bz+dz;
-                    if(Math.abs(x)>970 || Math.abs(z)>970) continue;
+                    if(Math.abs(x)>940 || Math.abs(z)>940) continue;
+                    HcfBasePlan probe=planFor(faction,x,64,z);
+                    if(!expectedFamily.equals(probe.primaryFamilyName())) continue;
+                    if(quickReferenceRelief(world,x,z,probe.primaryFamily)>2) continue;
 
                     int[] fit=evaluateReferenceSite(faction,x,z);
-                    HcfBasePlan p=planFor(faction,x,fit[0],z);
-                    if(!expectedFamily.equals(p.primaryFamilyName())) continue;
-
-                    int perimeter=fit[5]+fit[6];
-                    int score=perimeter*360 + fit[1]*260 + fit[2]*36 +
-                        fit[3]*14 + fit[4]*500;
+                    int score=naturalFitScore(fit,0);
                     if(score<bestScore) {
                         bestScore=score;
                         best=new int[]{x,fit[0],z};
                     }
-                    if(perimeter==0 && fit[1]<=1 && fit[2]<=6 &&
-                       fit[3]<=10 && fit[4]==0)
-                        return new int[]{x,fit[0],z};
+                    if(idealNaturalFit(fit)) return new int[]{x,fit[0],z};
                 }
             }
         }

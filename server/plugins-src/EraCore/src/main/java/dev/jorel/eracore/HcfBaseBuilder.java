@@ -1156,6 +1156,8 @@ final class HcfBaseBuilder {
             bufferedGateZ(w,backX,p.surfaceY,rearZ,-1,1,p.surfaceFrame);
         }
 
+        buildExteriorGateBanks(w,p);
+
         int[] d=p.anchor("drop");
         for(int x=d[0]-2;x<=d[0]+2;x++) for(int z=d[2]-2;z<=d[2]+2;z++)
             queue.add(new Op(w,x,p.surfaceY,z,
@@ -1243,26 +1245,39 @@ final class HcfBaseBuilder {
         if(!front && !rear && !sideNeg && !sidePos) return false;
 
         int along=(front||rear)?x-p.cx:z-p.cz;
+        boolean frontOrRear=front||rear;
 
         switch(p.primaryFamily) {
-            case 0: // Redemption: repeated lower + upper facade bays.
-                if(level>=4 && level<=5 && nearBay(along,1,-4,4)) return true;
-                if(level>=8 && level<=9 && nearBay(along,1,-4,4)) return true;
-                return (sideNeg||sidePos) && level>=6 && level<=7 && nearBay(along,0,-2,3);
-            case 1: // Base-HCF: strong vertical window rhythm across broad walls.
-                if(level>=4 && level<=7 && nearBay(along,1,-8,0,8)) return true;
-                return level>=9 && level<=10 && nearBay(along,1,-5,5);
-            case 2: // ModernHCF: larger clean glass panels with deliberate spacing.
-                if(level>=3 && level<=7 && nearBay(along,1,-4,4)) return true;
-                return (rear||sidePos) && level>=6 && level<=8 && nearBay(along,0,0);
-            case 3: // Tunnel reference: compact tower with two stacked window tiers.
-                if((level>=4 && level<=5) || (level>=8 && level<=9))
-                    return nearBay(along,0,-2,2);
-                return false;
-            case 4: // Cave/Devhorah: sparse irregular openings, never random speckle.
-                if(level>=4 && level<=5)
-                    return nearBay(along,0,-4,p.utilitySide*3);
-                return level==7 && along==-p.utilitySide*2;
+            case 0: // Redemption: four strong two-wide bays across both stories.
+                if(frontOrRear) {
+                    if(level>=4 && level<=6 && nearBay(along,1,-6,-2,2,6)) return true;
+                    if(level>=9 && level<=10 && nearBay(along,1,-5,0,5)) return true;
+                }
+                return (sideNeg||sidePos) && level>=4 && level<=7 &&
+                    nearBay(along,1,-5,0,5);
+            case 1: // Base-HCF: stained-glass columns are a defining visual feature.
+                if(frontOrRear && level>=4 && level<=8)
+                    return nearBay(along,1,-9,-3,3,9);
+                if((sideNeg||sidePos) && level>=4 && level<=8)
+                    return nearBay(along,1,-7,-2,3,8);
+                return level>=10 && level<=11 && nearBay(along,1,-6,0,6);
+            case 2: // Modern: large coherent glass panels, not speckles.
+                if(frontOrRear && level>=3 && level<=7)
+                    return nearBay(along,2,-4,4);
+                return (sideNeg||sidePos) && level>=4 && level<=8 &&
+                    nearBay(along,1,-3,3);
+            case 3: // Tunnel: stacked pairs of windows on a visible tower.
+                if(frontOrRear) {
+                    if(level>=4 && level<=6 && nearBay(along,1,-3,3)) return true;
+                    if(level>=9 && level<=11 && nearBay(along,1,-3,3)) return true;
+                }
+                return (sideNeg||sidePos) && level>=5 && level<=10 &&
+                    nearBay(along,0,-3,0,3);
+            case 4: // Cave/Devhorah: fewer but still deliberate glass openings.
+                if(front && level>=4 && level<=6)
+                    return nearBay(along,1,-4,4);
+                return (rear||sideNeg||sidePos) && level>=5 && level<=7 &&
+                    nearBay(along,0,-4,0,4);
             default:
                 return false;
         }
@@ -1403,42 +1418,34 @@ final class HcfBaseBuilder {
         int ax=Math.abs(dx),az=Math.abs(dz);
         if(ax>p.surfaceHalfX || az>p.surfaceHalfZ) return false;
 
-        // Permanent three-wide access necks keep semantic gate anchors valid
-        // even when the family mask is curved or aggressively chamfered.
-        if(dz<=-p.surfaceHalfZ+1 && Math.abs(dx-p.frontGateOffset)<=2) return true;
-        if(p.entrances>=2 && dx*p.utilitySide>=p.surfaceHalfX-1 && Math.abs(dz)<=2) return true;
-        if(p.entrances>=3 && dz>=p.surfaceHalfZ-1 && Math.abs(dx+p.frontGateOffset)<=2) return true;
-
+        // Phase 2B reference geometry: the uploaded HCF bases are dominated by
+        // legible rectangular/tower masses. Avoid decorative ellipse/chamfer
+        // algorithms that made the generated shell read like a pod or terrain prop.
         switch(p.primaryFamily) {
-            case 0: { // Redemption: near-square 19x19 reference mass with small chamfers.
-                if(ax==p.surfaceHalfX && az==p.surfaceHalfZ) return false;
-                return ax+az<=p.surfaceHalfX+p.surfaceHalfZ-1;
+            case 0: { // Redemption: strong square main house, tiny rear utility bite.
+                if(ax<=p.surfaceHalfX && az<=p.surfaceHalfZ) {
+                    if(dz>=p.surfaceHalfZ-2 && dx*p.utilitySide<-p.surfaceHalfX+2) return false;
+                    return true;
+                }
+                return false;
             }
-            case 1: { // Base-HCF: broad rectangular compound with clipped corners.
-                if(ax==p.surfaceHalfX && az>=p.surfaceHalfZ-1) return false;
-                if(az==p.surfaceHalfZ && ax>=p.surfaceHalfX-1) return false;
-                if(dz>p.surfaceHalfZ-2 && dx*p.utilitySide<-(p.surfaceHalfX-3)) return false;
+            case 1: // Base-HCF: broad practical rectangle.
                 return true;
-            }
-            case 2: { // ModernHCF: compact main mass + one clean offset wing.
+            case 2: { // ModernHCF: clean square main mass + shallow offset rear wing.
                 boolean main=ax<=p.surfaceHalfX-1 && az<=p.surfaceHalfZ-1;
-                boolean wing=dx*p.utilitySide>=Math.max(2,p.surfaceHalfX-3) &&
-                    dz>=-2 && dz<=p.surfaceHalfZ;
-                boolean frontStep=dz<=-p.surfaceHalfZ+2 && ax<=Math.max(3,p.surfaceHalfX-3);
-                return main||wing||frontStep;
+                boolean wing=dz>=1 && dx*p.utilitySide>=p.surfaceHalfX-3 &&
+                    ax<=p.surfaceHalfX && az<=p.surfaceHalfZ-2;
+                return main||wing;
             }
-            case 3: { // Tunnel reference: visible compact tower, not a buried spine.
-                if(ax==p.surfaceHalfX && az==p.surfaceHalfZ) return false;
-                return ax+az<=p.surfaceHalfX+p.surfaceHalfZ-1;
-            }
-            case 4: { // Cave/Devhorah: compact visible build with one irregular terrain-side bite.
-                if(ax+az>p.surfaceHalfX+p.surfaceHalfZ-1) return false;
-                if(dx*p.utilitySide<0 && dz>p.surfaceHalfZ-3 &&
-                   ax>Math.max(2,p.surfaceHalfX-3)) return false;
+            case 3: // Tunnel reference: compact vertical/tower footprint.
+                return ax<=p.surfaceHalfX-1 && az<=p.surfaceHalfZ-1;
+            case 4: { // Cave/Devhorah: visible rectangular core with one natural-looking notch.
+                if(ax>p.surfaceHalfX-1 || az>p.surfaceHalfZ-1) return false;
+                if(dz>p.surfaceHalfZ-4 && dx*p.utilitySide>p.surfaceHalfX-4) return false;
                 return true;
             }
             default:
-                return p.surfaceShape!=1 || ax+az<=p.surfaceHalfX+p.surfaceHalfZ-3;
+                return true;
         }
     }
 
@@ -1554,6 +1561,50 @@ final class HcfBaseBuilder {
             for(int z=bz-1;z<=bz+1;z++)
                 for(int yy=p.surfaceY+1;yy<=p.surfaceY+3;yy++)
                     queue.add(new Op(w,x,yy,z,Material.AIR));
+    }
+
+    private void buildExteriorGateBanks(World w,HcfBasePlan p) {
+        // Peak-era HCF facades frequently used fence-gate banks as defensive
+        // shutters, trap-ready openings and visual rhythm. Keep them deliberate:
+        // aligned with window bays and never random single blocks.
+        int frontZ=surfaceFrontZ(p,p.cx);
+        int rearZ=surfaceRearZ(p,p.cx);
+        int levelA=p.surfaceY+3;
+        int levelB=p.surfaceY+4;
+
+        int[] centers;
+        if(p.primaryFamily==1) centers=new int[]{-9,-3,3,9};
+        else if(p.primaryFamily==0) centers=new int[]{-6,-2,2,6};
+        else if(p.primaryFamily==3) centers=new int[]{-3,3};
+        else if(p.primaryFamily==2) centers=new int[]{-4,4};
+        else centers=new int[]{-4,4};
+
+        for(int off:centers) {
+            int x=p.cx+off;
+            if(Math.abs(x-p.cx)>p.surfaceHalfX-1) continue;
+
+            // Do not overwrite the true primary doorway.
+            if(Math.abs(x-(p.cx+p.frontGateOffset))>frontGateHalfWidth(p)+1) {
+                queue.add(new Op(w,x,levelA,surfaceFrontZ(p,x),Material.FENCE_GATE,(byte)0));
+                queue.add(new Op(w,x,levelB,surfaceFrontZ(p,x),Material.FENCE_GATE,(byte)0));
+            }
+            int rz=surfaceRearZ(p,x);
+            queue.add(new Op(w,x,levelA,rz,Material.FENCE_GATE,(byte)0));
+            queue.add(new Op(w,x,levelB,rz,Material.FENCE_GATE,(byte)0));
+        }
+
+        // Side shutter columns make the building read like an HCF base from
+        // more than one angle and match the supplied gate-heavy references.
+        int[] zOff={-4,0,4};
+        for(int off:zOff) {
+            int z=p.cz+off;
+            if(Math.abs(z-p.cz)>p.surfaceHalfZ-1) continue;
+            int lx=surfaceSideX(p,z,-1),rx=surfaceSideX(p,z,+1);
+            for(int yy=levelA;yy<=levelB;yy++) {
+                queue.add(new Op(w,lx,yy,z,Material.FENCE_GATE,(byte)1));
+                queue.add(new Op(w,rx,yy,z,Material.FENCE_GATE,(byte)1));
+            }
+        }
     }
 
     private void bufferedGateZ(World w,int cx,int y,int wallZ,int inward,int halfWidth,Material frame) {

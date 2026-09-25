@@ -107,6 +107,43 @@ final class HcfBaseBuilder {
         ensureRunner();
     }
 
+    private int[] findNaturalQaSite(String faction,String expectedFamily,int seedX,int seedZ) {
+        World world=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
+        if(world==null) return new int[]{seedX,64,seedZ};
+
+        int[] best=null;
+        int bestScore=Integer.MAX_VALUE;
+
+        // Search a compact deterministic neighborhood around each visual-QA
+        // district. Coordinates move only for terrain fit; the expected family
+        // must remain the same so this is still a five-family regression set.
+        for(int dx=-48;dx<=48;dx+=16) {
+            for(int dz=-48;dz<=48;dz+=16) {
+                int x=seedX+dx,z=seedZ+dz;
+                world.loadChunk(x>>4,z>>4);
+                int[] fit=evaluateReferenceSite(faction,x,z);
+                HcfBasePlan p=planFor(faction,x,fit[0],z);
+                if(!expectedFamily.equals(p.primaryFamilyName())) continue;
+
+                int perimeter=fit[5]+fit[6];
+                int score=perimeter*260 + fit[1]*200 + fit[2]*30 +
+                    fit[3]*12 + fit[4]*400 + (Math.abs(dx)+Math.abs(dz))/2;
+                if(score<bestScore) {
+                    bestScore=score;
+                    best=new int[]{x,fit[0],z};
+                }
+
+                if(perimeter==0 && fit[1]<=1 && fit[2]<=6 &&
+                   fit[3]<=10 && fit[4]==0)
+                    return new int[]{x,fit[0],z};
+            }
+        }
+
+        if(best!=null) return best;
+        int[] fit=evaluateReferenceSite(faction,seedX,seedZ);
+        return new int[]{seedX,fit[0],seedZ};
+    }
+
     void queueQaFamilyShowcase() {
         if(!plugin.getConfig().getBoolean("base-builder.qa-showcase",false)) return;
         final World world=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
@@ -146,8 +183,10 @@ final class HcfBaseBuilder {
         Bukkit.getScheduler().runTaskLater(plugin,new Runnable() {
             public void run() {
                 for(int i=0;i<sites.length;i++) {
-                    int x=sites[i][0],z=sites[i][1];
-                    int y=evaluateSite(x,z,30)[0];
+                    int[] natural=findNaturalQaSite(names[i],expected[i],sites[i][0],sites[i][1]);
+                    int x=natural[0],y=natural[1],z=natural[2];
+                    sites[i][0]=x;
+                    sites[i][1]=z;
                     HcfBasePlan p=planFor(names[i],x,y,z);
                     qaPlans[i]=p;
                     if(!expected[i].equals(p.primaryFamilyName())) {
@@ -160,7 +199,8 @@ final class HcfBaseBuilder {
                         " family="+p.primaryFamilyName()+" secondary="+p.secondaryFamilyName()+
                         " storageTier="+qaStorageTier+" brewer="+qaBrewer+
                         " nether="+qaNether+" end="+qaEnd+
-                        " at="+x+","+y+","+z);
+                        " at="+x+","+y+","+z+
+                        " naturalFit="+java.util.Arrays.toString(evaluateReferenceSite(names[i],x,z)));
                 }
 
                 // Spigot may unload remote showcase chunks because the inspector

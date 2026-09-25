@@ -251,6 +251,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         startMetrics();
         startPowerRegen();
         startDtrRegen();
+        startFactionRuleReview();
         simWorld.start();
         logicalTab.start();
         sidebar.start();
@@ -910,6 +911,13 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             String ownerName = getConfig().getString("owner.name", "");
             Player owner = ownerName.isEmpty() ? null : Bukkit.getPlayerExact(ownerName);
             if (owner != null && !f.members.contains(owner.getName())) owner.sendMessage(msg);
+            if(simWorld!=null) {
+                final String factionName=f.name;
+                final String factionText=e.getMessage();
+                Bukkit.getScheduler().runTask(this,new Runnable() {
+                    public void run(){ simWorld.onHumanFactionChat(p,factionName,factionText); }
+                });
+            }
             return;
         }
         Rank r = isBotIdentity(p.getName()) ? simRankFor(p.getName()) : getRank(p.getName());
@@ -1060,7 +1068,21 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     @EventHandler(priority=EventPriority.HIGHEST, ignoreCancelled=true) public void onBreak(BlockBreakEvent e) {
         if(resourceDirector!=null && resourceDirector.handleProtectedBreak(e)) return;
-        if (!canBuild(e.getPlayer(), e.getBlock().getLocation())) e.setCancelled(true);
+        if (!canBuild(e.getPlayer(), e.getBlock().getLocation())) {
+            e.setCancelled(true);
+            return;
+        }
+
+        Material m=e.getBlock().getType();
+        int diamonds=0,points=0;
+        if(m==Material.DIAMOND_ORE) { diamonds=1; points=8; }
+        else if(m==Material.IRON_ORE || m==Material.GOLD_ORE) points=3;
+        else if(m==Material.LAPIS_ORE || m==Material.REDSTONE_ORE || m==Material.GLOWING_REDSTONE_ORE) points=2;
+        else if(m==Material.COAL_ORE || m==Material.QUARTZ_ORE) points=1;
+        else if(m==Material.LOG || m==Material.LOG_2) points=1;
+
+        if(diamonds>0 || points>0)
+            noteFactionContribution(e.getPlayer().getName(),diamonds,points);
     }
 
     @EventHandler(priority=EventPriority.HIGHEST, ignoreCancelled=true) public void onPlace(BlockPlaceEvent e) {
@@ -4480,6 +4502,86 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     private String fmtDtr(double d) {
         return new DecimalFormat("0.0").format(d);
+    }
+
+    private void startFactionRuleReview() {
+        long period=20L*60L; // once a minute; work only happens at week rollover
+        Bukkit.getScheduler().runTaskTimer(this,new Runnable() {
+            public void run(){ reviewFactionRules(); }
+        },period,period);
+    }
+
+    private void reviewFactionRules() {
+        long now=System.currentTimeMillis();
+        long weekHours=Math.max(24L,getConfig().getLong("faction-rules.week-hours",168L));
+        long weekMs=weekHours*60L*60L*1000L;
+        boolean changed=false;
+
+        for(Faction f:new ArrayList<Faction>(factions.values())) {
+            if(now-f.rulesWeekStartedAt<weekMs) continue;
+
+            List<String> removed=new ArrayList<String>();
+            for(String member:new ArrayList<String>(f.members)) {
+                if(member.equalsIgnoreCase(f.leader)) continue;
+                registerFactionMemberState(f,member);
+                String k=member.toLowerCase(Locale.ENGLISH);
+                long joined=f.memberJoinedAt.containsKey(k)?f.memberJoinedAt.get(k):f.rulesWeekStartedAt;
+
+                // Members who joined in the final quarter of a week get a fair
+                // first week instead of being punished for an impossible quota.
+                boolean eligible=joined<=f.rulesWeekStartedAt+(weekMs*3L/4L);
+                int diamonds=ledger(f.weeklyDiamonds,member);
+                int points=ledger(f.weeklyContribution,member);
+                boolean failed=eligible &&
+                    (diamonds<f.weeklyDiamondQuota || points<f.weeklyContributionQuota);
+
+                if(failed) {
+                    int strikes=ledger(f.ruleStrikes,member)+1;
+                    f.ruleStrikes.put(k,strikes);
+                    Player hp=Bukkit.getPlayerExact(member);
+                    if(hp!=null)
+                        hp.sendMessage(color("&cFaction rule strike "+strikes+"/2. &7You finished "+diamonds+
+                            "/"+f.weeklyDiamondQuota+" diamonds and "+points+"/"+f.weeklyContributionQuota+" contribution."));
+
+                    if(strikes>=2) {
+                        removeIgnoreCase(f.members,member);
+                        removeIgnoreCase(f.officers,member);
+                        clearFactionMemberState(f,member);
+                        removed.add(member);
+                        if(simWorld!=null)
+                            simWorld.onAuthorityRuleKick(f.name,member,"missed weekly faction requirements");
+                        if(hp!=null) hp.sendMessage(color("&cYou were removed from "+f.name+" for repeated rule failures."));
+                    }
+                } else if(eligible) {
+                    int strikes=Math.max(0,ledger(f.ruleStrikes,member)-1);
+                    f.ruleStrikes.put(k,strikes);
+
+                    // A simulated leader may reward a human who massively
+                    // exceeds the SAME rulebook used for AI members.
+                    if(!isBotIdentity(member) && !isFactionOfficer(f,member) &&
+                       simWorld!=null && simWorld.contains(f.leader) && f.officers.size()<2 &&
+                       points>=Math.max(1,f.weeklyContributionQuota)*2 &&
+                       diamonds>=Math.max(1,f.weeklyDiamondQuota)*2) {
+                        addCasePreserving(f.officers,member);
+                        Player hp=Bukkit.getPlayerExact(member);
+                        if(hp!=null) hp.sendMessage(color("&a"+f.leader+" promoted you to officer for your faction contribution."));
+                        broadcastFactionSystem(f,member+" was promoted to officer for exceptional contribution.");
+                    }
+                }
+            }
+
+            f.weeklyDiamonds.clear();
+            f.weeklyContribution.clear();
+            for(String member:f.members) {
+                f.weeklyDiamonds.put(member.toLowerCase(Locale.ENGLISH),0);
+                f.weeklyContribution.put(member.toLowerCase(Locale.ENGLISH),0);
+            }
+            f.rulesWeekStartedAt=now;
+            if(!removed.isEmpty()) broadcastFactionSystem(f,"Weekly review removed "+join(removed,", ")+". Recruiting replacements.");
+            else broadcastFactionSystem(f,"Weekly faction review complete.");
+            changed=true;
+        }
+        if(changed) saveFactions();
     }
 
     private void startDtrRegen() {

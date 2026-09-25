@@ -94,3 +94,25 @@ Corrective implementation:
 - the final underground integrity pass no longer re-seals/overwrites surface template cells.
 
 This section is a corrective baseline, not visual acceptance. Phase 2B remains open until a fresh five-family authored-FreeMap screenshot artifact is manually reviewed.
+
+
+## Phase-2B exact surface acceptance — 2026-09-25
+
+The active Phase-2B exterior path now reconstructs the selected above-grade components of the five canonical references exactly rather than approximating their facade language procedurally.
+
+Accepted evidence:
+- production geometry commit: `b67937beef22f0cc5c4416d9bb3b12205c4652a0`;
+- authored-FreeMap visual QA run: `36147294842`;
+- artifact: `10870034692`;
+- artifact SHA-256: `21257ea4a07ba4bef4ed541dcc3ab5f4e678d685fdc5718799a39f3a6047e5f4`;
+- exact post-build verifier: five families at `mismatches=0`;
+- primary entrance proof: five families resolve to `FENCE_GATE` at the schematic-derived gate anchor.
+
+Canonical selected surface components:
+- Redemption: 19 x 21 x 19;
+- Base-HCF: 29 x 20 x 26;
+- ModernHCF: 17 x 9 x 17;
+- Tunnel: 11 x 12 x 11 with the selected component aligned one block above terrain grade;
+- Cave/Devhorah: 13 x 12 x 13 with the selected component aligned one block above terrain grade.
+
+This supersedes the earlier reference-inspired procedural facade implementation. The older measured-reference tables remain useful provenance, but they are no longer the production exterior geometry source. Phase 3 remains responsible for underground functionality and must not overwrite these accepted surface voxels.

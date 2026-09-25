@@ -1136,7 +1136,8 @@ final class HcfBaseBuilder {
                 }
                 boolean cornerish=surfaceCornerLike(p,x,z);
                 boolean beam=cornerish || yy==p.surfaceY+1 || yy==colTop;
-                queue.add(new Op(w,x,yy,z,surfaceWallMaterial(p,x,yy,z,colTop,beam)));
+                Material wall=surfaceWallMaterial(p,x,yy,z,colTop,beam);
+                queue.add(new Op(w,x,yy,z,wall,surfaceWallData(p,wall)));
             }
             queue.add(new Op(w,x,colTop+1,z,surfaceRoofMaterial(p,x,z,edge)));
         }
@@ -1194,7 +1195,8 @@ final class HcfBaseBuilder {
                         }
                         boolean beam=surfaceCornerLike(p,x,z) || yy==p.surfaceY+1 || yy==colTop ||
                             ((Math.abs(x-p.cx)+Math.abs(z-p.cz)+p.seed)%7==0);
-                        queue.add(new Op(w,x,yy,z,surfaceWallMaterial(p,x,yy,z,colTop,beam)));
+                        Material wall=surfaceWallMaterial(p,x,yy,z,colTop,beam);
+                        queue.add(new Op(w,x,yy,z,wall,surfaceWallData(p,wall)));
                     }
                 }
 
@@ -1303,43 +1305,70 @@ final class HcfBaseBuilder {
     }
 
     private Material surfaceWallMaterial(HcfBasePlan p,int x,int yy,int z,int top,boolean beam) {
+        int level=yy-p.surfaceY;
         int pattern=Math.abs(x*31+z*17+p.seed)%11;
+
         if(!beam && surfaceWindowCell(p,x,yy,z,top)) {
-            if(p.primaryFamily==1 || p.primaryFamily==2) return Material.STAINED_GLASS;
-            return Material.GLASS;
+            // Stained glass was a defining 1.7/1.8 HCF facade material.
+            // Color is supplied by surfaceWallData().
+            return Material.STAINED_GLASS;
         }
 
         if(beam) {
-            if(p.primaryFamily==4)
-                return pattern<4?Material.MOSSY_COBBLESTONE:
-                    (pattern<8?Material.COBBLESTONE:Material.STONE);
-            if(p.primaryFamily==3)
-                return p.finishTier==0?Material.COBBLESTONE:Material.SMOOTH_BRICK;
-            return p.surfaceFrame;
+            switch(p.primaryFamily) {
+                case 0: return level<=2?Material.SMOOTH_BRICK:Material.LOG; // Redemption timber frame
+                case 1: return Material.SMOOTH_BRICK;                       // Base-HCF masonry frame
+                case 2: return Material.QUARTZ_BLOCK;                       // Modern clean frame
+                case 3: return level<=2?Material.SMOOTH_BRICK:Material.LOG; // Tunnel stacked timber/stone
+                case 4: return pattern<4?Material.COBBLESTONE:Material.LOG; // Devhorah wood/stone
+                default:return p.surfaceFrame;
+            }
         }
 
         if(surfaceTrimCell(p,x,yy,z,top)) {
-            if(p.primaryFamily==0 || p.primaryFamily==3) return Material.LOG;
-            if(p.primaryFamily==2) return Material.QUARTZ_BLOCK;
-            if(p.primaryFamily==1) return p.finishTier>=1?Material.QUARTZ_BLOCK:p.undergroundTrim;
-            return pattern<5?Material.MOSSY_COBBLESTONE:Material.COBBLESTONE;
+            switch(p.primaryFamily) {
+                case 0: return Material.LOG;
+                case 1: return Material.LOG;
+                case 2: return Material.QUARTZ_BLOCK;
+                case 3: return Material.LOG;
+                case 4: return pattern<5?Material.COBBLESTONE:Material.LOG;
+                default:return p.surfaceFrame;
+            }
         }
 
         switch(p.primaryFamily) {
             case 0:
-                return p.finishTier==0?Material.COBBLESTONE:Material.SMOOTH_BRICK;
+                // Redemption reference is wood-dominant with a stone lower course.
+                if(level<=2) return Material.SMOOTH_BRICK;
+                return Material.WOOD;
             case 1:
                 return p.finishTier>=1?Material.SMOOTH_BRICK:Material.COBBLESTONE;
             case 2:
+                // Modern uses glass as a major surface; solid cells stay clean/light.
                 return p.finishTier>=1?Material.SMOOTH_BRICK:Material.QUARTZ_BLOCK;
             case 3:
-                return p.finishTier==0?Material.COBBLESTONE:Material.SMOOTH_BRICK;
+                // Tunnel reference is a visible timber tower in a gray frame.
+                if(level<=2) return Material.SMOOTH_BRICK;
+                return Material.WOOD;
             case 4:
-                if(pattern<=2) return Material.MOSSY_COBBLESTONE;
-                if(pattern<=6) return Material.COBBLESTONE;
-                return Material.STONE;
+                // Devhorah/Cave reference is visibly wooden with stone supports,
+                // not a random mossy-rock capsule.
+                if(level<=2) return Material.COBBLESTONE;
+                return pattern==0?Material.COBBLESTONE:Material.WOOD;
             default:
                 return p.surfaceFrame;
+        }
+    }
+
+    private byte surfaceWallData(HcfBasePlan p,Material material) {
+        if(material!=Material.STAINED_GLASS) return (byte)0;
+        switch(p.primaryFamily) {
+            case 0: return (byte)9;  // cyan/light-blue feel against timber
+            case 1: return (byte)15; // dark/black HCF panes in gray masonry
+            case 2: return (byte)9;  // cyan glass-heavy modern tower
+            case 3: return (byte)9;  // cyan stacked tunnel windows
+            case 4: return (byte)7;  // gray glass in the cave/wood facade
+            default:return (byte)0;
         }
     }
 
@@ -1349,14 +1378,16 @@ final class HcfBaseBuilder {
             if(p.primaryFamily==2 && Math.abs(dx)<=2 && Math.abs(dz)<=2)
                 return Material.STAINED_GLASS;
             if(p.primaryFamily==1 && Math.abs(dx)<=1 && Math.abs(dz)<=3)
-                return Material.GLASS;
+                return Material.STAINED_GLASS;
             if(p.primaryFamily==0 && Math.abs(dx)<=1 && dz>=1 && dz<=4)
-                return Material.GLASS;
+                return Material.STAINED_GLASS;
             if(p.primaryFamily==3 && Math.abs(dx)<=1 && Math.abs(dz)<=1)
-                return Material.GLASS;
+                return Material.STAINED_GLASS;
         }
-        if(p.primaryFamily==4 && ((x+z+p.seed)&7)==0) return Material.MOSSY_COBBLESTONE;
-        return p.surfaceFrame;
+        if(p.primaryFamily==0 || p.primaryFamily==3 || p.primaryFamily==4)
+            return Material.WOOD;
+        if(p.primaryFamily==2) return Material.QUARTZ_BLOCK;
+        return Material.SMOOTH_BRICK;
     }
 
     private int frontGateHalfWidth(HcfBasePlan p) {
@@ -1948,6 +1979,21 @@ final class HcfBaseBuilder {
             queue.add(new Op(w,gx+p.utilitySide*5,p.surfaceY+1,frontZ+1,Material.STONE));
             queue.add(new Op(w,gx+p.utilitySide*5,p.surfaceY+2,frontZ+1,Material.MOSSY_COBBLESTONE));
         }
+        // Colored roof glass should read like the period's HCF glass rooms /
+        // lookout strips instead of default white panes.
+        if(p.primaryFamily<=3) {
+            byte data=surfaceWallData(p,Material.STAINED_GLASS);
+            if(p.primaryFamily==2) {
+                for(int x=p.cx-2;x<=p.cx+2;x++) for(int z=p.cz-2;z<=p.cz+2;z++)
+                    queue.add(new Op(w,x,surfaceRoofY(p,x,z)+1,z,Material.STAINED_GLASS,data));
+            } else if(p.primaryFamily==1) {
+                for(int z=p.cz-3;z<=p.cz+3;z++)
+                    queue.add(new Op(w,p.cx,surfaceRoofY(p,p.cx,z)+1,z,Material.STAINED_GLASS,data));
+            } else {
+                queue.add(new Op(w,p.cx,surfaceMaxTop(p)+1,p.cz,Material.STAINED_GLASS,data));
+            }
+        }
+
     }
 
     private void buildReferenceGrammar(World w,HcfBasePlan p) {

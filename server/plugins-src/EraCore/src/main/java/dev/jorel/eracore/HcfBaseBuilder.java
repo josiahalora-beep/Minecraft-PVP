@@ -254,6 +254,56 @@ final class HcfBaseBuilder {
         },20L);
     }
 
+    void queueQaPaletteShowcase() {
+        if(!plugin.getConfig().getBoolean("base-builder.qa-showcase",false)) return;
+        final World world=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
+        if(world==null) return;
+
+        final String[] names={
+            "QAPaletteCyan","QAPaletteArctic","QAPaletteRed","QAPaletteSmoke"
+        };
+        final int[][] sites={
+            {-700,650},{-250,650},{250,650},{700,650}
+        };
+
+        Bukkit.getScheduler().runTaskLater(plugin,new Runnable() {
+            public void run() {
+                for(int i=0;i<names.length;i++) {
+                    int[] natural=findNaturalQaSite(names[i],"MODERN_HCF",sites[i][0],sites[i][1]);
+                    int x=natural[0],y=natural[1],z=natural[2];
+                    sites[i][0]=x; sites[i][1]=z;
+                    HcfBasePlan p=planFor(names[i],x,y,z);
+                    if(!"MODERN_HCF".equals(p.primaryFamilyName())) {
+                        plugin.getLogger().warning("[qa-palette] family seed drift name="+names[i]+
+                            " expected=MODERN_HCF actual="+p.primaryFamilyName());
+                    }
+                    forceRebuild(names[i],"hcf_glass_box","none",x,y,z,1,false,false,false);
+                    plugin.getLogger().info("[qa-palette] queued "+names[i]+
+                        " family="+p.primaryFamilyName()+
+                        " palette="+HcfSurfaceReferenceTemplates.paletteName(p)+
+                        " at="+x+","+y+","+z+
+                        " naturalFit="+java.util.Arrays.toString(evaluateReferenceSite(names[i],x,z)));
+                }
+
+                new BukkitRunnable() {
+                    public void run() {
+                        if(queue.isEmpty()) {
+                            plugin.getLogger().info("[qa-palette] build queue drained; palette captures may begin.");
+                            cancel();
+                            return;
+                        }
+                        for(int[] site:sites) {
+                            int ccx=site[0]>>4,ccz=site[1]>>4;
+                            for(int dx=-3;dx<=3;dx++)
+                                for(int dz=-3;dz<=3;dz++)
+                                    world.loadChunk(ccx+dx,ccz+dz);
+                        }
+                    }
+                }.runTaskTimer(plugin,1L,10L);
+            }
+        },10L);
+    }
+
     void lazyMaterialize(String faction,String preset,String trapPreset,int cx,int y,int cz,
                          int storageTier,boolean brewer,boolean netherPortal,boolean endPortal) {
         if(faction==null || faction.trim().isEmpty()) return;

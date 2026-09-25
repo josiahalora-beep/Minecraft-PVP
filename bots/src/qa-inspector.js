@@ -460,6 +460,7 @@ if(showcase){
   await sleep(2500)
   const rebuilt=await waitForBaseRebuild(Number(process.env.QA_REBUILD_TIMEOUT_MS||180000))
   if(!rebuilt) manifest.errors.push('five-family QA showcase rebuild timeout')
+  else await sleep(1200) // let final block/chunk updates settle before first teleport
 
   // These Y values are the terrain-selected showcase anchors from the
   // checksum-pinned authored FreeMap. They are intentionally explicit: the
@@ -538,7 +539,9 @@ if(selected.length){
       const portalX=b.x+us*(b.coreHalfX-3)
       const portalZ=b.z-b.coreHalfZ+5
       await capture(prefix+'-interior-nether-portal',
-        {x:portalX,y:u+3,z:portalZ+5},{x:portalX,y:u+3,z:portalZ},2200)
+        // One block inside the alcove keeps both feet and eye cells in AIR.
+        // +5 is the doorway boundary; its upper lintel occupies the head cell.
+        {x:portalX,y:u+3,z:portalZ+4},{x:portalX,y:u+3,z:portalZ},2200)
 
       const enchantX=b.x+us*(b.coreHalfX-5)
       const enchantZ=b.z+b.coreHalfZ-5

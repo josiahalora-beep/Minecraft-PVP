@@ -276,6 +276,8 @@ jobs:
           test "$(find qa-output -maxdepth 1 -name '*interior-core-first.jpg' | wc -l)" -eq 5
           test "$(find qa-output -maxdepth 1 -name '*interior-dropdown-first.jpg' | wc -l)" -eq 5
           test "$(find qa-output -maxdepth 1 -name '*interior-refill-first.jpg' | wc -l)" -eq 5
+          test "$(find qa-output -maxdepth 1 -name '*interior-storage-west-first.jpg' | wc -l)" -eq 5
+          test "$(find qa-output -maxdepth 1 -name '*interior-storage-east-first.jpg' | wc -l)" -eq 5
           test "$(find qa-output -maxdepth 1 -name '*interior-farm-first.jpg' | wc -l)" -eq 5
           test "$(find qa-output -maxdepth 1 -name '*interior-brewer-first.jpg' | wc -l)" -eq 5
           test "$(find qa-output -maxdepth 1 -name '*interior-nether-portal-first.jpg' | wc -l)" -eq 5

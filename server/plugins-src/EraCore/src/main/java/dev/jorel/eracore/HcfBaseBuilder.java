@@ -1222,7 +1222,10 @@ final class HcfBaseBuilder {
         // left untouched; this only prevents cave/excavation seams at the shell.
         int minX=p.cx-p.coreHalfX,maxX=p.cx+p.coreHalfX;
         int minZ=p.cz-p.coreHalfZ,maxZ=p.cz+p.coreHalfZ;
-        int ceiling=p.undergroundY+6;
+        // Match the actual Phase 3 core height. The old +6 integrity cap
+        // silently re-compressed 7/8-block interiors after they were built and
+        // could clip the top tier of stacked storage / family ceiling grammar.
+        int ceiling=p.undergroundY+(p.finishTier==0?7:8);
         for(int x=minX;x<=maxX;x++) for(int z=minZ;z<=maxZ;z++) {
             boolean boundary=x==minX||x==maxX||z==minZ||z==maxZ;
             if(boundary) {

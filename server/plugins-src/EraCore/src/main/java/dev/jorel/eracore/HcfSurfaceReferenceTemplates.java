@@ -441,8 +441,17 @@ final class HcfSurfaceReferenceTemplates {
     }
 
     static int paletteVariant(HcfBasePlan plan) {
-        // The canonical QA factions must remain byte-for-byte reference exact.
-        if(plan==null || plan.faction==null || plan.faction.startsWith("QA")) return 0;
+        if(plan==null || plan.faction==null) return 0;
+
+        // Explicit visual palette proofs. These prefixes are QA-only and never
+        // occur in normal simulated faction names.
+        if(plan.faction.startsWith("QAPaletteCyan")) return 1;
+        if(plan.faction.startsWith("QAPaletteArctic")) return 2;
+        if(plan.faction.startsWith("QAPaletteRed")) return 3;
+        if(plan.faction.startsWith("QAPaletteSmoke")) return 4;
+
+        // The canonical five-family QA factions remain byte-for-byte exact.
+        if(plan.faction.startsWith("QA")) return 0;
 
         int roll=Math.abs((plan.seed/131)%3);
         switch(plan.primaryFamily) {

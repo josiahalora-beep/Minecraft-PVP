@@ -1289,8 +1289,10 @@ final class HcfBaseBuilder {
 
     private Material surfaceWallMaterial(HcfBasePlan p,int x,int yy,int z,int top,boolean beam) {
         int pattern=Math.abs(x*31+z*17+p.seed)%11;
-        if(!beam && surfaceWindowCell(p,x,yy,z,top))
-            return p.primaryFamily==2?Material.STAINED_GLASS:Material.GLASS;
+        if(!beam && surfaceWindowCell(p,x,yy,z,top)) {
+            if(p.primaryFamily==1 || p.primaryFamily==2) return Material.STAINED_GLASS;
+            return Material.GLASS;
+        }
 
         if(beam) {
             if(p.primaryFamily==4)
@@ -1327,11 +1329,18 @@ final class HcfBaseBuilder {
     }
 
     private Material surfaceRoofMaterial(HcfBasePlan p,int x,int z,boolean edge) {
-        // Structural roof stays solid because the terrain cradle/soil cap sits
-        // above it. Modern gets only a tiny central skylight.
-        if(p.primaryFamily==2 && !edge && Math.abs(x-p.cx)<=1 && Math.abs(z-p.cz)<=1)
-            return Material.STAINED_GLASS;
-        if(p.primaryFamily==4 && ((x+z+p.seed)&3)==0) return Material.COBBLESTONE;
+        int dx=x-p.cx,dz=z-p.cz;
+        if(!edge) {
+            if(p.primaryFamily==2 && Math.abs(dx)<=2 && Math.abs(dz)<=2)
+                return Material.STAINED_GLASS;
+            if(p.primaryFamily==1 && Math.abs(dx)<=1 && Math.abs(dz)<=3)
+                return Material.GLASS;
+            if(p.primaryFamily==0 && Math.abs(dx)<=1 && dz>=1 && dz<=4)
+                return Material.GLASS;
+            if(p.primaryFamily==3 && Math.abs(dx)<=1 && Math.abs(dz)<=1)
+                return Material.GLASS;
+        }
+        if(p.primaryFamily==4 && ((x+z+p.seed)&7)==0) return Material.MOSSY_COBBLESTONE;
         return p.surfaceFrame;
     }
 
@@ -1340,20 +1349,47 @@ final class HcfBaseBuilder {
     }
 
     private int surfaceGateData(HcfBasePlan p,int x,int yy,int z) {
-        if(yy<p.surfaceY+1 || yy>p.surfaceY+2) return -1;
+        int level=yy-p.surfaceY;
 
-        int frontX=p.cx+p.frontGateOffset;
-        int frontHalf=frontGateHalfWidth(p);
-        if(Math.abs(x-frontX)<=frontHalf && z==surfaceFrontZ(p,x)) return 0;
+        boolean front=z==surfaceFrontZ(p,x);
+        boolean rear=z==surfaceRearZ(p,x);
+        boolean sideNeg=x==surfaceSideX(p,z,-1);
+        boolean sidePos=x==surfaceSideX(p,z,+1);
+        int along=(front||rear)?x-p.cx:z-p.cz;
 
-        if(p.entrances>=2 && Math.abs(z-p.cz)<=1) {
-            int sideX=surfaceSideX(p,z,p.utilitySide);
-            if(x==sideX) return 1;
+        // Primary functional entrances.
+        if(level>=1 && level<=2) {
+            int frontX=p.cx+p.frontGateOffset;
+            int frontHalf=frontGateHalfWidth(p);
+            if(Math.abs(x-frontX)<=frontHalf && front) return 0;
+
+            if(p.entrances>=2 && Math.abs(z-p.cz)<=1) {
+                int sideX=surfaceSideX(p,z,p.utilitySide);
+                if(x==sideX) return 1;
+            }
+
+            if(p.entrances>=3) {
+                int backX=p.cx-p.frontGateOffset;
+                if(Math.abs(x-backX)<=1 && rear) return 0;
+            }
         }
 
-        if(p.entrances>=3) {
-            int backX=p.cx-p.frontGateOffset;
-            if(Math.abs(x-backX)<=1 && z==surfaceRearZ(p,x)) return 0;
+        // Reference-derived HCF facade language: fence-gate ventilation /
+        // fighting bands framed into the walls. These are deliberate bays, not
+        // random holes, and they survive the final envelope seal.
+        if(front||rear) {
+            if(p.primaryFamily==0 && level==3 && nearBay(along,1,-6,0,6)) return 0;
+            if(p.primaryFamily==1 && level==3 && nearBay(along,1,-9,-3,3,9)) return 0;
+            if(p.primaryFamily==2 && level==2 && nearBay(along,1,-5,5)) return 0;
+            if(p.primaryFamily==3 && (level==3 || level==7) && nearBay(along,0,-3,0,3)) return 0;
+            if(p.primaryFamily==4 && level==3 && nearBay(along,0,-4,4)) return 0;
+        }
+        if(sideNeg||sidePos) {
+            if(p.primaryFamily==0 && level==3 && nearBay(along,1,-5,5)) return 1;
+            if(p.primaryFamily==1 && level==3 && nearBay(along,1,-7,0,7)) return 1;
+            if(p.primaryFamily==2 && level==2 && nearBay(along,0,-4,4)) return 1;
+            if(p.primaryFamily==3 && level==3 && nearBay(along,0,-3,3)) return 1;
+            if(p.primaryFamily==4 && level==3 && along==p.utilitySide*3) return 1;
         }
         return -1;
     }
@@ -1374,43 +1410,32 @@ final class HcfBaseBuilder {
         if(p.entrances>=3 && dz>=p.surfaceHalfZ-1 && Math.abs(dx+p.frontGateOffset)<=2) return true;
 
         switch(p.primaryFamily) {
-            case 0: { // Redemption: compact core + defensive rear shoulder + recessed nose.
-                boolean core=ax<=Math.max(3,p.surfaceHalfX-2) && az<=p.surfaceHalfZ-1;
-                boolean shoulder=dz>=-1 && dx*p.utilitySide>=0 &&
-                    ax<=p.surfaceHalfX && az<=Math.max(3,p.surfaceHalfZ-3);
-                boolean nose=dz<=-p.surfaceHalfZ+3 && Math.abs(dx-p.frontGateOffset)<=4;
-                if(!(core||shoulder||nose)) return false;
-                return ax+az<=p.surfaceHalfX+p.surfaceHalfZ-2;
+            case 0: { // Redemption: near-square 19x19 reference mass with small chamfers.
+                if(ax==p.surfaceHalfX && az==p.surfaceHalfZ) return false;
+                return ax+az<=p.surfaceHalfX+p.surfaceHalfZ-1;
             }
-            case 1: { // Base-HCF: broad classic shell, asymmetric rear bite.
-                if(ax+az>p.surfaceHalfX+p.surfaceHalfZ-2) return false;
-                if(dz>p.surfaceHalfZ-3 && dx*p.utilitySide<-(p.surfaceHalfX-4)) return false;
+            case 1: { // Base-HCF: broad rectangular compound with clipped corners.
+                if(ax==p.surfaceHalfX && az>=p.surfaceHalfZ-1) return false;
+                if(az==p.surfaceHalfZ && ax>=p.surfaceHalfX-1) return false;
+                if(dz>p.surfaceHalfZ-2 && dx*p.utilitySide<-(p.surfaceHalfX-3)) return false;
                 return true;
             }
-            case 2: { // ModernHCF: stepped main volume plus offset utility wing.
-                boolean main=ax<=p.surfaceHalfX-1 && az<=p.surfaceHalfZ-2 &&
-                    ax+az<=p.surfaceHalfX+p.surfaceHalfZ-3;
-                boolean wing=dx*p.utilitySide>=Math.max(1,p.surfaceHalfX-3) &&
-                    az<=Math.max(3,p.surfaceHalfZ-4);
-                boolean rearBar=dz>=0 && az<=p.surfaceHalfZ-1 &&
-                    ax<=Math.max(3,p.surfaceHalfX-3);
-                return main||wing||rearBar;
+            case 2: { // ModernHCF: compact main mass + one clean offset wing.
+                boolean main=ax<=p.surfaceHalfX-1 && az<=p.surfaceHalfZ-1;
+                boolean wing=dx*p.utilitySide>=Math.max(2,p.surfaceHalfX-3) &&
+                    dz>=-2 && dz<=p.surfaceHalfZ;
+                boolean frontStep=dz<=-p.surfaceHalfZ+2 && ax<=Math.max(3,p.surfaceHalfX-3);
+                return main||wing||frontStep;
             }
-            case 3: { // Tunnel: long buried spine growing from a compact mouth.
-                int depth=dz+p.surfaceHalfZ;
-                int mouthHalf=Math.max(3,p.surfaceHalfX/2);
-                int allowed=Math.min(p.surfaceHalfX,mouthHalf+Math.max(0,depth/5));
-                if(depth>p.surfaceHalfZ+p.surfaceHalfZ-3)
-                    allowed=Math.max(mouthHalf,allowed-1);
-                return ax<=allowed && dz<=p.surfaceHalfZ-1;
+            case 3: { // Tunnel reference: visible compact tower, not a buried spine.
+                if(ax==p.surfaceHalfX && az==p.surfaceHalfZ) return false;
+                return ax+az<=p.surfaceHalfX+p.surfaceHalfZ-1;
             }
-            case 4: { // Cave: lopsided rock chamber with deterministic lobe.
-                double nx=dx/(double)Math.max(1,p.surfaceHalfX);
-                double nz=dz/(double)Math.max(1,p.surfaceHalfZ);
-                double wobble=0.18*(cradleNoise(x,z,p.seed+417)-0.5);
-                double skew=(dx*p.utilitySide>0?-0.08:0.05);
-                double lobe=(dx*p.utilitySide<0 && dz>0)?0.08:0.0;
-                return nx*nx+nz*nz <= 1.0+wobble+skew+lobe;
+            case 4: { // Cave/Devhorah: compact visible build with one irregular terrain-side bite.
+                if(ax+az>p.surfaceHalfX+p.surfaceHalfZ-1) return false;
+                if(dx*p.utilitySide<0 && dz>p.surfaceHalfZ-3 &&
+                   ax>Math.max(2,p.surfaceHalfX-3)) return false;
+                return true;
             }
             default:
                 return p.surfaceShape!=1 || ax+az<=p.surfaceHalfX+p.surfaceHalfZ-3;

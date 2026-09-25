@@ -431,6 +431,71 @@ final class HcfBaseBuilder {
         return new int[]{median,relief,liquid};
     }
 
+    /**
+     * Evaluate the exact reference footprint against the untouched authored map.
+     *
+     * Returns:
+     * [0] modal natural grade under the reference footprint
+     * [1] footprint relief (maxY-minY)
+     * [2] footprint columns not already at the modal grade
+     * [3] immediate outside-ring columns not at the modal grade
+     * [4] liquid samples in footprint + one-block context ring
+     * [5] visible perimeter columns below grade
+     * [6] visible perimeter columns above grade
+     *
+     * The modal grade, rather than a broad-area median, makes a schematic sit
+     * ON an existing flat patch instead of creating a one-block stage around it.
+     */
+    int[] evaluateReferenceSite(String faction,int cx,int cz) {
+        World world=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
+        if(world==null) return new int[]{64,999,999,999,999,999,999};
+
+        HcfBasePlan probe=planFor(faction,cx,64,cz);
+        int hx=(HcfSurfaceReferenceTemplates.width(probe.primaryFamily)-1)/2;
+        int hz=(HcfSurfaceReferenceTemplates.length(probe.primaryFamily)-1)/2;
+
+        Map<Integer,Integer> grades=new LinkedHashMap<Integer,Integer>();
+        int min=Integer.MAX_VALUE,max=Integer.MIN_VALUE;
+        int liquids=0;
+
+        for(int x=cx-hx;x<=cx+hx;x++) {
+            for(int z=cz-hz;z<=cz+hz;z++) {
+                int y=solidSurfaceY(world,x,z);
+                min=Math.min(min,y); max=Math.max(max,y);
+                Integer n=grades.get(y); grades.put(y,n==null?1:n+1);
+            }
+        }
+
+        int grade=64,best=-1;
+        for(Map.Entry<Integer,Integer> e:grades.entrySet()) {
+            if(e.getValue()>best || (e.getValue()==best && Math.abs(e.getKey()-64)<Math.abs(grade-64))) {
+                best=e.getValue(); grade=e.getKey();
+            }
+        }
+
+        int offGrade=0,outerOff=0,perimeterLow=0,perimeterHigh=0;
+        for(int x=cx-hx-1;x<=cx+hx+1;x++) {
+            for(int z=cz-hz-1;z<=cz+hz+1;z++) {
+                boolean inside=x>=cx-hx&&x<=cx+hx&&z>=cz-hz&&z<=cz+hz;
+                boolean perimeter=inside && (x==cx-hx||x==cx+hx||z==cz-hz||z==cz+hz);
+                boolean ring=!inside && (x==cx-hx-1||x==cx+hx+1||z==cz-hz-1||z==cz+hz+1);
+                int y=solidSurfaceY(world,x,z);
+                if(inside && y!=grade) offGrade++;
+                if(ring && y!=grade) outerOff++;
+                if(perimeter && y<grade) perimeterLow++;
+                if(perimeter && y>grade) perimeterHigh++;
+
+                int top=Math.max(1,world.getHighestBlockYAt(x,z));
+                Material topMat=world.getBlockAt(x,top,z).getType();
+                if(topMat==Material.WATER||topMat==Material.STATIONARY_WATER||
+                   topMat==Material.LAVA||topMat==Material.STATIONARY_LAVA) liquids++;
+            }
+        }
+
+        int relief=(min==Integer.MAX_VALUE||max==Integer.MIN_VALUE)?999:(max-min);
+        return new int[]{grade,relief,offGrade,outerOff,liquids,perimeterLow,perimeterHigh};
+    }
+
     void queueFoundationRepair(String faction, String preset, String trapPreset, int cx, int y, int cz) {
         String key = "foundation:" + faction.toLowerCase();
         if (!completed.add(key)) return;
@@ -502,65 +567,42 @@ final class HcfBaseBuilder {
      * infrastructure.
      */
     private void prepareTerrainPad(World w,HcfBasePlan p) {
-        // Phase 2B: structure first, authored terrain second.
+        // Phase 2B final terrain contract:
+        // NO generated PvP apron and NO exterior flattening.
         //
-        // Do NOT generate a terrain feature around the base. Real HCF builders
-        // mostly cleared the footprint and, depending on skill/intent, flattened
-        // a very small PvP apron. The checksum-pinned FreeMap remains authoritative
-        // immediately outside that work zone.
-        int apron=p.profile.builderQuality>=75?4:(p.profile.builderQuality>=45?3:2);
-        int minX=p.cx-p.surfaceHalfX-apron,maxX=p.cx+p.surfaceHalfX+apron;
-        int minZ=p.cz-p.surfaceHalfZ-apron,maxZ=p.cz+p.surfaceHalfZ+apron;
-        int gateX=p.cx+p.frontGateOffset;
-        int frontZ=surfaceFrontZ(p,gateX);
+        // The faction must scout a naturally usable site first. We only clear
+        // vegetation/terrain that would physically occupy the exact schematic
+        // footprint and invisibly support a rare one-block depression UNDER the
+        // building. Every column outside the reference bounding box remains the
+        // checksum-pinned authored FreeMap exactly as it was.
+        int hx=(HcfSurfaceReferenceTemplates.width(p.primaryFamily)-1)/2;
+        int hz=(HcfSurfaceReferenceTemplates.length(p.primaryFamily)-1)/2;
 
-        for(int x=minX;x<=maxX;x++) {
-            for(int z=minZ;z<=maxZ;z++) {
-                boolean inside=surfaceInside(p,x,z);
-                double dist=inside?0.0:surfaceDistanceFromMaskExact(p,x,z,apron+1);
-                boolean frontApron=z<=frontZ && z>=frontZ-4 && Math.abs(x-gateX)<=4;
-                if(!inside && !frontApron && dist>apron+0.25) continue;
-
-                int natural=plugin.canonicalHcfTerrainY(x,z);
+        for(int x=p.cx-hx;x<=p.cx+hx;x++) {
+            for(int z=p.cz-hz;z<=p.cz+hz;z++) {
                 int current=solidSurfaceY(w,x,z);
-                int target;
-
-                if(inside) {
-                    target=p.surfaceY;
-                } else {
-                    // Human-like PvP grading: only columns already within one
-                    // vertical block of the base grade are flattened. Larger
-                    // authored hills/dips remain natural instead of becoming
-                    // concentric terraces.
-                    int delta=natural-p.surfaceY;
-                    boolean skilledApron=p.profile.builderQuality>=45 && (frontApron || dist<=apron);
-                    if(!skilledApron || Math.abs(delta)>1) continue;
-                    target=p.surfaceY;
-                }
-
                 Material nativeTop=nativeSurfaceMaterial(w,x,z);
                 Material fill=nativeFillMaterial(nativeTop);
 
-                // Clear only the build/apron column. Nothing outside this tiny
-                // work zone has vegetation, trees, cliffs or biome materials touched.
+                // Clear only obstructions inside the building volume. This is
+                // equivalent to players chopping/clearing the exact footprint;
+                // it never makes a lawn or platform around the base.
                 int clearTop=Math.min(w.getMaxHeight()-1,
-                    Math.max(target+(inside?p.surfaceHeight+8:4),w.getHighestBlockYAt(x,z)+2));
-                for(int yy=target+1;yy<=clearTop;yy++) {
+                    Math.max(p.surfaceY+HcfSurfaceReferenceTemplates.height(p.primaryFamily)+3,
+                             w.getHighestBlockYAt(x,z)+2));
+                for(int yy=p.surfaceY+1;yy<=clearTop;yy++) {
                     Material existing=w.getBlockAt(x,yy,z).getType();
                     if(existing!=Material.AIR)
                         queue.add(new Op(w,x,yy,z,Material.AIR));
                 }
 
-                if(current<target) {
-                    for(int yy=Math.max(2,current+1);yy<target;yy++)
-                        queue.add(new Op(w,x,yy,z,yy>=target-2?fill:Material.STONE));
+                // Support only hidden voids UNDER the reference. Correct site
+                // selection makes this normally zero work; importantly, no
+                // visible outside column is raised to match the building.
+                if(current<p.surfaceY) {
+                    for(int yy=Math.max(2,current+1);yy<p.surfaceY;yy++)
+                        queue.add(new Op(w,x,yy,z,yy>=p.surfaceY-2?fill:Material.STONE));
                 }
-
-                // The shell floor replaces inside cells later. Apron cells keep
-                // their own native surface material, which naturally respects
-                // desert/grass/gravel boundaries without synthetic 70/20/10 noise.
-                if(!inside)
-                    queue.add(new Op(w,x,target,z,nativeTop));
             }
         }
     }

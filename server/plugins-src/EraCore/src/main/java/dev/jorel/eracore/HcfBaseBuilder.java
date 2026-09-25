@@ -1126,56 +1126,24 @@ final class HcfBaseBuilder {
     }
 
     private void buildSurfaceShell(World w,HcfBasePlan p,boolean openTransit) {
-        int minX=p.cx-p.surfaceHalfX,maxX=p.cx+p.surfaceHalfX;
-        int minZ=p.cz-p.surfaceHalfZ,maxZ=p.cz+p.surfaceHalfZ;
-        int maxTop=surfaceMaxTop(p);
+        // Phase 2B fidelity reset: the visible shell is no longer a procedural
+        // rectangle with reference-inspired windows/gate decoration. Queue the
+        // exact selected above-grade component from the corresponding supplied
+        // HCF schematic. AIR is part of the template, so rebuilds also erase
+        // stale procedural shutters, fake window bays and tower additions.
+        HcfSurfaceReferenceTemplates.queue(queue,w,p);
 
-        // v9: every family owns its footprint AND roof profile. The structural
-        // shell is still practical HCF construction, but it no longer extrudes
-        // one identical-height box over five different masks.
-        for(int x=minX;x<=maxX;x++) for(int z=minZ;z<=maxZ;z++) {
-            if(!surfaceInside(p,x,z)) continue;
-            int colTop=surfaceRoofY(p,x,z);
-            queue.add(new Op(w,x,p.surfaceY,z,p.surfaceFloor));
+        int maxTop=p.surfaceY+HcfSurfaceReferenceTemplates.height(p.primaryFamily)-1;
+        plugin.getLogger().info("[reference-exterior] faction="+p.faction+
+            " family="+p.primaryFamilyName()+
+            " size="+HcfSurfaceReferenceTemplates.width(p.primaryFamily)+"x"+
+                HcfSurfaceReferenceTemplates.height(p.primaryFamily)+"x"+
+                HcfSurfaceReferenceTemplates.length(p.primaryFamily)+
+            " source=schematic-surface-component");
 
-            boolean edge=surfaceBoundary(p,x,z);
-            for(int yy=p.surfaceY+1;yy<=colTop;yy++) {
-                if(!edge) {
-                    queue.add(new Op(w,x,yy,z,Material.AIR));
-                    continue;
-                }
-                boolean cornerish=surfaceCornerLike(p,x,z);
-                boolean beam=cornerish || yy==p.surfaceY+1 || yy==colTop;
-                Material wall=surfaceWallMaterial(p,x,yy,z,colTop,beam);
-                queue.add(new Op(w,x,yy,z,wall,surfaceWallData(p,wall)));
-            }
-            queue.add(new Op(w,x,colTop+1,z,surfaceRoofMaterial(p,x,z,edge)));
-        }
-
-        // Gates resolve against the real family boundary. Curved, stepped and
-        // tunnel masks no longer receive doors on empty bounding-box air.
-        int frontX=p.cx+p.frontGateOffset;
-        int frontZ=surfaceFrontZ(p,frontX);
-        bufferedGateZ(w,frontX,p.surfaceY,frontZ,+1,frontGateHalfWidth(p),p.surfaceFrame);
-        if(p.entrances>=2) {
-            int sideX=surfaceSideX(p,p.cz,p.utilitySide);
-            bufferedGateX(w,sideX,p.surfaceY,p.cz,p.utilitySide>0?-1:+1,p.surfaceFrame);
-        }
-        if(p.entrances>=3) {
-            int backX=p.cx-p.frontGateOffset;
-            int rearZ=surfaceRearZ(p,backX);
-            bufferedGateZ(w,backX,p.surfaceY,rearZ,-1,1,p.surfaceFrame);
-        }
-
-        buildExteriorGateBanks(w,p);
-
-        int[] d=p.anchor("drop");
-        for(int x=d[0]-2;x<=d[0]+2;x++) for(int z=d[2]-2;z<=d[2]+2;z++)
-            queue.add(new Op(w,x,p.surfaceY,z,
-                (Math.abs(x-d[0])==2||Math.abs(z-d[2])==2)?p.surfaceFrame:p.surfaceFloor));
-
+        // The authored FreeMap remains authoritative outside the template
+        // footprint. buildTerrainCradle() is intentionally a no-op in Phase 2B.
         buildTerrainCradle(w,p,maxTop);
-        decorateSurfaceGrammar(w,p,maxTop);
         if(openTransit) buildVerticalTransit(w,p);
     }
 
@@ -1216,7 +1184,10 @@ final class HcfBaseBuilder {
     }
 
     private void sealCriticalEnvelope(World w,HcfBasePlan p,boolean dropdownOpen) {
-        sealSurfaceEnvelope(w,p,dropdownOpen);
+        // Do not run the legacy procedural surface sealer here. It would
+        // overwrite exact schematic gate/glass/roof cells after the reference
+        // template has been placed. Surface integrity is supplied by the
+        // canonical template itself; this pass now seals underground only.
 
         // Re-assert the underground central box envelope. Internal modules are
         // left untouched; this only prevents cave/excavation seams at the shell.
@@ -1459,39 +1430,11 @@ final class HcfBaseBuilder {
     }
 
     private boolean surfaceInside(HcfBasePlan p,int x,int z) {
-        int dx=x-p.cx,dz=z-p.cz;
-        int ax=Math.abs(dx),az=Math.abs(dz);
-        if(ax>p.surfaceHalfX || az>p.surfaceHalfZ) return false;
-
-        // Phase 2B reference geometry: the uploaded HCF bases are dominated by
-        // legible rectangular/tower masses. Avoid decorative ellipse/chamfer
-        // algorithms that made the generated shell read like a pod or terrain prop.
-        switch(p.primaryFamily) {
-            case 0: { // Redemption: strong square main house, tiny rear utility bite.
-                if(ax<=p.surfaceHalfX && az<=p.surfaceHalfZ) {
-                    if(dz>=p.surfaceHalfZ-2 && dx*p.utilitySide<-p.surfaceHalfX+2) return false;
-                    return true;
-                }
-                return false;
-            }
-            case 1: // Base-HCF: broad practical rectangle.
-                return true;
-            case 2: { // ModernHCF: clean square main mass + shallow offset rear wing.
-                boolean main=ax<=p.surfaceHalfX-1 && az<=p.surfaceHalfZ-1;
-                boolean wing=dz>=1 && dx*p.utilitySide>=p.surfaceHalfX-3 &&
-                    ax<=p.surfaceHalfX && az<=p.surfaceHalfZ-2;
-                return main||wing;
-            }
-            case 3: // Tunnel reference: compact vertical/tower footprint.
-                return ax<=p.surfaceHalfX-1 && az<=p.surfaceHalfZ-1;
-            case 4: { // Cave/Devhorah: visible rectangular core with one natural-looking notch.
-                if(ax>p.surfaceHalfX-1 || az>p.surfaceHalfZ-1) return false;
-                if(dz>p.surfaceHalfZ-4 && dx*p.utilitySide>p.surfaceHalfX-4) return false;
-                return true;
-            }
-            default:
-                return true;
-        }
+        // Canonical template work-zone only. The exact facade may step inward,
+        // but terrain preparation must support the complete schematic crop and
+        // must never reach outside this reference-sized rectangle.
+        return Math.abs(x-p.cx)<=p.surfaceHalfX &&
+               Math.abs(z-p.cz)<=p.surfaceHalfZ;
     }
 
     private boolean surfaceBoundary(HcfBasePlan p,int x,int z) {

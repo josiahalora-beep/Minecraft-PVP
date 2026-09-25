@@ -4431,11 +4431,22 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
                 Iterator<String> it = f.members.iterator();
                 while (it.hasNext()) {
                     String member = it.next();
-                    if (keys.contains(member.toLowerCase(Locale.ENGLISH))) it.remove();
+                    if (keys.contains(member.toLowerCase(Locale.ENGLISH))) {
+                        it.remove();
+                        removeIgnoreCase(f.officers,member);
+                        clearFactionMemberState(f,member);
+                    }
                 }
+                // Defensive cleanup for legacy/stale role entries too.
+                for(String officer:new ArrayList<String>(f.officers))
+                    if(!containsIgnoreCase(f.members,officer)) removeIgnoreCase(f.officers,officer);
+
                 if (f.members.isEmpty()) remove.add(f);
                 else {
-                    if (!f.members.contains(f.leader)) f.leader = f.members.iterator().next();
+                    if (!containsIgnoreCase(f.members,f.leader)) {
+                        f.leader = f.members.iterator().next();
+                        removeIgnoreCase(f.officers,f.leader);
+                    }
                     f.dtr = Math.min(f.dtr, maxDtr(f));
                 }
             }

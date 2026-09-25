@@ -708,65 +708,44 @@ if(selected.length){
 }
 
 if(process.env.QA_PALETTE_PASS==='1' && showcase && !interiorOnly){
-  const paletteLogPath=path.join(root,'server','phase1-server.log')
-  const drainedBefore=(()=>{
-    try{return (fs.readFileSync(paletteLogPath,'utf8').match(/\[qa-palette\] build queue drained/g)||[]).length}
-    catch{return 0}
-  })()
+  // Palette surfaces are now queued with the canonical five-family showcase,
+  // so there is no second chat command/race after a long render session.
+  const serverLog=fs.readFileSync(path.join(root,'server','phase1-server.log'),'utf8')
+  const re=/\[qa-palette\] queued (\S+) family=(\S+) palette=(\S+) at=(-?\d+),(-?\d+),(-?\d+) naturalFit=\[([^\]]+)\]/g
+  const found=[]
+  for(const m of serverLog.matchAll(re)){
+    found.push({
+      name:m[1],family:m[2],palette:m[3],
+      x:Number(m[4]),y:Number(m[5]),z:Number(m[6]),
+      naturalFit:m[7].split(',').map(v=>Number(v.trim()))
+    })
+  }
+  const expected=['QAPaletteCyan','QAPaletteArctic','QAPaletteRed','QAPaletteSmoke']
+  const byName=new Map(found.map(x=>[x.name,x]))
+  const palettes=expected.map(name=>byName.get(name)).filter(Boolean)
+  manifest.paletteProof=palettes
 
-  bot.chat('/baserebuild palettes')
-  await sleep(250)
-
-  // Palette surface builds are intentionally tiny and can finish before the
-  // first /baserebuild status poll observes RUNNING. Wait on the dedicated
-  // server completion marker instead of requiring a transient RUNNING state.
-  const paletteRebuilt=await waitUntil(()=>{
-    try{
-      const txt=fs.readFileSync(paletteLogPath,'utf8')
-      return (txt.match(/\[qa-palette\] build queue drained/g)||[]).length>drainedBefore
-    }catch{return false}
-  },60000,250)
-
-  if(!paletteRebuilt){
-    manifest.errors.push('palette showcase rebuild timeout')
+  if(palettes.length!==4){
+    manifest.errors.push('palette showcase missing expected previews')
   }else{
-    await sleep(750)
-    const serverLog=fs.readFileSync(paletteLogPath,'utf8')
-    const re=/\[qa-palette\] queued (\S+) family=(\S+) palette=(\S+) at=(-?\d+),(-?\d+),(-?\d+) naturalFit=\[([^\]]+)\]/g
-    const found=[]
-    for(const m of serverLog.matchAll(re)){
-      found.push({
-        name:m[1],family:m[2],palette:m[3],
-        x:Number(m[4]),y:Number(m[5]),z:Number(m[6]),
-        naturalFit:m[7].split(',').map(v=>Number(v.trim()))
-      })
-    }
-    const expected=['QAPaletteCyan','QAPaletteArctic','QAPaletteRed','QAPaletteSmoke']
-    const byName=new Map(found.map(x=>[x.name,x]))
-    const palettes=expected.map(name=>byName.get(name)).filter(Boolean)
-    manifest.paletteProof=palettes
-    if(palettes.length!==4){
-      manifest.errors.push('palette showcase missing expected previews')
-    }else{
-      const bad=palettes.filter(p=>{
-        const fit=p.naturalFit||[]
-        return p.family!=='MODERN_HCF' || fit.length<7 ||
-          (fit[5]+fit[6])!==0 || fit[4]!==0
-      })
-      if(bad.length)
-        manifest.errors.push('palette showcase natural-fit failure: '+
-          bad.map(p=>p.name+' '+JSON.stringify(p.naturalFit)).join(' | '))
+    const bad=palettes.filter(p=>{
+      const fit=p.naturalFit||[]
+      return p.family!=='MODERN_HCF' || fit.length<7 ||
+        (fit[5]+fit[6])!==0 || fit[4]!==0
+    })
+    if(bad.length)
+      manifest.errors.push('palette showcase natural-fit failure: '+
+        bad.map(p=>p.name+' '+JSON.stringify(p.naturalFit)).join(' | '))
 
-      for(const p of palettes){
-        const prefix='palette-'+slug(p.palette)
-        await capture(prefix+'-frontage',
-          {x:p.x,y:p.y+8,z:p.z-34},{x:p.x,y:p.y+4,z:p.z},3200)
-        await capture(prefix+'-diagonal',
-          {x:p.x+26,y:p.y+9,z:p.z-26},{x:p.x,y:p.y+4,z:p.z},3200)
-        const gateX=p.x-1,gateZ=p.z-7
-        await capture(prefix+'-entrance',
-          {x:gateX+6,y:p.y+5,z:gateZ-15},{x:gateX,y:p.y+2,z:gateZ},2800)
-      }
+    for(const p of palettes){
+      const prefix='palette-'+slug(p.palette)
+      await capture(prefix+'-frontage',
+        {x:p.x,y:p.y+8,z:p.z-34},{x:p.x,y:p.y+4,z:p.z},3200)
+      await capture(prefix+'-diagonal',
+        {x:p.x+26,y:p.y+9,z:p.z-26},{x:p.x,y:p.y+4,z:p.z},3200)
+      const gateX=p.x-1,gateZ=p.z-7
+      await capture(prefix+'-entrance',
+        {x:gateX+6,y:p.y+5,z:gateZ-15},{x:gateX,y:p.y+2,z:gateZ},2800)
     }
   }
 }

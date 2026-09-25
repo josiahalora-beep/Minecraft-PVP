@@ -1518,11 +1518,10 @@ final class HcfBaseBuilder {
     }
 
     private int surfaceMaxTop(HcfBasePlan p) {
-        int max=p.surfaceY+3;
-        for(int x=p.cx-p.surfaceHalfX;x<=p.cx+p.surfaceHalfX;x++)
-            for(int z=p.cz-p.surfaceHalfZ;z<=p.cz+p.surfaceHalfZ;z++)
-                if(surfaceInside(p,x,z)) max=Math.max(max,surfaceRoofY(p,x,z));
-        return max;
+        // Exact Phase-2B surface template height is authoritative. This is also
+        // used by maintenance clearing, so it must cover the complete reference
+        // component instead of the retired family-specific procedural roof.
+        return p.surfaceY+HcfSurfaceReferenceTemplates.height(p.primaryFamily)-1;
     }
 
     private double surfaceDistanceFromMaskExact(HcfBasePlan p,int x,int z,int limit) {

@@ -272,6 +272,8 @@ jobs:
           test "$(grep -c "\[qa-showcase\] queued .*naturalFit=" server/phase1-server.log)" -ge 5
           test "$(grep -c "\[qa-palette\] queued .*palette=" server/phase1-server.log)" -ge 4
           grep -q "\[qa-palette\] build queue drained; palette captures may begin." server/phase1-server.log
+          test "$(grep -c "\[qa-material\] OK" server/phase1-server.log)" -ge 5
+          ! grep -q "\[qa-material\] FAILED" server/phase1-server.log
           grep -q "\[reference-exterior-verify\] all five facades block-perfect; all primary gate anchors exact." server/phase1-server.log
           ! grep -q "\[reference-exterior-verify\] FAILED" server/phase1-server.log
           for family in REDEMPTION BASE_HCF MODERN_HCF TUNNEL CAVE; do

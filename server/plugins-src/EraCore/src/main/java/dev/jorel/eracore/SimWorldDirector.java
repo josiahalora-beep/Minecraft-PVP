@@ -5460,16 +5460,34 @@ final class SimWorldDirector {
         int dye=at(need,5);
 
         // High-value underground requirements are a miner's job. Logs are the
-        // common overworld gathering job. Glass/dye are intentionally cheap
-        // shop inputs; if treasury cannot cover them, earn cash instead of
-        // pretending the blocks appeared.
+        // common overworld gathering job. Surface glass plus every exact
+        // dye/wool/flora/redstone-style supply from the compiled schematic are
+        // shop/craft needs; if treasury cannot cover them, earn cash instead of
+        // pretending those blocks appeared.
         int minePressure=stone/16+iron*3+obby*5;
         int woodPressure=wood*2;
-        double shopCost=glass*Math.max(0.0,plugin.buyUnitPrice("glass"));
-        if(dye>0) {
+        double glassUnit=plugin.buyUnitPrice("glass");
+        double shopCost=(Double.isInfinite(glassUnit)||Double.isNaN(glassUnit))
+            ?Double.POSITIVE_INFINITY:glass*Math.max(0.0,glassUnit);
+        boolean shopNeeds=glass>0;
+
+        if(!f.surfaceQueued) {
+            double exactSupplies=surfaceShopCashCost(f);
+            if(Double.isInfinite(exactSupplies)||Double.isNaN(exactSupplies))
+                shopCost=Double.POSITIVE_INFINITY;
+            else {
+                shopCost+=exactSupplies;
+                shopNeeds=shopNeeds || exactSupplies>0.0;
+            }
+        } else if(dye>0) {
+            // Current rejected Phase 3 core can still expose dyed blocks. Keep
+            // its legacy aggregate estimate isolated here until Phase 3 is
+            // rebuilt from the real interior schematics.
             String dk=HcfSurfaceReferenceTemplates.dyeShopKey(currentSurfacePlan(f));
             double du=dk.isEmpty()?0.0:plugin.buyUnitPrice(dk);
-            if(!Double.isInfinite(du) && !Double.isNaN(du)) shopCost+=dye*du;
+            if(Double.isInfinite(du)||Double.isNaN(du)) shopCost=Double.POSITIVE_INFINITY;
+            else shopCost+=dye*du;
+            shopNeeds=true;
         }
 
         if((iron>0 || obby>0 || stone>96) &&
@@ -5481,7 +5499,7 @@ final class SimWorldDirector {
             if(p.economicIq>=60) return "trade";
             return "gather";
         }
-        if(glass>0 || dye>0) return p.economicIq>=55?"trade":"gather";
+        if(shopNeeds || dye>0) return p.economicIq>=55?"trade":"gather";
         return "build";
     }
 

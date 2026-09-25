@@ -4684,9 +4684,22 @@ final class SimWorldDirector {
     }
 
     private boolean executeFactionInvite(SimPlayer responder,String speaker) {
+        return executeFactionInvite(responder,speaker,false);
+    }
+
+    private boolean executeFactionInvite(SimPlayer responder,String speaker,boolean passedRequiredTryout) {
         if(!mayInviteSpeaker(responder,speaker)) return false;
         SimFaction f=factions.get(key(responder.faction));
         if(f==null) return false;
+
+        // A human recruit follows the same rulebook as simulated candidates.
+        // Do not let conversational fallback/direct-invite paths bypass a
+        // faction's required tryout rule, and never kick an existing member to
+        // make room until the candidate has actually passed.
+        if(plugin.factionTryoutRequired(f.name) && !passedRequiredTryout) {
+            beginHumanFactionTryout(f,speaker);
+            return false;
+        }
 
         if(f.members.size()>=MAX_FACTION_MEMBERS) {
             SimPlayer kicked=replaceableMember(f,recruitInfluenceForSpeaker(f,responder,speaker));
@@ -4717,6 +4730,22 @@ final class SimWorldDirector {
 
     private final Map<String,String> pendingHumanTryoutFaction=new HashMap<String,String>();
 
+    private boolean beginHumanFactionTryout(SimFaction f,String speaker) {
+        if(f==null || speaker==null || speaker.trim().isEmpty()) return false;
+        SimPlayer leader=players.get(key(f.leader));
+        if(leader==null) return false;
+
+        String existing=pendingHumanTryoutFaction.get(key(speaker));
+        if(existing!=null && existing.equalsIgnoreCase(f.name)) return true;
+
+        if(!plugin.offerSimulatedDuel(leader.name,speaker,"wants a tryout for "+f.name))
+            return false;
+        pendingHumanTryoutFaction.put(key(speaker),f.name);
+        rememberRelationship(relationship(leader.name,speaker,true),
+            "asked "+speaker+" to duel for a spot in "+f.name);
+        return true;
+    }
+
     private void handleAiSocialAction(SimPlayer responder,String speaker,AiChatBridge.AiReply ai) {
         if(responder==null || ai==null) return;
         if("INVITE_FACTION".equals(ai.action)) {
@@ -4725,12 +4754,7 @@ final class SimWorldDirector {
         }
         if("DUEL_TRYOUT".equals(ai.action) && responder.faction!=null && !responder.faction.isEmpty()) {
             SimFaction f=factions.get(key(responder.faction));
-            if(f==null) return;
-            SimPlayer leader=players.get(key(f.leader));
-            if(leader==null) return;
-            pendingHumanTryoutFaction.put(key(speaker),f.name);
-            plugin.offerSimulatedDuel(leader.name,speaker,"wants a tryout for "+f.name);
-            rememberRelationship(relationship(leader.name,speaker,true),"asked "+speaker+" to duel for a spot in "+f.name);
+            if(f!=null) beginHumanFactionTryout(f,speaker);
         }
     }
 
@@ -5963,7 +5987,7 @@ final class SimWorldDirector {
                 SimPlayer tl=tf==null?null:players.get(key(tf.leader));
                 boolean humanWon=winner.equalsIgnoreCase(human);
                 if(humanWon && tl!=null) {
-                    executeFactionInvite(tl,human);
+                    executeFactionInvite(tl,human,true);
                     Player hp=Bukkit.getPlayerExact(human);
                     if(hp!=null) plugin.sendSimulatedPrivate(hp,tl.name,"you passed. leader sent the inv");
                     recordHistory("TRYOUT",8,human+" passed "+tryoutFaction+"'s live duel tryout",

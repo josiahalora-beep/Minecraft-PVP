@@ -267,6 +267,7 @@ jobs:
           test "$(grep -c "\[reference-exterior\]" server/phase1-server.log)" -ge 5
           test "$(grep -c "\[reference-exterior-verify\].*mismatches=0" server/phase1-server.log)" -ge 5
           test "$(grep -c "\[reference-exterior-verify\].*gateAnchor=FENCE_GATE" server/phase1-server.log)" -ge 5
+          test "$(grep -c "\[qa-showcase\] queued .*naturalFit=" server/phase1-server.log)" -ge 5
           grep -q "\[reference-exterior-verify\] all five facades block-perfect; all primary gate anchors exact." server/phase1-server.log
           ! grep -q "\[reference-exterior-verify\] FAILED" server/phase1-server.log
           for family in REDEMPTION BASE_HCF MODERN_HCF TUNNEL CAVE; do

@@ -6500,6 +6500,8 @@ final class SimWorldDirector {
                         mirrorDepositToStorage(f,Material.LOG,woodMade);
                         mirrorDepositToStorage(f,Material.COBBLESTONE,stoneMade);
                     }
+                    plugin.noteFactionContribution(p.name,0,
+                        Math.max(1,(woodMade+stoneMade)/16));
                 } else {
                     int minerBonus = "miner".equals(p.preferredJob) ? 8 : 0;
                     int stoneMade=urgency*(20 + minerBonus + rng.nextInt(18));
@@ -6511,10 +6513,14 @@ final class SimWorldDirector {
                         mirrorDepositToStorage(f,Material.IRON_INGOT,ironMade);
                     }
                     f.xp += 2 + rng.nextInt(4);
+                    int minedDiamond=0;
                     if (rng.nextInt(100) < (12 + p.economicIq / 6)) {
                         f.diamonds += 1;
+                        minedDiamond=1;
                         if(f.storage) mirrorDepositToStorage(f,Material.DIAMOND,1);
                     }
+                    plugin.noteFactionContribution(p.name,minedDiamond,
+                        Math.max(1,ironMade*2+stoneMade/16+minedDiamond*8));
                     if (rng.nextInt(100) < (18 + p.economicIq / 7)) {
                         int obby=1+rng.nextInt(2);
                         f.obsidian += obby;
@@ -6534,6 +6540,8 @@ final class SimWorldDirector {
                     mirrorDepositToStorage(f,Material.LOG,woodMade);
                     mirrorDepositToStorage(f,Material.COBBLESTONE,stoneMade);
                 }
+                plugin.noteFactionContribution(p.name,0,
+                    Math.max(1,(woodMade+stoneMade)/12));
             } else if ("recruit".equals(p.currentGoal) || "social".equals(p.currentGoal) || "trade".equals(p.currentGoal)) {
                 // Social/economic actions intentionally produce no free materials.
             } else {
@@ -7932,6 +7940,13 @@ final class SimWorldDirector {
         f.members.add(best.name);
 
         if (!plugin.createSimFactionAuthority(f.name, best.name)) return;
+        int diamondQuota=best.standards>=78?32:(best.standards>=52?24:16);
+        int contributionQuota=60+(best.standards/10)*10;
+        boolean officerInvite=best.composure>=35 || best.charisma>=55;
+        boolean officerKick=best.decisiveness>=78 && best.composure>=62;
+        boolean tryout=best.standards>=66 || best.pvpIq>=78;
+        plugin.setFactionRulesAuthority(f.name,diamondQuota,contributionQuota,
+            officerInvite,officerKick,tryout);
         contributeToFaction(best, f, 0.15);
         best.faction = f.name;
         best.role = "leader";
@@ -9127,6 +9142,103 @@ final class SimWorldDirector {
         // They open the map as DIAMOND fighters; support classes stay available
         // to ordinary faction members instead of forcing a creator into Miner iron.
         p.combatClass=CombatClass.DIAMOND;
+    }
+
+    boolean issueFactionOrder(String factionName,String issuer,String requested) {
+        if(factionName==null || requested==null || !plugin.factionManagerAuthority(factionName,issuer))
+            return false;
+        SimFaction f=factions.get(key(factionName));
+        if(f==null) return false;
+
+        String order=requested.toLowerCase(Locale.ENGLISH);
+        String goal;
+        if(order.equals("mine")) goal="mine";
+        else if(order.equals("gather")) goal="gather";
+        else if(order.equals("build")) goal="build";
+        else if(order.equals("brew")||order.equals("refill")) goal="supply";
+        else if(order.equals("farm")) goal="farm";
+        else if(order.equals("base")) goal="safe";
+        else if(order.equals("pvp")||order.equals("koth")) goal="scout";
+        else if(order.equals("recruit")) goal="recruit";
+        else return false;
+
+        int changed=0;
+        for(String member:f.members) {
+            SimPlayer p=players.get(key(member));
+            if(p==null || !p.logicalOnline || p.name.equalsIgnoreCase(issuer)) continue;
+            p.currentGoal=goal;
+            p.nextGoalTick=sotwTicks+Math.max(6,plugin.getConfig().getInt("sim-world.officer-order-hold-ticks",18));
+            changed++;
+        }
+
+        recordHistory("FACTION_ORDER",4,issuer+" ordered "+f.name+" to "+order,f.name,issuer);
+        plugin.broadcastSimulatedFactionChat(f.name,f.leader,
+            changed>0?"got it, "+changed+" of us are on "+order:"heard");
+        save();
+        return true;
+    }
+
+    void onHumanFactionChat(Player human,String factionName,String message) {
+        if(human==null || factionName==null || message==null) return;
+        SimFaction f=factions.get(key(factionName));
+        if(f==null) return;
+
+        List<SimPlayer> online=new ArrayList<SimPlayer>();
+        for(String member:f.members) {
+            SimPlayer p=players.get(key(member));
+            if(p!=null && p.logicalOnline && !p.name.equalsIgnoreCase(human.getName())) online.add(p);
+        }
+        if(online.isEmpty()) return;
+
+        SimPlayer responder=online.get(rng.nextInt(online.size()));
+        String lower=message.toLowerCase(Locale.ENGLISH);
+        String reply;
+
+        if(lower.contains("material")||lower.contains("need")||lower.contains("build"))
+            reply=surfaceMaterialPlanFor(f.name);
+        else if(lower.contains("mine")||lower.contains("diamond"))
+            reply=oneOf("im mining rn","i can take the mining quota","ill bring ores back");
+        else if(lower.contains("pot")||lower.contains("refill")||lower.contains("brew"))
+            reply=oneOf("checking refill","ill handle pots","brewer side is mine");
+        else if(lower.contains("koth")||lower.contains("pvp")||lower.contains("spawn"))
+            reply=oneOf("im down give me a sec","refilling then im coming","ill meet you there");
+        else if(lower.contains("recruit")||lower.contains("invite"))
+            reply=oneOf("we can look for one more","ill ask around","depends who is active");
+        else if(lower.contains("home")||lower.contains("base"))
+            reply=oneOf("at base rn","coming home","im inside");
+        else
+            reply=oneOf("yeah","got you","bet","ok","im on it");
+
+        plugin.broadcastSimulatedFactionChat(f.name,responder.name,reply);
+        SocialEdge e=relationship(responder.name,human.getName(),true);
+        e.lastInteraction=System.currentTimeMillis();
+        rememberRelationship(e,"talked with "+human.getName()+" in faction chat about "+message);
+    }
+
+    void onAuthorityRuleKick(String factionName,String memberName,String reason) {
+        if(factionName==null || memberName==null) return;
+        SimFaction f=factions.get(key(factionName));
+        SimPlayer p=players.get(key(memberName));
+        if(f==null || p==null) return;
+
+        Iterator<String> it=f.members.iterator();
+        while(it.hasNext()) {
+            if(it.next().equalsIgnoreCase(memberName)) { it.remove(); break; }
+        }
+        p.faction="";
+        p.role=p.preferredJob;
+        p.factionTitle="member";
+        p.currentGoal="recruit";
+        p.loyalty=Math.max(0,p.loyalty-8);
+
+        recordHistory("RULE_KICK",7,memberName+" was removed from "+f.name+" for "+reason,
+            f.name,memberName,f.leader);
+        enqueue(memberName,oneOf("lff","got kicked need fac","looking for a new faction"),false);
+
+        // The vacancy becomes immediately recruitable instead of leaving a
+        // static roster hole.
+        f.targetSize=Math.max(f.members.size()+1,Math.min(MAX_FACTION_MEMBERS,f.targetSize));
+        save();
     }
 
     String factionTitleFor(String name) {

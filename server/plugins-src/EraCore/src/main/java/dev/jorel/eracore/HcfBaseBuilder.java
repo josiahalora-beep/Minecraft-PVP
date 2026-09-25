@@ -1729,6 +1729,89 @@ final class HcfBaseBuilder {
         buildFarmLevel(w,p,"cane");
         buildReferenceGrammar(w,p);
         buildCoreUtilityModules(w,p);
+        buildInteriorCirculationIdentity(w,p);
+    }
+
+    private void buildInteriorCirculationIdentity(World w,HcfBasePlan p) {
+        int floor=p.undergroundY;
+        int top=floor+(p.finishTier==0?7:8);
+
+        // Keep a five-wide cross through the core clear for sprinting and
+        // Mineflayer pathing. Identity lives at the room edges and ceiling.
+        switch(p.primaryFamily) {
+            case 0: // Redemption: warm timber ceiling bands and posts.
+                for(int z=p.cz-p.coreHalfZ+4;z<=p.cz+p.coreHalfZ-4;z+=6) {
+                    if(Math.abs(z-p.cz)<=2) continue;
+                    for(int x=p.cx-p.coreHalfX+3;x<=p.cx+p.coreHalfX-3;x++)
+                        queue.add(new Op(w,x,top-1,z,Material.WOOD));
+                }
+                for(int x:new int[]{p.cx-p.coreHalfX+4,p.cx+p.coreHalfX-4})
+                    for(int yy=floor+1;yy<=top-2;yy+=2)
+                        queue.add(new Op(w,x,yy,p.cz+7,Material.LOG));
+                break;
+
+            case 1: // Base-HCF: masonry posts and dark glass dividers.
+                for(int z=p.cz-p.coreHalfZ+5;z<=p.cz+p.coreHalfZ-5;z+=7) {
+                    if(Math.abs(z-p.cz)<=2) continue;
+                    for(int yy=floor+1;yy<=top-2;yy++) {
+                        queue.add(new Op(w,p.cx-p.coreHalfX+3,yy,z,Material.SMOOTH_BRICK));
+                        queue.add(new Op(w,p.cx+p.coreHalfX-3,yy,z,Material.SMOOTH_BRICK));
+                    }
+                }
+                for(int x=p.cx-8;x<=p.cx+8;x+=4) {
+                    if(Math.abs(x-p.cx)<=2) continue;
+                    queue.add(new Op(w,x,floor+1,p.cz+8,Material.STAINED_GLASS,(byte)15));
+                    queue.add(new Op(w,x,floor+2,p.cz+8,Material.STAINED_GLASS,(byte)15));
+                }
+                break;
+
+            case 2: // Modern: cyan utility partitions and clean ceiling grid.
+                for(int x=p.cx-p.coreHalfX+4;x<=p.cx+p.coreHalfX-4;x+=6)
+                    for(int z=p.cz-p.coreHalfZ+4;z<=p.cz+p.coreHalfZ-4;z++)
+                        if(Math.abs(z-p.cz)>2)
+                            queue.add(new Op(w,x,top-1,z,Material.SMOOTH_BRICK));
+                for(int z:new int[]{p.cz-7,p.cz+7})
+                    for(int x=p.cx-8;x<=p.cx+8;x++) {
+                        if(Math.abs(x-p.cx)<=2) continue;
+                        queue.add(new Op(w,x,floor+1,z,Material.STAINED_GLASS,(byte)9));
+                        queue.add(new Op(w,x,floor+2,z,Material.STAINED_GLASS,(byte)9));
+                    }
+                break;
+
+            case 3: // Tunnel: repeated framed arches along the long axis.
+                for(int x=p.cx-p.coreHalfX+5;x<=p.cx+p.coreHalfX-5;x+=6) {
+                    if(Math.abs(x-p.cx)<=2) continue;
+                    for(int yy=floor+1;yy<=floor+4;yy++) {
+                        queue.add(new Op(w,x,yy,p.cz-5,yy==floor+4?Material.SMOOTH_BRICK:Material.LOG));
+                        queue.add(new Op(w,x,yy,p.cz+5,yy==floor+4?Material.SMOOTH_BRICK:Material.LOG));
+                    }
+                    for(int z=p.cz-5;z<=p.cz+5;z++)
+                        queue.add(new Op(w,x,floor+5,z,Material.SMOOTH_BRICK));
+                }
+                break;
+
+            case 4: // Cave/Devhorah: irregular stone/timber support rhythm.
+                int[][] pts={{-9,-8},{8,-7},{-8,8},{9,7}};
+                for(int[] q:pts) {
+                    int x=p.cx+q[0],z=p.cz+q[1];
+                    if(Math.abs(x-p.cx)>=p.coreHalfX-2 || Math.abs(z-p.cz)>=p.coreHalfZ-2) continue;
+                    for(int yy=floor+1;yy<=floor+4;yy++)
+                        queue.add(new Op(w,x,yy,z,yy<=floor+2?Material.COBBLESTONE:Material.LOG));
+                    queue.add(new Op(w,x,floor+5,z,Material.MOSSY_COBBLESTONE));
+                }
+                break;
+        }
+
+        // Floor bands guide circulation without adding collision in the center.
+        Material stripe=(p.primaryFamily==4)?Material.COBBLESTONE:
+            (p.primaryFamily==0?Material.WOOD:p.undergroundTrim);
+        for(int x=p.cx-p.coreHalfX+2;x<=p.cx+p.coreHalfX-2;x++) {
+            if(Math.abs(x-p.cx)<=2) continue;
+            if((Math.abs(x-p.cx)%6)==0) {
+                queue.add(new Op(w,x,floor,p.cz-4,stripe));
+                queue.add(new Op(w,x,floor,p.cz+4,stripe));
+            }
+        }
     }
 
     private void buildDropdownLanding(World w,HcfBasePlan p) {

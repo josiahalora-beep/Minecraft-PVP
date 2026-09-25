@@ -1424,18 +1424,19 @@ final class HcfBaseBuilder {
         // fighting bands framed into the walls. These are deliberate bays, not
         // random holes, and they survive the final envelope seal.
         if(front||rear) {
-            if(p.primaryFamily==0 && level==3 && nearBay(along,1,-6,0,6)) return 0;
-            if(p.primaryFamily==1 && level==3 && nearBay(along,1,-9,-3,3,9)) return 0;
+            if(p.primaryFamily==0 && (level==3 || level==4) && nearBay(along,1,-6,-2,2,6)) return 0;
+            if(p.primaryFamily==1 && (level==2 || level==3) && nearBay(along,1,-9,-3,3,9)) return 0;
             if(p.primaryFamily==2 && level==2 && nearBay(along,1,-5,5)) return 0;
-            if(p.primaryFamily==3 && (level==3 || level==7) && nearBay(along,0,-3,0,3)) return 0;
-            if(p.primaryFamily==4 && level==3 && nearBay(along,0,-4,4)) return 0;
+            if(p.primaryFamily==3 && ((level>=2 && level<=3) || level==7) &&
+               nearBay(along,0,-3,0,3)) return 0;
+            if(p.primaryFamily==4 && (level==2 || level==3) && nearBay(along,0,-4,4)) return 0;
         }
         if(sideNeg||sidePos) {
-            if(p.primaryFamily==0 && level==3 && nearBay(along,1,-5,5)) return 1;
-            if(p.primaryFamily==1 && level==3 && nearBay(along,1,-7,0,7)) return 1;
+            if(p.primaryFamily==0 && (level==3 || level==4) && nearBay(along,1,-5,0,5)) return 1;
+            if(p.primaryFamily==1 && (level==2 || level==3) && nearBay(along,1,-7,0,7)) return 1;
             if(p.primaryFamily==2 && level==2 && nearBay(along,0,-4,4)) return 1;
-            if(p.primaryFamily==3 && level==3 && nearBay(along,0,-3,3)) return 1;
-            if(p.primaryFamily==4 && level==3 && along==p.utilitySide*3) return 1;
+            if(p.primaryFamily==3 && (level==2 || level==3) && nearBay(along,0,-3,3)) return 1;
+            if(p.primaryFamily==4 && (level==2 || level==3) && along==p.utilitySide*3) return 1;
         }
         return -1;
     }

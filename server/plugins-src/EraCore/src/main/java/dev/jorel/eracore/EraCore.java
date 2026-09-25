@@ -786,6 +786,14 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         addBuy("eyeofender", Material.EYE_OF_ENDER, (short)0, 15.0);
         addBuy("book", Material.BOOK, (short)0, 12.0);
         addBuy("lapis", Material.INK_SACK, (short)4, 5.0);
+
+        // Cheap 1.8-era palette dyes. These keep faction exteriors buildable
+        // during SOTW instead of requiring rare vanity blocks.
+        addBuy("dyecyan", Material.INK_SACK, (short)6, 2.0);
+        addBuy("dyelightgray", Material.INK_SACK, (short)7, 1.5);
+        addBuy("dyegray", Material.INK_SACK, (short)8, 1.5);
+        addBuy("dyered", Material.INK_SACK, (short)1, 1.0);
+        addBuy("dyelightblue", Material.INK_SACK, (short)12, 2.5);
     }
 
     double sellUnitPrice(Material material) {

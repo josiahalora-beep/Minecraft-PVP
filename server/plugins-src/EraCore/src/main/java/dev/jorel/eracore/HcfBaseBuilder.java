@@ -136,6 +136,12 @@ final class HcfBaseBuilder {
                     world.loadChunk(ccx+dx,ccz+dz);
         }
 
+        final int qaStorageTier=Math.max(1,Math.min(3,
+            plugin.getConfig().getInt("base-builder.qa-showcase-storage-tier",1)));
+        final boolean qaBrewer=plugin.getConfig().getBoolean("base-builder.qa-showcase-brewer",false);
+        final boolean qaNether=plugin.getConfig().getBoolean("base-builder.qa-showcase-nether-portal",false);
+        final boolean qaEnd=plugin.getConfig().getBoolean("base-builder.qa-showcase-end-portal",false);
+
         Bukkit.getScheduler().runTaskLater(plugin,new Runnable() {
             public void run() {
                 for(int i=0;i<sites.length;i++) {
@@ -146,9 +152,12 @@ final class HcfBaseBuilder {
                         plugin.getLogger().warning("[qa-showcase] family seed drift name="+names[i]+
                             " expected="+expected[i]+" actual="+p.primaryFamilyName());
                     }
-                    forceRebuild(names[i],"hcf_glass_box","none",x,y,z,1,false,false,false);
+                    forceRebuild(names[i],"hcf_glass_box","none",x,y,z,
+                        qaStorageTier,qaBrewer,qaNether,qaEnd);
                     plugin.getLogger().info("[qa-showcase] queued "+names[i]+
                         " family="+p.primaryFamilyName()+" secondary="+p.secondaryFamilyName()+
+                        " storageTier="+qaStorageTier+" brewer="+qaBrewer+
+                        " nether="+qaNether+" end="+qaEnd+
                         " at="+x+","+y+","+z);
                 }
 

@@ -9455,26 +9455,29 @@ final class SimWorldDirector {
     void onAuthorityRuleKick(String factionName,String memberName,String reason) {
         if(factionName==null || memberName==null) return;
         SimFaction f=factions.get(key(factionName));
-        SimPlayer p=players.get(key(memberName));
-        if(f==null || p==null) return;
+        if(f==null) return;
 
         Iterator<String> it=f.members.iterator();
         while(it.hasNext()) {
             if(it.next().equalsIgnoreCase(memberName)) { it.remove(); break; }
         }
-        p.faction="";
-        p.role=p.preferredJob;
-        p.factionTitle="member";
-        p.currentGoal="recruit";
-        p.loyalty=Math.max(0,p.loyalty-8);
 
+        SimPlayer p=players.get(key(memberName));
+        if(p!=null) {
+            p.faction="";
+            p.role=p.preferredJob;
+            p.factionTitle="member";
+            p.currentGoal="recruit";
+            p.loyalty=Math.max(0,p.loyalty-8);
+            enqueue(memberName,oneOf("lff","got kicked need fac","looking for a new faction"),false);
+        }
+
+        // Human and simulated removals both create a real vacancy. Humans are
+        // not represented in the SimPlayer map, but their departure must still
+        // make the AI faction recruit a replacement.
+        f.targetSize=Math.max(f.members.size()+1,Math.min(MAX_FACTION_MEMBERS,f.targetSize));
         recordHistory("RULE_KICK",7,memberName+" was removed from "+f.name+" for "+reason,
             f.name,memberName,f.leader);
-        enqueue(memberName,oneOf("lff","got kicked need fac","looking for a new faction"),false);
-
-        // The vacancy becomes immediately recruitable instead of leaving a
-        // static roster hole.
-        f.targetSize=Math.max(f.members.size()+1,Math.min(MAX_FACTION_MEMBERS,f.targetSize));
         save();
     }
 

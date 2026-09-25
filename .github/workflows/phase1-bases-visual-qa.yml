@@ -264,6 +264,10 @@ jobs:
           cp server/world/level.dat qa-output/diagnostics/level.dat || true
           grep -q "overworld=2000" server/phase1-server.log
           grep -q "\[qa-showcase\] build queue drained" server/phase1-server.log
+          test "$(grep -c "\[reference-exterior\]" server/phase1-server.log)" -ge 5
+          test "$(grep -c "\[reference-exterior-verify\].*mismatches=0" server/phase1-server.log)" -ge 5
+          grep -q "\[reference-exterior-verify\] all five facades block-perfect." server/phase1-server.log
+          ! grep -q "\[reference-exterior-verify\] FAILED" server/phase1-server.log
           for family in REDEMPTION BASE_HCF MODERN_HCF TUNNEL CAVE; do
             grep -q "family=$family" server/phase1-server.log
           done

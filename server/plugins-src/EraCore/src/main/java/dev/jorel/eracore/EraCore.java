@@ -813,6 +813,20 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         addBuy("dyegray", Material.INK_SACK, (short)8, 1.5);
         addBuy("dyered", Material.INK_SACK, (short)1, 1.0);
         addBuy("dyelightblue", Material.INK_SACK, (short)12, 2.5);
+        addBuy("dyeblack", Material.INK_SACK, (short)0, 1.0);
+        addBuy("dyewhite", Material.INK_SACK, (short)15, 1.0);
+
+        // Common construction supplies used by the exact schematic-derived
+        // surface bills. Prices stay low because these are normal overworld
+        // materials, not progression shortcuts.
+        addBuy("wool", Material.WOOL, (short)0, 2.5);
+        addBuy("coal", Material.COAL, (short)0, 2.0);
+        addBuy("string", Material.STRING, (short)0, 2.0);
+        addBuy("gravel", Material.GRAVEL, (short)0, 1.0);
+        addBuy("leaves", Material.LEAVES, (short)0, 1.0);
+        addBuy("longgrass", Material.LONG_GRASS, (short)1, 0.25);
+        addBuy("yellowflower", Material.YELLOW_FLOWER, (short)0, 0.5);
+        addBuy("redrose", Material.RED_ROSE, (short)0, 0.5);
     }
 
     double sellUnitPrice(Material material) {

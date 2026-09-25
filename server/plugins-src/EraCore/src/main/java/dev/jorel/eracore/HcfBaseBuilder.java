@@ -1318,7 +1318,7 @@ final class HcfBaseBuilder {
             switch(p.primaryFamily) {
                 case 0: return level<=2?Material.SMOOTH_BRICK:Material.LOG; // Redemption timber frame
                 case 1: return Material.SMOOTH_BRICK;                       // Base-HCF masonry frame
-                case 2: return Material.QUARTZ_BLOCK;                       // Modern clean frame
+                case 2: return Material.SMOOTH_BRICK;                       // Modern gray HCF frame
                 case 3: return level<=2?Material.SMOOTH_BRICK:Material.LOG; // Tunnel stacked timber/stone
                 case 4: return pattern<4?Material.COBBLESTONE:Material.LOG; // Devhorah wood/stone
                 default:return p.surfaceFrame;
@@ -1329,7 +1329,7 @@ final class HcfBaseBuilder {
             switch(p.primaryFamily) {
                 case 0: return Material.LOG;
                 case 1: return Material.LOG;
-                case 2: return Material.QUARTZ_BLOCK;
+                case 2: return Material.LOG;
                 case 3: return Material.LOG;
                 case 4: return pattern<5?Material.COBBLESTONE:Material.LOG;
                 default:return p.surfaceFrame;
@@ -1344,8 +1344,8 @@ final class HcfBaseBuilder {
             case 1:
                 return p.finishTier>=1?Material.SMOOTH_BRICK:Material.COBBLESTONE;
             case 2:
-                // Modern uses glass as a major surface; solid cells stay clean/light.
-                return p.finishTier>=1?Material.SMOOTH_BRICK:Material.QUARTZ_BLOCK;
+                // Modern reference mixes gray masonry, timber spines and cyan glass.
+                return Material.SMOOTH_BRICK;
             case 3:
                 // Tunnel reference is a visible timber tower in a gray frame.
                 if(level<=2) return Material.SMOOTH_BRICK;
@@ -1386,7 +1386,7 @@ final class HcfBaseBuilder {
         }
         if(p.primaryFamily==0 || p.primaryFamily==3 || p.primaryFamily==4)
             return Material.WOOD;
-        if(p.primaryFamily==2) return Material.QUARTZ_BLOCK;
+        if(p.primaryFamily==2) return Material.SMOOTH_BRICK;
         return Material.SMOOTH_BRICK;
     }
 
@@ -1969,7 +1969,7 @@ final class HcfBaseBuilder {
         } else if(p.primaryFamily==2) {
             // Modern reference: asymmetrical glass-heavy tower with a lower
             // solid utility wing. Glass is a structural visual mass, not trim.
-            Material trim=Material.QUARTZ_BLOCK;
+            Material trim=Material.SMOOTH_BRICK;
             byte glass=surfaceWallData(p,Material.STAINED_GLASS);
             for(int x=gx-3;x<=gx+3;x++)
                 queue.add(new Op(w,x,p.surfaceY+4,frontZ,trim));
@@ -1994,6 +1994,9 @@ final class HcfBaseBuilder {
             int spineX=tx+p.utilitySide*2;
             for(int yy=p.surfaceY+2;yy<=y1+1;yy++)
                 queue.add(new Op(w,spineX,yy,tz,Material.LOG));
+            int spineZ=tz+2;
+            for(int yy=p.surfaceY+3;yy<=y1;yy++)
+                queue.add(new Op(w,tx-p.utilitySide*2,yy,spineZ,Material.LOG));
 
         } else if(p.primaryFamily==3) {
             // Tunnel reference: three readable stacked tiers with cyan windows,
@@ -2056,6 +2059,14 @@ final class HcfBaseBuilder {
             }
             for(int dx=-2;dx<=2;dx++)
                 queue.add(new Op(w,tx+dx,y1+1,tz,Material.LOG));
+            // Twin timber/stone prongs and a dark center cap echo the supplied
+            // Devhorah tower silhouette without copying the schematic literally.
+            for(int yy=y1+2;yy<=y1+4;yy++) {
+                queue.add(new Op(w,tx-2,yy,tz,yy==y1+4?Material.COBBLESTONE:Material.LOG));
+                queue.add(new Op(w,tx+2,yy,tz,yy==y1+4?Material.COBBLESTONE:Material.LOG));
+            }
+            queue.add(new Op(w,tx,y1+2,tz,Material.SMOOTH_BRICK));
+            queue.add(new Op(w,tx,y1+3,tz,Material.SMOOTH_BRICK));
         }
         // Colored roof glass should read like the period's HCF glass rooms /
         // lookout strips instead of default white panes.

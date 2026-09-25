@@ -622,6 +622,7 @@ final class HcfSurfaceReferenceTemplates {
             else if(m.equals("TRAP_DOOR")) woodPlanks+=n*3;
             else if(m.equals("LADDER")) woodPlanks+=((n+2)/3)*4;
             else if(m.equals("WOOD_BUTTON")) woodPlanks+=n;
+            else if(m.equals("TORCH")) woodPlanks+=((n+3)/4+1)/2;
             else if(m.equals("CHEST")||m.equals("TRAPPED_CHEST")) woodPlanks+=n*8;
             else if(m.equals("WORKBENCH")) woodPlanks+=n*4;
             else if(m.equals("SIGN_POST")||m.equals("WALL_SIGN")) woodPlanks+=n*2;
@@ -754,6 +755,50 @@ final class HcfSurfaceReferenceTemplates {
                 addSupply(out,"wool",n*6);
         }
         return out;
+    }
+
+    static java.util.Map<String,Integer> unaccountedSurfaceMaterialBill(HcfBasePlan plan) {
+        java.util.Map<String,Integer> out=new java.util.LinkedHashMap<String,Integer>();
+        for(java.util.Map.Entry<String,Integer> e:materialBill(plan).entrySet()) {
+            String k=e.getKey();
+            int split=k.indexOf(':');
+            String m=split<0?k:k.substring(0,split);
+            if(!isAccountedSurfaceMaterial(m)) out.put(k,e.getValue());
+        }
+        return out;
+    }
+
+    private static boolean isAccountedSurfaceMaterial(String m) {
+        if(m==null || m.isEmpty()) return false;
+
+        // Raw/common inventory categories.
+        if(m.equals("LOG")||m.equals("LOG_2")||m.equals("WOOD")||
+           m.equals("FENCE_GATE")||m.endsWith("_FENCE_GATE")||
+           m.equals("FENCE")||m.endsWith("_FENCE")||
+           m.contains("WOOD_STAIRS")||m.equals("WOOD_STEP")||m.equals("WOOD_DOUBLE_STEP")||
+           m.equals("TRAP_DOOR")||m.equals("LADDER")||m.equals("WOOD_BUTTON")||
+           m.equals("CHEST")||m.equals("TRAPPED_CHEST")||m.equals("WORKBENCH")||
+           m.equals("SIGN_POST")||m.equals("WALL_SIGN")||
+           m.equals("STONE")||m.equals("COBBLESTONE")||m.equals("SMOOTH_BRICK")||
+           m.equals("BRICK")||m.equals("SMOOTH_STAIRS")||m.equals("COBBLESTONE_STAIRS")||
+           m.equals("STEP")||m.equals("DOUBLE_STEP")||m.equals("STONE_PLATE")||
+           m.equals("COBBLE_WALL")||m.equals("STONE_BUTTON")||m.equals("FURNACE")||
+           m.equals("IRON_BLOCK")||m.equals("IRON_FENCE")||m.equals("HOPPER")||
+           m.equals("IRON_DOOR_BLOCK")||m.equals("IRON_DOOR")||m.equals("ANVIL")||
+           m.equals("CAULDRON")||m.equals("IRON_PLATE")||m.equals("OBSIDIAN")||
+           m.equals("GLASS")||m.equals("THIN_GLASS")||
+           m.equals("STAINED_GLASS")||m.equals("STAINED_GLASS_PANE"))
+            return true;
+
+        // Exact just-in-time common shop/craft categories.
+        return m.equals("GRASS")||m.equals("DIRT")||m.equals("SAND")||m.equals("GRAVEL")||
+            m.equals("LEAVES")||m.equals("LEAVES_2")||m.equals("LONG_GRASS")||
+            m.equals("YELLOW_FLOWER")||m.equals("RED_ROSE")||m.equals("WOOL")||
+            m.equals("TORCH")||m.equals("TRIPWIRE")||m.equals("GLOWSTONE")||
+            m.equals("REDSTONE_LAMP_ON")||m.equals("REDSTONE_LAMP_OFF")||
+            m.equals("REDSTONE_BLOCK")||m.equals("REDSTONE_TORCH_ON")||
+            m.equals("REDSTONE_TORCH_OFF")||m.equals("WALL_BANNER")||
+            m.equals("STANDING_BANNER");
     }
 
     static String dyeShopKey(HcfBasePlan plan) {

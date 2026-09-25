@@ -8616,6 +8616,55 @@ final class SimWorldDirector {
                 broad[2]<=maxLiquids && biomeEdges==0) break;
         }
 
+        // Human-like final walk-around: once a good area is found, inspect the
+        // nearby blocks rather than accepting the first sampled center. This
+        // does not modify terrain; it only moves the planned base center onto a
+        // naturally better shelf/plateau.
+        if(bestPoint!=null && bestEval!=null &&
+           (plugin.getConfig().getBoolean("terrain.authored-world",false) ||
+            plugin.getConfig().getBoolean("terrain.normalize-new-chunks",false))) {
+            int refineX=bestPoint[0],refineZ=bestPoint[1];
+
+            for(int pass=0;pass<2;pass++) {
+                int reach=pass==0?24:6;
+                int step=pass==0?4:1;
+                int originX=refineX,originZ=refineZ;
+
+                for(int dx=-reach;dx<=reach;dx+=step) {
+                    for(int dz=-reach;dz<=reach;dz+=step) {
+                        int x=originX+dx,z=originZ+dz;
+                        int[] broad=plugin.evaluateSimBaseSite(x,z,terrainRadius);
+                        int[] fit=plugin.evaluateSimReferenceSite(f.name,x,z);
+
+                        int minY=Math.max(50,plugin.getConfig().getInt("sim-world.min-base-y",50));
+                        int maxY=Math.min(110,plugin.getConfig().getInt("sim-world.max-base-y",110));
+                        if(fit[0]<minY || fit[0]>maxY) continue;
+
+                        HcfBasePlan candidatePlan=HcfBasePlan.of(f.name,x,fit[0],z,siteProfile);
+                        int biomeEdges=baseSiteBiomeTransitions(world,x,z,Math.max(12,terrainRadius));
+                        int visiblePerimeterMismatch=fit[5]+fit[6];
+                        int score=
+                            visiblePerimeterMismatch*260 +
+                            fit[1]*210 +
+                            fit[2]*30 +
+                            fit[3]*14 +
+                            fit[4]*400 +
+                            broad[2]*120 +
+                            biomeEdges*90;
+                        int broadLimit=(candidatePlan.primaryFamily==3||candidatePlan.primaryFamily==4)?8:5;
+                        if(broad[1]>broadLimit) score+=(broad[1]-broadLimit)*50;
+
+                        if(score<bestScore) {
+                            bestScore=score;
+                            bestPoint=new int[]{x,z};
+                            bestEval=fit;
+                            refineX=x; refineZ=z;
+                        }
+                    }
+                }
+            }
+        }
+
         if (bestPoint == null || bestEval == null) return false;
 
         f.baseX = bestPoint[0];

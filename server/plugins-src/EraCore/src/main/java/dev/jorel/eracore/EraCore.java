@@ -4254,6 +4254,11 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         return canManageFaction(f,name);
     }
 
+    synchronized boolean factionTryoutRequired(String factionName) {
+        Faction f=factions.get(factionName==null?"":factionName.toLowerCase(Locale.ENGLISH));
+        return f!=null && f.tryoutRequired;
+    }
+
     synchronized int factionContributionPoints(String factionName,String name) {
         Faction f=factions.get(factionName==null?"":factionName.toLowerCase(Locale.ENGLISH));
         return f==null?0:ledger(f.weeklyContribution,name);

@@ -6182,7 +6182,7 @@ final class SimWorldDirector {
 
     private void maybeFactionUpgradeRecruit() {
         List<SimPlayer> solos=new ArrayList<SimPlayer>();
-        for(SimPlayer p:players.values()) if(p.logicalOnline && p.faction.isEmpty() && !p.leaderCandidate) solos.add(p);
+        for(SimPlayer p:players.values()) if(p.logicalOnline && p.faction.isEmpty()) solos.add(p);
         if(solos.isEmpty()) return;
 
         SimPlayer candidate=solos.get(rng.nextInt(solos.size()));
@@ -8047,7 +8047,7 @@ final class SimWorldDirector {
         int bestScore = Integer.MIN_VALUE;
 
         for (SimPlayer p : players.values()) {
-            if (!p.faction.isEmpty() || p.leaderCandidate || !p.logicalOnline) continue;
+            if (!p.faction.isEmpty() || !p.logicalOnline) continue;
             if (p.combatClass == CombatClass.BARD && classCount(f,CombatClass.BARD) >= 1) continue;
             if (p.combatClass == CombatClass.ARCHER && classCount(f,CombatClass.ARCHER) >= 1) continue;
 
@@ -8127,6 +8127,10 @@ final class SimWorldDirector {
         SocialEdge rel=leader==null?null:relationship(leader.name,p.name,true);
 
         int score=p.teamwork/3+p.sociability/4+p.loyalty/4+p.reputation/3;
+        // Ambitious future-leader personalities are harder to retain, not
+        // magically unrecruitable. This keeps "anybody can be recruited" true
+        // while preserving their independent streak as a social signal.
+        if(p.leaderCandidate) score-=10;
         score+=donorInfluence(p);
         if(rel!=null) {
             score+=rel.affinity/2;
@@ -8211,7 +8215,7 @@ final class SimWorldDirector {
     private ChatEvent recruitmentChatEvent() {
         List<SimPlayer> solos=new ArrayList<SimPlayer>();
         for(SimPlayer p:players.values())
-            if(p.logicalOnline && p.faction.isEmpty() && !p.leaderCandidate) solos.add(p);
+            if(p.logicalOnline && p.faction.isEmpty()) solos.add(p);
 
         List<SimFaction> open=new ArrayList<SimFaction>();
         for(SimFaction f:factions.values())
@@ -9348,9 +9352,40 @@ final class SimWorldDirector {
         return true;
     }
 
-    void onHumanFactionChat(Player human,String factionName,String message) {
+    private String factionChatFallback(SimFaction f,SimPlayer responder,String message) {
+        String lower=message==null?"":message.toLowerCase(Locale.ENGLISH);
+        if(lower.contains("material")||lower.contains("what do we need")||lower.contains("build cost"))
+            return surfaceMaterialPlanFor(f.name);
+        if(lower.contains("mine")||lower.contains("diamond"))
+            return oneOf("im mining rn","i can take the mining quota","ill bring ores back");
+        if(lower.contains("pot")||lower.contains("refill")||lower.contains("brew"))
+            return oneOf("checking refill","ill handle pots","brewer side is mine");
+        if(lower.contains("koth")||lower.contains("pvp")||lower.contains("spawn"))
+            return oneOf("im down give me a sec","refilling then im coming","ill meet you there");
+        if(lower.contains("recruit")||lower.contains("invite"))
+            return oneOf("we can look for one more","ill ask around","depends who is active");
+        if(lower.contains("home")||lower.contains("base"))
+            return oneOf("at base rn","coming home","im inside");
+        if(lower.contains("rule")||lower.contains("quota"))
+            return "check /f rules and /f contribution, same rules for all of us";
+        return casualReply(responder,lower);
+    }
+
+    private boolean shouldUseAiForFactionChat(String message,SimPlayer responder,String fallback) {
+        String m=message==null?"":message.toLowerCase(Locale.ENGLISH).trim();
+        if(m.isEmpty()) return false;
+        if(responder!=null && m.contains(responder.name.toLowerCase(Locale.ENGLISH))) return true;
+        if(m.startsWith("why ")||m.startsWith("how ")||m.startsWith("what ")||
+           m.contains("what do you think")||m.contains("what should we")||
+           m.contains("remember")||m.contains("who should")||m.contains("can you"))
+            return true;
+        int words=m.split("\\s+").length;
+        return words>=8 && (m.endsWith("?")||m.contains("because")||m.contains("think"));
+    }
+
+    void onHumanFactionChat(final Player human,final String factionName,final String message) {
         if(human==null || factionName==null || message==null) return;
-        SimFaction f=factions.get(key(factionName));
+        final SimFaction f=factions.get(key(factionName));
         if(f==null) return;
 
         List<SimPlayer> online=new ArrayList<SimPlayer>();
@@ -9360,29 +9395,34 @@ final class SimWorldDirector {
         }
         if(online.isEmpty()) return;
 
-        SimPlayer responder=online.get(rng.nextInt(online.size()));
-        String lower=message.toLowerCase(Locale.ENGLISH);
-        String reply;
+        final SimPlayer responder=online.get(rng.nextInt(online.size()));
+        final String fallback=factionChatFallback(f,responder,message);
+        final String humanName=human.getName();
 
-        if(lower.contains("material")||lower.contains("need")||lower.contains("build"))
-            reply=surfaceMaterialPlanFor(f.name);
-        else if(lower.contains("mine")||lower.contains("diamond"))
-            reply=oneOf("im mining rn","i can take the mining quota","ill bring ores back");
-        else if(lower.contains("pot")||lower.contains("refill")||lower.contains("brew"))
-            reply=oneOf("checking refill","ill handle pots","brewer side is mine");
-        else if(lower.contains("koth")||lower.contains("pvp")||lower.contains("spawn"))
-            reply=oneOf("im down give me a sec","refilling then im coming","ill meet you there");
-        else if(lower.contains("recruit")||lower.contains("invite"))
-            reply=oneOf("we can look for one more","ill ask around","depends who is active");
-        else if(lower.contains("home")||lower.contains("base"))
-            reply=oneOf("at base rn","coming home","im inside");
-        else
-            reply=oneOf("yeah","got you","bet","ok","im on it");
-
-        plugin.broadcastSimulatedFactionChat(f.name,responder.name,reply);
-        SocialEdge e=relationship(responder.name,human.getName(),true);
+        SocialEdge e=relationship(responder.name,humanName,true);
         e.lastInteraction=System.currentTimeMillis();
-        rememberRelationship(e,"talked with "+human.getName()+" in faction chat about "+message);
+        rememberRelationship(e,"talked with "+humanName+" in faction chat about "+message);
+
+        boolean dispatched=shouldUseAiForFactionChat(message,responder,fallback) &&
+            aiChat.request("faction",humanName,responder.name,
+                semanticContext(responder,humanName)+"; channel=faction; faction="+f.name+
+                "; authority="+responder.factionTitle,
+                message,new AiChatBridge.Handler() {
+                    public void complete(AiChatBridge.AiReply ai) {
+                        String reply=ai!=null?ai.text:fallback;
+                        if(reply==null || reply.trim().isEmpty()) return;
+                        if(ai!=null) {
+                            applyAiRelationship(responder,humanName,ai,message);
+                            handleAiSocialAction(responder,humanName,ai);
+                        }
+                        plugin.broadcastSimulatedFactionChat(f.name,responder.name,reply);
+                        save();
+                    }
+                });
+        if(dispatched) return;
+
+        if(fallback!=null && !fallback.trim().isEmpty())
+            plugin.broadcastSimulatedFactionChat(f.name,responder.name,fallback);
     }
 
     void onAuthorityRuleKick(String factionName,String memberName,String reason) {

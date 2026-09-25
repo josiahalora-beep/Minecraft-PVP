@@ -447,6 +447,38 @@ final class HcfSurfaceReferenceTemplates {
     }
     static int length(int family) { return forFamily(family).length; }
 
+    // Primary player/bot entrance center measured from the same selected
+    // schematic components. Offsets are relative to the plan center; Y is
+    // relative to surfaceY. These are gate-panel cells, not bounding-box edges.
+    static int primaryGateOffsetX(int family) {
+        switch(family) {
+            case 0: return 4;   // Redemption recessed 2x3 lower gate sheet
+            case 1: return -1;  // Base-HCF north 2x2 gate
+            case 2: return -1;  // Modern north 3x2 gate
+            case 3: return 0;   // Tunnel north 3x3 gate
+            case 4: return 0;   // Devhorah north 3x3 gate
+            default: return 0;
+        }
+    }
+
+    static int primaryGateOffsetZ(int family) {
+        switch(family) {
+            case 0: return -2;
+            case 1: return -8;
+            case 2: return -7;
+            case 3: return -4;
+            case 4: return -5;
+            default: return 0;
+        }
+    }
+
+    static int primaryGateOffsetY(int family) {
+        // Redemption's lower gate panel begins two blocks above its reference
+        // floor; all other selected primary gate sheets begin one above grade
+        // after their template vertical offsets are applied.
+        return family==0?2:1;
+    }
+
     /**
      * Compare the materialized above-grade reference component against the exact
      * encoded schematic voxels after every queued production operation has run.

@@ -59,3 +59,18 @@ This audit is descriptive only. Final Phase-1 approval requires the independent 
 ### Phase-2 reference consumption lock
 
 Phase 2 uses these user-supplied files as provenance/style references, not as production paste assets. The accepted generator expresses their useful HCF design principles through the five deterministic families (Redemption, Base-HCF, ModernHCF, Tunnel and Cave), family-specific masks/roof profiles, recessed entrances, local terrain seating and functional HCF semantics. Future work must not claim third-party authorship or collapse the families into direct schematic copies.
+
+
+## Measured Phase-2 surface reference geometry
+
+These measurements come from direct NBT inspection of the supplied MCEdit/Schematica files. They are descriptive constraints for original generated variations, not permission to paste/copy third-party structures.
+
+| Reference | Visible surface read | Measured opening language |
+| --- | --- | --- |
+| `redemption-hcf.schematic` | about 19 x 19 footprint and ~20 blocks of visible vertical mass above its ground layer | broad multi-gate lower facade, repeated lower/upper windows, timber/stone horizontal layering |
+| `base-hcf.schematic` | about 29 x 26 overall surface footprint and ~18 blocks of main vertical structure | many deliberate vertical glass/window bays, broad framed entrance, layered/parapet roof mass |
+| `ModernHCF Updated.schematic` | main above-grade component about 17 x 17 x 9 | large clean glass panels, deliberate vertical strips, compact architectural mass rather than random glass noise |
+| `Hcf Tunnel base.schematic` | main above-grade component about 11 x 11 x 13 | visible stacked/tower facade, large ground entrance, two repeated upper window tiers; NOT a buried-mouth-only structure |
+| `Devhorah HCF Cave Base Design.schematic` | primary visible component about 13 x 13 x 12, with adjacent terrain/cave context | clear central doorway, small deliberate windows/openings, visible architecture integrated with terrain rather than swallowed by it |
+
+Additional user references (`Base15`, `CinnamonBunzOfficialBaze`, `Hcf Base Design By Mevi`) reinforce the same Phase-2 rule: the building remains visually legible and uses authored facade rhythm, while landscaping is secondary and local.

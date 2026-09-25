@@ -642,8 +642,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         getConfig().set("base-builder.cradle-extra-radius",11);
         getConfig().set("base-builder.concealment-max-height",5);
         getConfig().set("base-builder.entrance-approach-length",9);
-        getConfig().set("sim-world.min-base-site-relief",3);
-        getConfig().set("sim-world.max-base-site-relief",10);
+        getConfig().set("sim-world.min-base-site-relief",0);\n        getConfig().set("sim-world.max-base-site-relief",8);\n        getConfig().set("sim-world.base-site-scout-attempts",64);
 
         getConfig().set("hcf-classes.permanent-speed-2",true);
         getConfig().set("travel.faction-home-warmup-seconds",10);

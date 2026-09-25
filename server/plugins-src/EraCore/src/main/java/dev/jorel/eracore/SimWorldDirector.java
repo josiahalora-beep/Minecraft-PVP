@@ -5448,6 +5448,43 @@ final class SimWorldDirector {
         return rng.nextInt(100)<62?"social":"gather";
     }
 
+    private String exactStarterAcquisitionGoal(SimPlayer p,SimFaction f) {
+        if(p==null || f==null || (f.baseX==0 && f.baseZ==0)) return "gather";
+
+        int[] need=!f.surfaceQueued?surfaceMaterialCost(f):baseMaterialCost(f);
+        int wood=Math.max(0,at(need,0)-f.wood);
+        int stone=Math.max(0,at(need,1)-f.stone);
+        int iron=Math.max(0,at(need,2)-f.iron);
+        int obby=Math.max(0,at(need,3)-f.obsidian);
+        int glass=Math.max(0,at(need,4)-f.glass);
+        int dye=at(need,5);
+
+        // High-value underground requirements are a miner's job. Logs are the
+        // common overworld gathering job. Glass/dye are intentionally cheap
+        // shop inputs; if treasury cannot cover them, earn cash instead of
+        // pretending the blocks appeared.
+        int minePressure=stone/16+iron*3+obby*5;
+        int woodPressure=wood*2;
+        double shopCost=glass*Math.max(0.0,plugin.buyUnitPrice("glass"));
+        if(dye>0) {
+            String dk=HcfSurfaceReferenceTemplates.dyeShopKey(currentSurfacePlan(f));
+            double du=dk.isEmpty()?0.0:plugin.buyUnitPrice(dk);
+            if(!Double.isInfinite(du) && !Double.isNaN(du)) shopCost+=dye*du;
+        }
+
+        if((iron>0 || obby>0 || stone>96) &&
+           ("miner".equals(p.preferredJob) || minePressure>=woodPressure))
+            return "mine";
+        if(wood>0 && woodPressure>=minePressure) return "gather";
+        if(shopCost>f.treasury) {
+            if("farmer".equals(p.preferredJob)) return "farm";
+            if(p.economicIq>=60) return "trade";
+            return "gather";
+        }
+        if(glass>0 || dye>0) return p.economicIq>=55?"trade":"gather";
+        return "build";
+    }
+
     private String sotwProgressionGoal(SimPlayer p,SimFaction f) {
         if(p==null || f==null) return "social";
         if(isHcfNovice(p) && !"leader".equals(p.role) && rng.nextInt(100)<72)
@@ -5456,9 +5493,9 @@ final class SimWorldDirector {
         // Practical SOTW guide: claim/base first, then economy + protected
         // Nether/End materials, brewer, stock, and only then post-protection PvP.
         if(!f.storage) {
-            if("builder".equals(p.preferredJob)) return "build";
-            if("miner".equals(p.preferredJob)) return "mine";
-            return "gather";
+            String exact=exactStarterAcquisitionGoal(p,f);
+            if("builder".equals(p.preferredJob) && "build".equals(exact)) return "build";
+            return exact;
         }
         if("builder".equals(p.preferredJob) && f.buildProgress<f.buildTarget) return "build";
         if("farmer".equals(p.preferredJob) && (!f.farmBuilt || p.economicIq>=55)) return "farm";
@@ -5497,10 +5534,7 @@ final class SimWorldDirector {
             case SCOUT_CLAIM:
                 return "leader".equals(p.role)?"scout":("miner".equals(p.preferredJob)?"mine":"gather");
             case GATHER_STARTER:
-                if(f.surfaceQueued && !f.baseQueued && "builder".equals(p.preferredJob)) return "build";
-                if("miner".equals(p.preferredJob)) return "mine";
-                if("builder".equals(p.preferredJob)) return rng.nextInt(100)<82?"gather":"scout";
-                return "gather";
+                return exactStarterAcquisitionGoal(p,f);
             case BUILD_STARTER:
                 return (p.patience>=35 || "builder".equals(p.preferredJob))?"build":"gather";
             case ECONOMY:

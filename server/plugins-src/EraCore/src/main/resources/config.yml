@@ -196,8 +196,8 @@ sim-world:
   base-y: 64
   min-base-y: 50
   max-base-y: 110
-  min-base-site-relief: 3
-  max-base-site-relief: 10
+  min-base-site-relief: 0
+  max-base-site-relief: 6
   max-base-site-liquid-samples: 1
   logical-online-min: 88
   logical-online-peak: 132
@@ -300,9 +300,9 @@ atmosphere:
 base-builder:
   # Surface terrain integration is intentionally much smaller than the claim/
   # underground envelope. This prevents claim-shaped lawns around hidden bases.
-  cradle-extra-radius: 11
-  concealment-max-height: 5
-  entrance-approach-length: 9
+  cradle-extra-radius: 3
+  concealment-max-height: 1
+  entrance-approach-length: 4
   blocks-per-tick: 96
   visible-blocks-per-tick: 16
   rebuild-blocks-per-tick: 40

@@ -1964,40 +1964,95 @@ final class HcfBaseBuilder {
             for(int x=p.cx-p.surfaceHalfX+2;x<=p.cx+p.surfaceHalfX-2;x+=4)
                 queue.add(new Op(w,x,ry,p.cz,p.surfaceFrame));
         } else if(p.primaryFamily==2) {
-            // Modern: restrained quartz frame around the primary entrance and
-            // one clean rear window band.
+            // Modern reference: asymmetrical glass-heavy tower with a lower
+            // solid utility wing. Glass is a structural visual mass, not trim.
             Material trim=Material.QUARTZ_BLOCK;
+            byte glass=surfaceWallData(p,Material.STAINED_GLASS);
             for(int x=gx-3;x<=gx+3;x++)
                 queue.add(new Op(w,x,p.surfaceY+4,frontZ,trim));
-            for(int x=p.cx-4;x<=p.cx+4;x++) {
-                int rz=surfaceRearZ(p,x);
-                queue.add(new Op(w,x,p.surfaceY+6,rz,Material.STAINED_GLASS,(byte)0));
+
+            int tx=p.cx-p.utilitySide*2;
+            int tz=p.cz-1;
+            int half=3;
+            int y0=p.surfaceY+6,y1=p.surfaceY+13;
+            for(int x=tx-half;x<=tx+half;x++) for(int z=tz-half;z<=tz+half;z++) {
+                boolean edge=x==tx-half||x==tx+half||z==tz-half||z==tz+half;
+                if(!edge) continue;
+                for(int yy=y0;yy<=y1;yy++) {
+                    boolean corner=(x==tx-half||x==tx+half)&&(z==tz-half||z==tz+half);
+                    boolean beam=corner || yy==y0 || yy==y1 || x==tx;
+                    queue.add(new Op(w,x,yy,z,beam?trim:Material.STAINED_GLASS,
+                        beam?(byte)0:glass));
+                }
+                queue.add(new Op(w,x,y1+1,z,trim));
             }
+            // One strong vertical timber/stone spine reproduces the reference's
+            // mixed modern/HCF framing and prevents a generic quartz aquarium.
+            int spineX=tx+p.utilitySide*2;
+            for(int yy=p.surfaceY+2;yy<=y1+1;yy++)
+                queue.add(new Op(w,spineX,yy,tz,Material.LOG));
+
         } else if(p.primaryFamily==3) {
-            // Tunnel reference is a visible stacked tower: reinforced entry,
-            // mid-level band and short roof prongs.
+            // Tunnel reference: three readable stacked tiers with cyan windows,
+            // gray structural bands and timber side frames.
+            byte glass=surfaceWallData(p,Material.STAINED_GLASS);
             for(int x=gx-3;x<=gx+3;x++)
-                queue.add(new Op(w,x,p.surfaceY+4,frontZ,p.surfaceFrame));
-            for(int x=p.cx-4;x<=p.cx+4;x++)
-                queue.add(new Op(w,x,p.surfaceY+7,surfaceFrontZ(p,x),Material.LOG));
-            int ry=surfaceMaxTop(p)+1;
-            queue.add(new Op(w,p.cx-2,ry,p.cz,p.surfaceFrame));
-            queue.add(new Op(w,p.cx+2,ry,p.cz,p.surfaceFrame));
+                queue.add(new Op(w,x,p.surfaceY+4,frontZ,Material.SMOOTH_BRICK));
+
+            int[][] tiers={{4,p.surfaceY+4,p.surfaceY+7},
+                           {3,p.surfaceY+8,p.surfaceY+11},
+                           {2,p.surfaceY+12,p.surfaceY+14}};
+            for(int[] t:tiers) {
+                int h=t[0],y0=t[1],y1=t[2];
+                for(int x=p.cx-h;x<=p.cx+h;x++) for(int z=p.cz-h;z<=p.cz+h;z++) {
+                    boolean edge=x==p.cx-h||x==p.cx+h||z==p.cz-h||z==p.cz+h;
+                    if(!edge) continue;
+                    for(int yy=y0;yy<=y1;yy++) {
+                        boolean corner=(x==p.cx-h||x==p.cx+h)&&(z==p.cz-h||z==p.cz+h);
+                        boolean band=yy==y0||yy==y1;
+                        Material m=(corner||band)?(corner?Material.LOG:Material.SMOOTH_BRICK):
+                            Material.STAINED_GLASS;
+                        queue.add(new Op(w,x,yy,z,m,m==Material.STAINED_GLASS?glass:(byte)0));
+                    }
+                }
+            }
+            int ry=p.surfaceY+15;
+            for(int dx:new int[]{-2,0,2}) {
+                queue.add(new Op(w,p.cx+dx,ry,p.cz,Material.SMOOTH_BRICK));
+                queue.add(new Op(w,p.cx+dx,ry+1,p.cz,Material.SMOOTH_BRICK));
+            }
+
         } else {
-            // Cave/Devhorah: clearly architectural timber facade held by rough
-            // stone supports, with a peaked center rather than a rock capsule.
+            // Cave/Devhorah: visible timber house plus the distinctive
+            // tall side tower seen in the reference. Terrain stays untouched.
+            byte glass=surfaceWallData(p,Material.STAINED_GLASS);
             for(int yy=p.surfaceY+1;yy<=p.surfaceY+5;yy++) {
-                queue.add(new Op(w,gx-4,yy,frontZ,yy<=2?Material.COBBLESTONE:Material.LOG));
-                queue.add(new Op(w,gx+4,yy,frontZ,yy<=2?Material.COBBLESTONE:Material.LOG));
+                queue.add(new Op(w,gx-4,yy,frontZ,yy<=p.surfaceY+2?Material.COBBLESTONE:Material.LOG));
+                queue.add(new Op(w,gx+4,yy,frontZ,yy<=p.surfaceY+2?Material.COBBLESTONE:Material.LOG));
             }
             queue.add(new Op(w,gx-3,p.surfaceY+6,frontZ,Material.LOG));
             queue.add(new Op(w,gx+3,p.surfaceY+6,frontZ,Material.LOG));
             queue.add(new Op(w,gx-2,p.surfaceY+7,frontZ,Material.LOG));
             queue.add(new Op(w,gx+2,p.surfaceY+7,frontZ,Material.LOG));
-            queue.add(new Op(w,gx,p.surfaceY+8,frontZ,Material.STAINED_GLASS,
-                surfaceWallData(p,Material.STAINED_GLASS)));
-            queue.add(new Op(w,gx+p.utilitySide*5,p.surfaceY+1,frontZ+1,Material.COBBLESTONE));
-            queue.add(new Op(w,gx+p.utilitySide*5,p.surfaceY+2,frontZ+1,Material.MOSSY_COBBLESTONE));
+            queue.add(new Op(w,gx,p.surfaceY+8,frontZ,Material.STAINED_GLASS,glass));
+
+            int tx=p.cx+p.utilitySide*(p.surfaceHalfX-2);
+            int tz=p.cz+2;
+            int y0=p.surfaceY+3,y1=p.surfaceY+15;
+            for(int x=tx-2;x<=tx+2;x++) for(int z=tz-2;z<=tz+2;z++) {
+                boolean edge=x==tx-2||x==tx+2||z==tz-2||z==tz+2;
+                if(!edge) continue;
+                for(int yy=y0;yy<=y1;yy++) {
+                    boolean corner=(x==tx-2||x==tx+2)&&(z==tz-2||z==tz+2);
+                    boolean band=yy==y0||yy==y0+5||yy==y1;
+                    Material m=corner?Material.COBBLESTONE:
+                        (band?Material.LOG:
+                         ((yy>=y0+6&&yy<=y0+8)?Material.STAINED_GLASS:Material.WOOD));
+                    queue.add(new Op(w,x,yy,z,m,m==Material.STAINED_GLASS?glass:(byte)0));
+                }
+            }
+            for(int dx=-2;dx<=2;dx++)
+                queue.add(new Op(w,tx+dx,y1+1,tz,Material.LOG));
         }
         // Colored roof glass should read like the period's HCF glass rooms /
         // lookout strips instead of default white panes.

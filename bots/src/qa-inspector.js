@@ -507,11 +507,11 @@ if(showcase){
   // showcase sites are deterministic and the previous generic y=64 / roof-scan
   // heuristic aimed cameras into terrain on sloped or buried families.
   selected=[
-    {name:'QARedemption2',x:-900,y:72,z:-900,undergroundY:55,coreHalfX:16,coreHalfZ:14,utilitySide:1,primaryFamily:'REDEMPTION',secondaryFamily:''},
-    {name:'QABase0',x:-450,y:69,z:-900,undergroundY:50,coreHalfX:16,coreHalfZ:16,utilitySide:1,primaryFamily:'BASE_HCF',secondaryFamily:''},
-    {name:'QAModern14',x:450,y:66,z:-900,undergroundY:46,coreHalfX:19,coreHalfZ:15,utilitySide:-1,primaryFamily:'MODERN_HCF',secondaryFamily:''},
-    {name:'QATunnel21',x:900,y:67,z:-900,undergroundY:44,coreHalfX:20,coreHalfZ:13,utilitySide:1,primaryFamily:'TUNNEL',secondaryFamily:''},
-    {name:'QACave55',x:-900,y:65,z:900,undergroundY:43,coreHalfX:17,coreHalfZ:16,utilitySide:-1,primaryFamily:'CAVE',secondaryFamily:''}
+    {name:'QARedemption2',x:-900,y:72,z:-900,undergroundY:55,coreHalfX:16,coreHalfZ:14,utilitySide:1,gateOffsetX:4,gateOffsetY:2,gateOffsetZ:-2,primaryFamily:'REDEMPTION',secondaryFamily:''},
+    {name:'QABase0',x:-450,y:69,z:-900,undergroundY:50,coreHalfX:16,coreHalfZ:16,utilitySide:1,gateOffsetX:-1,gateOffsetY:1,gateOffsetZ:-8,primaryFamily:'BASE_HCF',secondaryFamily:''},
+    {name:'QAModern14',x:450,y:66,z:-900,undergroundY:46,coreHalfX:19,coreHalfZ:15,utilitySide:-1,gateOffsetX:-1,gateOffsetY:1,gateOffsetZ:-7,primaryFamily:'MODERN_HCF',secondaryFamily:''},
+    {name:'QATunnel21',x:900,y:67,z:-900,undergroundY:44,coreHalfX:20,coreHalfZ:13,utilitySide:1,gateOffsetX:0,gateOffsetY:1,gateOffsetZ:-4,primaryFamily:'TUNNEL',secondaryFamily:''},
+    {name:'QACave55',x:-900,y:65,z:900,undergroundY:43,coreHalfX:17,coreHalfZ:16,utilitySide:-1,gateOffsetX:0,gateOffsetY:1,gateOffsetZ:-5,primaryFamily:'CAVE',secondaryFamily:''}
   ]
   bases=selected
 }else{
@@ -626,8 +626,11 @@ if(selected.length){
     if(detailPass){
       await capture(prefix+'-detail-diagonal',
         {x:b.x+32,y:b.y+6,z:b.z-32},{x:b.x,y:b.y+4,z:b.z},3000)
+      const gateX=b.x+(b.gateOffsetX||0)
+      const gateY=b.y+(b.gateOffsetY||1)
+      const gateZ=b.z+(b.gateOffsetZ??-6)
       await capture(prefix+'-entrance-close',
-        {x:b.x+7,y:b.y+5,z:b.z-22},{x:b.x,y:b.y+4,z:b.z-6},2800)
+        {x:gateX+6,y:gateY+4,z:gateZ-15},{x:gateX,y:gateY+1,z:gateZ},2800)
       await capture(prefix+'-window-close',
         {x:b.x+24,y:b.y+9,z:b.z+3},{x:b.x+5,y:b.y+7,z:b.z},2800)
       await capture(prefix+'-terrain-seam',

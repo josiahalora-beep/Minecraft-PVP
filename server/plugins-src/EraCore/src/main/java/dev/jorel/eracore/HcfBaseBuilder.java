@@ -172,18 +172,26 @@ final class HcfBaseBuilder {
                     public void run() {
                         if(queue.isEmpty()) {
                             int totalMismatches=0;
+                            int gateAnchorFailures=0;
                             for(int i=0;i<qaPlans.length;i++) {
                                 HcfBasePlan p=qaPlans[i];
                                 if(p==null) continue;
                                 int mismatches=HcfSurfaceReferenceTemplates.facadeMismatches(world,p);
                                 totalMismatches+=mismatches;
+                                int[] gate=p.anchor("gate");
+                                Material gateMaterial=world.getBlockAt(gate[0],gate[1],gate[2]).getType();
+                                boolean gateOk=gateMaterial==Material.FENCE_GATE;
+                                if(!gateOk) gateAnchorFailures++;
                                 plugin.getLogger().info("[reference-exterior-verify] faction="+p.faction+
-                                    " family="+p.primaryFamilyName()+" mismatches="+mismatches);
+                                    " family="+p.primaryFamilyName()+" mismatches="+mismatches+
+                                    " gateAnchor="+gateMaterial.name()+
+                                    " gateAt="+gate[0]+","+gate[1]+","+gate[2]);
                             }
-                            if(totalMismatches==0)
-                                plugin.getLogger().info("[reference-exterior-verify] all five facades block-perfect.");
+                            if(totalMismatches==0 && gateAnchorFailures==0)
+                                plugin.getLogger().info("[reference-exterior-verify] all five facades block-perfect; all primary gate anchors exact.");
                             else
-                                plugin.getLogger().severe("[reference-exterior-verify] FAILED totalMismatches="+totalMismatches);
+                                plugin.getLogger().severe("[reference-exterior-verify] FAILED totalMismatches="+
+                                    totalMismatches+" gateAnchorFailures="+gateAnchorFailures);
                             plugin.getLogger().info("[qa-showcase] build queue drained; captures may begin.");
                             cancel();
                             return;

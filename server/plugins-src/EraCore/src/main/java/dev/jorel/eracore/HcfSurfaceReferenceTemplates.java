@@ -579,6 +579,31 @@ final class HcfSurfaceReferenceTemplates {
             }
         }
 
+        // Minecraft 1.8 performs a few state validations after placement even
+        // when block physics is suppressed. Re-assert the small set of reference
+        // cells that depend on supports/power/neighbors only AFTER the complete
+        // template exists. This preserves the schematic's lit lamps, supported
+        // wall torches and chest facing data instead of accepting runtime drift.
+        cursor=0;
+        for(int i=0;i+3<t.rle.length;i+=4) {
+            int count=((t.rle[i]&0xff)<<8)|(t.rle[i+1]&0xff);
+            int id=t.rle[i+2]&0xff;
+            byte data=t.rle[i+3];
+            boolean replay=id==50 || id==54 || id==124 || id==146;
+            Material material=replay?Material.getMaterial(id):null;
+
+            for(int n=0;n<count && cursor<total;n++,cursor++) {
+                if(!replay || material==null) continue;
+                int x=cursor%t.width;
+                int q=cursor/t.width;
+                int z=q%t.length;
+                int y=q/t.length;
+                int worldY=plan.surfaceY+t.yOffset+y;
+                if(worldY<=plan.surfaceY) continue;
+                queue.add(new HcfBaseBuilder.Op(world,originX+x,worldY,originZ+z,material,data));
+            }
+        }
+
         // A malformed template must fail visibly rather than silently leave a
         // partial shell. The encoded constants are compile-time data, so this
         // branch is only defensive against accidental future edits.

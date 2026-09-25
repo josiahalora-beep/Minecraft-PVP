@@ -199,7 +199,7 @@ sim-world:
   min-base-site-relief: 0
   max-base-site-relief: 8
   max-base-site-liquid-samples: 1
-  base-site-scout-attempts: 64
+  base-site-scout-attempts: 96
   logical-online-min: 88
   logical-online-peak: 132
   logical-online-late-night: 52

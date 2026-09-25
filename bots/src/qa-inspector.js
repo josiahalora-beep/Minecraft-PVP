@@ -22,6 +22,7 @@ const viewDistance=Number(process.env.QA_VIEW_DISTANCE||8)
 const detailPass=process.env.QA_DETAIL_PASS!=='0'
 const spawnOnly=process.env.QA_SPAWN_ONLY==='1'
 const roadOnly=process.env.QA_ROADS_ONLY==='1'
+const interiorOnly=process.env.QA_INTERIORS_ONLY==='1'
 
 fs.mkdirSync(outDir,{recursive:true})
 const manifest={startedAt:new Date().toISOString(),captures:[],messages:[],errors:[]}
@@ -449,11 +450,11 @@ if(showcase){
   // showcase sites are deterministic and the previous generic y=64 / roof-scan
   // heuristic aimed cameras into terrain on sloped or buried families.
   selected=[
-    {name:'QARedemption2',x:-900,y:72,z:-900,primaryFamily:'REDEMPTION',secondaryFamily:''},
-    {name:'QABase0',x:-450,y:69,z:-900,primaryFamily:'BASE_HCF',secondaryFamily:''},
-    {name:'QAModern14',x:450,y:66,z:-900,primaryFamily:'MODERN_HCF',secondaryFamily:''},
-    {name:'QATunnel21',x:900,y:67,z:-900,primaryFamily:'TUNNEL',secondaryFamily:''},
-    {name:'QACave55',x:-900,y:65,z:900,primaryFamily:'CAVE',secondaryFamily:''}
+    {name:'QARedemption2',x:-900,y:72,z:-900,undergroundY:55,coreHalfX:16,coreHalfZ:14,primaryFamily:'REDEMPTION',secondaryFamily:''},
+    {name:'QABase0',x:-450,y:69,z:-900,undergroundY:50,coreHalfX:16,coreHalfZ:16,primaryFamily:'BASE_HCF',secondaryFamily:''},
+    {name:'QAModern14',x:450,y:66,z:-900,undergroundY:46,coreHalfX:19,coreHalfZ:15,primaryFamily:'MODERN_HCF',secondaryFamily:''},
+    {name:'QATunnel21',x:900,y:67,z:-900,undergroundY:44,coreHalfX:20,coreHalfZ:13,primaryFamily:'TUNNEL',secondaryFamily:''},
+    {name:'QACave55',x:-900,y:65,z:900,undergroundY:43,coreHalfX:17,coreHalfZ:16,primaryFamily:'CAVE',secondaryFamily:''}
   ]
   bases=selected
 }else{
@@ -496,6 +497,30 @@ if(selected.length){
     }
 
     const prefix='base-'+(b.primaryFamily||'unknown')+'-'+b.name
+    if(interiorOnly && Number.isFinite(b.undergroundY)){
+      const u=b.undergroundY
+      const dropX=b.x-3,dropZ=b.z-1
+      const refillZ=b.z-b.coreHalfZ+4
+
+      await capture(prefix+'-interior-core',
+        {x:b.x,y:u+2,z:b.z+8},{x:b.x,y:u+2,z:b.z},2200)
+      await capture(prefix+'-interior-dropdown',
+        {x:dropX,y:u+2,z:dropZ+8},{x:dropX,y:u+2,z:dropZ},2200)
+      await capture(prefix+'-interior-refill',
+        {x:b.x,y:u+2,z:refillZ+7},{x:b.x,y:u+2,z:refillZ},2200)
+      await capture(prefix+'-interior-storage-west',
+        {x:b.x+3,y:u+2,z:b.z-5},{x:b.x-b.coreHalfX+5,y:u+3,z:b.z-4},2200)
+      await capture(prefix+'-interior-storage-east',
+        {x:b.x-3,y:u+2,z:b.z+5},{x:b.x+b.coreHalfX-5,y:u+3,z:b.z+5},2200)
+      await capture(prefix+'-interior-utility-west',
+        {x:b.x+2,y:u+2,z:b.z},{x:b.x-b.coreHalfX+6,y:u+2,z:b.z+1},2200)
+      await capture(prefix+'-interior-utility-east',
+        {x:b.x-2,y:u+2,z:b.z},{x:b.x+b.coreHalfX-6,y:u+2,z:b.z+1},2200)
+      await capture(prefix+'-interior-farm',
+        {x:b.x,y:u-5,z:b.z+12},{x:b.x,y:u-5,z:b.z+5},2400)
+      continue
+    }
+
     await capture(prefix+'-overview',
       {x:b.x,y:b.y+38,z:b.z-26},{x:b.x,y:b.y-2,z:b.z},6000)
     await capture(prefix+'-frontage',

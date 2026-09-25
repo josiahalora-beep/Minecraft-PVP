@@ -2791,6 +2791,11 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         return hcfBaseBuilder.evaluateSite(x,z,radius);
     }
 
+
+    int[] evaluateSimReferenceSite(String faction,int x,int z) {
+        if (hcfBaseBuilder == null) return new int[]{64,999,999,999,999,999,999};
+        return hcfBaseBuilder.evaluateReferenceSite(faction,x,z);
+    }
     void registerAutoBrewerSite(String faction,String preset,int x,int y,int z) {
         if(autoBrewer==null || hcfBaseBuilder==null) return;
         int[] core=hcfBaseBuilder.anchor(faction,preset,"brewer",x,y,z);

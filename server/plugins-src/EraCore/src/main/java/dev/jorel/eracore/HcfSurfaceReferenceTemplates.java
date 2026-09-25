@@ -493,6 +493,19 @@ final class HcfSurfaceReferenceTemplates {
         if(!glass && !dyed) return data;
 
         int d=data&0xff;
+
+        // Clear source glass is a major HCF architectural surface, not a neutral
+        // trim pixel. Give it the primary glass tone of the selected palette.
+        if(id==20 || id==102) {
+            switch(variant) {
+                case 1:return (byte)9;  // cyan
+                case 2:return (byte)3;  // light blue
+                case 3:return (byte)14; // red
+                case 4:return (byte)8;  // light gray smoke
+                default:return data;
+            }
+        }
+
         switch(variant) {
             case 1: // Cyan + charcoal/light-gray framing.
                 if(neutralDye(d)) return (byte)(d==15?7:(d==0?8:d));

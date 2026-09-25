@@ -3423,10 +3423,10 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         return true;
     }
 
-    void offerSimulatedDuel(String from,String toHuman,String reason) {
-        if(activeDuel!=null || from==null || toHuman==null) return;
+    boolean offerSimulatedDuel(String from,String toHuman,String reason) {
+        if(activeDuel!=null || from==null || toHuman==null) return false;
         Player target=Bukkit.getPlayerExact(toHuman);
-        if(target==null || simWorld==null || !simWorld.contains(from)) return;
+        if(target==null || simWorld==null || !simWorld.contains(from)) return false;
 
         DuelRequest req=new DuelRequest();
         req.from=from;
@@ -3438,6 +3438,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         sendSimulatedPrivate(target,from,reason+". duel me?");
         target.sendMessage(color("&cDuel request &8» &f"+from+
             " &7challenged you. &a/duel accept "+from+" &8| &c/duel decline "+from));
+        return true;
     }
 
     private boolean cmdDuel(final Player p,String[] a) {

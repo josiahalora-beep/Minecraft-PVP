@@ -197,8 +197,9 @@ sim-world:
   min-base-y: 50
   max-base-y: 110
   min-base-site-relief: 0
-  max-base-site-relief: 6
+  max-base-site-relief: 8
   max-base-site-liquid-samples: 1
+  base-site-scout-attempts: 64
   logical-online-min: 88
   logical-online-peak: 132
   logical-online-late-night: 52

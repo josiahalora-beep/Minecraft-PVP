@@ -107,6 +107,33 @@ final class HcfBaseBuilder {
         ensureRunner();
     }
 
+    private int quickReferenceRelief(World world,int cx,int cz,int family) {
+        int hx=(HcfSurfaceReferenceTemplates.width(family)-1)/2;
+        int hz=(HcfSurfaceReferenceTemplates.length(family)-1)/2;
+        int[][] pts={
+            {0,0},{-hx,-hz},{hx,-hz},{-hx,hz},{hx,hz},
+            {0,-hz},{0,hz},{-hx,0},{hx,0}
+        };
+        int min=Integer.MAX_VALUE,max=Integer.MIN_VALUE;
+        for(int[] pt:pts) {
+            int y=solidSurfaceY(world,cx+pt[0],cz+pt[1]);
+            min=Math.min(min,y); max=Math.max(max,y);
+        }
+        return max-min;
+    }
+
+    private int naturalFitScore(int[] fit,int distancePenalty) {
+        int perimeter=fit[5]+fit[6];
+        return perimeter*260 + fit[1]*200 + fit[2]*30 +
+            fit[3]*12 + fit[4]*400 + distancePenalty;
+    }
+
+    private boolean idealNaturalFit(int[] fit) {
+        return fit!=null && fit.length>=7 &&
+            (fit[5]+fit[6])==0 && fit[1]<=1 &&
+            fit[2]<=6 && fit[3]<=10 && fit[4]==0;
+    }
+
     private int[] findNaturalQaSite(String faction,String expectedFamily,int seedX,int seedZ) {
         World world=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
         if(world==null) return new int[]{seedX,64,seedZ};
@@ -114,28 +141,48 @@ final class HcfBaseBuilder {
         int[] best=null;
         int bestScore=Integer.MAX_VALUE;
 
-        // Search a compact deterministic neighborhood around each visual-QA
-        // district. Coordinates move only for terrain fit; the expected family
-        // must remain the same so this is still a five-family regression set.
-        for(int dx=-48;dx<=48;dx+=16) {
-            for(int dz=-48;dz<=48;dz+=16) {
+        // First prefer the intended QA district when it genuinely fits.
+        for(int dx=-64;dx<=64;dx+=16) {
+            for(int dz=-64;dz<=64;dz+=16) {
                 int x=seedX+dx,z=seedZ+dz;
+                if(Math.abs(x)>940 || Math.abs(z)>940) continue;
                 world.loadChunk(x>>4,z>>4);
-                int[] fit=evaluateReferenceSite(faction,x,z);
-                HcfBasePlan p=planFor(faction,x,fit[0],z);
-                if(!expectedFamily.equals(p.primaryFamilyName())) continue;
+                HcfBasePlan probe=planFor(faction,x,64,z);
+                if(!expectedFamily.equals(probe.primaryFamilyName())) continue;
+                if(quickReferenceRelief(world,x,z,probe.primaryFamily)>2) continue;
 
-                int perimeter=fit[5]+fit[6];
-                int score=perimeter*260 + fit[1]*200 + fit[2]*30 +
-                    fit[3]*12 + fit[4]*400 + (Math.abs(dx)+Math.abs(dz))/2;
+                int[] fit=evaluateReferenceSite(faction,x,z);
+                int score=naturalFitScore(fit,(Math.abs(dx)+Math.abs(dz))/2);
                 if(score<bestScore) {
                     bestScore=score;
                     best=new int[]{x,fit[0],z};
                 }
+                if(idealNaturalFit(fit)) return new int[]{x,fit[0],z};
+            }
+        }
 
-                if(perimeter==0 && fit[1]<=1 && fit[2]<=6 &&
-                   fit[3]<=10 && fit[4]==0)
-                    return new int[]{x,fit[0],z};
+        // The authored map is deliberately rolling. If the old screenshot
+        // district has no real plateau, search the entire playable wilderness
+        // instead of terraforming a stage. This is QA-only and deterministic.
+        for(int x=-920;x<=920;x+=32) {
+            for(int z=-920;z<=920;z+=32) {
+                // Keep away from spawn/road corridors and the fixed KOTH corners.
+                if(x*x+z*z<450*450) continue;
+                if(Math.abs(x)<64 || Math.abs(z)<64) continue;
+                if(Math.abs(Math.abs(x)-500)<120 && Math.abs(Math.abs(z)-500)<120) continue;
+
+                HcfBasePlan probe=planFor(faction,x,64,z);
+                if(!expectedFamily.equals(probe.primaryFamilyName())) continue;
+                if(quickReferenceRelief(world,x,z,probe.primaryFamily)>1) continue;
+
+                int[] fit=evaluateReferenceSite(faction,x,z);
+                int score=naturalFitScore(fit,120+
+                    (Math.abs(x-seedX)+Math.abs(z-seedZ))/8);
+                if(score<bestScore) {
+                    bestScore=score;
+                    best=new int[]{x,fit[0],z};
+                }
+                if(idealNaturalFit(fit)) return new int[]{x,fit[0],z};
             }
         }
 

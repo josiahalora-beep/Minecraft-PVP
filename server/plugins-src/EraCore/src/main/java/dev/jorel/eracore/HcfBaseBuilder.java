@@ -260,16 +260,17 @@ final class HcfBaseBuilder {
         int[] best=null;
         int bestScore=Integer.MAX_VALUE;
 
-        // Palette QA only needs a nearby clean Modern shell backdrop. Never run
-        // the expensive whole-map plateau search here; the canonical five-family
-        // pass already proves the production terrain-contact contract.
-        for(int dx=-96;dx<=96;dx+=8) {
-            for(int dz=-96;dz<=96;dz+=8) {
+        // Palette QA still has to prove the same clean visual siting contract as
+        // production. Search a wider but bounded quadrant around each seed; the
+        // cheap relief prefilter prevents this from degenerating into a whole-map
+        // exact scan while avoiding the previous "best bad site" fallback.
+        for(int dx=-224;dx<=224;dx+=8) {
+            for(int dz=-224;dz<=224;dz+=8) {
                 int x=seedX+dx,z=seedZ+dz;
                 if(Math.abs(x)>940 || Math.abs(z)>940) continue;
                 HcfBasePlan probe=planFor(faction,x,64,z);
                 if(!"MODERN_HCF".equals(probe.primaryFamilyName())) continue;
-                if(quickReferenceRelief(world,x,z,probe.primaryFamily)>2) continue;
+                if(quickReferenceRelief(world,x,z,probe.primaryFamily)>1) continue;
 
                 world.loadChunk(x>>4,z>>4);
                 int[] fit=evaluateReferenceSite(faction,x,z);
@@ -284,8 +285,8 @@ final class HcfBaseBuilder {
 
         if(best!=null) {
             int bx=best[0],bz=best[2];
-            for(int dx=-7;dx<=7;dx++) {
-                for(int dz=-7;dz<=7;dz++) {
+            for(int dx=-12;dx<=12;dx++) {
+                for(int dz=-12;dz<=12;dz++) {
                     int x=bx+dx,z=bz+dz;
                     HcfBasePlan probe=planFor(faction,x,64,z);
                     if(!"MODERN_HCF".equals(probe.primaryFamilyName())) continue;
@@ -298,7 +299,12 @@ final class HcfBaseBuilder {
                     if(idealNaturalFit(fit)) return new int[]{x,fit[0],z};
                 }
             }
-            return best;
+            // Returning a visibly bad fallback defeats the purpose of Phase 2
+            // QA. Keep the best candidate only if it satisfies the hard exterior
+            // contract; otherwise signal failure with the seed so the inspector
+            // rejects it explicitly rather than photographing compromised work.
+            int[] finalFit=evaluateReferenceSite(faction,best[0],best[2]);
+            if(idealNaturalFit(finalFit)) return best;
         }
 
         int[] fit=evaluateReferenceSite(faction,seedX,seedZ);

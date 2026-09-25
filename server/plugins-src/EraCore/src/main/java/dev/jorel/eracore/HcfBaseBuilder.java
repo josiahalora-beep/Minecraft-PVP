@@ -135,6 +135,48 @@ final class HcfBaseBuilder {
             fit[2]<=6 && fit[3]<=10 && fit[4]==0 && fit[7]==0;
     }
 
+    private int[] findNearbyFamilyQaSite(String faction,int seedX,int seedZ) {
+        World world=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
+        if(world==null) return new int[]{seedX,64,seedZ};
+
+        int[] fit=evaluateReferenceSite(faction,seedX,seedZ);
+        int[] best=new int[]{seedX,fit[0],seedZ};
+        int bestScore=naturalFitScore(fit,0);
+
+        // The pinned QA coordinates are stable starting neighborhoods, not a
+        // requirement to photograph a tree. Search only the already-preloaded
+        // local area so this remains bounded and deterministic.
+        for(int dx=-32;dx<=32;dx+=4) {
+            for(int dz=-32;dz<=32;dz+=4) {
+                int x=seedX+dx,z=seedZ+dz;
+                if(Math.abs(x)>940 || Math.abs(z)>940) continue;
+                int[] candidate=evaluateReferenceSite(faction,x,z);
+                int score=naturalFitScore(candidate,(Math.abs(dx)+Math.abs(dz))/4);
+                if(score<bestScore) {
+                    bestScore=score;
+                    best=new int[]{x,candidate[0],z};
+                }
+                if(idealNaturalFit(candidate)) return new int[]{x,candidate[0],z};
+            }
+        }
+
+        int bx=best[0],bz=best[2];
+        for(int dx=-6;dx<=6;dx++) {
+            for(int dz=-6;dz<=6;dz++) {
+                int x=bx+dx,z=bz+dz;
+                if(Math.abs(x)>940 || Math.abs(z)>940) continue;
+                int[] candidate=evaluateReferenceSite(faction,x,z);
+                int score=naturalFitScore(candidate,0);
+                if(score<bestScore) {
+                    bestScore=score;
+                    best=new int[]{x,candidate[0],z};
+                }
+                if(idealNaturalFit(candidate)) return new int[]{x,candidate[0],z};
+            }
+        }
+        return best;
+    }
+
     private int[] findNearbyPaletteQaSite(String faction,int seedX,int seedZ) {
         World world=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
         if(world==null) return new int[]{seedX,64,seedZ};
@@ -229,9 +271,11 @@ final class HcfBaseBuilder {
         Bukkit.getScheduler().runTaskLater(plugin,new Runnable() {
             public void run() {
                 for(int i=0;i<sites.length;i++) {
-                    int x=sites[i][0],z=sites[i][1];
+                    int[] natural=findNearbyFamilyQaSite(names[i],sites[i][0],sites[i][1]);
+                    int x=natural[0],y=natural[1],z=natural[2];
+                    sites[i][0]=x;
+                    sites[i][1]=z;
                     int[] fit=evaluateReferenceSite(names[i],x,z);
-                    int y=fit[0];
                     HcfBasePlan p=planFor(names[i],x,y,z);
                     qaPlans[i]=p;
                     if(!expected[i].equals(p.primaryFamilyName())) {

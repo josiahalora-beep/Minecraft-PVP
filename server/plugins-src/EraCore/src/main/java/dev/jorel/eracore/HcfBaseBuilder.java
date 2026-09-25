@@ -1115,6 +1115,7 @@ final class HcfBaseBuilder {
                 " core="+(p.coreHalfX*2+1)+"x"+(p.coreHalfZ*2+1)+
                 " depth="+(p.surfaceY-p.undergroundY)+
                 " entrances="+p.entrances+" storage="+p.storageVariant+
+                " utilitySide="+p.utilitySide+
                 " claimWorkRadius="+pad);
         }
     }
@@ -2599,6 +2600,58 @@ final class HcfBaseBuilder {
         queue.add(new Op(w,landingX,farmFloor+4,z,Material.GLOWSTONE));
     }
 
+    private Material utilityRoomWall(HcfBasePlan p) {
+        switch(p.primaryFamily) {
+            case 0: return p.finishTier==0?Material.COBBLESTONE:Material.WOOD;
+            case 1: return Material.SMOOTH_BRICK;
+            case 2: return Material.SMOOTH_BRICK;
+            case 3: return p.finishTier==0?Material.COBBLESTONE:Material.LOG;
+            case 4: return Material.COBBLESTONE;
+            default:return p.undergroundTrim;
+        }
+    }
+
+    private byte utilityRoomGlass(HcfBasePlan p) {
+        if(p.primaryFamily==1) return (byte)15;
+        if(p.primaryFamily==2 || p.primaryFamily==3 || p.primaryFamily==0) return (byte)9;
+        return (byte)7;
+    }
+
+    private void buildUtilityRoomShell(World w,HcfBasePlan p,int cx,int floor,int cz,
+                                       int halfX,int halfZ,int doorSideX) {
+        Material wall=utilityRoomWall(p);
+        byte glass=utilityRoomGlass(p);
+        int doorX=cx+doorSideX*halfX;
+        for(int x=cx-halfX;x<=cx+halfX;x++) {
+            for(int z=cz-halfZ;z<=cz+halfZ;z++) {
+                boolean west=x==cx-halfX,east=x==cx+halfX;
+                boolean north=z==cz-halfZ,south=z==cz+halfZ;
+                boolean boundary=west||east||north||south;
+                if(!boundary) continue;
+
+                boolean doorway=(x==doorX && Math.abs(z-cz)<=1);
+                for(int yy=floor+1;yy<=floor+4;yy++) {
+                    if(doorway && yy<=floor+3) {
+                        Material m=yy<=floor+2?Material.FENCE_GATE:Material.AIR;
+                        queue.add(new Op(w,x,yy,z,m,(byte)(doorSideX>0?1:3)));
+                        continue;
+                    }
+
+                    boolean outerWall=(doorSideX<0?east:west);
+                    boolean window=outerWall && yy>=floor+2 && yy<=floor+3 &&
+                        Math.abs(z-cz)<=halfZ-2 && ((Math.abs(z-cz)&1)==0);
+                    queue.add(new Op(w,x,yy,z,window?Material.STAINED_GLASS:wall,
+                        window?glass:(byte)0));
+                }
+            }
+        }
+
+        for(int x=cx-halfX;x<=cx+halfX;x++)
+            for(int z=cz-halfZ;z<=cz+halfZ;z++)
+                if(x==cx-halfX||x==cx+halfX||z==cz-halfZ||z==cz+halfZ)
+                    queue.add(new Op(w,x,floor+5,z,wall));
+    }
+
     private void buildUndergroundBrewer(World w,HcfBasePlan p) {
         int[] a=p.anchor("brewer");
         int cx=a[0],floor=a[1],cz=a[2];
@@ -2607,6 +2660,10 @@ final class HcfBaseBuilder {
             queue.add(new Op(w,x,floor,z,p.undergroundFloor));
             for(int yy=floor+1;yy<=floor+5;yy++) queue.add(new Op(w,x,yy,z,Material.AIR));
         }
+        // The brewer is a real room on the utility side, not machinery dropped
+        // into the open core. Its inward wall has a three-wide sprintable gate
+        // opening; the outward wall carries the period-correct glass strip.
+        buildUtilityRoomShell(w,p,cx,floor,cz,halfX,halfZ,-p.utilitySide);
 
         // Exact lane coordinates intentionally match HcfAutoBrewerDirector:
         // stand=(centerX, floorY+2, centerZ-5+lane*2).
@@ -2646,26 +2703,47 @@ final class HcfBaseBuilder {
             queue.add(new Op(w,cx+4,floor+1,z,Material.CHEST));
         }
 
-        // Three-wide gate line makes the brewer read as a room, not machinery
-        // sprinkled in the core, without blocking sprint circulation.
-        int gateZ=cz-halfZ+1;
-        for(int x=cx-1;x<=cx+1;x++) {
-            queue.add(new Op(w,x,floor+1,gateZ,Material.FENCE_GATE,(byte)0));
-            queue.add(new Op(w,x,floor+2,gateZ,Material.FENCE_GATE,(byte)0));
-        }
         queue.add(new Op(w,cx,floor+5,cz,Material.GLOWSTONE));
     }
 
     private void buildFactionPortal(World w,HcfBasePlan p,String type) {
         int[] a=p.anchor("nether".equals(type)?"portal-nether":"portal-end");
         int x=a[0],y=a[1],z=a[2];
+        int floor=p.undergroundY;
 
         if("nether".equals(type)) {
-            // Compact wall-integrated 4x5 frame, matching the utility-first HCF look.
+            // Dedicated portal alcove near the north utility edge. The old
+            // wall-integrated frame was easy to lose behind mature storage banks.
+            int minX=x-4,maxX=x+5,minZ=z-2,maxZ=z+5;
+            Material wall=utilityRoomWall(p);
+            byte glass=utilityRoomGlass(p);
+            for(int xx=minX;xx<=maxX;xx++) for(int zz=minZ;zz<=maxZ;zz++) {
+                queue.add(new Op(w,xx,floor,zz,p.undergroundFloor));
+                boolean boundary=xx==minX||xx==maxX||zz==minZ||zz==maxZ;
+                for(int yy=floor+1;yy<=floor+5;yy++) {
+                    if(!boundary) {
+                        queue.add(new Op(w,xx,yy,zz,Material.AIR));
+                        continue;
+                    }
+                    boolean doorway=zz==maxZ && Math.abs(xx-x)<=1 && yy<=floor+3;
+                    if(doorway) {
+                        queue.add(new Op(w,xx,yy,zz,
+                            yy<=floor+2?Material.FENCE_GATE:Material.AIR,(byte)0));
+                    } else {
+                        boolean window=(xx==minX||xx==maxX) && yy>=floor+2 && yy<=floor+3 &&
+                            ((Math.abs(zz-z)&1)==0);
+                        queue.add(new Op(w,xx,yy,zz,window?Material.STAINED_GLASS:wall,
+                            window?glass:(byte)0));
+                    }
+                }
+            }
+
+            // Keep the semantic portal anchor unchanged.
             for(int dx=-1;dx<=2;dx++) for(int dy=0;dy<=4;dy++) {
                 boolean edge=dx==-1||dx==2||dy==0||dy==4;
                 queue.add(new Op(w,x+dx,y+dy,z,edge?Material.OBSIDIAN:Material.PORTAL));
             }
+            queue.add(new Op(w,x,floor+5,z+3,Material.GLOWSTONE));
             return;
         }
 

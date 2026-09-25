@@ -200,6 +200,9 @@ final class HcfBaseBuilder {
                         " storageTier="+qaStorageTier+" brewer="+qaBrewer+
                         " nether="+qaNether+" end="+qaEnd+
                         " at="+x+","+y+","+z+
+                        " undergroundY="+p.undergroundY+
+                        " coreHalf="+p.coreHalfX+","+p.coreHalfZ+
+                        " utilitySide="+p.utilitySide+
                         " naturalFit="+java.util.Arrays.toString(evaluateReferenceSite(names[i],x,z)));
                 }
 

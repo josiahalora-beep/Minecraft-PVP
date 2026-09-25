@@ -489,6 +489,12 @@ final class HcfSurfaceReferenceTemplates {
         int id=material.getId();
         if(id==20) return Material.getMaterial(95);   // glass -> stained glass
         if(id==102) return Material.getMaterial(160); // pane -> stained pane
+
+        // Production palette variants must be realistic SOTW builds. Replace
+        // mass quartz with common stone-brick equivalents while preserving the
+        // exact reference geometry. Canonical REFERENCE QA remains untouched.
+        if(id==155) return Material.SMOOTH_BRICK;
+        if(id==156) return Material.SMOOTH_STAIRS;
         return material;
     }
 
@@ -533,6 +539,91 @@ final class HcfSurfaceReferenceTemplates {
                 return (byte)7;
             default:
                 return data;
+        }
+    }
+
+    /**
+     * Exact finished-block bill for the selected surface template AFTER the
+     * production palette substitution. Keys include data when color/orientation
+     * matters (e.g. STAINED_GLASS:9). AIR is excluded.
+     */
+    static java.util.Map<String,Integer> materialBill(HcfBasePlan plan) {
+        java.util.Map<String,Integer> out=new java.util.LinkedHashMap<String,Integer>();
+        Template t=forFamily(plan.primaryFamily);
+        int cursor=0,total=t.width*t.height*t.length;
+
+        for(int i=0;i+3<t.rle.length;i+=4) {
+            int count=((t.rle[i]&0xff)<<8)|(t.rle[i+1]&0xff);
+            int id=t.rle[i+2]&0xff;
+            byte data=t.rle[i+3];
+            Material src=Material.getMaterial(id);
+            if(src==null) src=Material.AIR;
+            Material placed=paletteMaterial(plan,src);
+            byte placedData=paletteData(plan,src,data);
+
+            for(int n=0;n<count && cursor<total;n++,cursor++) {
+                if(placed==Material.AIR) continue;
+                String key=placed.name()+":"+((int)placedData&0xff);
+                Integer old=out.get(key);
+                out.put(key,old==null?1:old+1);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Raw/common-resource acquisition bill for the exact finished surface bill.
+     * [woodLogs, stoneFamilyBlocks, ironIngots, obsidian, rawGlass, dyeItems]
+     *
+     * It intentionally rounds crafting inputs UP so the faction never starts a
+     * build one item short. Dyed glass uses one dye per eight raw glass.
+     */
+    static int[] acquisitionBill(HcfBasePlan plan) {
+        java.util.Map<String,Integer> bill=materialBill(plan);
+        int woodPlanks=0,stone=0,iron=0,obsidian=0,glassBlocks=0,glassPanes=0,coloredGlass=0;
+
+        for(java.util.Map.Entry<String,Integer> e:bill.entrySet()) {
+            String k=e.getKey();
+            int n=e.getValue();
+            String m=k.substring(0,k.indexOf(':'));
+
+            if(m.equals("LOG")||m.equals("LOG_2")) woodPlanks+=n*4;
+            else if(m.equals("WOOD")) woodPlanks+=n;
+            else if(m.equals("FENCE_GATE")) woodPlanks+=n*4; // 2 planks + 4 sticks = 4 planks
+            else if(m.equals("FENCE")) woodPlanks+=(int)Math.ceil(n*(5.0/3.0));
+            else if(m.contains("WOOD_STAIRS")) woodPlanks+=(int)Math.ceil(n*1.5);
+            else if(m.equals("CHEST")||m.equals("TRAPPED_CHEST")) woodPlanks+=n*8;
+            else if(m.equals("WORKBENCH")) woodPlanks+=n*4;
+
+            if(m.equals("STONE")||m.equals("COBBLESTONE")||m.equals("SMOOTH_BRICK")||
+               m.equals("BRICK")||m.equals("SMOOTH_STAIRS")||m.equals("COBBLESTONE_STAIRS")||
+               m.equals("STEP")||m.equals("DOUBLE_STEP")) stone+=n;
+
+            if(m.equals("IRON_BLOCK")) iron+=n*9;
+            else if(m.equals("IRON_FENCE")) iron+=(int)Math.ceil(n*0.375);
+            else if(m.equals("HOPPER")) iron+=n*5;
+            else if(m.equals("IRON_DOOR_BLOCK")||m.equals("IRON_DOOR")) iron+=(int)Math.ceil(n/3.0)*6;
+
+            if(m.equals("OBSIDIAN")) obsidian+=n;
+            if(m.equals("GLASS")) glassBlocks+=n;
+            else if(m.equals("THIN_GLASS")) glassPanes+=n;
+            else if(m.equals("STAINED_GLASS")) { glassBlocks+=n; coloredGlass+=n; }
+            else if(m.equals("STAINED_GLASS_PANE")) { glassPanes+=n; coloredGlass+=n; }
+        }
+
+        int rawGlass=glassBlocks+(int)Math.ceil(glassPanes*6.0/16.0);
+        int dye=(int)Math.ceil(coloredGlass/8.0);
+        int logs=(int)Math.ceil(woodPlanks/4.0);
+        return new int[]{logs,stone,iron,obsidian,rawGlass,dye};
+    }
+
+    static String dyeShopKey(HcfBasePlan plan) {
+        switch(paletteVariant(plan)) {
+            case 1:return "dyecyan";
+            case 2:return "dyelightblue";
+            case 3:return "dyered";
+            case 4:return "dyelightgray";
+            default:return "";
         }
     }
 

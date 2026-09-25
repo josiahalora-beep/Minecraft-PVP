@@ -579,30 +579,38 @@ final class HcfSurfaceReferenceTemplates {
      * build one item short. Dyed glass uses one dye per eight raw glass.
      */
     static int[] acquisitionBill(HcfBasePlan plan) {
-        java.util.Map<String,Integer> bill=materialBill(plan);
+        return acquisitionBillFromMaterialBill(materialBill(plan));
+    }
+
+    static int[] acquisitionBillFromMaterialBill(java.util.Map<String,Integer> bill) {
         int woodPlanks=0,stone=0,iron=0,obsidian=0,glassBlocks=0,glassPanes=0,coloredGlass=0;
 
         for(java.util.Map.Entry<String,Integer> e:bill.entrySet()) {
             String k=e.getKey();
             int n=e.getValue();
-            String m=k.substring(0,k.indexOf(':'));
+            int split=k.indexOf(':');
+            String m=split<0?k:k.substring(0,split);
 
             if(m.equals("LOG")||m.equals("LOG_2")) woodPlanks+=n*4;
             else if(m.equals("WOOD")) woodPlanks+=n;
-            else if(m.equals("FENCE_GATE")) woodPlanks+=n*4; // 2 planks + 4 sticks = 4 planks
+            else if(m.equals("FENCE_GATE")) woodPlanks+=n*4;
             else if(m.equals("FENCE")) woodPlanks+=(int)Math.ceil(n*(5.0/3.0));
             else if(m.contains("WOOD_STAIRS")) woodPlanks+=(int)Math.ceil(n*1.5);
             else if(m.equals("CHEST")||m.equals("TRAPPED_CHEST")) woodPlanks+=n*8;
             else if(m.equals("WORKBENCH")) woodPlanks+=n*4;
+            else if(m.equals("SIGN_POST")||m.equals("WALL_SIGN")) woodPlanks+=n*2;
 
             if(m.equals("STONE")||m.equals("COBBLESTONE")||m.equals("SMOOTH_BRICK")||
                m.equals("BRICK")||m.equals("SMOOTH_STAIRS")||m.equals("COBBLESTONE_STAIRS")||
-               m.equals("STEP")||m.equals("DOUBLE_STEP")) stone+=n;
+               m.equals("STEP")||m.equals("DOUBLE_STEP")||m.equals("STONE_PLATE")) stone+=n;
+            else if(m.equals("FURNACE")) stone+=n*8;
 
             if(m.equals("IRON_BLOCK")) iron+=n*9;
             else if(m.equals("IRON_FENCE")) iron+=(int)Math.ceil(n*0.375);
             else if(m.equals("HOPPER")) iron+=n*5;
             else if(m.equals("IRON_DOOR_BLOCK")||m.equals("IRON_DOOR")) iron+=(int)Math.ceil(n/3.0)*6;
+            else if(m.equals("ANVIL")) iron+=n*31;
+            else if(m.equals("CAULDRON")) iron+=n*7;
 
             if(m.equals("OBSIDIAN")) obsidian+=n;
             if(m.equals("GLASS")) glassBlocks+=n;

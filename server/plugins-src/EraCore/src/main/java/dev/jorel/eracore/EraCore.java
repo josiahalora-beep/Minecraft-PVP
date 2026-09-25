@@ -2805,6 +2805,22 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         return hcfBaseBuilder==null?0:hcfBaseBuilder.queuedOperations();
     }
 
+    Map<String,Integer> previewSimBaseMaterialBill(String faction,String preset,String trapPreset,
+                                                    int x,int y,int z,int storageTier,
+                                                    boolean brewer,boolean netherPortal,boolean endPortal) {
+        if(hcfBaseBuilder==null) return new LinkedHashMap<String,Integer>();
+        return hcfBaseBuilder.previewFullBuildMaterialBill(
+            faction,preset,trapPreset,x,y,z,storageTier,brewer,netherPortal,endPortal);
+    }
+
+    int[] previewSimBaseAcquisitionBill(String faction,String preset,String trapPreset,
+                                        int x,int y,int z,int storageTier,
+                                        boolean brewer,boolean netherPortal,boolean endPortal) {
+        if(hcfBaseBuilder==null) return new int[]{0,0,0,0,0,0};
+        return hcfBaseBuilder.previewFullBuildAcquisitionBill(
+            faction,preset,trapPreset,x,y,z,storageTier,brewer,netherPortal,endPortal);
+    }
+
     void queueSimBaseBuild(String faction, String preset, String trapPreset, int x, int y, int z) {
         if (hcfBaseBuilder != null) hcfBaseBuilder.queueBase(faction,preset,trapPreset,x,y,z);
     }
@@ -2852,7 +2868,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
 
     int[] evaluateSimReferenceSite(String faction,int x,int z) {
-        if (hcfBaseBuilder == null) return new int[]{64,999,999,999,999,999,999};
+        if (hcfBaseBuilder == null) return new int[]{64,999,999,999,999,999,999,999};
         return hcfBaseBuilder.evaluateReferenceSite(faction,x,z);
     }
     void registerAutoBrewerSite(String faction,String preset,int x,int y,int z) {

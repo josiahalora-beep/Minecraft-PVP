@@ -6,6 +6,13 @@ concurrency:
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - 'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfBaseBuilder.java'
+      - 'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfBasePlan.java'
+      - 'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfSurfaceReferenceTemplates.java'
+      - 'bots/src/qa-inspector.js'
+      - '.github/workflows/phase1-bases-visual-qa.yml'
 
 permissions:
   contents: read

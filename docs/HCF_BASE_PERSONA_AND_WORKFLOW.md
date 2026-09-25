@@ -127,3 +127,29 @@ The accepted corrective direction is:
 - Cave/Devhorah remains visibly architectural and may use natural terrain context, but may not be swallowed by generated terrain;
 - site scouting prefers flatter coherent-biome locations for PvP factions and only modest natural relief for Cave/Tunnel;
 - visual QA must show the full building, entrance, windows and terrain seam clearly before Phase 2 can be frozen again.
+
+
+## Phase 2B final acceptance
+
+The earlier Phase-2 freeze is superseded by this acceptance. The terrain-first version was visually rejected after reviewing the actual QA screenshots.
+
+Final accepted evidence:
+- production commit: `02c52be58215f1923e6965ef98c25b6d7e800e83`
+- five-family authored-FreeMap visual QA run: `36114554213`
+- artifact: `10855001657`
+- 45 visual captures, all five primary families represented, zero inspector errors.
+
+Accepted Phase-2B exterior contract:
+- the authored FreeMap is the terrain; faction generation must not manufacture concentric terrain rings, soil caps, biome-bleed fields or claim-sized grading;
+- only the footprint plus a small optional human-style PvP apron may be graded;
+- site selection prefers coherent-biome, PvP-friendly natural ground; Cave/Tunnel may tolerate modest natural relief;
+- visible shell scale is derived from measured supplied HCF references rather than the former five-block-height cap;
+- fence gates, glass/stained glass, timber/log framing and stone/brick structural bands are first-class HCF facade materials;
+- windows and gate bands are deliberate family-specific bays, never random speckle;
+- Redemption is a two-level timber/glass HCF house;
+- Base-HCF is a broad masonry/timber facade with repeated vertical glass bays;
+- ModernHCF is a low masonry base with an offset glass-heavy upper room/tower and timber spines;
+- Tunnel is a visible stacked timber/stone/glass tower, not a buried entrance stub;
+- Cave/Devhorah is a visible timber/stone house with an irregular taller side tower; terrain provides context rather than artificial camouflage.
+
+Phase 3 may change interiors, room circulation, storage, refill/brewer/farm layout, dropdown/elevator presentation and internal craftsmanship. It must preserve the Phase-2B structure-first terrain rule and the five exterior family identities unless a new reference-backed visual regression proves a replacement is better.

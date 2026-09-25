@@ -7993,8 +7993,10 @@ final class SimWorldDirector {
 
         boolean tryout=false;
         boolean passed=true;
-        if(leader!=null && (f.powerFaction || leader.standards>=72) &&
-           bestScore<threshold+35 && rng.nextInt(100)<55) {
+        boolean requiredTryout=plugin.factionTryoutRequired(f.name);
+        if(leader!=null &&
+           (requiredTryout || ((f.powerFaction || leader.standards>=72) &&
+                              bestScore<threshold+35 && rng.nextInt(100)<55))) {
             tryout=true;
             int performance=(best.mechanics*55+best.pvpIq*30+best.composure*15)/100+
                 best.duelWins*2+rng.nextInt(31)-15;

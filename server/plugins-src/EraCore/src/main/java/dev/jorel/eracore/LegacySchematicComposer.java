@@ -387,6 +387,36 @@ final class LegacySchematicComposer {
         }
     }
 
+    boolean queueRoadsOnly() {
+        if(busy()) return false;
+        String name=asset("spawn","HCF-Spawn-101-production.schematic");
+        if(!hasAsset(name)) {
+            plugin.getLogger().warning("Cannot compose HCF roads; missing spawn asset: "+name);
+            return false;
+        }
+        try {
+            World over=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
+            if(over==null) return false;
+            Schematic spawn=load(name);
+            validateSpawnRoadContract(spawn);
+            int border=plugin.getConfig().getInt("map.world-border",2000)/2;
+            jobs.add(new SpawnRoadSurfaceJob("North HCF spawn road",over,spawn,0,0,0,border));
+            jobs.add(new SpawnRoadSurfaceJob("South HCF spawn road",over,spawn,0,0,1,border));
+            jobs.add(new SpawnRoadSurfaceJob("West HCF spawn road",over,spawn,0,0,2,border));
+            jobs.add(new SpawnRoadSurfaceJob("East HCF spawn road",over,spawn,0,0,3,border));
+            productionRun=false;
+            ensureRunner();
+            plugin.getLogger().info("[composer] queued roads-only HCF pass border="+border+
+                " source="+name);
+            return true;
+        } catch(Exception e) {
+            jobs.clear();
+            plugin.getLogger().severe("Could not queue HCF roads-only pass: "+e.getMessage());
+            e.printStackTrace();
+            return false;
+        }
+    }
+
     boolean queueProductionMap(HcfMapDirector map) {
         if(busy()) return false;
         List<String> missing=missingProductionAssets();

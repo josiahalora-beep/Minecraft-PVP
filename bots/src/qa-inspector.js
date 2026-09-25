@@ -527,17 +527,36 @@ if(showcase){
     }
   }
 
-  // These Y values are the terrain-selected showcase anchors from the
-  // checksum-pinned authored FreeMap. They are intentionally explicit: the
-  // showcase sites are deterministic and the previous generic y=64 / roof-scan
-  // heuristic aimed cameras into terrain on sloped or buried families.
-  selected=[
-    {name:'QARedemption2',x:-900,y:72,z:-900,undergroundY:55,coreHalfX:16,coreHalfZ:14,utilitySide:1,gateOffsetX:4,gateOffsetY:2,gateOffsetZ:-2,primaryFamily:'REDEMPTION',secondaryFamily:''},
-    {name:'QABase0',x:-450,y:69,z:-900,undergroundY:50,coreHalfX:16,coreHalfZ:16,utilitySide:1,gateOffsetX:-1,gateOffsetY:1,gateOffsetZ:-8,primaryFamily:'BASE_HCF',secondaryFamily:''},
-    {name:'QAModern14',x:450,y:66,z:-900,undergroundY:46,coreHalfX:19,coreHalfZ:15,utilitySide:-1,gateOffsetX:-1,gateOffsetY:1,gateOffsetZ:-7,primaryFamily:'MODERN_HCF',secondaryFamily:''},
-    {name:'QATunnel21',x:900,y:67,z:-900,undergroundY:44,coreHalfX:20,coreHalfZ:13,utilitySide:1,gateOffsetX:0,gateOffsetY:1,gateOffsetZ:-4,primaryFamily:'TUNNEL',secondaryFamily:''},
-    {name:'QACave55',x:-900,y:65,z:900,undergroundY:43,coreHalfX:17,coreHalfZ:16,utilitySide:-1,gateOffsetX:0,gateOffsetY:1,gateOffsetZ:-5,primaryFamily:'CAVE',secondaryFamily:''}
-  ]
+  // Resolve the actual naturally-selected showcase coordinates from the
+  // server log. Phase 2B deliberately moves each reference to a nearby native
+  // flat patch, so hardcoding the old coordinates would photograph empty land.
+  const showcaseMeta={
+    QARedemption2:{gateOffsetX:4,gateOffsetY:2,gateOffsetZ:-2},
+    QABase0:{gateOffsetX:-1,gateOffsetY:1,gateOffsetZ:-8},
+    QAModern14:{gateOffsetX:-1,gateOffsetY:1,gateOffsetZ:-7},
+    QATunnel21:{gateOffsetX:0,gateOffsetY:1,gateOffsetZ:-4},
+    QACave55:{gateOffsetX:0,gateOffsetY:1,gateOffsetZ:-5}
+  }
+  const serverLog=fs.readFileSync(path.join(root,'server','phase1-server.log'),'utf8')
+  const resolved=[]
+  const re=/\[qa-showcase\] queued (\S+) family=(\S+) secondary=(\S+) storageTier=\d+ brewer=\S+ nether=\S+ end=\S+ at=(-?\d+),(-?\d+),(-?\d+) undergroundY=(-?\d+) coreHalf=(\d+),(\d+) utilitySide=(-?\d+)/g
+  for(const m of serverLog.matchAll(re)){
+    const meta=showcaseMeta[m[1]]
+    if(!meta) continue
+    resolved.push({
+      name:m[1],primaryFamily:m[2],secondaryFamily:m[3],
+      x:Number(m[4]),y:Number(m[5]),z:Number(m[6]),
+      undergroundY:Number(m[7]),coreHalfX:Number(m[8]),coreHalfZ:Number(m[9]),
+      utilitySide:Number(m[10]),...meta
+    })
+  }
+  const byName=new Map(resolved.map(x=>[x.name,x]))
+  selected=['QARedemption2','QABase0','QAModern14','QATunnel21','QACave55']
+    .map(name=>byName.get(name)).filter(Boolean)
+  if(selected.length!==5){
+    writeManifest()
+    throw new Error('Could not resolve all five natural Phase 2B showcase sites from server log')
+  }
   bases=selected
 }else{
   bases=await waitUntil(()=>{

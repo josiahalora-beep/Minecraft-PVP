@@ -127,6 +127,25 @@ function ignorableSurface(name){
     'oak_log','spruce_log','birch_log','jungle_log','acacia_log','dark_oak_log',
     'vine'].includes(name)
 }
+function topStructuralY(cx,cz){
+  // Showcase bases clear their central footprint. Resolve the post-build
+  // surface directly from world state so close-up cameras follow the actual
+  // terrain-selected Y instead of assuming old superflat y=64.
+  let best=-1
+  for(let x=Math.round(cx-2);x<=Math.round(cx+2);x++){
+    for(let z=Math.round(cz-2);z<=Math.round(cz+2);z++){
+      for(let y=120;y>=35;y--){
+        const b=bot.blockAt(new Vec3(x,y,z),false)
+        if(!b || b.name==='air') continue
+        if(foliageNames.has(b.name) || dressingNames.has(b.name)) continue
+        best=Math.max(best,y)
+        break
+      }
+    }
+  }
+  return best
+}
+
 function sampleTerrain(cx,cz,radius=40,step=8){
   const ys=[],materials={}
   for(let x=Math.round(cx-radius);x<=Math.round(cx+radius);x+=step){
@@ -334,6 +353,10 @@ if(process.env.QA_BASES_ONLY!=='1') {
     ...spawnViews,
     ['north-road-long',{x:0,y:72,z:-255},{x:0,y:64,z:-620}],
     ['north-road-transition',{x:74,y:92,z:-335},{x:0,y:64,z:-470}],
+    ['north-road-border',{x:34,y:84,z:-930},{x:0,y:64,z:-995}],
+    ['south-road-border',{x:-34,y:84,z:930},{x:0,y:64,z:995}],
+    ['west-road-border',{x:-930,y:84,z:-34},{x:-995,y:64,z:0}],
+    ['east-road-border',{x:930,y:84,z:34},{x:995,y:64,z:0}],
     ['road-shoulder-relief',{x:92,y:88,z:-430},{x:150,y:64,z:-520}],
     ['northwest-bowl',{x:-610,y:94,z:-650},{x:-720,y:63,z:-720}],
     ['northeast-wooded-rise',{x:650,y:96,z:-650},{x:760,y:65,z:-760}],
@@ -400,6 +423,15 @@ if(showcase){
     {name:'QATunnel21',x:900,y:64,z:-900,primaryFamily:'TUNNEL',secondaryFamily:''},
     {name:'QACave55',x:-900,y:64,z:900,primaryFamily:'CAVE',secondaryFamily:''}
   ]
+  for(const b of selected){
+    const top=topStructuralY(b.x,b.z)
+    if(top>0) {
+      // Surface families are roughly 5-8 blocks tall; using top-6 centers the
+      // camera on entrances/walls while remaining correct for buried Tunnel/Cave.
+      b.y=Math.max(35,top-6)
+      b.qaResolvedTopY=top
+    }
+  }
   bases=selected
 }else{
   bases=await waitUntil(()=>{

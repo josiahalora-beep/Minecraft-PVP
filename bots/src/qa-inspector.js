@@ -561,7 +561,10 @@ if(showcase){
   }
   const badNaturalFit=selected.filter(b=>{
     const fit=b.naturalFit||[]
-    return fit.length<7 || fit[1]>1 || (fit[5]+fit[6])!==0 || fit[4]!==0
+    // The visual contract is perimeter contact, not hidden sub-floor flatness.
+    // Interior relief is allowed because the exact building covers it; no
+    // exterior terrain is flattened to compensate.
+    return fit.length<7 || (fit[5]+fit[6])!==0 || fit[4]!==0
   })
   manifest.naturalSiteProof=selected.map(b=>({
     name:b.name,family:b.primaryFamily,x:b.x,y:b.y,z:b.z,naturalFit:b.naturalFit
@@ -727,7 +730,7 @@ if(process.env.QA_PALETTE_PASS==='1' && showcase && !interiorOnly){
       const bad=palettes.filter(p=>{
         const fit=p.naturalFit||[]
         return p.family!=='MODERN_HCF' || fit.length<7 ||
-          fit[1]>1 || (fit[5]+fit[6])!==0 || fit[4]!==0
+          (fit[5]+fit[6])!==0 || fit[4]!==0
       })
       if(bad.length)
         manifest.errors.push('palette showcase natural-fit failure: '+

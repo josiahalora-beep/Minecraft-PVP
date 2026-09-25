@@ -1,5 +1,9 @@
 name: phase1-authored-hcf-terrain
 
+concurrency:
+  group: phase1-authored-hcf-terrain
+  cancel-in-progress: true
+
 on:
   workflow_dispatch:
   push:

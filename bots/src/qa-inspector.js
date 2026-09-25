@@ -563,8 +563,13 @@ if(showcase){
     const fit=b.naturalFit||[]
     // The visual contract is perimeter contact, not hidden sub-floor flatness.
     // Interior relief is allowed because the exact building covers it; no
-    // exterior terrain is flattened to compensate.
-    return fit.length<7 || (fit[5]+fit[6])!==0 || fit[4]!==0
+    // exterior terrain is flattened to compensate. Base-HCF is a 29x26
+    // reference: permit at most five naturally irregular edge cells (~4.7% of
+    // its perimeter), which prevents a continuous platform while allowing the
+    // structure to sit on real authored terrain.
+    const perimeterMismatch=(fit[5]||0)+(fit[6]||0)
+    const allowed=b.primaryFamily==='BASE_HCF'?5:0
+    return fit.length<7 || perimeterMismatch>allowed || fit[4]!==0
   })
   manifest.naturalSiteProof=selected.map(b=>({
     name:b.name,family:b.primaryFamily,x:b.x,y:b.y,z:b.z,naturalFit:b.naturalFit

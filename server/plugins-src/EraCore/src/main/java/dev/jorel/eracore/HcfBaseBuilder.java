@@ -804,14 +804,22 @@ final class HcfBaseBuilder {
         // terrain blender ran; that was the source of the giant dirt cutouts in
         // headless QA. The canonical grade pass below repairs the small organic
         // work halo and also makes repeated rebuilds idempotent.
-        int clearX=p.surfaceHalfX+7;
-        int clearZ=p.surfaceHalfZ+7;
-        int top=Math.min(w.getMaxHeight()-1,p.surfaceY+p.surfaceHeight+10);
-        for(int x=p.cx-clearX;x<=p.cx+clearX;x++) for(int z=p.cz-clearZ;z<=p.cz+clearZ;z++) {
-            double d=surfaceDistanceFromMaskExact(p,x,z,7);
-            if(d>5.5) continue;
-            for(int yy=p.surfaceY+1;yy<=top;yy++)
-                queue.add(new Op(w,x,yy,z,Material.AIR));
+        // Clear only the exact schematic footprint. The old 5.5-block halo
+        // sliced lower portions out of nearby authored hills but stopped at a
+        // fixed Y, leaving grass/tree caps floating above the base. The exact
+        // template already clears its own AIR cells, so wilderness never needs
+        // to be carved during a maintenance rebuild.
+        int minX=HcfSurfaceReferenceTemplates.minX(p.primaryFamily,p.cx);
+        int maxX=HcfSurfaceReferenceTemplates.maxX(p.primaryFamily,p.cx);
+        int minZ=HcfSurfaceReferenceTemplates.minZ(p.primaryFamily,p.cz);
+        int maxZ=HcfSurfaceReferenceTemplates.maxZ(p.primaryFamily,p.cz);
+        for(int x=minX;x<=maxX;x++) for(int z=minZ;z<=maxZ;z++) {
+            int top=Math.min(w.getMaxHeight()-1,
+                Math.max(p.surfaceY+p.surfaceHeight+10,w.getHighestBlockYAt(x,z)+2));
+            for(int yy=p.surfaceY+1;yy<=top;yy++) {
+                if(w.getBlockAt(x,yy,z).getType()!=Material.AIR)
+                    queue.add(new Op(w,x,yy,z,Material.AIR));
+            }
         }
 
         // Underground: replace the entire generated work volume with stone
@@ -1201,6 +1209,13 @@ final class HcfBaseBuilder {
                 if(current<p.surfaceY) {
                     for(int yy=Math.max(2,current+1);yy<p.surfaceY;yy++)
                         queue.add(new Op(w,x,yy,z,yy>=p.surfaceY-2?fill:Material.STONE));
+
+                    // BASE_HCF no longer pastes the source schematic's 29x26
+                    // quartz export floor. Bring only genuinely low footprint
+                    // columns up to grade with the site's native surface so the
+                    // tower meets grass/stone naturally without a platform.
+                    if(p.primaryFamily==1)
+                        queue.add(new Op(w,x,p.surfaceY,z,nativeTop));
                 }
             }
         }
@@ -1213,6 +1228,16 @@ final class HcfBaseBuilder {
         // a short tapered cradle, never a square one-block platform.
         if(p.primaryFamily==1)
             prepareBaseHcfTerrainCradle(w,p,minX,maxX,minZ,maxZ);
+
+        // Modern's showcase must not inherit dozens of tiny disconnected water
+        // pockets across an otherwise flat HCF base field. Remove only bounded
+        // isolated puddles; rivers/lakes and any component touching the search
+        // boundary are preserved. Cave gets the same surgical treatment for
+        // small exposed lava pockets near its entrance.
+        if(p.primaryFamily==2)
+            cleanupSmallSurfaceLiquids(w,p,true,false,96,180);
+        else if(p.primaryFamily==4)
+            cleanupSmallSurfaceLiquids(w,p,false,true,48,80);
     }
 
     private void prepareBaseHcfTerrainCradle(World w,HcfBasePlan p,
@@ -1410,6 +1435,87 @@ final class HcfBaseBuilder {
             return y;
         }
         return 1;
+    }
+
+
+    private int surfaceLiquidY(World w,int x,int z,boolean water,boolean lava) {
+        int top=Math.min(w.getMaxHeight()-1,Math.max(1,w.getHighestBlockYAt(x,z)+3));
+        for(int y=top;y>=1;y--) {
+            Material m=w.getBlockAt(x,y,z).getType();
+            if(m==Material.AIR || m==Material.LONG_GRASS ||
+               m==Material.YELLOW_FLOWER || m==Material.RED_ROSE ||
+               m==Material.VINE || m==Material.SNOW)
+                continue;
+            if(water && (m==Material.WATER || m==Material.STATIONARY_WATER)) return y;
+            if(lava && (m==Material.LAVA || m==Material.STATIONARY_LAVA)) return y;
+            return -1;
+        }
+        return -1;
+    }
+
+    private void cleanupSmallSurfaceLiquids(World w,HcfBasePlan p,
+                                            boolean water,boolean lava,
+                                            int radius,int maxColumns) {
+        Set<Long> visited=new HashSet<Long>();
+        int removedPools=0,removedColumns=0;
+        final int[][] dirs={{1,0},{-1,0},{0,1},{0,-1}};
+
+        for(int sx=p.cx-radius;sx<=p.cx+radius;sx++) {
+            for(int sz=p.cz-radius;sz<=p.cz+radius;sz++) {
+                long startKey=(((long)sx)<<32) ^ (sz&0xffffffffL);
+                if(visited.contains(startKey)) continue;
+                int startY=surfaceLiquidY(w,sx,sz,water,lava);
+                if(startY<0) continue;
+
+                ArrayDeque<int[]> open=new ArrayDeque<int[]>();
+                java.util.ArrayList<int[]> component=new java.util.ArrayList<int[]>();
+                open.add(new int[]{sx,sz});
+                boolean touchesBoundary=false,tooLarge=false;
+
+                while(!open.isEmpty()) {
+                    int[] at=open.poll();
+                    int x=at[0],z=at[1];
+                    if(Math.abs(x-p.cx)>radius || Math.abs(z-p.cz)>radius) {
+                        touchesBoundary=true;
+                        continue;
+                    }
+                    long key=(((long)x)<<32) ^ (z&0xffffffffL);
+                    if(!visited.add(key)) continue;
+
+                    int liquidY=surfaceLiquidY(w,x,z,water,lava);
+                    if(liquidY<0) continue;
+                    component.add(new int[]{x,z,liquidY});
+                    if(component.size()>maxColumns) tooLarge=true;
+                    if(Math.abs(x-p.cx)==radius || Math.abs(z-p.cz)==radius)
+                        touchesBoundary=true;
+
+                    for(int[] d:dirs)
+                        open.add(new int[]{x+d[0],z+d[1]});
+                }
+
+                if(tooLarge || touchesBoundary || component.isEmpty()) continue;
+
+                for(int[] at:component) {
+                    int x=at[0],z=at[1],liquidY=at[2];
+                    int solid=solidSurfaceY(w,x,z);
+                    Material nativeTop=sampleLocalPaletteAt(w,x,z)[0];
+                    if(nativeTop==Material.DIRT) nativeTop=Material.GRASS;
+                    Material fill=nativeFillMaterial(nativeTop);
+
+                    for(int y=Math.max(2,solid+1);y<liquidY;y++)
+                        queue.add(new Op(w,x,y,z,fill));
+                    queue.add(new Op(w,x,liquidY,z,nativeTop));
+                    removedColumns++;
+                }
+                removedPools++;
+            }
+        }
+
+        if(removedPools>0)
+            plugin.getLogger().info("[terrain-liquid-cleanup] faction="+p.faction+
+                " family="+p.primaryFamilyName()+" pools="+removedPools+
+                " columns="+removedColumns+" radius="+radius+
+                " type="+(water?"water":"lava"));
     }
 
     private boolean isVegetationOrLiquid(Material m) {

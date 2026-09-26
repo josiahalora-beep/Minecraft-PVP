@@ -645,9 +645,25 @@ final class HcfBaseBuilder {
             }
         }
 
-        plugin.getLogger().warning("[qa-palette] no exact local site for "+faction+
-            "; best="+best[0]+","+best[2]+" fit="+
-            java.util.Arrays.toString(evaluateReferenceSite(faction,best[0],best[2])));
+        // The pinned red palette is the only known case where the authored
+        // terrain's one-block seam can extend beyond this local radius. Escalate
+        // just that failed proof to the older bounded ModernHCF scout; the three
+        // already-perfect palettes never pay for this broader search.
+        int[] broad=findNearbyPaletteQaSite(faction,seedX,seedZ,reserved,chosen);
+        int[] broadFit=evaluateReferenceSite(faction,broad[0],broad[2]);
+        HcfBasePlan broadPlan=planFor(faction,broad[0],broadFit[0],broad[2]);
+        if(idealNaturalFit(broadFit,broadPlan.primaryFamily)) {
+            plugin.getLogger().info("[qa-palette] broad site correction "+faction+
+                " from="+seedX+","+seedZ+" to="+broad[0]+","+broad[2]+
+                " fit="+java.util.Arrays.toString(broadFit));
+            return new int[]{broad[0],broadFit[0],broad[2]};
+        }
+
+        plugin.getLogger().warning("[qa-palette] no exact site for "+faction+
+            "; localBest="+best[0]+","+best[2]+" fit="+
+            java.util.Arrays.toString(evaluateReferenceSite(faction,best[0],best[2]))+
+            " broadBest="+broad[0]+","+broad[2]+" broadFit="+
+            java.util.Arrays.toString(broadFit));
         return best;
     }
 

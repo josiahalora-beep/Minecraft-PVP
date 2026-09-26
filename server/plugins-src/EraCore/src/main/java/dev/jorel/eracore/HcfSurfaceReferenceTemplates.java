@@ -489,9 +489,17 @@ final class HcfSurfaceReferenceTemplates {
      * remains variant 0 and is always used by canonical visual QA.
      */
     private static Material paletteMaterial(HcfBasePlan plan,Material material) {
-        int variant=paletteVariant(plan);
-        if(variant==0 || material==null) return material;
+        if(material==null) return null;
         int id=material.getId();
+
+        // BASE_HCF's source contains legacy MONSTER_EGGS (97) as visible roof
+        // decoration. Modern renderers expose those cells as placeholder-like
+        // faces, so normalize only that family/material to normal stone brick.
+        if(plan!=null && plan.primaryFamily==1 && id==97)
+            return Material.SMOOTH_BRICK;
+
+        int variant=paletteVariant(plan);
+        if(variant==0) return material;
         if(id==20) return Material.getMaterial(95);   // glass -> stained glass
         if(id==102) return Material.getMaterial(160); // pane -> stained pane
 
@@ -511,10 +519,15 @@ final class HcfSurfaceReferenceTemplates {
     }
 
     private static byte paletteData(HcfBasePlan plan,Material source,byte data) {
-        int variant=paletteVariant(plan);
-        if(variant==0 || source==null) return data;
-
+        if(source==null) return data;
         int id=source.getId();
+
+        // MONSTER_EGGS metadata describes the disguised source block, not
+        // stone-brick metadata.
+        if(plan!=null && plan.primaryFamily==1 && id==97) return (byte)0;
+
+        int variant=paletteVariant(plan);
+        if(variant==0) return data;
 
         // Normalize metadata when a material family is replaced. Stair
         // orientation remains valid across stair types; LOG_2 needs only its
@@ -584,6 +597,10 @@ final class HcfSurfaceReferenceTemplates {
             byte placedData=paletteData(plan,src,data);
 
             for(int n=0;n<count && cursor<total;n++,cursor++) {
+                int y=cursor/(t.width*t.length);
+                // BASE_HCF y=0 is a complete 29x26 quartz export floor, not
+                // intended above-grade architecture. Leave native grade here.
+                if(plan.primaryFamily==1 && y==0) continue;
                 if(placed==Material.AIR) continue;
                 String key=placed.name()+":"+((int)placedData&0xff);
                 Integer old=out.get(key);
@@ -895,6 +912,10 @@ final class HcfSurfaceReferenceTemplates {
             int count=((t.rle[i]&0xff)<<8)|(t.rle[i+1]&0xff);
             int id=t.rle[i+2]&0xff;
             byte data=t.rle[i+3];
+            Material sourceMaterial=Material.getMaterial(id);
+            if(sourceMaterial==null) sourceMaterial=Material.AIR;
+            Material expectedMaterial=paletteMaterial(plan,sourceMaterial);
+            byte expectedData=paletteData(plan,sourceMaterial,data);
 
             for(int n=0;n<count && cursor<total;n++,cursor++) {
                 int x=cursor%t.width;
@@ -905,10 +926,10 @@ final class HcfSurfaceReferenceTemplates {
                 if(worldY<=plan.surfaceY) continue;
 
                 org.bukkit.block.Block actual=world.getBlockAt(originX+x,worldY,originZ+z);
-                if(actual.getTypeId()!=id || actual.getData()!=data) {
+                if(actual.getType()!=expectedMaterial || actual.getData()!=expectedData) {
                     if(shown>0) out.append(" | ");
                     out.append("at=").append(originX+x).append(",").append(worldY).append(",").append(originZ+z)
-                        .append(" expected=").append(id).append(":").append(data&0xff)
+                        .append(" expected=").append(expectedMaterial.getId()).append(":").append(expectedData&0xff)
                         .append(" actual=").append(actual.getTypeId()).append(":").append(actual.getData()&0xff);
                     shown++;
                     if(shown>=16) return out.toString();
@@ -930,6 +951,10 @@ final class HcfSurfaceReferenceTemplates {
             int count=((t.rle[i]&0xff)<<8)|(t.rle[i+1]&0xff);
             int id=t.rle[i+2]&0xff;
             byte data=t.rle[i+3];
+            Material sourceMaterial=Material.getMaterial(id);
+            if(sourceMaterial==null) sourceMaterial=Material.AIR;
+            Material expectedMaterial=paletteMaterial(plan,sourceMaterial);
+            byte expectedData=paletteData(plan,sourceMaterial,data);
 
             for(int n=0;n<count && cursor<total;n++,cursor++) {
                 int x=cursor%t.width;
@@ -941,7 +966,7 @@ final class HcfSurfaceReferenceTemplates {
                 if(worldY<=plan.surfaceY) continue;
 
                 org.bukkit.block.Block actual=world.getBlockAt(originX+x,worldY,originZ+z);
-                if(actual.getTypeId()!=id || actual.getData()!=data) mismatches++;
+                if(actual.getType()!=expectedMaterial || actual.getData()!=expectedData) mismatches++;
             }
         }
         return mismatches;
@@ -975,6 +1000,10 @@ final class HcfSurfaceReferenceTemplates {
                 int y=q/t.length;
                 int worldY=plan.surfaceY+t.yOffset+y;
 
+                // BASE_HCF's y=0 layer is a solid 29x26 quartz export floor.
+                // Preserve native terrain instead of pasting a white platform.
+                if(plan.primaryFamily==1 && y==0) continue;
+
                 // The schematic bounding box contains AIR at its ground plane.
                 // Pasting that AIR would shave the authored FreeMap into a
                 // rectangular cutout around the structure. Preserve native
@@ -997,7 +1026,9 @@ final class HcfSurfaceReferenceTemplates {
             int id=t.rle[i+2]&0xff;
             byte data=t.rle[i+3];
             boolean replay=id==50 || id==54 || id==124 || id==146;
-            Material material=replay?Material.getMaterial(id):null;
+            Material sourceMaterial=replay?Material.getMaterial(id):null;
+            Material material=replay?paletteMaterial(plan,sourceMaterial):null;
+            byte placedData=replay?paletteData(plan,sourceMaterial,data):data;
 
             for(int n=0;n<count && cursor<total;n++,cursor++) {
                 if(!replay || material==null) continue;
@@ -1007,7 +1038,7 @@ final class HcfSurfaceReferenceTemplates {
                 int y=q/t.length;
                 int worldY=plan.surfaceY+t.yOffset+y;
                 if(worldY<=plan.surfaceY) continue;
-                queue.add(new HcfBaseBuilder.Op(world,originX+x,worldY,originZ+z,material,data));
+                queue.add(new HcfBaseBuilder.Op(world,originX+x,worldY,originZ+z,material,placedData));
             }
         }
 

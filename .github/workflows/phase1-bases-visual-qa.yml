@@ -1,5 +1,5 @@
 name: phase1-bases-visual-qa
-# Phase 2B final contact/palette regression: latest-head trigger.
+# Phase 2 final five-family terrain/contact regression: latest-head trigger.
 
 concurrency:
   group: phase2b-exact-bounds-final
@@ -208,7 +208,7 @@ jobs:
 
           c['base-builder']=c['base-builder']||{}
           c['base-builder']['qa-showcase']=true
-          c['base-builder']['qa-palette-showcase']=true
+          # Palette variation has its own focused proof. This workflow is the\n          # canonical five-family terrain/contact gate and must not spend its\n          # rebuild budget on four unrelated extra Modern preview sites.\n          c['base-builder']['qa-palette-showcase']=false
           c['base-builder']['qa-fast-rebuild']=true
           c['base-builder']['qa-fast-rebuild-blocks-per-run']=3000
 
@@ -250,7 +250,7 @@ jobs:
           QA_SHOWCASE: '1'
           QA_REBUILD_TIMEOUT_MS: '180000'
           QA_DETAIL_PASS: '1'
-          QA_PALETTE_PASS: '1'
+          QA_PALETTE_PASS: '0'
           QA_TEST_ATMOSPHERE: '1'
           QA_VIEW_DISTANCE: '12'
           QA_WIDTH: '1600'
@@ -271,8 +271,6 @@ jobs:
           test "$(grep -c "\[reference-exterior-verify\].*mismatches=0" server/phase1-server.log)" -ge 5
           test "$(grep -c "\[reference-exterior-verify\].*gateAnchor=FENCE_GATE" server/phase1-server.log)" -ge 5
           test "$(grep -c "\[qa-showcase\] queued .*naturalFit=" server/phase1-server.log)" -ge 5
-          test "$(grep -c "\[qa-palette\] queued .*palette=" server/phase1-server.log)" -ge 4
-          grep -q "\[qa-palette\] build queue drained; palette captures may begin." server/phase1-server.log
           test "$(grep -c "\[qa-material\] OK" server/phase1-server.log)" -ge 5
           ! grep -q "\[qa-material\] FAILED" server/phase1-server.log
           grep -q "\[reference-exterior-verify\] all five facades block-perfect; all primary gate anchors exact." server/phase1-server.log

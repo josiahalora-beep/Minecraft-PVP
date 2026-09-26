@@ -1241,6 +1241,14 @@ final class HcfBaseBuilder {
             cleanupSmallSurfaceLiquids(w,p,true,false,96,180);
         else if(p.primaryFamily==4)
             cleanupSmallSurfaceLiquids(w,p,false,true,48,80);
+
+        // Redemption's dense authored forest can put a trunk inside the exact
+        // footprint while its canopy extends outside. Because the footprint is
+        // cleared for construction, those outside leaves would otherwise become
+        // detached sky fragments. Remove only small vegetation components that
+        // will have no terrain-supported trunk after the planned footprint clear.
+        if(p.primaryFamily==0)
+            cleanupUnsupportedVegetationFragments(w,p,80,420);
     }
 
     private void prepareBaseHcfTerrainCradle(World w,HcfBasePlan p,
@@ -1440,6 +1448,101 @@ final class HcfBaseBuilder {
         return 1;
     }
 
+
+    private boolean surfaceClearsVegetation(HcfBasePlan p,int x,int y,int z) {
+        if(y<=p.surfaceY) return false;
+        return x>=HcfSurfaceReferenceTemplates.minX(p.primaryFamily,p.cx) &&
+               x<=HcfSurfaceReferenceTemplates.maxX(p.primaryFamily,p.cx) &&
+               z>=HcfSurfaceReferenceTemplates.minZ(p.primaryFamily,p.cz) &&
+               z<=HcfSurfaceReferenceTemplates.maxZ(p.primaryFamily,p.cz);
+    }
+
+    private boolean treeVegetation(Material m) {
+        return m==Material.LOG || m==Material.LOG_2 ||
+               m==Material.LEAVES || m==Material.LEAVES_2 ||
+               m==Material.VINE;
+    }
+
+    private long blockKey3d(int x,int y,int z) {
+        return (((long)(x&0x3ffffff))<<38) ^
+               (((long)(z&0x3ffffff))<<12) ^
+               (y&0xfff);
+    }
+
+    private void cleanupUnsupportedVegetationFragments(World w,HcfBasePlan p,
+                                                       int radius,int maxComponent) {
+        Set<Long> visited=new HashSet<Long>();
+        int removedComponents=0,removedBlocks=0;
+        final int minX=p.cx-radius,maxX=p.cx+radius;
+        final int minZ=p.cz-radius,maxZ=p.cz+radius;
+
+        for(int sx=minX;sx<=maxX;sx++) {
+            for(int sz=minZ;sz<=maxZ;sz++) {
+                int ground=solidSurfaceY(w,sx,sz);
+                int top=Math.min(w.getMaxHeight()-1,w.getHighestBlockYAt(sx,sz)+2);
+                for(int sy=Math.max(ground+1,p.surfaceY+1);sy<=top;sy++) {
+                    Material start=w.getBlockAt(sx,sy,sz).getType();
+                    if(!treeVegetation(start) || surfaceClearsVegetation(p,sx,sy,sz))
+                        continue;
+                    long startKey=blockKey3d(sx,sy,sz);
+                    if(visited.contains(startKey)) continue;
+
+                    ArrayDeque<int[]> open=new ArrayDeque<int[]>();
+                    java.util.ArrayList<int[]> component=new java.util.ArrayList<int[]>();
+                    open.add(new int[]{sx,sy,sz});
+                    boolean grounded=false,tooLarge=false,touchesBoundary=false;
+
+                    while(!open.isEmpty()) {
+                        int[] at=open.poll();
+                        int x=at[0],y=at[1],z=at[2];
+                        if(x<minX || x>maxX || z<minZ || z>maxZ ||
+                           y<1 || y>=w.getMaxHeight()) {
+                            touchesBoundary=true;
+                            continue;
+                        }
+
+                        long key=blockKey3d(x,y,z);
+                        if(!visited.add(key)) continue;
+                        Material m=w.getBlockAt(x,y,z).getType();
+                        if(!treeVegetation(m) || surfaceClearsVegetation(p,x,y,z))
+                            continue;
+
+                        component.add(new int[]{x,y,z});
+                        if(component.size()>maxComponent) tooLarge=true;
+                        if(x==minX || x==maxX || z==minZ || z==maxZ)
+                            touchesBoundary=true;
+
+                        int naturalGround=solidSurfaceY(w,x,z);
+                        if((m==Material.LOG || m==Material.LOG_2) &&
+                           y<=naturalGround+1)
+                            grounded=true;
+
+                        for(int dx=-1;dx<=1;dx++)
+                            for(int dy=-1;dy<=1;dy++)
+                                for(int dz=-1;dz<=1;dz++) {
+                                    if(dx==0 && dy==0 && dz==0) continue;
+                                    open.add(new int[]{x+dx,y+dy,z+dz});
+                                }
+                    }
+
+                    if(grounded || tooLarge || touchesBoundary || component.isEmpty())
+                        continue;
+
+                    for(int[] at:component) {
+                        queue.add(new Op(w,at[0],at[1],at[2],Material.AIR));
+                        removedBlocks++;
+                    }
+                    removedComponents++;
+                }
+            }
+        }
+
+        if(removedComponents>0)
+            plugin.getLogger().info("[terrain-floating-vegetation-cleanup] faction="+
+                p.faction+" family="+p.primaryFamilyName()+
+                " components="+removedComponents+" blocks="+removedBlocks+
+                " radius="+radius);
+    }
 
     private int surfaceLiquidY(World w,int x,int z,boolean water,boolean lava) {
         int top=Math.min(w.getMaxHeight()-1,Math.max(1,w.getHighestBlockYAt(x,z)+3));

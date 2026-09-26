@@ -8954,6 +8954,15 @@ final class SimWorldDirector {
 
         if (bestPoint == null || bestEval == null) return false;
 
+        // Never convert "best available this tick" into a visibly compromised
+        // production base. If the native perimeter is not exact, liquid touches
+        // the footprint, or a tree blocks the real entrance approach, leave the
+        // faction in SCOUT_CLAIM and try another human-like scouting batch later.
+        // This prevents the QA-only standard from diverging from live SOTW.
+        if(bestEval.length<8 || (bestEval[5]+bestEval[6])!=0 ||
+           bestEval[4]>maxLiquids || bestEval[7]!=0)
+            return false;
+
         f.baseX = bestPoint[0];
         f.baseZ = bestPoint[1];
 

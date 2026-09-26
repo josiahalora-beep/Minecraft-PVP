@@ -1901,8 +1901,8 @@ final class HcfBaseBuilder {
                         int before=queue.size();
                         for(HcfBasePlan p:cleanupPlans) {
                             if(p==null || p.primaryFamily!=0) continue;
-                            cleanupUnsupportedTerrainIslands(Bukkit.getWorlds().get(0),p,96,1800);
-                            cleanupUnsupportedVegetationFragments(Bukkit.getWorlds().get(0),p,96,700);
+                            cleanupUnsupportedTerrainIslands(Bukkit.getWorlds().get(0),p,180,4200);
+                            cleanupUnsupportedVegetationFragments(Bukkit.getWorlds().get(0),p,180,1600);
                         }
                         int added=queue.size()-before;
                         if(added>0) {

@@ -375,7 +375,7 @@ final class HcfBaseBuilder {
         // authored FreeMap. QA must be deterministic and must never freeze the
         // server rescanning the full 2000x2000 world during screenshot capture.
         final int[][] sites={
-            {-86,608},{-450,-900},{14,-118},{628,-812},{-543,555}
+            {-86,608},{-220,-888},{14,-118},{628,-812},{-543,555}
         };
         final String[] expected={
             "REDEMPTION","BASE_HCF","MODERN_HCF","TUNNEL","CAVE"

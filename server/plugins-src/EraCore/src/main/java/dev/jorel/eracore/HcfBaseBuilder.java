@@ -224,10 +224,46 @@ final class HcfBaseBuilder {
     private int baseHcfTerrainScore(int[] fit) {
         if(fit==null || fit.length<8) return Integer.MAX_VALUE;
         int perimeter=fit[5]+fit[6];
-        // Terrain contact is lexicographic: one visible perimeter mismatch is
-        // worse than all hidden/interior imperfections combined.
         return perimeter*1000000 + fit[4]*250000 +
-            fit[3]*1000 + fit[1]*100 + fit[2];
+            fit[7]*100000 + fit[3]*1000 + fit[1]*100 + fit[2];
+    }
+
+    private int quickPerimeterMismatch(World world,int cx,int cz,int family) {
+        int hx=(HcfSurfaceReferenceTemplates.width(family)-1)/2;
+        int hz=(HcfSurfaceReferenceTemplates.length(family)-1)/2;
+        java.util.Map<Integer,Integer> grades=new java.util.HashMap<Integer,Integer>();
+        int total=0,best=0;
+
+        for(int x=cx-hx;x<=cx+hx;x++) {
+            int y1=solidSurfaceY(world,x,cz-hz);
+            Integer n1=grades.get(y1); n1=n1==null?1:n1+1; grades.put(y1,n1);
+            best=Math.max(best,n1); total++;
+            if(hz>0) {
+                int y2=solidSurfaceY(world,x,cz+hz);
+                Integer n2=grades.get(y2); n2=n2==null?1:n2+1; grades.put(y2,n2);
+                best=Math.max(best,n2); total++;
+            }
+        }
+        for(int z=cz-hz+1;z<=cz+hz-1;z++) {
+            int y1=solidSurfaceY(world,cx-hx,z);
+            Integer n1=grades.get(y1); n1=n1==null?1:n1+1; grades.put(y1,n1);
+            best=Math.max(best,n1); total++;
+            if(hx>0) {
+                int y2=solidSurfaceY(world,cx+hx,z);
+                Integer n2=grades.get(y2); n2=n2==null?1:n2+1; grades.put(y2,n2);
+                best=Math.max(best,n2); total++;
+            }
+        }
+        return Math.max(0,total-best);
+    }
+
+    private boolean baseHcfGlobalQaAllowed(int x,int z,java.util.List<int[]> chosen) {
+        if(Math.abs(x)>900 || Math.abs(z)>900) return false;
+
+        // Do not prove a faction base by placing it on spawn or one of the
+        // protected cardinal HCF roads. QA should exercise ordinary claim land.
+        if(Math.abs(x)<120 || Math.abs(z)<120) return false;
+        return !nearQaReservation(x,z,null,chosen,112);
     }
 
     private int[] findBaseHcfQaSite(String faction,int seedX,int seedZ,
@@ -235,80 +271,97 @@ final class HcfBaseBuilder {
         World world=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
         if(world==null) return new int[]{seedX,64,seedZ};
 
-        int bestTerrainX=seedX,bestTerrainZ=seedZ;
-        int[] bestTerrain=evaluateReferenceSite(faction,seedX,seedZ,false);
-        int bestTerrainScore=baseHcfTerrainScore(bestTerrain);
+        final int family=1;
+        java.util.List<int[]> coarse=new java.util.ArrayList<int[]>();
 
-        int bestFullX=seedX,bestFullZ=seedZ;
-        int[] bestFull=null;
-        int bestFullScore=Integer.MAX_VALUE;
-
-        // Solve terrain first on a dense bounded lattice. Tree density is not
-        // allowed to bribe the scorer into accepting a platform/seam.
-        for(int dx=-48;dx<=48;dx+=2) {
-            for(int dz=-48;dz<=48;dz+=2) {
-                int x=seedX+dx,z=seedZ+dz;
-                if(Math.abs(x)>940 || Math.abs(z)>940) continue;
-                if(nearQaReservation(x,z,null,chosen,112)) continue;
-
-                int[] terrain=evaluateReferenceSite(faction,x,z,false);
-                int terrainScore=baseHcfTerrainScore(terrain);
-                if(terrainScore<bestTerrainScore) {
-                    bestTerrainScore=terrainScore;
-                    bestTerrain=terrain;
-                    bestTerrainX=x; bestTerrainZ=z;
-                }
-
-                if((terrain[5]+terrain[6])!=0 || terrain[4]!=0) continue;
-                int[] full=evaluateReferenceSite(faction,x,z,true);
-                int fullScore=full[7]*100000 + full[3]*1000 +
-                    full[1]*100 + full[2];
-                if(fullScore<bestFullScore) {
-                    bestFullScore=fullScore;
-                    bestFull=full;
-                    bestFullX=x; bestFullZ=z;
-                }
-                if(idealNaturalFit(full,1))
-                    return new int[]{x,full[0],z};
+        // Stage 1: cheap whole-map scan. This inspects only the exact reference
+        // perimeter plus nine relief probes, so it can survey the authored 2k
+        // map without repeating the former full-footprint brute force.
+        for(int x=-888;x<=888;x+=24) {
+            for(int z=-888;z<=888;z+=24) {
+                if(!baseHcfGlobalQaAllowed(x,z,chosen)) continue;
+                int mismatch=quickPerimeterMismatch(world,x,z,family);
+                int relief=quickReferenceRelief(world,x,z,family);
+                coarse.add(new int[]{mismatch,relief,x,z});
             }
         }
 
-        // Human-style final walk-around around the best terrain result. Only
-        // perimeter-perfect positions pay for the expensive tree scan.
-        int centerX=bestTerrainX,centerZ=bestTerrainZ;
-        for(int dx=-10;dx<=10;dx++) {
-            for(int dz=-10;dz<=10;dz++) {
-                int x=centerX+dx,z=centerZ+dz;
-                if(Math.abs(x)>940 || Math.abs(z)>940) continue;
-                if(nearQaReservation(x,z,null,chosen,112)) continue;
+        java.util.Collections.sort(coarse,new java.util.Comparator<int[]>() {
+            public int compare(int[] a,int[] b) {
+                if(a[0]!=b[0]) return Integer.compare(a[0],b[0]);
+                if(a[1]!=b[1]) return Integer.compare(a[1],b[1]);
+                return Integer.compare(Math.abs(a[2])+Math.abs(a[3]),
+                                       Math.abs(b[2])+Math.abs(b[3]));
+            }
+        });
 
-                int[] terrain=evaluateReferenceSite(faction,x,z,false);
-                int terrainScore=baseHcfTerrainScore(terrain);
-                if(terrainScore<bestTerrainScore) {
-                    bestTerrainScore=terrainScore;
-                    bestTerrain=terrain;
-                    bestTerrainX=x; bestTerrainZ=z;
-                }
-                if((terrain[5]+terrain[6])!=0 || terrain[4]!=0) continue;
+        // Keep spatially diverse shelves instead of allowing all fine scans to
+        // pile into one biome. Twenty-four 29x29 walk-arounds still cost less
+        // than the old broad full-footprint search.
+        java.util.List<int[]> shelves=new java.util.ArrayList<int[]>();
+        for(int[] q:coarse) {
+            boolean near=false;
+            for(int[] s:shelves) {
+                int dx=q[2]-s[2],dz=q[3]-s[3];
+                if(dx*dx+dz*dz<96*96) { near=true; break; }
+            }
+            if(near) continue;
+            shelves.add(q);
+            if(shelves.size()>=24) break;
+        }
 
-                int[] full=evaluateReferenceSite(faction,x,z,true);
-                int fullScore=full[7]*100000 + full[3]*1000 +
-                    full[1]*100 + full[2];
-                if(fullScore<bestFullScore) {
-                    bestFullScore=fullScore;
-                    bestFull=full;
-                    bestFullX=x; bestFullZ=z;
+        int[] best=null;
+        int bestScore=Integer.MAX_VALUE;
+        int bestPerimeter=Integer.MAX_VALUE;
+
+        // Stage 2: exact one-block walk-around around the best diverse shelves.
+        // A candidate does not pay for a full footprint/tree scan until its
+        // entire 29x26 perimeter is already one native grade.
+        for(int[] shelf:shelves) {
+            int sx=shelf[2],sz=shelf[3];
+            for(int dx=-14;dx<=14;dx++) {
+                for(int dz=-14;dz<=14;dz++) {
+                    int x=sx+dx,z=sz+dz;
+                    if(!baseHcfGlobalQaAllowed(x,z,chosen)) continue;
+
+                    int perimeter=quickPerimeterMismatch(world,x,z,family);
+                    if(perimeter<bestPerimeter) {
+                        bestPerimeter=perimeter;
+                        int[] diagnostic=evaluateReferenceSite(faction,x,z,false);
+                        best=new int[]{x,diagnostic[0],z};
+                        bestScore=baseHcfTerrainScore(diagnostic);
+                    }
+                    if(perimeter!=0) continue;
+
+                    int[] terrain=evaluateReferenceSite(faction,x,z,false);
+                    if((terrain[5]+terrain[6])!=0 || terrain[4]!=0) continue;
+
+                    int[] full=evaluateReferenceSite(faction,x,z,true);
+                    int score=baseHcfTerrainScore(full);
+                    if(score<bestScore) {
+                        bestScore=score;
+                        best=new int[]{x,full[0],z};
+                    }
+                    if(idealNaturalFit(full,family)) {
+                        plugin.getLogger().info("[qa-base-global-scout] perfect Base-HCF site at="+
+                            x+","+full[0]+","+z+" fit="+java.util.Arrays.toString(full));
+                        return new int[]{x,full[0],z};
+                    }
                 }
-                if(idealNaturalFit(full,1))
-                    return new int[]{x,full[0],z};
             }
         }
 
-        if(bestFull!=null)
-            return new int[]{bestFullX,bestFull[0],bestFullZ};
-
-        int[] diagnostic=evaluateReferenceSite(faction,bestTerrainX,bestTerrainZ,true);
-        return new int[]{bestTerrainX,diagnostic[0],bestTerrainZ};
+        if(best==null) {
+            int[] fit=evaluateReferenceSite(faction,seedX,seedZ,true);
+            best=new int[]{seedX,fit[0],seedZ};
+            bestScore=baseHcfTerrainScore(fit);
+        }
+        int[] finalFit=evaluateReferenceSite(faction,best[0],best[2],true);
+        plugin.getLogger().warning("[qa-base-global-scout] no perfect Base-HCF site; best="+
+            best[0]+","+best[1]+","+best[2]+" fit="+
+            java.util.Arrays.toString(finalFit)+" score="+bestScore+
+            " coarseShelves="+shelves.size());
+        return best;
     }
 
     private int[] findNearbyFamilyQaSite(String faction,int seedX,int seedZ,

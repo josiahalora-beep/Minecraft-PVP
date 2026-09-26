@@ -273,12 +273,14 @@ jobs:
           sudo apt-get install -y -qq xvfb scrot libgl1-mesa-dri libglx-mesa0 libglu1-mesa libxrandr2 libxcursor1 libxinerama1 libxi6 libxxf86vm1 libasound2
           python3 -m pip install --quiet minecraft-launcher-lib mcrcon
 
+          mkdir -p qa-output/diagnostics
           export DISPLAY=:99
           export LIBGL_ALWAYS_SOFTWARE=1
           Xvfb :99 -screen 0 1600x900x24 > qa-output/diagnostics/xvfb.log 2>&1 &
           XVFB_PID=$!
           trap 'kill "$XVFB_PID" 2>/dev/null || true' EXIT
           sleep 2
+          kill -0 "$XVFB_PID"
 
           python3 - <<'PY'
           import math, os, pathlib, re, shutil, subprocess, time

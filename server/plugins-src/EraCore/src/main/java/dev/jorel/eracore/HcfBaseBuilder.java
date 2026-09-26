@@ -1258,8 +1258,14 @@ final class HcfBaseBuilder {
         // thousands of irrelevant queued earthwork operations from delaying the
         // five-family production showcase.
         boolean paletteOnlyQa=p.faction!=null && p.faction.startsWith("QAPalette");
-        if(!paletteOnlyQa && (p.primaryFamily==2 || p.primaryFamily==3))
+        if(!paletteOnlyQa && p.primaryFamily==2)
             cleanupSmallSurfaceLiquids(w,p,true,false,160,220);
+        else if(!paletteOnlyQa && p.primaryFamily==3)
+            // Tunnel's authored site has a few visually tiny pond fragments
+            // whose connected surface components exceed Modern's 220-column
+            // cap. Keep the same bounded/boundary-safe algorithm but permit
+            // those medium components to be restored to native grade.
+            cleanupSmallSurfaceLiquids(w,p,true,false,160,2500);
         else if(!paletteOnlyQa && p.primaryFamily==4)
             cleanupSmallSurfaceLiquids(w,p,false,true,140,420);
 

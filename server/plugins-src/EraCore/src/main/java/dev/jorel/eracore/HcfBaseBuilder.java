@@ -1238,17 +1238,19 @@ final class HcfBaseBuilder {
         // boundary are preserved. Cave gets the same surgical treatment for
         // small exposed lava pockets near its entrance.
         if(p.primaryFamily==2)
-            cleanupSmallSurfaceLiquids(w,p,true,false,96,180);
+            cleanupSmallSurfaceLiquids(w,p,true,false,160,220);
         else if(p.primaryFamily==4)
-            cleanupSmallSurfaceLiquids(w,p,false,true,48,80);
+            cleanupSmallSurfaceLiquids(w,p,false,true,72,220);
 
-        // Redemption's dense authored forest can put a trunk inside the exact
-        // footprint while its canopy extends outside. Because the footprint is
-        // cleared for construction, those outside leaves would otherwise become
-        // detached sky fragments. Remove only small vegetation components that
-        // will have no terrain-supported trunk after the planned footprint clear.
-        if(p.primaryFamily==0)
-            cleanupUnsupportedVegetationFragments(w,p,80,420);
+        // Redemption's authored forest contains a few old carve remnants where
+        // a thin grass/dirt shelf (often with its tree still attached) is fully
+        // disconnected from the terrain below. Remove only bounded unsupported
+        // natural components; real hills that connect to grade or leave the
+        // cleanup window are preserved.
+        if(p.primaryFamily==0) {
+            cleanupUnsupportedTerrainIslands(w,p,96,1800);
+            cleanupUnsupportedVegetationFragments(w,p,96,700);
+        }
     }
 
     private void prepareBaseHcfTerrainCradle(World w,HcfBasePlan p,
@@ -1448,6 +1450,101 @@ final class HcfBaseBuilder {
         return 1;
     }
 
+
+    private boolean floatingTerrainMaterial(Material m) {
+        return m==Material.GRASS || m==Material.DIRT || m==Material.STONE ||
+               m==Material.COBBLESTONE || m==Material.MOSSY_COBBLESTONE ||
+               m==Material.SAND || m==Material.SANDSTONE || m==Material.GRAVEL ||
+               m==Material.LOG || m==Material.LOG_2 ||
+               m==Material.LEAVES || m==Material.LEAVES_2 ||
+               m==Material.VINE || m==Material.LONG_GRASS ||
+               m==Material.YELLOW_FLOWER || m==Material.RED_ROSE ||
+               m==Material.SNOW || m==Material.SNOW_BLOCK;
+    }
+
+    private boolean unsupportedGapBelow(World w,int x,int y,int z,int minY) {
+        int airRun=0;
+        for(int yy=y-1;yy>=Math.max(minY,y-28);yy--) {
+            Material m=w.getBlockAt(x,yy,z).getType();
+            boolean gap=m==Material.AIR ||
+                        m==Material.WATER || m==Material.STATIONARY_WATER ||
+                        m==Material.LAVA || m==Material.STATIONARY_LAVA;
+            if(gap) {
+                airRun++;
+                if(airRun>=2) return true;
+            } else airRun=0;
+        }
+        return false;
+    }
+
+    private void cleanupUnsupportedTerrainIslands(World w,HcfBasePlan p,
+                                                  int radius,int maxComponent) {
+        Set<Long> visited=new HashSet<Long>();
+        int removedComponents=0,removedBlocks=0;
+        final int minX=p.cx-radius,maxX=p.cx+radius;
+        final int minZ=p.cz-radius,maxZ=p.cz+radius;
+        final int minY=Math.max(2,p.surfaceY+2);
+        final int maxY=Math.min(w.getMaxHeight()-1,p.surfaceY+48);
+        final int[][] dirs={{1,0,0},{-1,0,0},{0,1,0},{0,-1,0},{0,0,1},{0,0,-1}};
+
+        for(int sx=minX;sx<=maxX;sx++) {
+            for(int sz=minZ;sz<=maxZ;sz++) {
+                int sy=solidSurfaceY(w,sx,sz);
+                if(sy<minY || sy>maxY) continue;
+                Material start=w.getBlockAt(sx,sy,sz).getType();
+                if(!floatingTerrainMaterial(start) ||
+                   !unsupportedGapBelow(w,sx,sy,sz,Math.max(2,p.surfaceY-8)))
+                    continue;
+
+                long startKey=blockKey3d(sx,sy,sz);
+                if(visited.contains(startKey)) continue;
+
+                ArrayDeque<int[]> open=new ArrayDeque<int[]>();
+                java.util.ArrayList<int[]> component=new java.util.ArrayList<int[]>();
+                open.add(new int[]{sx,sy,sz});
+                boolean grounded=false,tooLarge=false,touchesBoundary=false;
+
+                while(!open.isEmpty()) {
+                    int[] at=open.poll();
+                    int x=at[0],y=at[1],z=at[2];
+                    if(x<minX || x>maxX || z<minZ || z>maxZ ||
+                       y<minY || y>maxY) {
+                        touchesBoundary=true;
+                        continue;
+                    }
+
+                    long key=blockKey3d(x,y,z);
+                    if(!visited.add(key)) continue;
+                    Material m=w.getBlockAt(x,y,z).getType();
+                    if(!floatingTerrainMaterial(m)) continue;
+
+                    component.add(new int[]{x,y,z});
+                    if(component.size()>maxComponent) tooLarge=true;
+                    if(x==minX || x==maxX || z==minZ || z==maxZ)
+                        touchesBoundary=true;
+                    if(y<=p.surfaceY+2) grounded=true;
+
+                    for(int[] d:dirs)
+                        open.add(new int[]{x+d[0],y+d[1],z+d[2]});
+                }
+
+                if(grounded || tooLarge || touchesBoundary || component.isEmpty())
+                    continue;
+
+                for(int[] at:component) {
+                    queue.add(new Op(w,at[0],at[1],at[2],Material.AIR));
+                    removedBlocks++;
+                }
+                removedComponents++;
+            }
+        }
+
+        if(removedComponents>0)
+            plugin.getLogger().info("[terrain-floating-island-cleanup] faction="+
+                p.faction+" family="+p.primaryFamilyName()+
+                " components="+removedComponents+" blocks="+removedBlocks+
+                " radius="+radius);
+    }
 
     private boolean surfaceClearsVegetation(HcfBasePlan p,int x,int y,int z) {
         if(y<=p.surfaceY) return false;

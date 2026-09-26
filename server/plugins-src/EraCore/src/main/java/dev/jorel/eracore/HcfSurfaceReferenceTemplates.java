@@ -499,7 +499,8 @@ final class HcfSurfaceReferenceTemplates {
         // mass quartz and biome-/tool-gated structural blocks with common 1.8
         // equivalents while preserving the exact reference voxel geometry.
         // Canonical REFERENCE QA remains untouched.
-        if(id==24 || id==97 || id==155) return Material.SMOOTH_BRICK;
+        if(id==24 || id==89 || id==97 || id==123 || id==124 || id==155)
+            return Material.SMOOTH_BRICK;
         if(id==128 || id==156) return Material.SMOOTH_STAIRS;
         if(id==159) return Material.WOOL;
         if(id==162) return Material.LOG;
@@ -520,7 +521,7 @@ final class HcfSurfaceReferenceTemplates {
         // axis bits when converted to oak LOG; stone-brick replacements must
         // not accidentally become mossy/cracked variants because source quartz
         // used metadata for a different purpose.
-        if(id==24 || id==97 || id==155) return (byte)0;
+        if(id==24 || id==89 || id==97 || id==123 || id==124 || id==155) return (byte)0;
         if(id==162) return (byte)(data&0x0c);
         if(id>=183 && id<=192) return (byte)0;
 

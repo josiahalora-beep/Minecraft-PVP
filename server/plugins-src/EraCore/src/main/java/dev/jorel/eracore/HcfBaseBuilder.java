@@ -273,24 +273,40 @@ final class HcfBaseBuilder {
         return best;
     }
 
-    private int[] findNearbyPaletteQaSite(String faction,int seedX,int seedZ) {
+    private boolean nearQaReservation(int x,int z,int[][] reserved,java.util.List<int[]> chosen,int radius) {
+        int r2=radius*radius;
+        if(reserved!=null) for(int[] p:reserved) {
+            if(p==null || p.length<2) continue;
+            int dx=x-p[0],dz=z-p[1];
+            if(dx*dx+dz*dz<r2) return true;
+        }
+        if(chosen!=null) for(int[] p:chosen) {
+            if(p==null || p.length<2) continue;
+            int dx=x-p[0],dz=z-p[1];
+            if(dx*dx+dz*dz<r2) return true;
+        }
+        return false;
+    }
+
+    private int[] findNearbyPaletteQaSite(String faction,int seedX,int seedZ,
+                                          int[][] reserved,java.util.List<int[]> chosen) {
         World world=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
         if(world==null) return new int[]{seedX,64,seedZ};
 
         int[] best=null;
         int bestScore=Integer.MAX_VALUE;
 
-        // Palette QA still has to prove the same clean visual siting contract as
-        // production. Search a wider but bounded quadrant around each seed; the
-        // cheap relief prefilter prevents this from degenerating into a whole-map
-        // exact scan while avoiding the previous "best bad site" fallback.
+        // Palette proof is deliberately separate from the five canonical bases.
+        // It may search broadly for a clean natural backdrop, but it can never
+        // overwrite a canonical facade or another palette proof.
         for(int dx=-224;dx<=224;dx+=8) {
             for(int dz=-224;dz<=224;dz+=8) {
                 int x=seedX+dx,z=seedZ+dz;
                 if(Math.abs(x)>940 || Math.abs(z)>940) continue;
+                if(nearQaReservation(x,z,reserved,chosen,96)) continue;
                 HcfBasePlan probe=planFor(faction,x,64,z);
                 if(!"MODERN_HCF".equals(probe.primaryFamilyName())) continue;
-                if(quickReferenceRelief(world,x,z,probe.primaryFamily)>1) continue;
+                if(quickReferenceRelief(world,x,z,probe.primaryFamily)>3) continue;
 
                 world.loadChunk(x>>4,z>>4);
                 int[] terrain=evaluateReferenceSite(faction,x,z,false);
@@ -311,6 +327,7 @@ final class HcfBaseBuilder {
             for(int dx=-12;dx<=12;dx++) {
                 for(int dz=-12;dz<=12;dz++) {
                     int x=bx+dx,z=bz+dz;
+                    if(nearQaReservation(x,z,reserved,chosen,96)) continue;
                     HcfBasePlan probe=planFor(faction,x,64,z);
                     if(!"MODERN_HCF".equals(probe.primaryFamilyName())) continue;
                     int[] terrain=evaluateReferenceSite(faction,x,z,false);
@@ -325,15 +342,14 @@ final class HcfBaseBuilder {
                     if(idealNaturalFit(fit,probe.primaryFamily)) return new int[]{x,fit[0],z};
                 }
             }
-            // Returning a visibly bad fallback defeats the purpose of Phase 2
-            // QA. Keep the best candidate only if it satisfies the hard exterior
-            // contract; otherwise signal failure with the seed so the inspector
-            // rejects it explicitly rather than photographing compromised work.
             int[] finalFit=evaluateReferenceSite(faction,best[0],best[2]);
             HcfBasePlan finalPlan=planFor(faction,best[0],finalFit[0],best[2]);
             if(idealNaturalFit(finalFit,finalPlan.primaryFamily)) return best;
         }
 
+        // A bad fallback is useful only as explicit failure evidence. It will be
+        // rejected by the inspector; it is never allowed to overwrite a reserved
+        // canonical base.
         int[] fit=evaluateReferenceSite(faction,seedX,seedZ);
         return new int[]{seedX,fit[0],seedZ};
     }
@@ -354,7 +370,7 @@ final class HcfBaseBuilder {
         // authored FreeMap. QA must be deterministic and must never freeze the
         // server rescanning the full 2000x2000 world during screenshot capture.
         final int[][] sites={
-            {-131,769},{-402,-344},{490,-876},{780,-796},{-600,600}
+            {-131,769},{350,-550},{490,-876},{780,-796},{-600,600}
         };
         final String[] expected={
             "REDEMPTION","BASE_HCF","MODERN_HCF","TUNNEL","CAVE"
@@ -449,7 +465,7 @@ final class HcfBaseBuilder {
                 // transaction. The prior second /baserebuild command was fragile
                 // after a long headless capture session and could time out even
                 // though the five canonical exteriors had already passed.
-                final int[][] paletteSites=queueQaPaletteSurfacesNow(world);
+                final int[][] paletteSites=queueQaPaletteSurfacesNow(world,sites);
 
                 // Spigot may unload remote showcase chunks because the inspector
                 // begins at spawn. Keep only these disposable QA neighborhoods
@@ -506,18 +522,31 @@ final class HcfBaseBuilder {
         },20L);
     }
 
-    private int[][] queueQaPaletteSurfacesNow(World world) {
+    private int[][] queueQaPaletteSurfacesNow(World world,int[][] reservedSites) {
         final String[] names={
             "QAPaletteCyan","QAPaletteArctic","QAPaletteRed","QAPaletteSmoke"
         };
         final int[][] sites={
-            {-700,650},{-250,650},{250,650},{700,650}
+            {-350,-350},{350,-350},{-350,350},{350,350}
         };
+        final java.util.List<int[]> chosen=new java.util.ArrayList<int[]>();
 
         for(int i=0;i<names.length;i++) {
-            int[] natural=findNearbyPaletteQaSite(names[i],sites[i][0],sites[i][1]);
+            int[] natural=findNearbyPaletteQaSite(
+                names[i],sites[i][0],sites[i][1],reservedSites,chosen);
             int x=natural[0],y=natural[1],z=natural[2];
+
+            // Even a failing fallback must not collide with canonical/chosen QA.
+            if(nearQaReservation(x,z,reservedSites,chosen,96)) {
+                plugin.getLogger().severe("[qa-palette] FAILED reserved-site collision "+names[i]+
+                    " at="+x+","+z);
+                x=sites[i][0]; z=sites[i][1];
+                int[] fallbackFit=evaluateReferenceSite(names[i],x,z);
+                y=fallbackFit[0];
+            }
+
             sites[i][0]=x; sites[i][1]=z;
+            chosen.add(new int[]{x,z});
 
             int ccx=x>>4,ccz=z>>4;
             for(int dx=-3;dx<=3;dx++)
@@ -530,8 +559,6 @@ final class HcfBaseBuilder {
                     " expected=MODERN_HCF actual="+p.primaryFamilyName());
             }
 
-            // Surface-only palette proof. Same production terrain preparation
-            // and surface compiler, no irrelevant underground queue.
             maintenanceRebuild=true;
             prepareTerrainPad(world,p);
             auditPlan(p);
@@ -552,7 +579,7 @@ final class HcfBaseBuilder {
         if(!plugin.getConfig().getBoolean("base-builder.qa-showcase",false)) return;
         final World world=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
         if(world==null) return;
-        final int[][] sites=queueQaPaletteSurfacesNow(world);
+        final int[][] sites=queueQaPaletteSurfacesNow(world,null);
 
         new BukkitRunnable() {
             public void run() {

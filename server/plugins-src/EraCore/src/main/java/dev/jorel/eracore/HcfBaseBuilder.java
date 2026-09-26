@@ -532,7 +532,10 @@ final class HcfBaseBuilder {
                 // transaction. The prior second /baserebuild command was fragile
                 // after a long headless capture session and could time out even
                 // though the five canonical exteriors had already passed.
-                final int[][] paletteSites=queueQaPaletteSurfacesNow(world,sites);
+                final int[][] paletteSites=
+                    plugin.getConfig().getBoolean("base-builder.qa-palette-showcase",false)
+                        ? queueQaPaletteSurfacesNow(world,sites)
+                        : new int[0][0];
 
                 // Spigot may unload remote showcase chunks because the inspector
                 // begins at spawn. Keep only these disposable QA neighborhoods

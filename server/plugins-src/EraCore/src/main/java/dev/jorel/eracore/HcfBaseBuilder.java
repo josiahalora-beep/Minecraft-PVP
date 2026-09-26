@@ -375,7 +375,7 @@ final class HcfBaseBuilder {
         // authored FreeMap. QA must be deterministic and must never freeze the
         // server rescanning the full 2000x2000 world during screenshot capture.
         final int[][] sites={
-            {-131,769},{650,-700},{206,-182},{780,-796},{-600,600}
+            {-86,608},{0,-300},{14,-118},{628,-812},{-543,555}
         };
         final String[] expected={
             "REDEMPTION","BASE_HCF","MODERN_HCF","TUNNEL","CAVE"
@@ -400,15 +400,43 @@ final class HcfBaseBuilder {
 
         Bukkit.getScheduler().runTaskLater(plugin,new Runnable() {
             public void run() {
-                final java.util.List<int[]> chosenCanonical=new java.util.ArrayList<int[]>();
+                // Four sites below are already proven clean on the checksum-pinned
+                // FreeMap. Re-searching them every run blocked the server thread
+                // long enough to trip Mineflayer's 30s keepalive. Only Base-HCF,
+                // whose 29x26 shell needs a substantially broader shelf, remains
+                // dynamic.
+                final java.util.List<int[]> reserved=new java.util.ArrayList<int[]>();
+                reserved.add(new int[]{sites[0][0],sites[0][1]});
+                reserved.add(new int[]{sites[2][0],sites[2][1]});
+                reserved.add(new int[]{sites[3][0],sites[3][1]});
+                reserved.add(new int[]{sites[4][0],sites[4][1]});
+
+                // Keep the already-proven palette screenshot neighborhoods free
+                // while Base-HCF scouts its larger footprint.
+                reserved.add(new int[]{-133,345});
+                reserved.add(new int[]{150,270});
+                reserved.add(new int[]{255,504});
+                reserved.add(new int[]{899,845});
+
+                int[] broadBase=findNearbyFamilyQaSite(
+                    names[1],sites[1][0],sites[1][1],reserved);
+                sites[1][0]=broadBase[0];
+                sites[1][1]=broadBase[2];
+
                 for(int i=0;i<sites.length;i++) {
-                    int[] natural=findNearbyFamilyQaSite(
-                        names[i],sites[i][0],sites[i][1],chosenCanonical);
-                    int x=natural[0],y=natural[1],z=natural[2];
-                    sites[i][0]=x;
-                    sites[i][1]=z;
-                    chosenCanonical.add(new int[]{x,z});
+                    int x=sites[i][0],z=sites[i][1];
                     int[] fit=evaluateReferenceSite(names[i],x,z);
+                    HcfBasePlan seed=planFor(names[i],x,fit[0],z);
+
+                    // The map checksum makes these deterministic. If one of the
+                    // pinned families ever stops satisfying the visual contract,
+                    // fail loudly rather than silently moving it and invalidating
+                    // comparison screenshots.
+                    if(i!=1 && !idealNaturalFit(fit,seed.primaryFamily))
+                        plugin.getLogger().severe("[qa-showcase] pinned natural site drift "+names[i]+
+                            " at="+x+","+z+" fit="+java.util.Arrays.toString(fit));
+
+                    int y=fit[0];
                     HcfBasePlan p=planFor(names[i],x,y,z);
                     qaPlans[i]=p;
                     if(!expected[i].equals(p.primaryFamilyName())) {
@@ -425,7 +453,7 @@ final class HcfBaseBuilder {
                         " undergroundY="+p.undergroundY+
                         " coreHalf="+p.coreHalfX+","+p.coreHalfZ+
                         " utilitySide="+p.utilitySide+
-                        " naturalFit="+java.util.Arrays.toString(evaluateReferenceSite(names[i],x,z)));
+                        " naturalFit="+java.util.Arrays.toString(fit));
                 }
 
                 // Material-economy proof for all five real production families.
@@ -535,25 +563,24 @@ final class HcfBaseBuilder {
             "QAPaletteCyan","QAPaletteArctic","QAPaletteRed","QAPaletteSmoke"
         };
         final int[][] sites={
-            {-350,350},{350,350},{250,650},{700,650}
+            {-133,345},{150,270},{255,504},{899,845}
         };
         final java.util.List<int[]> chosen=new java.util.ArrayList<int[]>();
 
         for(int i=0;i<names.length;i++) {
-            int[] natural=findNearbyPaletteQaSite(
-                names[i],sites[i][0],sites[i][1],reservedSites,chosen);
-            int x=natural[0],y=natural[1],z=natural[2];
+            int x=sites[i][0],z=sites[i][1];
+            int[] pinnedFit=evaluateReferenceSite(names[i],x,z);
+            int y=pinnedFit[0];
 
-            // Even a failing fallback must not collide with canonical/chosen QA.
             if(nearQaReservation(x,z,reservedSites,chosen,96)) {
                 plugin.getLogger().severe("[qa-palette] FAILED reserved-site collision "+names[i]+
                     " at="+x+","+z);
-                x=sites[i][0]; z=sites[i][1];
-                int[] fallbackFit=evaluateReferenceSite(names[i],x,z);
-                y=fallbackFit[0];
             }
+            HcfBasePlan pinnedPlan=planFor(names[i],x,y,z);
+            if(!idealNaturalFit(pinnedFit,pinnedPlan.primaryFamily))
+                plugin.getLogger().severe("[qa-palette] pinned natural site drift "+names[i]+
+                    " at="+x+","+z+" fit="+java.util.Arrays.toString(pinnedFit));
 
-            sites[i][0]=x; sites[i][1]=z;
             chosen.add(new int[]{x,z});
 
             int ccx=x>>4,ccz=z>>4;

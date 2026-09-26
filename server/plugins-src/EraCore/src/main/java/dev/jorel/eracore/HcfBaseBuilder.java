@@ -63,6 +63,14 @@ final class HcfBaseBuilder {
     private BukkitRunnable runner;
     private boolean maintenanceRebuild;
 
+    // Some terrain artifacts only become detectable after the queued build has
+    // actually carved the authored world (for example, a tree trunk inside the
+    // footprint whose canopy extends outside it). Keep a one-shot post-build
+    // cleanup plan so those fragments are evaluated against FINAL world state,
+    // not the pre-build snapshot.
+    private final Map<String,HcfBasePlan> postBuildTerrainCleanup =
+        new LinkedHashMap<String,HcfBasePlan>();
+
     HcfBaseBuilder(EraCore plugin) {
         this.plugin = plugin;
     }
@@ -179,6 +187,10 @@ final class HcfBaseBuilder {
         if(brewer) completed.add("brewer:"+k);
         if(netherPortal) completed.add("portal:"+k+":nether");
         if(endPortal) completed.add("portal:"+k+":end");
+
+        // Redemption's forest-edge artifacts can be CREATED by the queued
+        // footprint clear itself. Re-check once after all main build ops land.
+        if(plan.primaryFamily==0) postBuildTerrainCleanup.put(k,plan);
 
         ensureRunner();
     }
@@ -796,6 +808,10 @@ final class HcfBaseBuilder {
         if(brewer) completed.add("brewer:"+k);
         if(netherPortal) completed.add("portal:"+k+":nether");
         if(endPortal) completed.add("portal:"+k+":end");
+
+        // Lazy/cold materialization must get the same final-state cleanup as an
+        // explicit rebuild; otherwise a base can look different after reload.
+        if(plan.primaryFamily==0) postBuildTerrainCleanup.put(k,plan);
 
         ensureRunner();
     }
@@ -1782,6 +1798,7 @@ final class HcfBaseBuilder {
         runner = null;
         queue.clear();
         auditedPlans.clear();
+        postBuildTerrainCleanup.clear();
         maintenanceRebuild=false;
     }
 
@@ -1874,6 +1891,27 @@ final class HcfBaseBuilder {
                     n++;
                 }
                 if (queue.isEmpty()) {
+                    // Run one bounded cleanup against FINAL materialized terrain.
+                    // Pre-build cleanup cannot see debris that is created when a
+                    // footprint removes a trunk or cuts an old terrain fragment.
+                    if(!postBuildTerrainCleanup.isEmpty()) {
+                        java.util.ArrayList<HcfBasePlan> cleanupPlans =
+                            new java.util.ArrayList<HcfBasePlan>(postBuildTerrainCleanup.values());
+                        postBuildTerrainCleanup.clear();
+                        int before=queue.size();
+                        for(HcfBasePlan p:cleanupPlans) {
+                            if(p==null || p.primaryFamily!=0) continue;
+                            cleanupUnsupportedTerrainIslands(Bukkit.getWorlds().get(0),p,96,1800);
+                            cleanupUnsupportedVegetationFragments(Bukkit.getWorlds().get(0),p,96,700);
+                        }
+                        int added=queue.size()-before;
+                        if(added>0) {
+                            plugin.getLogger().info("[terrain-postbuild-cleanup] queued="+added+
+                                " plans="+cleanupPlans.size()+"; draining final debris ops.");
+                            return;
+                        }
+                    }
+
                     if(maintenanceRebuild) {
                         maintenanceRebuild=false;
                         plugin.getLogger().info("Base Intelligence: forced base rematerialization queue completed.");

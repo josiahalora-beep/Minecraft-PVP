@@ -221,147 +221,13 @@ final class HcfBaseBuilder {
         return fit[1]<=5 && fit[3]<=22;
     }
 
-    private int baseHcfTerrainScore(int[] fit) {
-        if(fit==null || fit.length<8) return Integer.MAX_VALUE;
-        int perimeter=fit[5]+fit[6];
-        return perimeter*1000000 + fit[4]*250000 +
-            fit[7]*100000 + fit[3]*1000 + fit[1]*100 + fit[2];
-    }
-
-    private int quickPerimeterMismatch(World world,int cx,int cz,int family) {
-        int hx=(HcfSurfaceReferenceTemplates.width(family)-1)/2;
-        int hz=(HcfSurfaceReferenceTemplates.length(family)-1)/2;
-        java.util.Map<Integer,Integer> grades=new java.util.HashMap<Integer,Integer>();
-        int total=0,best=0;
-
-        for(int x=cx-hx;x<=cx+hx;x++) {
-            int y1=solidSurfaceY(world,x,cz-hz);
-            Integer n1=grades.get(y1); n1=n1==null?1:n1+1; grades.put(y1,n1);
-            best=Math.max(best,n1); total++;
-            if(hz>0) {
-                int y2=solidSurfaceY(world,x,cz+hz);
-                Integer n2=grades.get(y2); n2=n2==null?1:n2+1; grades.put(y2,n2);
-                best=Math.max(best,n2); total++;
-            }
-        }
-        for(int z=cz-hz+1;z<=cz+hz-1;z++) {
-            int y1=solidSurfaceY(world,cx-hx,z);
-            Integer n1=grades.get(y1); n1=n1==null?1:n1+1; grades.put(y1,n1);
-            best=Math.max(best,n1); total++;
-            if(hx>0) {
-                int y2=solidSurfaceY(world,cx+hx,z);
-                Integer n2=grades.get(y2); n2=n2==null?1:n2+1; grades.put(y2,n2);
-                best=Math.max(best,n2); total++;
-            }
-        }
-        return Math.max(0,total-best);
-    }
-
-    private boolean baseHcfGlobalQaAllowed(int x,int z,java.util.List<int[]> chosen) {
-        if(Math.abs(x)>900 || Math.abs(z)>900) return false;
-
-        // Do not prove a faction base by placing it on spawn or one of the
-        // protected cardinal HCF roads. QA should exercise ordinary claim land.
-        if(Math.abs(x)<120 || Math.abs(z)<120) return false;
-        return !nearQaReservation(x,z,null,chosen,112);
-    }
-
     private int[] findBaseHcfQaSite(String faction,int seedX,int seedZ,
                                     java.util.List<int[]> chosen) {
-        World world=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
-        if(world==null) return new int[]{seedX,64,seedZ};
-
-        final int family=1;
-        java.util.List<int[]> coarse=new java.util.ArrayList<int[]>();
-
-        // Stage 1: cheap whole-map scan. This inspects only the exact reference
-        // perimeter plus nine relief probes, so it can survey the authored 2k
-        // map without repeating the former full-footprint brute force.
-        for(int x=-888;x<=888;x+=24) {
-            for(int z=-888;z<=888;z+=24) {
-                if(!baseHcfGlobalQaAllowed(x,z,chosen)) continue;
-                int mismatch=quickPerimeterMismatch(world,x,z,family);
-                int relief=quickReferenceRelief(world,x,z,family);
-                coarse.add(new int[]{mismatch,relief,x,z});
-            }
-        }
-
-        java.util.Collections.sort(coarse,new java.util.Comparator<int[]>() {
-            public int compare(int[] a,int[] b) {
-                if(a[0]!=b[0]) return Integer.compare(a[0],b[0]);
-                if(a[1]!=b[1]) return Integer.compare(a[1],b[1]);
-                return Integer.compare(Math.abs(a[2])+Math.abs(a[3]),
-                                       Math.abs(b[2])+Math.abs(b[3]));
-            }
-        });
-
-        // Keep spatially diverse shelves instead of allowing all fine scans to
-        // pile into one biome. Twenty-four 29x29 walk-arounds still cost less
-        // than the old broad full-footprint search.
-        java.util.List<int[]> shelves=new java.util.ArrayList<int[]>();
-        for(int[] q:coarse) {
-            boolean near=false;
-            for(int[] s:shelves) {
-                int dx=q[2]-s[2],dz=q[3]-s[3];
-                if(dx*dx+dz*dz<96*96) { near=true; break; }
-            }
-            if(near) continue;
-            shelves.add(q);
-            if(shelves.size()>=24) break;
-        }
-
-        int[] best=null;
-        int bestScore=Integer.MAX_VALUE;
-        int bestPerimeter=Integer.MAX_VALUE;
-
-        // Stage 2: exact one-block walk-around around the best diverse shelves.
-        // A candidate does not pay for a full footprint/tree scan until its
-        // entire 29x26 perimeter is already one native grade.
-        for(int[] shelf:shelves) {
-            int sx=shelf[2],sz=shelf[3];
-            for(int dx=-14;dx<=14;dx++) {
-                for(int dz=-14;dz<=14;dz++) {
-                    int x=sx+dx,z=sz+dz;
-                    if(!baseHcfGlobalQaAllowed(x,z,chosen)) continue;
-
-                    int perimeter=quickPerimeterMismatch(world,x,z,family);
-                    if(perimeter<bestPerimeter) {
-                        bestPerimeter=perimeter;
-                        int[] diagnostic=evaluateReferenceSite(faction,x,z,false);
-                        best=new int[]{x,diagnostic[0],z};
-                        bestScore=baseHcfTerrainScore(diagnostic);
-                    }
-                    if(perimeter!=0) continue;
-
-                    int[] terrain=evaluateReferenceSite(faction,x,z,false);
-                    if((terrain[5]+terrain[6])!=0 || terrain[4]!=0) continue;
-
-                    int[] full=evaluateReferenceSite(faction,x,z,true);
-                    int score=baseHcfTerrainScore(full);
-                    if(score<bestScore) {
-                        bestScore=score;
-                        best=new int[]{x,full[0],z};
-                    }
-                    if(idealNaturalFit(full,family)) {
-                        plugin.getLogger().info("[qa-base-global-scout] perfect Base-HCF site at="+
-                            x+","+full[0]+","+z+" fit="+java.util.Arrays.toString(full));
-                        return new int[]{x,full[0],z};
-                    }
-                }
-            }
-        }
-
-        if(best==null) {
-            int[] fit=evaluateReferenceSite(faction,seedX,seedZ,true);
-            best=new int[]{seedX,fit[0],seedZ};
-            bestScore=baseHcfTerrainScore(fit);
-        }
-        int[] finalFit=evaluateReferenceSite(faction,best[0],best[2],true);
-        plugin.getLogger().warning("[qa-base-global-scout] no perfect Base-HCF site; best="+
-            best[0]+","+best[1]+","+best[2]+" fit="+
-            java.util.Arrays.toString(finalFit)+" score="+bestScore+
-            " coarseShelves="+shelves.size());
-        return best;
+        int[] fit=evaluateReferenceSite(faction,seedX,seedZ,true);
+        plugin.getLogger().info("[qa-base-cradle-site] Base-HCF native site="+
+            seedX+","+fit[0]+","+seedZ+" fit="+java.util.Arrays.toString(fit)+
+            " terrainMode=GRADUAL_CRADLE");
+        return new int[]{seedX,fit[0],seedZ};
     }
 
     private int[] findNearbyFamilyQaSite(String faction,int seedX,int seedZ,
@@ -1219,14 +1085,8 @@ final class HcfBaseBuilder {
      * infrastructure.
      */
     private void prepareTerrainPad(World w,HcfBasePlan p) {
-        // Phase 2B final terrain contract:
-        // NO generated PvP apron and NO exterior flattening.
-        //
-        // The faction must scout a naturally usable site first. We only clear
-        // vegetation/terrain that would physically occupy the exact schematic
-        // footprint and invisibly support a rare one-block depression UNDER the
-        // building. Every column outside the reference bounding box remains the
-        // checksum-pinned authored FreeMap exactly as it was.
+        // Exact schematic geometry always remains authoritative. Terrain work
+        // exists only to make the structure meet the authored ground naturally.
         int hx=(HcfSurfaceReferenceTemplates.width(p.primaryFamily)-1)/2;
         int hz=(HcfSurfaceReferenceTemplates.length(p.primaryFamily)-1)/2;
 
@@ -1236,9 +1096,8 @@ final class HcfBaseBuilder {
                 Material nativeTop=nativeSurfaceMaterial(w,x,z);
                 Material fill=nativeFillMaterial(nativeTop);
 
-                // Clear only obstructions inside the building volume. This is
-                // equivalent to players chopping/clearing the exact footprint;
-                // it never makes a lawn or platform around the base.
+                // Players would clear the exact building footprint before
+                // construction. Do not touch wilderness beyond it here.
                 int clearTop=Math.min(w.getMaxHeight()-1,
                     Math.max(p.surfaceY+HcfSurfaceReferenceTemplates.height(p.primaryFamily)+3,
                              w.getHighestBlockYAt(x,z)+2));
@@ -1248,15 +1107,96 @@ final class HcfBaseBuilder {
                         queue.add(new Op(w,x,yy,z,Material.AIR));
                 }
 
-                // Support only hidden voids UNDER the reference. Correct site
-                // selection makes this normally zero work; importantly, no
-                // visible outside column is raised to match the building.
+                // Hidden support only beneath the structure itself.
                 if(current<p.surfaceY) {
                     for(int yy=Math.max(2,current+1);yy<p.surfaceY;yy++)
                         queue.add(new Op(w,x,yy,z,yy>=p.surfaceY-2?fill:Material.STONE));
                 }
             }
         }
+
+        // BASE_HCF is substantially wider than the other four reference
+        // families. The authored FreeMap has no naturally perfect 29x26 shelf,
+        // so forcing a zero-mismatch native perimeter either creates an endless
+        // scout loop or a floating lip. Real HCF players solve this by doing
+        // modest earthwork around the foundation. Reproduce that behavior with
+        // a short tapered cradle, never a square one-block platform.
+        if(p.primaryFamily==1)
+            prepareBaseHcfTerrainCradle(w,p,hx,hz);
+    }
+
+    private void prepareBaseHcfTerrainCradle(World w,HcfBasePlan p,int hx,int hz) {
+        final int reach=7;
+        int raised=0,cut=0,columns=0;
+
+        for(int x=p.cx-hx-reach;x<=p.cx+hx+reach;x++) {
+            for(int z=p.cz-hz-reach;z<=p.cz+hz+reach;z++) {
+                int dx=Math.max(0,Math.abs(x-p.cx)-hx);
+                int dz=Math.max(0,Math.abs(z-p.cz)-hz);
+                int d=Math.max(dx,dz);
+                if(d<=0 || d>reach) continue;
+
+                int natural=solidSurfaceY(w,x,z);
+                Material nativeTop=nativeSurfaceMaterial(w,x,z);
+                Material fill=nativeFillMaterial(nativeTop);
+
+                // Smoothstep keeps the first foundation-adjacent column close
+                // to the building grade and is almost fully native by ring 7.
+                double t=d/(double)(reach+1);
+                t=t*t*(3.0-2.0*t);
+                int desired=(int)Math.round(p.surfaceY+(natural-p.surfaceY)*t);
+
+                // Never manufacture a cliff. The cradle is small earthwork, not
+                // a terrain replacement; extreme columns remain native.
+                desired=Math.max(natural-4,Math.min(natural+4,desired));
+                if(desired==natural) continue;
+
+                int highest=Math.min(w.getMaxHeight()-1,w.getHighestBlockYAt(x,z)+2);
+                if(desired<natural) {
+                    for(int yy=desired+1;yy<=highest;yy++) {
+                        Material m=w.getBlockAt(x,yy,z).getType();
+                        if(m!=Material.AIR) queue.add(new Op(w,x,yy,z,Material.AIR));
+                    }
+                    queue.add(new Op(w,x,desired,z,nativeTop));
+                    cut++;
+                } else {
+                    // Remove vegetation/trunks before raising the local grade so
+                    // no buried tree columns remain inside the transition.
+                    for(int yy=natural+1;yy<=highest;yy++) {
+                        Material m=w.getBlockAt(x,yy,z).getType();
+                        if(m!=Material.AIR) queue.add(new Op(w,x,yy,z,Material.AIR));
+                    }
+                    for(int yy=Math.max(2,natural+1);yy<desired;yy++)
+                        queue.add(new Op(w,x,yy,z,fill));
+                    queue.add(new Op(w,x,desired,z,nativeTop));
+                    raised++;
+                }
+                columns++;
+            }
+        }
+
+        // Small human entrance clearing only. Trees elsewhere are intentionally
+        // retained so the base still belongs to the authored landscape.
+        int gateX=p.cx+HcfSurfaceReferenceTemplates.primaryGateOffsetX(p.primaryFamily);
+        int frontOutsideZ=p.cz-hz-1;
+        for(int x=gateX-4;x<=gateX+4;x++) {
+            for(int z=frontOutsideZ-12;z<=frontOutsideZ+1;z++) {
+                int ground=solidSurfaceY(w,x,z);
+                int top=Math.min(w.getMaxHeight()-1,w.getHighestBlockYAt(x,z)+2);
+                for(int yy=Math.max(1,ground+1);yy<=top;yy++) {
+                    Material m=w.getBlockAt(x,yy,z).getType();
+                    if(m==Material.LOG || m==Material.LOG_2 ||
+                       m==Material.LEAVES || m==Material.LEAVES_2 ||
+                       m==Material.VINE)
+                        queue.add(new Op(w,x,yy,z,Material.AIR));
+                }
+            }
+        }
+
+        plugin.getLogger().info("[terrain-cradle] faction="+p.faction+
+            " family="+p.primaryFamilyName()+" reach="+reach+
+            " alteredColumns="+columns+" raised="+raised+" cut="+cut+
+            " mode=tapered-native-no-platform");
     }
 
     private Material nativeSurfaceMaterial(World w,int x,int z) {

@@ -1237,19 +1237,24 @@ final class HcfBaseBuilder {
         // isolated puddles; rivers/lakes and any component touching the search
         // boundary are preserved. Cave gets the same surgical treatment for
         // small exposed lava pockets near its entrance.
-        if(p.primaryFamily==2)
+        // Palette-only QA copies prove material substitutions, not terrain.
+        // Skipping terrain sanitation on those four disposable clones prevents
+        // thousands of irrelevant queued earthwork operations from delaying the
+        // five-family production showcase.
+        boolean paletteOnlyQa=p.faction!=null && p.faction.startsWith("QAPalette");
+        if(!paletteOnlyQa && p.primaryFamily==2)
             cleanupSmallSurfaceLiquids(w,p,true,false,160,220);
-        else if(p.primaryFamily==4)
-            cleanupSmallSurfaceLiquids(w,p,false,true,72,220);
+        else if(!paletteOnlyQa && p.primaryFamily==4)
+            cleanupSmallSurfaceLiquids(w,p,false,true,140,420);
 
         // Redemption's authored forest contains a few old carve remnants where
         // a thin grass/dirt shelf (often with its tree still attached) is fully
-        // disconnected from the terrain below. Remove only bounded unsupported
-        // natural components; real hills that connect to grade or leave the
-        // cleanup window are preserved.
-        if(p.primaryFamily==0) {
-            cleanupUnsupportedTerrainIslands(w,p,96,1800);
-            cleanupUnsupportedVegetationFragments(w,p,96,700);
+        // disconnected from the terrain below. The overview camera sees beyond
+        // the old 96-block window, so scan the complete local showcase context
+        // while still preserving components connected to grade or the boundary.
+        if(!paletteOnlyQa && p.primaryFamily==0) {
+            cleanupUnsupportedTerrainIslands(w,p,180,4200);
+            cleanupUnsupportedVegetationFragments(w,p,180,1600);
         }
     }
 

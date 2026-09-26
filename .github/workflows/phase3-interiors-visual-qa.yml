@@ -270,7 +270,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq xvfb scrot libgl1-mesa-dri libglx-mesa0 libglu1-mesa libxrandr2 libxcursor1 libxinerama1 libxi6 libxxf86vm1 libasound2
+          sudo apt-get install -y -qq xvfb scrot x11-xserver-utils libgl1-mesa-dri libglx-mesa0 libglu1-mesa libxrandr2 libxcursor1 libxinerama1 libxi6 libxxf86vm1 libasound2
           python3 -m pip install --quiet minecraft-launcher-lib mcrcon
 
           mkdir -p qa-output/diagnostics

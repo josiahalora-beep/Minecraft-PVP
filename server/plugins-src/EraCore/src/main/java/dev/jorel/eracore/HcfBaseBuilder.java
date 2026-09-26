@@ -221,21 +221,25 @@ final class HcfBaseBuilder {
         return fit[1]<=5 && fit[3]<=22;
     }
 
-    private int[] findNearbyFamilyQaSite(String faction,int seedX,int seedZ) {
+    private int[] findNearbyFamilyQaSite(String faction,int seedX,int seedZ,
+                                         java.util.List<int[]> chosen) {
         World world=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
         if(world==null) return new int[]{seedX,64,seedZ};
 
         int[] fit=evaluateReferenceSite(faction,seedX,seedZ);
         int[] best=new int[]{seedX,fit[0],seedZ};
         int bestScore=naturalFitScore(fit,0);
+        HcfBasePlan seedPlan=planFor(faction,seedX,fit[0],seedZ);
+        int reach=seedPlan.primaryFamily==1?320:192;
 
-        // The pinned coordinates are starting neighborhoods only. Search a
-        // bounded wider area so a dense custom-tree grove cannot force a bad
-        // screenshot even though a clean site exists nearby.
-        for(int dx=-192;dx<=192;dx+=8) {
-            for(int dz=-192;dz<=192;dz+=8) {
+        // Base-HCF needs a genuinely broad shelf because its exact reference is
+        // 29x26. Give it a larger bounded scout area, while keeping all five
+        // canonical showcases physically separate.
+        for(int dx=-reach;dx<=reach;dx+=8) {
+            for(int dz=-reach;dz<=reach;dz+=8) {
                 int x=seedX+dx,z=seedZ+dz;
                 if(Math.abs(x)>940 || Math.abs(z)>940) continue;
+                if(nearQaReservation(x,z,null,chosen,112)) continue;
                 HcfBasePlan probe=planFor(faction,x,64,z);
                 int quickLimit=probe.primaryFamily==1?12:(probe.primaryFamily==0?6:4);
                 if(quickReferenceRelief(world,x,z,probe.primaryFamily)>quickLimit) continue;
@@ -257,6 +261,7 @@ final class HcfBaseBuilder {
             for(int dz=-12;dz<=12;dz++) {
                 int x=bx+dx,z=bz+dz;
                 if(Math.abs(x)>940 || Math.abs(z)>940) continue;
+                if(nearQaReservation(x,z,null,chosen,112)) continue;
                 HcfBasePlan probe=planFor(faction,x,64,z);
                 int[] terrain=evaluateReferenceSite(faction,x,z,false);
                 int lowerBound=naturalFitScore(terrain,0);
@@ -370,7 +375,7 @@ final class HcfBaseBuilder {
         // authored FreeMap. QA must be deterministic and must never freeze the
         // server rescanning the full 2000x2000 world during screenshot capture.
         final int[][] sites={
-            {-131,769},{350,-550},{490,-876},{780,-796},{-600,600}
+            {-131,769},{650,-700},{206,-182},{780,-796},{-600,600}
         };
         final String[] expected={
             "REDEMPTION","BASE_HCF","MODERN_HCF","TUNNEL","CAVE"
@@ -395,11 +400,14 @@ final class HcfBaseBuilder {
 
         Bukkit.getScheduler().runTaskLater(plugin,new Runnable() {
             public void run() {
+                final java.util.List<int[]> chosenCanonical=new java.util.ArrayList<int[]>();
                 for(int i=0;i<sites.length;i++) {
-                    int[] natural=findNearbyFamilyQaSite(names[i],sites[i][0],sites[i][1]);
+                    int[] natural=findNearbyFamilyQaSite(
+                        names[i],sites[i][0],sites[i][1],chosenCanonical);
                     int x=natural[0],y=natural[1],z=natural[2];
                     sites[i][0]=x;
                     sites[i][1]=z;
+                    chosenCanonical.add(new int[]{x,z});
                     int[] fit=evaluateReferenceSite(names[i],x,z);
                     HcfBasePlan p=planFor(names[i],x,y,z);
                     qaPlans[i]=p;
@@ -527,7 +535,7 @@ final class HcfBaseBuilder {
             "QAPaletteCyan","QAPaletteArctic","QAPaletteRed","QAPaletteSmoke"
         };
         final int[][] sites={
-            {-350,-350},{350,-350},{-350,350},{350,350}
+            {-350,350},{350,350},{250,650},{700,650}
         };
         final java.util.List<int[]> chosen=new java.util.ArrayList<int[]>();
 

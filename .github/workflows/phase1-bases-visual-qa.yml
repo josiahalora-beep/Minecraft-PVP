@@ -2,7 +2,7 @@ name: phase1-bases-visual-qa
 # Phase 2B final contact/palette regression: latest-head trigger.
 
 concurrency:
-  group: phase1-bases-visual-qa
+  group: phase2b-final-bases-visual-qa-v2
   cancel-in-progress: true
 
 on:

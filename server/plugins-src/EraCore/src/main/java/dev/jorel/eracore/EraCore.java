@@ -3773,6 +3773,16 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
                 p.sendMessage(color("&cYour faction is full. Maximum 5 members."));
                 return true;
             }
+
+            // A faction that explicitly requires tryouts must enforce that rule
+            // for manual officer/leader invites too. Simulated-faction leaders
+            // use the same live duel flow as conversational AI recruitment.
+            if(f.tryoutRequired && simWorld!=null &&
+               simWorld.requestFactionTryout(f.name,a[1])) {
+                p.sendMessage(color("&e"+a[1]+" must pass "+f.name+"'s duel tryout before receiving an invite."));
+                return true;
+            }
+
             f.invites.add(a[1].toLowerCase(Locale.ENGLISH));
             saveFactions();
             p.sendMessage(color("&aInvited "+a[1]));

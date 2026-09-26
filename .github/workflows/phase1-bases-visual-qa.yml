@@ -208,6 +208,7 @@ jobs:
 
           c['base-builder']=c['base-builder']||{}
           c['base-builder']['qa-showcase']=true
+          c['base-builder']['qa-palette-showcase']=true
           c['base-builder']['qa-fast-rebuild']=true
           c['base-builder']['qa-fast-rebuild-blocks-per-run']=3000
 

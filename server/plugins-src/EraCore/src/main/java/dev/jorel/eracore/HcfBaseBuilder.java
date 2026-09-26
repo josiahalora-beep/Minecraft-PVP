@@ -589,6 +589,68 @@ final class HcfBaseBuilder {
         },20L);
     }
 
+    private int[] findLocalPaletteQaSite(String faction,int seedX,int seedZ,
+                                         int[][] reserved,java.util.List<int[]> chosen) {
+        int[] seedFit=evaluateReferenceSite(faction,seedX,seedZ);
+        HcfBasePlan seedPlan=planFor(faction,seedX,seedFit[0],seedZ);
+        if(idealNaturalFit(seedFit,seedPlan.primaryFamily) &&
+           !nearQaReservation(seedX,seedZ,reserved,chosen,96))
+            return new int[]{seedX,seedFit[0],seedZ};
+
+        int[] best=new int[]{seedX,seedFit[0],seedZ};
+        int bestScore=naturalFitScore(seedFit,0);
+
+        // Palette QA is not a site-selection benchmark; it only needs a clean
+        // nearby backdrop for the same ModernHCF geometry. Walk outward one
+        // block at a time around the pinned point and stop at the nearest exact
+        // native-contact position. This avoids another broad map scan.
+        for(int r=1;r<=24;r++) {
+            for(int dx=-r;dx<=r;dx++) {
+                int[] zs={-r,r};
+                for(int zz:zs) {
+                    int x=seedX+dx,z=seedZ+zz;
+                    if(Math.abs(x)>940 || Math.abs(z)>940 ||
+                       nearQaReservation(x,z,reserved,chosen,96)) continue;
+                    int[] fit=evaluateReferenceSite(faction,x,z);
+                    HcfBasePlan p=planFor(faction,x,fit[0],z);
+                    if(!"MODERN_HCF".equals(p.primaryFamilyName())) continue;
+                    int score=naturalFitScore(fit,r);
+                    if(score<bestScore) { bestScore=score; best=new int[]{x,fit[0],z}; }
+                    if(idealNaturalFit(fit,p.primaryFamily)) {
+                        plugin.getLogger().info("[qa-palette] local site correction "+faction+
+                            " from="+seedX+","+seedZ+" to="+x+","+z+
+                            " fit="+java.util.Arrays.toString(fit));
+                        return new int[]{x,fit[0],z};
+                    }
+                }
+            }
+            for(int dz=-r+1;dz<=r-1;dz++) {
+                int[] xs={-r,r};
+                for(int xx:xs) {
+                    int x=seedX+xx,z=seedZ+dz;
+                    if(Math.abs(x)>940 || Math.abs(z)>940 ||
+                       nearQaReservation(x,z,reserved,chosen,96)) continue;
+                    int[] fit=evaluateReferenceSite(faction,x,z);
+                    HcfBasePlan p=planFor(faction,x,fit[0],z);
+                    if(!"MODERN_HCF".equals(p.primaryFamilyName())) continue;
+                    int score=naturalFitScore(fit,r);
+                    if(score<bestScore) { bestScore=score; best=new int[]{x,fit[0],z}; }
+                    if(idealNaturalFit(fit,p.primaryFamily)) {
+                        plugin.getLogger().info("[qa-palette] local site correction "+faction+
+                            " from="+seedX+","+seedZ+" to="+x+","+z+
+                            " fit="+java.util.Arrays.toString(fit));
+                        return new int[]{x,fit[0],z};
+                    }
+                }
+            }
+        }
+
+        plugin.getLogger().warning("[qa-palette] no exact local site for "+faction+
+            "; best="+best[0]+","+best[2]+" fit="+
+            java.util.Arrays.toString(evaluateReferenceSite(faction,best[0],best[2])));
+        return best;
+    }
+
     private int[][] queueQaPaletteSurfacesNow(World world,int[][] reservedSites) {
         final String[] names={
             "QAPaletteCyan","QAPaletteArctic","QAPaletteRed","QAPaletteSmoke"
@@ -599,18 +661,22 @@ final class HcfBaseBuilder {
         final java.util.List<int[]> chosen=new java.util.ArrayList<int[]>();
 
         for(int i=0;i<names.length;i++) {
-            int x=sites[i][0],z=sites[i][1];
-            int[] pinnedFit=evaluateReferenceSite(names[i],x,z);
-            int y=pinnedFit[0];
+            int seedX=sites[i][0],seedZ=sites[i][1];
+            int[] corrected=findLocalPaletteQaSite(
+                names[i],seedX,seedZ,reservedSites,chosen);
+            int x=corrected[0],y=corrected[1],z=corrected[2];
+            sites[i][0]=x; sites[i][1]=z;
 
+            int[] pinnedFit=evaluateReferenceSite(names[i],x,z);
             if(nearQaReservation(x,z,reservedSites,chosen,96)) {
                 plugin.getLogger().severe("[qa-palette] FAILED reserved-site collision "+names[i]+
                     " at="+x+","+z);
             }
             HcfBasePlan pinnedPlan=planFor(names[i],x,y,z);
             if(!idealNaturalFit(pinnedFit,pinnedPlan.primaryFamily))
-                plugin.getLogger().severe("[qa-palette] pinned natural site drift "+names[i]+
-                    " at="+x+","+z+" fit="+java.util.Arrays.toString(pinnedFit));
+                plugin.getLogger().severe("[qa-palette] local natural site unresolved "+names[i]+
+                    " seed="+seedX+","+seedZ+" selected="+x+","+z+
+                    " fit="+java.util.Arrays.toString(pinnedFit));
 
             chosen.add(new int[]{x,z});
 

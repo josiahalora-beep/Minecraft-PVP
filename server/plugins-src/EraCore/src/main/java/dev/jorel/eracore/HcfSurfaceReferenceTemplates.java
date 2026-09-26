@@ -822,6 +822,27 @@ final class HcfSurfaceReferenceTemplates {
     }
     static int length(int family) { return forFamily(family).length; }
 
+    // Exact world-space footprint helpers. Even template dimensions are not
+    // symmetric around plan.cx/plan.cz, so cx +/- ((size-1)/2) loses the final
+    // positive row/column. Terrain, siting and repair code must use the same
+    // origin convention as queue() and facade verification.
+    static int minX(int family,int cx) {
+        Template t=forFamily(family);
+        return cx-((t.width-1)/2);
+    }
+    static int maxX(int family,int cx) {
+        Template t=forFamily(family);
+        return minX(family,cx)+t.width-1;
+    }
+    static int minZ(int family,int cz) {
+        Template t=forFamily(family);
+        return cz-((t.length-1)/2);
+    }
+    static int maxZ(int family,int cz) {
+        Template t=forFamily(family);
+        return minZ(family,cz)+t.length-1;
+    }
+
     // Primary player/bot entrance center measured from the same selected
     // schematic components. Offsets are relative to the plan center; Y is
     // relative to surfaceY. These are gate-panel cells, not bounding-box edges.

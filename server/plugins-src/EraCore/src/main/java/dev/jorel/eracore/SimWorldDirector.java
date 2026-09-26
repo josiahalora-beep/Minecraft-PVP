@@ -4225,9 +4225,9 @@ final class SimWorldDirector {
                 b.append("; responderIsFactionLeader=").append(f.leader!=null && f.leader.equalsIgnoreCase(p.name))
                  .append("; responderCanVouch=true")
                  .append("; factionLeader=").append(f.leader)
-                 .append("; factionHasSpace=").append(f.members.size()<MAX_FACTION_MEMBERS)
+                 .append("; factionHasSpace=").append(authoritativeFactionSize(f)<MAX_FACTION_MEMBERS)
                  .append("; speakerAlreadyFactioned=").append(plugin.humanAlreadyFactioned(speaker))
-                 .append("; factionMembers=").append(f.members.size()).append("/").append(MAX_FACTION_MEMBERS)
+                 .append("; factionMembers=").append(authoritativeFactionSize(f)).append("/").append(MAX_FACTION_MEMBERS)
                  .append("; factionStage=").append(f.stage.name())
                  .append("; recovery=").append(f.recoveryMode)
                  .append("; zone=").append(warzoneForFaction(f))
@@ -4679,7 +4679,7 @@ final class SimWorldDirector {
         if(!isConfiguredOwner(speaker) && rel.affinity<5 && rel.trust<48 &&
            plugin.publicRankLevel(speaker)<2 && !plugin.isCreatorIdentity(speaker)) return false;
 
-        if(f.members.size()<MAX_FACTION_MEMBERS) return true;
+        if(authoritativeFactionSize(f)<MAX_FACTION_MEMBERS) return true;
         return replaceableMember(f,recruitInfluenceForSpeaker(f,responder,speaker))!=null;
     }
 
@@ -6194,7 +6194,7 @@ final class SimWorldDirector {
 
         SimPlayer candidate=solos.get(rng.nextInt(solos.size()));
         for(SimFaction f:factions.values()) {
-            if(f.members.size()<MAX_FACTION_MEMBERS) continue;
+            if(authoritativeFactionSize(f)<MAX_FACTION_MEMBERS) continue;
             int incoming=candidateScore(f,candidate);
             SimPlayer kicked=replaceableMember(f,incoming);
             if(kicked==null) continue;
@@ -6232,7 +6232,7 @@ final class SimWorldDirector {
         SimFaction target=null;
         int best=Integer.MIN_VALUE;
         for(SimFaction f:factions.values()) {
-            if(f==old || f.members.size()>=MAX_FACTION_MEMBERS) continue;
+            if(f==old || authoritativeFactionSize(f)>=MAX_FACTION_MEMBERS) continue;
             int score=candidateScore(f,p);
             if(score>best){best=score;target=f;}
         }
@@ -7845,6 +7845,12 @@ final class SimWorldDirector {
         return false;
     }
 
+    private int authoritativeFactionSize(SimFaction f) {
+        if(f==null) return 0;
+        int n=plugin.factionMemberCountAuthority(f.name);
+        return n>=0?n:f.members.size();
+    }
+
     private void formationTick() {
         if (!sotwRecruitingActive()) return;
 
@@ -7854,7 +7860,8 @@ final class SimWorldDirector {
         Collections.shuffle(open, rng);
         int recruits=0;
         for(SimFaction f:open) {
-            if(f.members.size()>=f.targetSize || f.members.size()>=MAX_FACTION_MEMBERS) continue;
+            int roster=authoritativeFactionSize(f);
+            if(roster>=f.targetSize || roster>=MAX_FACTION_MEMBERS) continue;
             int chance=f.underdog?54:(f.powerFaction?30:42);
             if(rng.nextInt(100)<chance && recruitBestCandidate(f)) recruits++;
             if(recruits>=3) break;
@@ -8226,7 +8233,8 @@ final class SimWorldDirector {
 
         List<SimFaction> open=new ArrayList<SimFaction>();
         for(SimFaction f:factions.values())
-            if(f.members.size()<f.targetSize && f.members.size()<MAX_FACTION_MEMBERS) open.add(f);
+            if(authoritativeFactionSize(f)<f.targetSize &&
+               authoritativeFactionSize(f)<MAX_FACTION_MEMBERS) open.add(f);
 
         int mode=rng.nextInt(100);
         if(!solos.isEmpty() && (open.isEmpty() || mode<46)) {
@@ -8252,7 +8260,7 @@ final class SimWorldDirector {
                     String need=factionNeedText(f);
                     return new ChatEvent(m.name,oneOf(
                         "we still need "+(need.isEmpty()?"one active":need)+" msg "+leader.name,
-                        "ask "+leader.name+" for inv we got "+(Math.min(MAX_FACTION_MEMBERS,f.targetSize)-f.members.size())+" spot",
+                        "ask "+leader.name+" for inv we got "+Math.max(0,(Math.min(MAX_FACTION_MEMBERS,f.targetSize)-authoritativeFactionSize(f)))+" spot",
                         "if you can "+(need.isEmpty()?"play":need)+" msg our leader",
                         "we might take one more"));
                 }

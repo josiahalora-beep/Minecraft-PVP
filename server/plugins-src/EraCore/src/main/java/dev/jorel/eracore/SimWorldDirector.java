@@ -1179,7 +1179,7 @@ final class SimWorldDirector {
 
     private void applyLootNeeds(CombatAssignment ca,SimFaction f) {
         if(ca==null || f==null) return;
-        int members=Math.max(1,f.members.size());
+        int members=Math.max(1,authoritativeFactionSize(f));
         ca.lootHealNeed=Math.max(0,members*28-f.healPots);
         ca.lootPearlNeed=Math.max(0,members*8-f.pearls);
         ca.lootSpeedNeed=0;
@@ -2664,7 +2664,7 @@ final class SimWorldDirector {
                     t.interaction="brewer";
                     t.interactionAction="operate";
                     t.targetBlock="brewing_stand";
-                    t.priority = f.healPots<Math.max(24,f.members.size()*12)?82:68;
+                    t.priority = f.healPots<Math.max(24,authoritativeFactionSize(f)*12)?82:68;
                 } else if ("miner".equals(p.preferredJob) && !shouldRoamNow(p,f)) {
                     t.action = "mine";
                     t.zone = "base";
@@ -2801,7 +2801,7 @@ final class SimWorldDirector {
         if("leader".equals(p.role)) score+=55;
         if(p.combatClass==CombatClass.BARD || p.combatClass==CombatClass.ARCHER) score+=18;
         if("farmer".equals(p.preferredJob)) score-=55;
-        if("brewer".equals(p.preferredJob) && f.healPots<f.members.size()*12) score-=65;
+        if("brewer".equals(p.preferredJob) && f.healPots<authoritativeFactionSize(f)*12) score-=65;
 
         long epoch=System.currentTimeMillis()/180000L;
         int gate=Math.abs((key(p.name)+"|"+plugin.activeHcfEventId()+"|"+epoch).hashCode())%100;
@@ -4701,7 +4701,7 @@ final class SimWorldDirector {
             return false;
         }
 
-        if(f.members.size()>=MAX_FACTION_MEMBERS) {
+        if(authoritativeFactionSize(f)>=MAX_FACTION_MEMBERS) {
             SimPlayer kicked=replaceableMember(f,recruitInfluenceForSpeaker(f,responder,speaker));
             if(kicked==null || !plugin.removeSimFactionMemberAuthority(f.name,kicked.name)) return false;
             f.members.remove(kicked.name);
@@ -5785,7 +5785,7 @@ final class SimWorldDirector {
             return;
         }
 
-        int members=Math.max(1,f.members.size());
+        int members=Math.max(1,authoritativeFactionSize(f));
         if(f.healPots<members*16) {
             SimPlayer brewer=firstJobMember(f,"brewer");
             if(brewer!=null) brewer.currentGoal="brew";
@@ -6448,7 +6448,7 @@ final class SimWorldDirector {
 
         switch (f.stage) {
             case RECRUITING:
-                if (f.members.size() >= Math.min(2, f.targetSize) || !sotwRecruitingActive()) {
+                if (authoritativeFactionSize(f) >= Math.min(2, f.targetSize) || !sotwRecruitingActive()) {
                     f.stage = Stage.SCOUT_CLAIM;
                 }
                 break;
@@ -6550,7 +6550,7 @@ final class SimWorldDirector {
                 maybeUpgradeInfrastructure(f);
                 brewCombatStock(f);
                 // They continue farming/mining/economy rather than becoming PvP-only bots.
-                if (f.p4Sets < Math.max(1, f.members.size() - 1)) craftBooksAndGear(f);
+                if (f.p4Sets < Math.max(1, authoritativeFactionSize(f) - 1)) craftBooksAndGear(f);
                 break;
         }
     }
@@ -6696,7 +6696,7 @@ final class SimWorldDirector {
             plugin.queueSimStorageUpgrade(f.name,f.basePreset,3,f.baseX,f.baseY,f.baseZ);
         }
 
-        boolean large=f.members.size()>=4 || f.powerFaction;
+        boolean large=authoritativeFactionSize(f)>=4 || f.powerFaction;
         boolean fastFaction=large || hasExperiencedOrDonor(f);
         if(sotwProtectionActive()) fundSotwEssentials(f,1200.0);
 
@@ -6728,13 +6728,13 @@ final class SimWorldDirector {
      */
     private void craftBooksAndGear(SimFaction f) {
         // XP comes from mining/activity. Books and lapis are explicit purchases when needed.
-        int targetBooks = Math.max(20, f.members.size() * 20);
+        int targetBooks = Math.max(20, authoritativeFactionSize(f) * 20);
         if (f.books < targetBooks && f.treasury >= plugin.buyUnitPrice("book")) {
             int n = Math.min(targetBooks - f.books, (int)(f.treasury / plugin.buyUnitPrice("book")));
             f.books += n;
             f.treasury -= n * plugin.buyUnitPrice("book");
         }
-        int targetLapis = Math.max(16, f.members.size() * 12);
+        int targetLapis = Math.max(16, authoritativeFactionSize(f) * 12);
         if (f.lapis < targetLapis && f.treasury >= plugin.buyUnitPrice("lapis")) {
             int n = Math.min(targetLapis - f.lapis, (int)(f.treasury / plugin.buyUnitPrice("lapis")));
             f.lapis += n;
@@ -6767,7 +6767,7 @@ final class SimWorldDirector {
             f.rogueSets++;
         }
 
-        if (f.p4Sets < f.members.size() && f.diamonds >= 24 && f.books >= protCostBooks * 4 && f.lapis >= 8 && f.xp >= 8) {
+        if (f.p4Sets < authoritativeFactionSize(f) && f.diamonds >= 24 && f.books >= protCostBooks * 4 && f.lapis >= 8 && f.xp >= 8) {
             f.diamonds -= 24;
             f.books -= protCostBooks * 4;
             f.lapis -= 8;
@@ -6775,7 +6775,7 @@ final class SimWorldDirector {
             f.p4Sets++;
         }
 
-        if (f.sharp4Swords < f.members.size() && f.diamonds >= 2 && f.books >= sharpCostBooks && f.lapis >= 2 && f.xp >= 3) {
+        if (f.sharp4Swords < authoritativeFactionSize(f) && f.diamonds >= 2 && f.books >= sharpCostBooks && f.lapis >= 2 && f.xp >= 3) {
             f.diamonds -= 2;
             f.books -= sharpCostBooks;
             f.lapis -= 2;
@@ -6788,7 +6788,7 @@ final class SimWorldDirector {
         if (!f.brewer) return;
         plugin.registerAutoBrewerSite(f.name,f.basePreset,f.baseX,f.baseY,f.baseZ);
 
-        int members=Math.max(1,f.members.size());
+        int members=Math.max(1,authoritativeFactionSize(f));
 
         // When the brewery chunk is visible/loaded, the physical stands become
         // authoritative. We only buy real ingredients/water bottles into the
@@ -6841,7 +6841,7 @@ final class SimWorldDirector {
         org.bukkit.inventory.Inventory inv=factionStorageInventory(f,"brewing");
         if(inv==null) return;
 
-        int members=Math.max(1,f.members.size());
+        int members=Math.max(1,authoritativeFactionSize(f));
         int healNeed=Math.max(0,members*28-f.healPots);
         if(healNeed<=0) return;
 
@@ -6909,7 +6909,7 @@ final class SimWorldDirector {
     int brewerNeed(String faction,String type) {
         SimFaction f=factions.get(key(faction));
         if(f==null || !f.brewer) return 0;
-        int members=Math.max(1,f.members.size());
+        int members=Math.max(1,authoritativeFactionSize(f));
         if("heal".equalsIgnoreCase(type)) return Math.max(0,members*28-f.healPots);
         return 0;
     }
@@ -6992,7 +6992,7 @@ final class SimWorldDirector {
     private boolean combatReady(SimFaction f) {
         // Deep-stock readiness remains useful for strategy/UI, but no longer
         // blocks the first geared member from roaming.
-        return combatStockSlots(f) >= Math.max(1,Math.min(f.members.size(),3));
+        return combatStockSlots(f) >= Math.max(1,Math.min(authoritativeFactionSize(f),3));
     }
 
     private int combatStockSlots(SimFaction f) {
@@ -7215,10 +7215,10 @@ final class SimWorldDirector {
             if (p.faction.isEmpty()) continue;
             SimFaction f = factions.get(key(p.faction));
             if (f == null || f.treasury < 50) continue;
-            if (item.equals("pearl") && f.pearls < Math.max(8,f.members.size()*8)) candidates.add(p);
+            if (item.equals("pearl") && f.pearls < Math.max(8,authoritativeFactionSize(f)*8)) candidates.add(p);
             else if (item.equals("iron") && f.iron < 35) candidates.add(p);
             else if (item.equals("obsidian") && f.obsidian < 8) candidates.add(p);
-            else if (item.equals("healthpot") && f.healPots < f.members.size()*24) candidates.add(p);
+            else if (item.equals("healthpot") && f.healPots < authoritativeFactionSize(f)*24) candidates.add(p);
             else if (item.equals("cane") && ("farmer".equals(p.preferredJob) || f.books < 20)) candidates.add(p);
         }
         if (candidates.isEmpty()) return null;
@@ -7283,8 +7283,8 @@ final class SimWorldDirector {
                     if (f.iron < 35) return buyOrder(p, "iron", Math.min(24, 35 - f.iron), 18);
                 }
                 if (f.stage == Stage.GEARING) {
-                    if (f.pearls < f.members.size() * 8) return buyOrder(p, "pearl", 8, 145);
-                    if (f.healPots < f.members.size() * 24) return buyOrder(p, "healthpot", 6, 82);
+                    if (f.pearls < authoritativeFactionSize(f) * 8) return buyOrder(p, "pearl", 8, 145);
+                    if (f.healPots < authoritativeFactionSize(f) * 24) return buyOrder(p, "healthpot", 6, 82);
                 }
             }
         }
@@ -8296,7 +8296,7 @@ final class SimWorldDirector {
         if (jobCount(f, "brewer") == 0) needs.add("brewer");
         if (classCount(f, CombatClass.DIAMOND) < 2) needs.add("diamond");
 
-        int slots=Math.min(MAX_FACTION_MEMBERS,f.targetSize)-f.members.size();
+        int slots=Math.min(MAX_FACTION_MEMBERS,f.targetSize)-authoritativeFactionSize(f);
         String needText=needs.isEmpty()?"active":joinWords(needs,2);
         SimPlayer leader=players.get(key(f.leader));
         if(leader!=null && leader.standards>=75)
@@ -9490,7 +9490,7 @@ final class SimWorldDirector {
         // Human and simulated removals both create a real vacancy. Humans are
         // not represented in the SimPlayer map, but their departure must still
         // make the AI faction recruit a replacement.
-        f.targetSize=Math.max(f.members.size()+1,Math.min(MAX_FACTION_MEMBERS,f.targetSize));
+        f.targetSize=Math.max(authoritativeFactionSize(f)+1,Math.min(MAX_FACTION_MEMBERS,f.targetSize));
         recordHistory("RULE_KICK",7,memberName+" was removed from "+f.name+" for "+reason,
             f.name,memberName,f.leader);
         save();

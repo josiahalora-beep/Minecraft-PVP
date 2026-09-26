@@ -506,6 +506,16 @@ final class HcfSurfaceReferenceTemplates {
         if(plan!=null && plan.primaryFamily==1 && id==177)
             return Material.AIR;
 
+        // BASE_HCF's source has four redstone-lamp cells (123/124) backed by
+        // four REDSTONE_BLOCK (152) cells in the facade window positions. They
+        // are lighting circuitry from the source export, not HCF glazing. Use
+        // the same real 1.8 glass-pane material class as the known-good Modern
+        // family and remove only the four hidden power cells behind them.
+        if(plan!=null && plan.primaryFamily==1 && (id==123 || id==124))
+            return Material.THIN_GLASS;
+        if(plan!=null && plan.primaryFamily==1 && id==152)
+            return Material.AIR;
+
         int variant=paletteVariant(plan);
         if(variant==0) return material;
         if(id==20) return Material.getMaterial(95);   // glass -> stained glass
@@ -534,6 +544,8 @@ final class HcfSurfaceReferenceTemplates {
         // stone-brick metadata.
         if(plan!=null && plan.primaryFamily==1 && id==97) return (byte)0;
         if(plan!=null && plan.primaryFamily==1 && id==177) return (byte)0;
+        if(plan!=null && plan.primaryFamily==1 &&
+           (id==123 || id==124 || id==152)) return (byte)0;
 
         int variant=paletteVariant(plan);
         if(variant==0) return data;

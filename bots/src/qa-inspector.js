@@ -730,8 +730,16 @@ if(selected.length){
       const gateZ=b.z+(b.gateOffsetZ??-6)
       await capture(prefix+'-entrance-close',
         {x:gateX+6,y:gateY+4,z:gateZ-15},{x:gateX,y:gateY+1,z:gateZ},2800)
-      await capture(prefix+'-window-close',
-        {x:b.x+24,y:b.y+9,z:b.z+3},{x:b.x+5,y:b.y+7,z:b.z},2800)
+      if(b.primaryFamily==='BASE_HCF'){
+        // BASE_HCF's right-side camera sat inside the authored forest. The
+        // foundation pass already clears the north entrance corridor, so frame
+        // the corrected left front window from that guaranteed AIR volume.
+        await capture(prefix+'-window-close',
+          {x:b.x+3,y:b.y+6,z:b.z-21},{x:b.x-4,y:b.y+5,z:b.z-11},2800)
+      }else{
+        await capture(prefix+'-window-close',
+          {x:b.x+24,y:b.y+9,z:b.z+3},{x:b.x+5,y:b.y+7,z:b.z},2800)
+      }
       await capture(prefix+'-terrain-seam',
         {x:b.x-30,y:b.y+5,z:b.z-30},{x:b.x-6,y:b.y+1,z:b.z-6},3000)
       await capture(prefix+'-rear-detail',

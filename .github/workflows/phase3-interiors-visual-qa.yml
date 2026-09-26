@@ -4,11 +4,16 @@ concurrency:
   group: phase3-interiors-visual-qa
   cancel-in-progress: true
 
-# Phase 3 is intentionally manual while Phase 2B exact-reference exteriors
-# are under corrective visual review. Re-enable push validation only after the
-# Phase 2B exterior baseline is explicitly frozen again.
+# Manual runs remain available, and corrective visual-QA changes also trigger
+# this workflow so renderer-only findings can be checked against a real client.
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - 'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfBaseBuilder.java'
+      - 'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfSurfaceReferenceTemplates.java'
+      - 'bots/src/qa-inspector.js'
+      - '.github/workflows/phase3-interiors-visual-qa.yml'
 
 permissions:
   contents: read
@@ -167,6 +172,11 @@ jobs:
           cp server/plugins-src/EraCore/target/EraCore.jar server/plugins/EraCore.jar
           cp server/plugins-src/EraCore/src/main/resources/config.yml server/plugins/EraCore/config.yml
           printf 'eula=true\n' > server/eula.txt
+          cat >> server/server.properties <<'EOF'
+          enable-rcon=true
+          rcon.password=eracore-qa
+          rcon.port=25575
+          EOF
 
           cd bots
           node --input-type=module <<'NODE'
@@ -255,6 +265,113 @@ jobs:
           QA_HEIGHT: '900'
         run: timeout 8m xvfb-run -a -s "-screen 0 1600x900x24" node src/qa-inspector.js
 
+      - name: Verify Base-HCF interiors in official vanilla 1.8.8 client
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb scrot libgl1-mesa-dri libglx-mesa0 libglu1-mesa libxrandr2 libxcursor1 libxinerama1 libxi6 libxxf86vm1 libasound2
+          python3 -m pip install --quiet minecraft-launcher-lib mcrcon
+
+          export DISPLAY=:99
+          export LIBGL_ALWAYS_SOFTWARE=1
+          Xvfb :99 -screen 0 1600x900x24 > qa-output/diagnostics/xvfb.log 2>&1 &
+          XVFB_PID=$!
+          trap 'kill "$XVFB_PID" 2>/dev/null || true' EXIT
+          sleep 2
+
+          python3 - <<'PY'
+          import math, os, pathlib, re, shutil, subprocess, time
+          import minecraft_launcher_lib
+          from mcrcon import MCRcon
+
+          root=pathlib.Path.cwd()
+          out=root/'qa-output'
+          diag=out/'diagnostics'
+          diag.mkdir(parents=True,exist_ok=True)
+          log=(root/'server'/'phase1-server.log').read_text(errors='ignore')
+
+          m=None
+          for hit in re.finditer(r'\[qa-showcase\] queued QABase0 family=BASE_HCF .*? at=(-?\d+),(-?\d+),(-?\d+) undergroundY=(-?\d+) coreHalf=(\d+),(\d+)',log):
+              m=hit
+          if not m:
+              raise SystemExit('Could not resolve QABase0 coordinates for vanilla-client proof')
+
+          x,y,z,u,hx,hz=map(int,m.groups())
+          mc_dir=root/'.phase3'/'vanilla-client'
+          mc_dir.mkdir(parents=True,exist_ok=True)
+          version='1.8.8'
+          minecraft_launcher_lib.install.install_minecraft_version(version,str(mc_dir))
+
+          java=shutil.which('java')
+          if not java:
+              raise SystemExit('Java executable not found')
+          opts={
+              'username':'VisualQA',
+              'uuid':'00000000000000000000000000000001',
+              'token':'0',
+              'launcherName':'EraCoreQA',
+              'launcherVersion':'1.0',
+              'gameDirectory':str(mc_dir),
+              'executablePath':java,
+              'jvmArguments':['-Xms512M','-Xmx1400M','-Djava.awt.headless=false']
+          }
+          cmd=minecraft_launcher_lib.command.get_minecraft_command(version,str(mc_dir),opts)
+          cmd += ['--server','127.0.0.1','--port','25565','--width','1600','--height','900']
+          client_log=open(diag/'vanilla-client.log','wb')
+          env=os.environ.copy()
+          env['DISPLAY']=':99'
+          env['LIBGL_ALWAYS_SOFTWARE']='1'
+          proc=subprocess.Popen(cmd,stdout=client_log,stderr=subprocess.STDOUT,cwd=str(mc_dir),env=env)
+
+          try:
+              end=time.time()+150
+              connected=False
+              while time.time()<end:
+                  if proc.poll() is not None:
+                      raise SystemExit('Vanilla 1.8.8 client exited before joining; see vanilla-client.log')
+                  try:
+                      with MCRcon('127.0.0.1','eracore-qa',port=25575) as r:
+                          if 'VisualQA' in r.command('list'):
+                              connected=True
+                              break
+                  except Exception:
+                      pass
+                  time.sleep(2)
+              if not connected:
+                  raise SystemExit('Vanilla 1.8.8 client did not join QA server')
+
+              def look(from_xyz,to_xyz):
+                  fx,fy,fz=from_xyz
+                  tx,ty,tz=to_xyz
+                  dx,dy,dz=tx-fx,ty-fy,tz-fz
+                  yaw=math.degrees(math.atan2(-dx,dz))
+                  pitch=-math.degrees(math.atan2(dy,max(0.001,math.hypot(dx,dz))))
+                  return yaw,pitch
+
+              def capture(name,pos,target):
+                  yaw,pitch=look(pos,target)
+                  with MCRcon('127.0.0.1','eracore-qa',port=25575) as r:
+                      r.command('gamemode 3 VisualQA')
+                      r.command('tp VisualQA %.2f %.2f %.2f %.2f %.2f' % (*pos,yaw,pitch))
+                  time.sleep(6)
+                  shot=out/name
+                  subprocess.run(['scrot','-o',str(shot)],check=True,env=env)
+                  if not shot.exists() or shot.stat().st_size<20000:
+                      raise SystemExit('Vanilla screenshot missing/too small: '+str(shot))
+
+              capture('vanilla-base-hcf-interior-core.png',
+                      (x,u+2,z+8),(x,u+2,z))
+              capture('vanilla-base-hcf-interior-storage-west.png',
+                      (x+2,u+3,z-6),(x-hx+5,u+3,z-4))
+          finally:
+              if proc.poll() is None:
+                  proc.terminate()
+                  try: proc.wait(timeout=8)
+                  except subprocess.TimeoutExpired: proc.kill()
+              client_log.close()
+          PY
+
       - name: Verify Phase 3 interior coverage
         if: always()
         shell: bash
@@ -281,6 +398,8 @@ jobs:
           test "$(find qa-output -maxdepth 1 -name '*interior-brewer-first.jpg' | wc -l)" -eq 5
           test "$(find qa-output -maxdepth 1 -name '*interior-nether-portal-first.jpg' | wc -l)" -eq 5
           test "$(find qa-output -maxdepth 1 -name '*interior-enchant-first.jpg' | wc -l)" -eq 5
+          test -s qa-output/vanilla-base-hcf-interior-core.png
+          test -s qa-output/vanilla-base-hcf-interior-storage-west.png
           if grep -q "production terrain repair chunks=" server/phase1-server.log; then
             echo "ERROR: old wilderness normalizer ran on authored world" >&2
             exit 1

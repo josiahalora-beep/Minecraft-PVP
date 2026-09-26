@@ -190,7 +190,7 @@ final class HcfBaseBuilder {
 
         // Redemption's forest-edge artifacts can be CREATED by the queued
         // footprint clear itself. Re-check once after all main build ops land.
-        if(plan.primaryFamily==0) postBuildTerrainCleanup.put(k,plan);
+        if(plan.primaryFamily==0 || plan.primaryFamily==4) postBuildTerrainCleanup.put(k,plan);
 
         ensureRunner();
     }
@@ -811,7 +811,7 @@ final class HcfBaseBuilder {
 
         // Lazy/cold materialization must get the same final-state cleanup as an
         // explicit rebuild; otherwise a base can look different after reload.
-        if(plan.primaryFamily==0) postBuildTerrainCleanup.put(k,plan);
+        if(plan.primaryFamily==0 || plan.primaryFamily==4) postBuildTerrainCleanup.put(k,plan);
 
         ensureRunner();
     }
@@ -1258,17 +1258,16 @@ final class HcfBaseBuilder {
         // thousands of irrelevant queued earthwork operations from delaying the
         // five-family production showcase.
         boolean paletteOnlyQa=p.faction!=null && p.faction.startsWith("QAPalette");
-        if(!paletteOnlyQa && p.primaryFamily==2)
+        if(!paletteOnlyQa && (p.primaryFamily==2 || p.primaryFamily==3))
             cleanupSmallSurfaceLiquids(w,p,true,false,160,220);
         else if(!paletteOnlyQa && p.primaryFamily==4)
             cleanupSmallSurfaceLiquids(w,p,false,true,140,420);
 
-        // Redemption's authored forest contains a few old carve remnants where
-        // a thin grass/dirt shelf (often with its tree still attached) is fully
-        // disconnected from the terrain below. The overview camera sees beyond
-        // the old 96-block window, so scan the complete local showcase context
-        // while still preserving components connected to grade or the boundary.
-        if(!paletteOnlyQa && p.primaryFamily==0) {
+        // Redemption and Cave can both expose old authored-world carve debris
+        // after a footprint is materialized. Use the same bounded natural-island
+        // cleanup for both; real hills remain because grounded / boundary-touching
+        // components are explicitly preserved.
+        if(!paletteOnlyQa && (p.primaryFamily==0 || p.primaryFamily==4)) {
             cleanupUnsupportedTerrainIslands(w,p,180,4200);
             cleanupUnsupportedVegetationFragments(w,p,180,1600);
         }
@@ -1900,7 +1899,7 @@ final class HcfBaseBuilder {
                         postBuildTerrainCleanup.clear();
                         int before=queue.size();
                         for(HcfBasePlan p:cleanupPlans) {
-                            if(p==null || p.primaryFamily!=0) continue;
+                            if(p==null || (p.primaryFamily!=0 && p.primaryFamily!=4)) continue;
                             cleanupUnsupportedTerrainIslands(Bukkit.getWorlds().get(0),p,180,4200);
                             cleanupUnsupportedVegetationFragments(Bukkit.getWorlds().get(0),p,180,1600);
                         }

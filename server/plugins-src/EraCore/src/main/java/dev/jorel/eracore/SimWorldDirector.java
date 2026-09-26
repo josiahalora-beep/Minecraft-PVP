@@ -8797,10 +8797,15 @@ final class SimWorldDirector {
         int trees=fit.length>7?fit[7]:999;
         int interiorReliefWeight=family==1?5:18;
         int interiorOffWeight=family==1?1:5;
+        int perimeterWeight=family==1?9000:6000;
+        // Base-HCF performs a narrow player-like entrance clearing as part of
+        // its terrain cradle, so the old huge camera-area tree penalty should
+        // not outweigh actual foundation contact for that wide family.
+        int treeWeight=family==1?250:4500;
         int score=
-            perimeter*6000 +
+            perimeter*perimeterWeight +
             fit[4]*9000 +
-            trees*4500 +
+            trees*treeWeight +
             broad[2]*1800 +
             biomeEdges*180 +
             fit[3]*24 +
@@ -8946,13 +8951,30 @@ final class SimWorldDirector {
 
         if (bestPoint == null || bestEval == null) return false;
 
-        // Never convert "best available this tick" into a visibly compromised
-        // production base. If the native perimeter is not exact, liquid touches
-        // the footprint, or a tree blocks the real entrance approach, leave the
-        // faction in SCOUT_CLAIM and try another human-like scouting batch later.
-        // This prevents the QA-only standard from diverging from live SOTW.
-        if(bestEval.length<8 || (bestEval[5]+bestEval[6])!=0 ||
-           bestEval[4]>maxLiquids || bestEval[7]!=0)
+        // The four smaller families still require native exact contact.
+        // BASE_HCF is 29x26 and the authored map has no perfect shelf at that
+        // scale; it is allowed only on low-relief land that the same production
+        // builder can finish with its short tapered dirt/grass cradle. This is
+        // player-like site preparation, not a generated square platform.
+        HcfBasePlan finalSitePlan=HcfBasePlan.of(
+            f.name,bestPoint[0],bestEval[0],bestPoint[1],siteProfile);
+        int perimeterMismatch=bestEval[5]+bestEval[6];
+        boolean baseHcfCradleSite=
+            finalSitePlan.primaryFamily==1 &&
+            bestEval.length>=8 &&
+            perimeterMismatch<=8 &&
+            bestEval[4]<=maxLiquids &&
+            bestEval[1]<=12 &&
+            bestEval[3]<=32 &&
+            bestEval[7]<=24;
+
+        boolean exactNativeSite=
+            bestEval.length>=8 &&
+            perimeterMismatch==0 &&
+            bestEval[4]<=maxLiquids &&
+            bestEval[7]==0;
+
+        if(!(exactNativeSite || baseHcfCradleSite))
             return false;
 
         f.baseX = bestPoint[0];

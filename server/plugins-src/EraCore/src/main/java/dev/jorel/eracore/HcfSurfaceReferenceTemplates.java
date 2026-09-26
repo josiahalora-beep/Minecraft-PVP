@@ -498,6 +498,14 @@ final class HcfSurfaceReferenceTemplates {
         if(plan!=null && plan.primaryFamily==1 && id==97)
             return Material.SMOOTH_BRICK;
 
+        // BASE_HCF also carries two WALL_BANNER (177) cells from the legacy
+        // schematic. The headless QA renderer cannot resolve their tile-entity
+        // payload and draws conspicuous unknown-block placeholders. The banner
+        // NBT is not present in this compact surface template, so omit only
+        // those two unsupported decorative cells rather than rendering junk.
+        if(plan!=null && plan.primaryFamily==1 && id==177)
+            return Material.AIR;
+
         int variant=paletteVariant(plan);
         if(variant==0) return material;
         if(id==20) return Material.getMaterial(95);   // glass -> stained glass
@@ -525,6 +533,7 @@ final class HcfSurfaceReferenceTemplates {
         // MONSTER_EGGS metadata describes the disguised source block, not
         // stone-brick metadata.
         if(plan!=null && plan.primaryFamily==1 && id==97) return (byte)0;
+        if(plan!=null && plan.primaryFamily==1 && id==177) return (byte)0;
 
         int variant=paletteVariant(plan);
         if(variant==0) return data;

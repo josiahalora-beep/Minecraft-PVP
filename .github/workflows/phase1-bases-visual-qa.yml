@@ -208,7 +208,10 @@ jobs:
 
           c['base-builder']=c['base-builder']||{}
           c['base-builder']['qa-showcase']=true
-          # Palette variation has its own focused proof. This workflow is the\n          # canonical five-family terrain/contact gate and must not spend its\n          # rebuild budget on four unrelated extra Modern preview sites.\n          c['base-builder']['qa-palette-showcase']=false
+          // Palette variation has its own focused proof. This workflow is the
+          // canonical five-family terrain/contact gate and must not spend its
+          // rebuild budget on four unrelated extra Modern preview sites.
+          c['base-builder']['qa-palette-showcase']=false
           c['base-builder']['qa-fast-rebuild']=true
           c['base-builder']['qa-fast-rebuild-blocks-per-run']=3000
 

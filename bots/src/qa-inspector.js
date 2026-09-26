@@ -468,24 +468,39 @@ if(process.env.QA_TERRAIN_ONLY==='1') {
 
 const wantedFamilies=['REDEMPTION','BASE_HCF','MODERN_HCF','TUNNEL','CAVE']
 
-async function waitForBaseRebuild(timeoutMs=180000){
+async function waitForBaseRebuild(timeoutMs=180000, serverLogMarker=null){
   // Status polling can emit IDLE before the server-side showcase's delayed
-  // construction task starts. Completion is valid only when the LATEST status
-  // observed after a RUNNING/non-zero status is IDLE with zero queued ops.
+  // construction task starts. Completion is valid after a RUNNING/non-zero
+  // status followed by IDLE, OR (for showcase mode) when the server log written
+  // after this command records the authoritative queue-drained marker.
   const marker=manifest.messages.length
+  const serverLogPath=path.join(root,'server','phase1-server.log')
   let lastProbe=0
   let sawRunning=false
   return await waitUntil(()=>{
     const now=Date.now()
     if(now-lastProbe>1200){bot.chat('/baserebuild status');lastProbe=now}
+
     const statuses=manifest.messages.slice(marker)
       .map(x=>x.text)
       .filter(t=>/Base rebuild:/i.test(t))
-    if(!statuses.length) return false
-    const latest=statuses[statuses.length-1]
-    if(/Base rebuild:\s*RUNNING/i.test(latest) || /queuedOps=[1-9][0-9]*/i.test(latest))
-      sawRunning=true
-    return sawRunning && /Base rebuild:\s*IDLE/i.test(latest) && /queuedOps=0/i.test(latest)
+    if(statuses.length){
+      const latest=statuses[statuses.length-1]
+      if(/Base rebuild:\s*RUNNING/i.test(latest) || /queuedOps=[1-9][0-9]*/i.test(latest))
+        sawRunning=true
+      if(sawRunning && /Base rebuild:\s*IDLE/i.test(latest) && /queuedOps=0/i.test(latest))
+        return true
+    }
+
+    if(Number.isFinite(serverLogMarker)){
+      try{
+        const log=fs.readFileSync(serverLogPath,'utf8')
+        const appended=log.slice(Math.max(0,serverLogMarker))
+        if(appended.includes('[qa-showcase] build queue drained; captures may begin.'))
+          return true
+      }catch{}
+    }
+    return false
   },timeoutMs,350)
 }
 
@@ -496,9 +511,13 @@ let selected=[]
 if(showcase){
   // The server-side showcase uses the exact production planner/compiler with
   // deterministic seeds that resolve one primary example of each family.
+  const showcaseServerLog=path.join(root,'server','phase1-server.log')
+  let showcaseLogMarker=0
+  try{showcaseLogMarker=fs.readFileSync(showcaseServerLog,'utf8').length}catch{}
   bot.chat('/baserebuild showcase')
   await sleep(2500)
-  const rebuilt=await waitForBaseRebuild(Number(process.env.QA_REBUILD_TIMEOUT_MS||180000))
+  const rebuilt=await waitForBaseRebuild(
+    Number(process.env.QA_REBUILD_TIMEOUT_MS||180000),showcaseLogMarker)
   if(!rebuilt) manifest.errors.push('five-family QA showcase rebuild timeout')
   else {
     await sleep(1200) // let final block/chunk updates settle before first teleport

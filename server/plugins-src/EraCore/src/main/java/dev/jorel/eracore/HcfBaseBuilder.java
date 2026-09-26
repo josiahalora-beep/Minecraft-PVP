@@ -184,15 +184,18 @@ final class HcfBaseBuilder {
     }
 
     private int quickReferenceRelief(World world,int cx,int cz,int family) {
-        int hx=(HcfSurfaceReferenceTemplates.width(family)-1)/2;
-        int hz=(HcfSurfaceReferenceTemplates.length(family)-1)/2;
+        int minX=HcfSurfaceReferenceTemplates.minX(family,cx);
+        int maxX=HcfSurfaceReferenceTemplates.maxX(family,cx);
+        int minZ=HcfSurfaceReferenceTemplates.minZ(family,cz);
+        int maxZ=HcfSurfaceReferenceTemplates.maxZ(family,cz);
+        int midX=(minX+maxX)/2,midZ=(minZ+maxZ)/2;
         int[][] pts={
-            {0,0},{-hx,-hz},{hx,-hz},{-hx,hz},{hx,hz},
-            {0,-hz},{0,hz},{-hx,0},{hx,0}
+            {cx,cz},{minX,minZ},{maxX,minZ},{minX,maxZ},{maxX,maxZ},
+            {midX,minZ},{midX,maxZ},{minX,midZ},{maxX,midZ}
         };
         int min=Integer.MAX_VALUE,max=Integer.MIN_VALUE;
         for(int[] pt:pts) {
-            int y=solidSurfaceY(world,cx+pt[0],cz+pt[1]);
+            int y=solidSurfaceY(world,pt[0],pt[1]);
             min=Math.min(min,y); max=Math.max(max,y);
         }
         return max-min;
@@ -910,21 +913,23 @@ final class HcfBaseBuilder {
         if(world==null) return new int[]{64,999,999,999,999,999,999,includeEntranceTrees?999:0};
 
         HcfBasePlan probe=planFor(faction,cx,64,cz);
-        int hx=(HcfSurfaceReferenceTemplates.width(probe.primaryFamily)-1)/2;
-        int hz=(HcfSurfaceReferenceTemplates.length(probe.primaryFamily)-1)/2;
+        int minX=HcfSurfaceReferenceTemplates.minX(probe.primaryFamily,cx);
+        int maxX=HcfSurfaceReferenceTemplates.maxX(probe.primaryFamily,cx);
+        int minZ=HcfSurfaceReferenceTemplates.minZ(probe.primaryFamily,cz);
+        int maxZ=HcfSurfaceReferenceTemplates.maxZ(probe.primaryFamily,cz);
 
         Map<Integer,Integer> grades=new LinkedHashMap<Integer,Integer>();
         Map<Integer,Integer> perimeterGrades=new LinkedHashMap<Integer,Integer>();
         int min=Integer.MAX_VALUE,max=Integer.MIN_VALUE;
         int liquids=0;
 
-        for(int x=cx-hx;x<=cx+hx;x++) {
-            for(int z=cz-hz;z<=cz+hz;z++) {
+        for(int x=minX;x<=maxX;x++) {
+            for(int z=minZ;z<=maxZ;z++) {
                 int y=solidSurfaceY(world,x,z);
                 min=Math.min(min,y); max=Math.max(max,y);
                 Integer n=grades.get(y); grades.put(y,n==null?1:n+1);
 
-                boolean perimeter=x==cx-hx||x==cx+hx||z==cz-hz||z==cz+hz;
+                boolean perimeter=x==minX||x==maxX||z==minZ||z==maxZ;
                 if(perimeter) {
                     Integer pn=perimeterGrades.get(y);
                     perimeterGrades.put(y,pn==null?1:pn+1);
@@ -952,11 +957,11 @@ final class HcfBaseBuilder {
         }
 
         int offGrade=0,outerOff=0,perimeterLow=0,perimeterHigh=0;
-        for(int x=cx-hx-1;x<=cx+hx+1;x++) {
-            for(int z=cz-hz-1;z<=cz+hz+1;z++) {
-                boolean inside=x>=cx-hx&&x<=cx+hx&&z>=cz-hz&&z<=cz+hz;
-                boolean perimeter=inside && (x==cx-hx||x==cx+hx||z==cz-hz||z==cz+hz);
-                boolean ring=!inside && (x==cx-hx-1||x==cx+hx+1||z==cz-hz-1||z==cz+hz+1);
+        for(int x=minX-1;x<=maxX+1;x++) {
+            for(int z=minZ-1;z<=maxZ+1;z++) {
+                boolean inside=x>=minX&&x<=maxX&&z>=minZ&&z<=maxZ;
+                boolean perimeter=inside && (x==minX||x==maxX||z==minZ||z==maxZ);
+                boolean ring=!inside && (x==minX-1||x==maxX+1||z==minZ-1||z==maxZ+1);
                 int y=solidSurfaceY(world,x,z);
                 if(inside && y!=grade) offGrade++;
                 if(ring && y!=grade) outerOff++;
@@ -987,9 +992,8 @@ final class HcfBaseBuilder {
      */
     private int countEntranceTreeColumns(World world,HcfBasePlan p) {
         if(world==null || p==null) return 999;
-        int hz=(HcfSurfaceReferenceTemplates.length(p.primaryFamily)-1)/2;
         int gateX=p.cx+HcfSurfaceReferenceTemplates.primaryGateOffsetX(p.primaryFamily);
-        int frontOutsideZ=p.cz-hz-1;
+        int frontOutsideZ=HcfSurfaceReferenceTemplates.minZ(p.primaryFamily,p.cz)-1;
         int blocked=0;
 
         // Cover the real human approach and the entrance QA camera, not just a
@@ -1034,10 +1038,12 @@ final class HcfBaseBuilder {
         // Maintenance must obey the same Phase 2B terrain-contact contract as
         // first construction. Support hidden voids only beneath the exact
         // schematic bounding box; never create a visible one-block repair lip.
-        int hx=(HcfSurfaceReferenceTemplates.width(p.primaryFamily)-1)/2;
-        int hz=(HcfSurfaceReferenceTemplates.length(p.primaryFamily)-1)/2;
-        for(int x=p.cx-hx;x<=p.cx+hx;x++) {
-            for(int z=p.cz-hz;z<=p.cz+hz;z++) {
+        int minX=HcfSurfaceReferenceTemplates.minX(p.primaryFamily,p.cx);
+        int maxX=HcfSurfaceReferenceTemplates.maxX(p.primaryFamily,p.cx);
+        int minZ=HcfSurfaceReferenceTemplates.minZ(p.primaryFamily,p.cz);
+        int maxZ=HcfSurfaceReferenceTemplates.maxZ(p.primaryFamily,p.cz);
+        for(int x=minX;x<=maxX;x++) {
+            for(int z=minZ;z<=maxZ;z++) {
                 int surface=solidSurfaceY(w,x,z);
                 if(surface>=p.surfaceY-1) continue;
 
@@ -1087,11 +1093,13 @@ final class HcfBaseBuilder {
     private void prepareTerrainPad(World w,HcfBasePlan p) {
         // Exact schematic geometry always remains authoritative. Terrain work
         // exists only to make the structure meet the authored ground naturally.
-        int hx=(HcfSurfaceReferenceTemplates.width(p.primaryFamily)-1)/2;
-        int hz=(HcfSurfaceReferenceTemplates.length(p.primaryFamily)-1)/2;
+        int minX=HcfSurfaceReferenceTemplates.minX(p.primaryFamily,p.cx);
+        int maxX=HcfSurfaceReferenceTemplates.maxX(p.primaryFamily,p.cx);
+        int minZ=HcfSurfaceReferenceTemplates.minZ(p.primaryFamily,p.cz);
+        int maxZ=HcfSurfaceReferenceTemplates.maxZ(p.primaryFamily,p.cz);
 
-        for(int x=p.cx-hx;x<=p.cx+hx;x++) {
-            for(int z=p.cz-hz;z<=p.cz+hz;z++) {
+        for(int x=minX;x<=maxX;x++) {
+            for(int z=minZ;z<=maxZ;z++) {
                 int current=solidSurfaceY(w,x,z);
                 Material nativeTop=nativeSurfaceMaterial(w,x,z);
                 Material fill=nativeFillMaterial(nativeTop);
@@ -1122,17 +1130,18 @@ final class HcfBaseBuilder {
         // modest earthwork around the foundation. Reproduce that behavior with
         // a short tapered cradle, never a square one-block platform.
         if(p.primaryFamily==1)
-            prepareBaseHcfTerrainCradle(w,p,hx,hz);
+            prepareBaseHcfTerrainCradle(w,p,minX,maxX,minZ,maxZ);
     }
 
-    private void prepareBaseHcfTerrainCradle(World w,HcfBasePlan p,int hx,int hz) {
+    private void prepareBaseHcfTerrainCradle(World w,HcfBasePlan p,
+                                             int minX,int maxX,int minZ,int maxZ) {
         final int reach=7;
         int raised=0,cut=0,columns=0;
 
-        for(int x=p.cx-hx-reach;x<=p.cx+hx+reach;x++) {
-            for(int z=p.cz-hz-reach;z<=p.cz+hz+reach;z++) {
-                int dx=Math.max(0,Math.abs(x-p.cx)-hx);
-                int dz=Math.max(0,Math.abs(z-p.cz)-hz);
+        for(int x=minX-reach;x<=maxX+reach;x++) {
+            for(int z=minZ-reach;z<=maxZ+reach;z++) {
+                int dx=x<minX?minX-x:(x>maxX?x-maxX:0);
+                int dz=z<minZ?minZ-z:(z>maxZ?z-maxZ:0);
                 int d=Math.max(dx,dz);
                 if(d<=0 || d>reach) continue;
 
@@ -1178,7 +1187,7 @@ final class HcfBaseBuilder {
         // Small human entrance clearing only. Trees elsewhere are intentionally
         // retained so the base still belongs to the authored landscape.
         int gateX=p.cx+HcfSurfaceReferenceTemplates.primaryGateOffsetX(p.primaryFamily);
-        int frontOutsideZ=p.cz-hz-1;
+        int frontOutsideZ=minZ-1;
         for(int x=gateX-4;x<=gateX+4;x++) {
             for(int z=frontOutsideZ-12;z<=frontOutsideZ+1;z++) {
                 int ground=solidSurfaceY(w,x,z);

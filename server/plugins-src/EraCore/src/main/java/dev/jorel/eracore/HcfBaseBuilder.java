@@ -230,7 +230,7 @@ final class HcfBaseBuilder {
         int[] best=new int[]{seedX,fit[0],seedZ};
         int bestScore=naturalFitScore(fit,0);
         HcfBasePlan seedPlan=planFor(faction,seedX,fit[0],seedZ);
-        int reach=seedPlan.primaryFamily==1?320:192;
+        int reach=seedPlan.primaryFamily==1?160:192;
 
         // Base-HCF needs a genuinely broad shelf because its exact reference is
         // 29x26. Give it a larger bounded scout area, while keeping all five
@@ -241,7 +241,7 @@ final class HcfBaseBuilder {
                 if(Math.abs(x)>940 || Math.abs(z)>940) continue;
                 if(nearQaReservation(x,z,null,chosen,112)) continue;
                 HcfBasePlan probe=planFor(faction,x,64,z);
-                int quickLimit=probe.primaryFamily==1?12:(probe.primaryFamily==0?6:4);
+                int quickLimit=probe.primaryFamily==1?2:(probe.primaryFamily==0?6:4);
                 if(quickReferenceRelief(world,x,z,probe.primaryFamily)>quickLimit) continue;
                 int[] terrain=evaluateReferenceSite(faction,x,z,false);
                 int lowerBound=naturalFitScore(terrain,(Math.abs(dx)+Math.abs(dz))/6);
@@ -375,7 +375,7 @@ final class HcfBaseBuilder {
         // authored FreeMap. QA must be deterministic and must never freeze the
         // server rescanning the full 2000x2000 world during screenshot capture.
         final int[][] sites={
-            {-86,608},{0,-300},{14,-118},{628,-812},{-543,555}
+            {-86,608},{-450,-900},{14,-118},{628,-812},{-543,555}
         };
         final String[] expected={
             "REDEMPTION","BASE_HCF","MODERN_HCF","TUNNEL","CAVE"

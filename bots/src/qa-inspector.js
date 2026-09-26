@@ -574,7 +574,7 @@ if(showcase){
     const perimeterMismatch=(fit[5]||0)+(fit[6]||0)
 
     // Four compact families remain strict native-contact proofs.
-    if(b.family!=='BASE_HCF')
+    if(b.primaryFamily!=='BASE_HCF')
       return perimeterMismatch!==0 || fit[4]!==0 || fit[7]!==0
 
     // BASE_HCF is the wide 29x26 source. The checksum-pinned authored map has

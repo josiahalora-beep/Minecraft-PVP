@@ -481,20 +481,37 @@ final class HcfBaseBuilder {
                         supplies.put(e.getKey(),(old==null?0:old)+e.getValue());
                     }
                     boolean shopOk=true;
-                    for(String key:supplies.keySet()) {
-                        double price=plugin.buyUnitPrice(key);
+                    double shopCash=0.0;
+                    for(java.util.Map.Entry<String,Integer> e:supplies.entrySet()) {
+                        double price=plugin.buyUnitPrice(e.getKey());
                         if(Double.isInfinite(price)||Double.isNaN(price)) { shopOk=false; break; }
+                        shopCash+=price*Math.max(0,e.getValue());
                     }
                     int[] raw=HcfSurfaceReferenceTemplates.acquisitionBill(cp);
+                    double glassPrice=plugin.buyUnitPrice("glass");
+                    if(Double.isInfinite(glassPrice)||Double.isNaN(glassPrice)) shopOk=false;
+                    else shopCash+=glassPrice*Math.max(0,raw[4]);
+
+                    // A five-man SOTW faction may spend money to save labor, but
+                    // a surface template is not "cost effective" if decorative
+                    // shop-only inputs consume several thousand dollars before
+                    // storage/brewing/PvP progression. This threshold is generous
+                    // enough for the broad Base-HCF reference while rejecting the
+                    // former glowstone/redstone-lamp-heavy production palette.
+                    boolean costOk=shopCash<=2000.0;
                     boolean familyOk=expected[i].equals(cp.primaryFamilyName());
-                    if(familyOk && gaps.isEmpty() && shopOk)
+                    if(familyOk && gaps.isEmpty() && shopOk && costOk)
                         plugin.getLogger().info("[qa-material] OK family="+cp.primaryFamilyName()+
                             " palette="+HcfSurfaceReferenceTemplates.paletteName(cp)+
-                            " raw="+java.util.Arrays.toString(raw)+" shop="+supplies);
+                            " raw="+java.util.Arrays.toString(raw)+" shop="+supplies+
+                            " directShopCash="+String.format(java.util.Locale.ENGLISH,"%.2f",shopCash));
                     else
                         plugin.getLogger().severe("[qa-material] FAILED family="+cp.primaryFamilyName()+
                             " expected="+expected[i]+" palette="+HcfSurfaceReferenceTemplates.paletteName(cp)+
-                            " unaccounted="+gaps+" shopAvailable="+shopOk+" shop="+supplies);
+                            " unaccounted="+gaps+" shopAvailable="+shopOk+
+                            " costEffective="+costOk+" directShopCash="+
+                            String.format(java.util.Locale.ENGLISH,"%.2f",shopCash)+
+                            " shop="+supplies);
                 }
 
                 // Queue the four cost-conscious palette proofs in the SAME build

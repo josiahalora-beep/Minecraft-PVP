@@ -4746,6 +4746,13 @@ final class SimWorldDirector {
         return true;
     }
 
+    boolean requestFactionTryout(String factionName,String candidateName) {
+        if(factionName==null || candidateName==null || candidateName.trim().isEmpty()) return false;
+        SimFaction f=factions.get(key(factionName));
+        if(f==null) return false;
+        return beginHumanFactionTryout(f,candidateName);
+    }
+
     private void handleAiSocialAction(SimPlayer responder,String speaker,AiChatBridge.AiReply ai) {
         if(responder==null || ai==null) return;
         if("INVITE_FACTION".equals(ai.action)) {

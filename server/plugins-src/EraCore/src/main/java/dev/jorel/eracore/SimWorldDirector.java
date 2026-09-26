@@ -6615,27 +6615,19 @@ final class SimWorldDirector {
             } else if ("brew".equals(p.currentGoal) || "gear".equals(p.currentGoal)) {
                 // Brewing/gearing consume explicit resources in their dedicated models.
             } else if ("build".equals(p.currentGoal)) {
-                int woodMade=8+rng.nextInt(10);
-                int stoneMade=8+rng.nextInt(14);
-                f.wood += woodMade;
-                f.stone += stoneMade;
-                if(f.storage) {
-                    mirrorDepositToStorage(f,Material.LOG,woodMade);
-                    mirrorDepositToStorage(f,Material.COBBLESTONE,stoneMade);
-                }
-                plugin.noteFactionContribution(p.name,0,
-                    Math.max(1,(woodMade+stoneMade)/12));
-            } else if ("recruit".equals(p.currentGoal) || "social".equals(p.currentGoal) || "trade".equals(p.currentGoal)) {
-                // Social/economic actions intentionally produce no free materials.
+                // Construction consumes the bill that was already gathered and
+                // committed by GATHER_STARTER. Building itself must never mint
+                // logs/stone. It only earns contribution credit for real labor.
+                plugin.noteFactionContribution(p.name,0,1+rng.nextInt(3));
+            } else if ("recruit".equals(p.currentGoal) || "social".equals(p.currentGoal) ||
+                       "trade".equals(p.currentGoal) || "idle".equals(p.currentGoal) ||
+                       "safe".equals(p.currentGoal) || "defend".equals(p.currentGoal) ||
+                       "scout".equals(p.currentGoal) || "patrol".equals(p.currentGoal)) {
+                // These actions intentionally produce no construction materials.
             } else {
-                int woodMade=4+rng.nextInt(8);
-                int stoneMade=4+rng.nextInt(10);
-                f.wood += woodMade;
-                f.stone += stoneMade;
-                if(f.storage) {
-                    mirrorDepositToStorage(f,Material.LOG,woodMade);
-                    mirrorDepositToStorage(f,Material.COBBLESTONE,stoneMade);
-                }
+                // Unknown/new goals default to resource-neutral. A new behavior
+                // must opt into an explicit acquisition route instead of silently
+                // creating stock through this fallback.
             }
         }
 

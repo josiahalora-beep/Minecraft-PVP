@@ -14,7 +14,7 @@ import java.util.zip.GZIPInputStream;
 /** Exact Phase-3 interior geometry extracted from the user-supplied HCF schematics. */
 @SuppressWarnings("deprecation")
 final class HcfInteriorReferenceTemplates {
-    private static final int STANDARD=0, MODERN_DEEP=1, MODERN_SHAFT=2;
+    private static final int STANDARD=0, MODE_MODERN_DEEP=1, MODE_MODERN_SHAFT=2;
     private static final int[][] SURFACE={
         {0,0,0,19,21,19},
         {0,0,0,29,20,26},
@@ -244,8 +244,8 @@ final class HcfInteriorReferenceTemplates {
         "kzxuA96SveMZyjVHueadXJLuVL0XNT4Vuy7wTZPdcr7kPH8q6NwRcnwq9NkEv6G//Rdi/JhU5FcAAA==";
 
     private static final Piece MODERN_MAIN=new Piece(18,71,8,31,45,43,STANDARD,MODERN_MAIN_DATA);
-    private static final Piece MODERN_DEEP=new Piece(35,25,39,11,11,13,MODERN_DEEP,MODERN_DEEP_DATA);
-    private static final Piece MODERN_SHAFT=new Piece(35,36,39,11,1,6,MODERN_SHAFT,MODERN_SHAFT_DATA);
+    private static final Piece MODERN_DEEP=new Piece(35,25,39,11,11,13,MODE_MODERN_DEEP,MODERN_DEEP_DATA);
+    private static final Piece MODERN_SHAFT=new Piece(35,36,39,11,1,6,MODE_MODERN_SHAFT,MODERN_SHAFT_DATA);
     private static final Piece TUNNEL=new Piece(2,3,1,36,42,33,STANDARD,TUNNEL_DATA);
     private static final Piece CAVE=new Piece(7,2,5,36,26,35,STANDARD,CAVE_DATA);
 
@@ -265,11 +265,11 @@ final class HcfInteriorReferenceTemplates {
     }
 
     private static void queuePiece(ArrayDeque<HcfBaseBuilder.Op> q,World world,HcfBasePlan p,Piece t) {
-        if(t.mode==MODERN_DEEP) {
+        if(t.mode==MODE_MODERN_DEEP) {
             int mainBottom=p.surfaceY-45;
             if(mainBottom<14) return;
         }
-        if(t.mode==MODERN_SHAFT) {
+        if(t.mode==MODE_MODERN_SHAFT) {
             int mainBottom=p.surfaceY-45;
             if(mainBottom<14) return;
             int deepBase=Math.max(2,mainBottom-15);

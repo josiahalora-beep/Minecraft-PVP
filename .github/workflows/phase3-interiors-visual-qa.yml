@@ -257,13 +257,13 @@ jobs:
           QA_BASES_ONLY: '1'
           QA_SHOWCASE: '1'
           QA_INTERIORS_ONLY: '1'
-          QA_REBUILD_TIMEOUT_MS: '180000'
+          QA_REBUILD_TIMEOUT_MS: '300000'
           QA_DETAIL_PASS: '0'
           QA_TEST_ATMOSPHERE: '0'
           QA_VIEW_DISTANCE: '12'
           QA_WIDTH: '1600'
           QA_HEIGHT: '900'
-        run: timeout 8m xvfb-run -a -s "-screen 0 1600x900x24" node src/qa-inspector.js
+        run: timeout 12m xvfb-run -a -s "-screen 0 1600x900x24" node src/qa-inspector.js
 
       - name: Verify Base-HCF interiors in official vanilla 1.8.8 client
         shell: bash

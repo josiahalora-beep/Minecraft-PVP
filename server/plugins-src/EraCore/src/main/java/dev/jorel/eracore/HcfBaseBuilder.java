@@ -1265,7 +1265,7 @@ final class HcfBaseBuilder {
             // component pass crossed dozens of distant pools and queued nearly
             // 3k edits. Keep authored rivers/lakes outside the visible near
             // field untouched and restore only surface water within 74 blocks.
-            cleanupTunnelNearFieldWater(w,p,74);
+            cleanupTunnelNearFieldWater(w,p,96);
         else if(!paletteOnlyQa && p.primaryFamily==4)
             cleanupSmallSurfaceLiquids(w,p,false,true,140,420);
 

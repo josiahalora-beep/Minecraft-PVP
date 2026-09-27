@@ -177,6 +177,13 @@ final class NmsFakePlayerRuntime {
 
         invoke(ep,"setPositionRotation",
             at.getX(),at.getY(),at.getZ(),at.getYaw(),at.getPitch());
+
+        // EntityPlayer starts with login/spawn invulnerability. A CombatBody is
+        // not a newly logged-in player: it is the physical materialization of an
+        // already-active simulated identity. Keeping fresh-login immunity here
+        // makes the first several seconds of PvP/damage fake and prevented the
+        // normal PlayerDeathEvent/drop pipeline from being exercised at all.
+        setIntField(ep,"invulnerableTicks",0);
         setIntField(ep,"ping",Math.max(0,Math.min(999,
             plugin.getConfig().getInt("actors.fake-player.default-ping",55))));
 

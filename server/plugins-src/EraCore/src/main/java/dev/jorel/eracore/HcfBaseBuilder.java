@@ -1260,12 +1260,15 @@ final class HcfBaseBuilder {
         boolean paletteOnlyQa=p.faction!=null && p.faction.startsWith("QAPalette");
         if(!paletteOnlyQa && p.primaryFamily==2)
             cleanupSmallSurfaceLiquids(w,p,true,false,160,220);
-        else if(!paletteOnlyQa && p.primaryFamily==3)
-            // Tunnel needs only its immediate PvP/base field cleaned. The old
-            // component pass crossed dozens of distant pools and queued nearly
-            // 3k edits. Keep authored rivers/lakes outside the visible near
-            // field untouched and restore only surface water within 74 blocks.
-            cleanupTunnelNearFieldWater(w,p,96);
+        else if(!paletteOnlyQa && p.primaryFamily==3) {
+            // The canonical Tunnel QA camera sees slightly farther than an
+            // ordinary faction base needs sanitized. Give only that proof site
+            // the 96-block visual radius; production factions stay on the
+            // already-stable 74-block radius so one later base cannot double
+            // the terrain-edit queue and starve the showcase deadline.
+            int tunnelWaterRadius=(p.faction!=null && p.faction.startsWith("QATunnel"))?96:74;
+            cleanupTunnelNearFieldWater(w,p,tunnelWaterRadius);
+        }
         else if(!paletteOnlyQa && p.primaryFamily==4)
             cleanupSmallSurfaceLiquids(w,p,false,true,140,420);
 

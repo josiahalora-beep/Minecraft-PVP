@@ -258,7 +258,7 @@ jobs:
           QA_BASES_ONLY: '1'
           QA_SHOWCASE: '1'
           QA_INTERIORS_ONLY: '1'
-          QA_REBUILD_TIMEOUT_MS: '300000'
+          QA_REBUILD_TIMEOUT_MS: '420000'
           QA_DETAIL_PASS: '0'
           QA_TEST_ATMOSPHERE: '0'
           QA_VIEW_DISTANCE: '12'

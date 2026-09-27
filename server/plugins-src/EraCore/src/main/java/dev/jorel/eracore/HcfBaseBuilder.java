@@ -3517,6 +3517,11 @@ final class HcfBaseBuilder {
     }
 
     private void buildVerticalTransit(World w,HcfBasePlan p) {
+        // Exact-reference families already contain their real schematic transit,
+        // elevator/sign and dropdown geometry. The retired procedural overlay
+        // must never punch through or decorate the accepted Phase-2 facade.
+        if(HcfInteriorReferenceTemplates.hasExactInterior(p.primaryFamily)) return;
+
         int[] top=p.anchor("drop");
         int dx=top[0],dz=top[2];
 

@@ -12,6 +12,7 @@ on:
     paths:
       - 'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfBaseBuilder.java'
       - 'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfSurfaceReferenceTemplates.java'
+      - 'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfInteriorReferenceTemplates.java'
       - 'bots/src/qa-inspector.js'
       - '.github/workflows/phase3-interiors-visual-qa.yml'
 

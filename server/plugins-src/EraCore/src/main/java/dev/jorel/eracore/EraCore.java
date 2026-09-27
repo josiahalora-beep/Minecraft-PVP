@@ -1908,19 +1908,25 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
                     }
                 },1L);
 
-                Bukkit.getScheduler().runTaskLater(this,new Runnable() {
+                new BukkitRunnable() {
+                    int waitedTicks=0;
                     public void run() {
+                        waitedTicks+=4;
                         NmsFakePlayerRuntime.DropProbeSnapshot result=fakePlayers.dropProbeSnapshot(actorName);
+                        boolean complete=result!=null && result.worldScanComplete;
+                        if(!complete && waitedTicks<60) return;
+
                         boolean pass=result!=null && result.pass();
                         String details=result==null?"no-result":result.summary();
                         getLogger().info("[CombatBody Gate2 command] actor="+actorName+" "+
-                            (pass?"PASS":"FAIL")+" "+details);
+                            (pass?"PASS":"FAIL")+" "+details+" waitedTicks="+waitedTicks);
                         if(p.isOnline()) {
                             p.sendMessage(color((pass?"&a":"&c")+"[CombatBody Gate 2] "+
                                 (pass?"PASS":"FAIL")+" &7"+details));
                         }
+                        cancel();
                     }
-                },8L);
+                }.runTaskTimer(this,4L,4L);
             } catch(Exception ex) {
                 p.sendMessage(color("&c[CombatBody Gate 2] Spawn failed: "+ex.getMessage()));
             }

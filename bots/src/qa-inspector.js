@@ -643,6 +643,77 @@ manifest.familyCoverage={
 }
 writeManifest()
 
+const phase3InteriorRefs={
+  REDEMPTION:{
+    surface:[0,0,0,19,21,19],
+    views:[
+      ['interior-core',[16,8,8],[10,8,7]],
+      ['interior-storage',[7,12,10],[11,14,14]],
+      ['interior-circulation',[13,8,2],[10,8,7]],
+      ['interior-elevator',[12,2,12],[12,2,6]]
+    ]
+  },
+  BASE_HCF:{
+    surface:[0,0,0,29,20,26],
+    views:[
+      ['interior-core',[9,1,8],[13,3,12]],
+      ['interior-storage',[12,13,8],[13,14,13]],
+      ['interior-circulation',[19,12,15],[13,14,13]],
+      ['interior-elevator',[9,1,8],[13,3,12]]
+    ]
+  },
+  MODERN_HCF:{
+    surface:[30,116,30,17,9,17],
+    views:[
+      ['interior-core',[35,99,24],[35,100,30]],
+      ['interior-storage',[35,99,24],[35,100,30]],
+      ['interior-circulation',[32,99,41],[32,100,47]],
+      ['interior-brewer',[36,90,17],[37,90,23]],
+      ['interior-elevator',[28,96,27],[25,97,32]],
+      ['interior-deep',[37,33,40],[40,33,45]]
+    ]
+  },
+  TUNNEL:{
+    surface:[17,45,16,11,12,11],
+    views:[
+      ['interior-core',[16,11,11],[20,13,15]],
+      ['interior-storage',[16,11,11],[20,13,15]],
+      ['interior-circulation',[6,12,10],[16,11,11]],
+      ['interior-brewer',[6,12,10],[11,13,7]],
+      ['interior-portal',[15,11,25],[15,10,31]],
+      ['interior-enchant',[33,12,25],[36,12,30]]
+    ]
+  },
+  CAVE:{
+    surface:[16,28,15,13,12,13],
+    views:[
+      ['interior-core',[21,17,36],[15,18,36]],
+      ['interior-storage',[21,17,36],[15,18,36]],
+      ['interior-circulation',[34,17,16],[21,17,36]],
+      ['interior-brewer',[34,9,12],[34,9,18]],
+      ['interior-portal',[15,15,10],[9,15,10]],
+      ['interior-elevator',[34,17,16],[40,18,16]],
+      ['interior-farm',[12,7,12],[18,7,13]]
+    ]
+  }
+}
+
+function phase3ReferencePoint(b,def,p){
+  const [sx0,sy0,sz0,w,,l]=def.surface
+  const sx=p[0],sy=p[1],sz=p[2]
+  let y
+  if(b.primaryFamily==='MODERN_HCF' && sy<=35){
+    const mainBottom=b.y-45
+    if(mainBottom<14) return null
+    y=Math.max(2,mainBottom-15)+(sy-25)
+  }else y=b.y+(sy-sy0)
+  return {
+    x:b.x-Math.floor((w-1)/2)+(sx-sx0)+0.5,
+    y:y+0.5,
+    z:b.z-Math.floor((l-1)/2)+(sz-sz0)+0.5
+  }
+}
+
 if(selected.length){
   for(const b of selected){
     if(!showcase && process.env.QA_REBUILD_BASES!=='0') {
@@ -653,64 +724,21 @@ if(selected.length){
     }
 
     const prefix='base-'+(b.primaryFamily||'unknown')+'-'+b.name
-    if(interiorOnly && Number.isFinite(b.undergroundY)){
-      const u=b.undergroundY
-      const us=b.utilitySide||1
-      const dropX=b.x-3,dropZ=b.z-1
-      const refillZ=b.z-b.coreHalfZ+4
-
-      await capture(prefix+'-interior-core',
-        {x:b.x,y:u+2,z:b.z+8},{x:b.x,y:u+2,z:b.z},2200)
-
-      // Phase 3 explicitly validates all human traversal systems, not only the
-      // dropdown. The elevator is the classic HCF sign elevator registered by
-      // HcfElevatorDirector; the stair is the physical farm access tunnel.
-      const elevatorX=b.x+3,elevatorZ=b.z+1
-      await capture(prefix+'-interior-elevator',
-        {x:elevatorX,y:u+2,z:elevatorZ+4},{x:elevatorX,y:u+1.5,z:elevatorZ},2000)
-
-      await capture(prefix+'-interior-circulation',
-        {x:b.x-8,y:u+2,z:b.z},{x:b.x+8,y:u+2,z:b.z},2200)
-
-      const stairDir=-us
-      await capture(prefix+'-interior-stairs',
-        {x:b.x+stairDir*3,y:u-2,z:b.z},
-        {x:b.x+stairDir*7,y:u-6,z:b.z},2200)
-
-      await capture(prefix+'-interior-dropdown',
-        {x:dropX,y:u+2,z:dropZ+8},{x:dropX,y:u+2,z:dropZ},2200)
-      await capture(prefix+'-interior-refill',
-        {x:b.x,y:u+2,z:refillZ+7},{x:b.x,y:u+2,z:refillZ},2200)
-      await capture(prefix+'-interior-storage-west',
-        {x:b.x+2,y:u+3,z:b.z-6},{x:b.x-b.coreHalfX+5,y:u+3,z:b.z-4},2200)
-      await capture(prefix+'-interior-storage-east',
-        {x:b.x-2,y:u+3,z:b.z+6},{x:b.x+b.coreHalfX-5,y:u+3,z:b.z+5},2200)
-
-      const utilityX=b.x-us*(b.coreHalfX-5)
-      const utilityZ=b.z+b.coreHalfZ-5
-      await capture(prefix+'-interior-utility',
-        {x:utilityX+us*4,y:u+2,z:utilityZ-4},
-        {x:utilityX,y:u+1.5,z:utilityZ},2200)
-
-      const brewerX=b.x+us*(b.coreHalfX-6)
-      const brewerZ=b.z+1
-      await capture(prefix+'-interior-brewer',
-        {x:brewerX-us*4,y:u+3,z:brewerZ-6},{x:brewerX,y:u+2,z:brewerZ},2400)
-
-      const portalX=b.x+us*(b.coreHalfX-3)
-      const portalZ=b.z-b.coreHalfZ+5
-      await capture(prefix+'-interior-nether-portal',
-        // One block inside the alcove keeps both feet and eye cells in AIR.
-        // +5 is the doorway boundary; its upper lintel occupies the head cell.
-        {x:portalX,y:u+3,z:portalZ+4},{x:portalX,y:u+3,z:portalZ},2200)
-
-      const enchantX=b.x+us*(b.coreHalfX-5)
-      const enchantZ=b.z+b.coreHalfZ-5
-      await capture(prefix+'-interior-enchant',
-        {x:enchantX-us*4,y:u+3,z:enchantZ-5},{x:enchantX,y:u+2,z:enchantZ},2200)
-
-      await capture(prefix+'-interior-farm',
-        {x:b.x,y:u-5,z:b.z+12},{x:b.x,y:u-5,z:b.z+5},2400)
+    if(interiorOnly){
+      const def=phase3InteriorRefs[b.primaryFamily]
+      if(!def){
+        manifest.errors.push('missing Phase 3 source-reference camera definition: '+b.primaryFamily)
+        continue
+      }
+      for(const [name,sourceCamera,sourceTarget] of def.views){
+        const camera=phase3ReferencePoint(b,def,sourceCamera)
+        const target=phase3ReferencePoint(b,def,sourceTarget)
+        if(!camera || !target){
+          manifest.errors.push('unmappable Phase 3 source view '+b.primaryFamily+' '+name)
+          continue
+        }
+        await capture(prefix+'-'+name,camera,target,2400)
+      }
       continue
     }
 

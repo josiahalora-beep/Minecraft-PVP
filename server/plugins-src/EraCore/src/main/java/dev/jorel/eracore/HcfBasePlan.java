@@ -166,6 +166,8 @@ final class HcfBasePlan {
             surfaceY+HcfSurfaceReferenceTemplates.primaryGateOffsetY(primaryFamily),
             cz+HcfSurfaceReferenceTemplates.primaryGateOffsetZ(primaryFamily)
         };
+        int[] exact=HcfInteriorReferenceTemplates.anchor(this,k);
+        if(exact!=null) return exact;
         if("core".equals(k) || "home".equals(k)) return new int[]{cx,undergroundY+1,cz};
         if("drop".equals(k)) return new int[]{cx-3,surfaceY+1,cz-1};
         if("drop-bottom".equals(k)) return new int[]{cx-3,undergroundY+1,cz-1};

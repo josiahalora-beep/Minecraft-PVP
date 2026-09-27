@@ -362,10 +362,15 @@ jobs:
                   if not shot.exists() or shot.stat().st_size<20000:
                       raise SystemExit('Vanilla screenshot missing/too small: '+str(shot))
 
+              # BASE_HCF surface source is 29x20x26 at source origin 0,0,0.
+              # These camera/target cells were selected from real AIR around the
+              # schematic's elevator/core and dense chest room.
               capture('vanilla-base-hcf-interior-core.png',
-                      (x,u+2,z+8),(x,u+2,z))
+                      (x-5+0.5,y+1+0.5,z-4+0.5),
+                      (x-1+0.5,y+3+0.5,z+0.5))
               capture('vanilla-base-hcf-interior-storage-west.png',
-                      (x+2,u+3,z-6),(x-hx+5,u+3,z-4))
+                      (x-2+0.5,y+13+0.5,z-4+0.5),
+                      (x-1+0.5,y+14+0.5,z+1+0.5))
           finally:
               if proc.poll() is None:
                   proc.terminate()
@@ -388,18 +393,16 @@ jobs:
             grep -q "family=$family" server/phase1-server.log
           done
           test "$(find qa-output -maxdepth 1 -name '*interior-core-first.jpg' | wc -l)" -eq 5
-          test "$(find qa-output -maxdepth 1 -name '*interior-elevator-first.jpg' | wc -l)" -eq 5
+          test "$(find qa-output -maxdepth 1 -name '*interior-storage-first.jpg' | wc -l)" -eq 5
           test "$(find qa-output -maxdepth 1 -name '*interior-circulation-first.jpg' | wc -l)" -eq 5
-          test "$(find qa-output -maxdepth 1 -name '*interior-stairs-first.jpg' | wc -l)" -eq 5
-          test "$(find qa-output -maxdepth 1 -name '*interior-dropdown-first.jpg' | wc -l)" -eq 5
-          test "$(find qa-output -maxdepth 1 -name '*interior-refill-first.jpg' | wc -l)" -eq 5
-          test "$(find qa-output -maxdepth 1 -name '*interior-storage-west-first.jpg' | wc -l)" -eq 5
-          test "$(find qa-output -maxdepth 1 -name '*interior-storage-east-first.jpg' | wc -l)" -eq 5
-          test "$(find qa-output -maxdepth 1 -name '*interior-utility-first.jpg' | wc -l)" -eq 5
-          test "$(find qa-output -maxdepth 1 -name '*interior-farm-first.jpg' | wc -l)" -eq 5
-          test "$(find qa-output -maxdepth 1 -name '*interior-brewer-first.jpg' | wc -l)" -eq 5
-          test "$(find qa-output -maxdepth 1 -name '*interior-nether-portal-first.jpg' | wc -l)" -eq 5
-          test "$(find qa-output -maxdepth 1 -name '*interior-enchant-first.jpg' | wc -l)" -eq 5
+          test "$(find qa-output -maxdepth 1 -name '*interior-brewer-first.jpg' | wc -l)" -eq 3
+          test "$(find qa-output -maxdepth 1 -name '*interior-elevator-first.jpg' | wc -l)" -ge 4
+          test "$(find qa-output -maxdepth 1 -name '*interior-portal-first.jpg' | wc -l)" -eq 2
+
+          for family in REDEMPTION BASE_HCF MODERN_HCF TUNNEL CAVE; do
+            grep -q "\[reference-interior-verify\] family=$family .*mismatches=0" server/phase1-server.log
+          done
+          test "$(grep -c '\[reference-interior-verify\].*mismatches=0' server/phase1-server.log)" -ge 5
           test -s qa-output/vanilla-base-hcf-interior-core.png
           test -s qa-output/vanilla-base-hcf-interior-storage-west.png
           if grep -q "production terrain repair chunks=" server/phase1-server.log; then

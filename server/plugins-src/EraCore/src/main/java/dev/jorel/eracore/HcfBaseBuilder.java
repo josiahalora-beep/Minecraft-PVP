@@ -71,6 +71,12 @@ final class HcfBaseBuilder {
     private final Map<String,HcfBasePlan> postBuildTerrainCleanup =
         new LinkedHashMap<String,HcfBasePlan>();
 
+    // Exact Phase-3 schematic interiors are verified only after every queued
+    // block operation lands. This makes "copied from the source" measurable:
+    // chest/hopper/brewer counts must match the raw NBT references.
+    private final Map<String,HcfBasePlan> postBuildInteriorVerify =
+        new LinkedHashMap<String,HcfBasePlan>();
+
     HcfBaseBuilder(EraCore plugin) {
         this.plugin = plugin;
     }
@@ -1948,6 +1954,18 @@ final class HcfBaseBuilder {
                         }
                     }
 
+                    if(!postBuildInteriorVerify.isEmpty()) {
+                        java.util.ArrayList<HcfBasePlan> interiorPlans =
+                            new java.util.ArrayList<HcfBasePlan>(postBuildInteriorVerify.values());
+                        postBuildInteriorVerify.clear();
+                        World verifyWorld=Bukkit.getWorlds().get(0);
+                        for(HcfBasePlan p:interiorPlans) {
+                            if(p==null) continue;
+                            plugin.getLogger().info("[reference-interior-verify] "+
+                                HcfInteriorReferenceTemplates.verify(verifyWorld,p));
+                        }
+                    }
+
                     if(maintenanceRebuild) {
                         maintenanceRebuild=false;
                         plugin.getLogger().info("Base Intelligence: forced base rematerialization queue completed.");
@@ -2326,6 +2344,8 @@ final class HcfBaseBuilder {
     }
 
     private void sealCriticalEnvelope(World w,HcfBasePlan p,boolean dropdownOpen) {
+        if(HcfInteriorReferenceTemplates.hasExactInterior(p.primaryFamily)) return;
+
         // Do not run the legacy procedural surface sealer here. It would
         // overwrite exact schematic gate/glass/roof cells after the reference
         // template has been placed. Surface integrity is supplied by the
@@ -2782,6 +2802,14 @@ final class HcfBaseBuilder {
     }
 
     private void buildUndergroundCore(World w,HcfBasePlan p) {
+        if(HcfInteriorReferenceTemplates.hasExactInterior(p.primaryFamily)) {
+            HcfInteriorReferenceTemplates.queue(queue,w,p);
+            if(!materialPlanning && p.faction!=null)
+                postBuildInteriorVerify.put(
+                    p.faction.toLowerCase(java.util.Locale.ENGLISH),p);
+            return;
+        }
+
         int minX=p.cx-p.coreHalfX,maxX=p.cx+p.coreHalfX;
         int minZ=p.cz-p.coreHalfZ,maxZ=p.cz+p.coreHalfZ;
         // Real reference bases use tall storage/refill walls and layered utility
@@ -3537,6 +3565,7 @@ final class HcfBaseBuilder {
     }
 
     private void buildStorageTier(World w,HcfBasePlan p,int tier) {
+        if(HcfInteriorReferenceTemplates.hasExactInterior(p.primaryFamily)) return;
         String[] labels={"Pots","Pearls","Valuables","Blocks","Brewing","Farm","Overflow",
             "Helmets","Chestplates","Leggings","Boots","Swords","Bows","Kits"};
         int count=tier<=1?8:(tier==2?11:14);
@@ -3740,6 +3769,7 @@ final class HcfBaseBuilder {
     }
 
     private void buildUndergroundBrewer(World w,HcfBasePlan p) {
+        if(HcfInteriorReferenceTemplates.hasExactInterior(p.primaryFamily)) return;
         int[] a=p.anchor("brewer");
         int cx=a[0],floor=a[1],cz=a[2];
         int halfX=5,halfZ=8;
@@ -3794,6 +3824,7 @@ final class HcfBaseBuilder {
     }
 
     private void buildFactionPortal(World w,HcfBasePlan p,String type) {
+        if(HcfInteriorReferenceTemplates.hasExactInterior(p.primaryFamily)) return;
         int[] a=p.anchor("nether".equals(type)?"portal-nether":"portal-end");
         int x=a[0],y=a[1],z=a[2];
         int floor=p.undergroundY;

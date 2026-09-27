@@ -1261,11 +1261,11 @@ final class HcfBaseBuilder {
         if(!paletteOnlyQa && p.primaryFamily==2)
             cleanupSmallSurfaceLiquids(w,p,true,false,160,220);
         else if(!paletteOnlyQa && p.primaryFamily==3)
-            // Tunnel's authored site has a few visually tiny pond fragments
-            // whose connected surface components exceed Modern's 220-column
-            // cap. Keep the same bounded/boundary-safe algorithm but permit
-            // those medium components to be restored to native grade.
-            cleanupSmallSurfaceLiquids(w,p,true,false,160,2500);
+            // Tunnel needs only its immediate PvP/base field cleaned. The old
+            // component pass crossed dozens of distant pools and queued nearly
+            // 3k edits. Keep authored rivers/lakes outside the visible near
+            // field untouched and restore only surface water within 74 blocks.
+            cleanupTunnelNearFieldWater(w,p,74);
         else if(!paletteOnlyQa && p.primaryFamily==4)
             cleanupSmallSurfaceLiquids(w,p,false,true,140,420);
 
@@ -1680,6 +1680,34 @@ final class HcfBaseBuilder {
             return -1;
         }
         return -1;
+    }
+
+    private void cleanupTunnelNearFieldWater(World w,HcfBasePlan p,int radius) {
+        int restoredColumns=0;
+        int r2=radius*radius;
+        for(int x=p.cx-radius;x<=p.cx+radius;x++) {
+            for(int z=p.cz-radius;z<=p.cz+radius;z++) {
+                int dx=x-p.cx,dz=z-p.cz;
+                if(dx*dx+dz*dz>r2) continue;
+
+                int liquidY=surfaceLiquidY(w,x,z,true,false);
+                if(liquidY<0) continue;
+
+                int solid=solidSurfaceY(w,x,z);
+                Material nativeTop=sampleLocalPaletteAt(w,x,z)[0];
+                if(nativeTop==Material.DIRT) nativeTop=Material.GRASS;
+                Material fill=nativeFillMaterial(nativeTop);
+
+                for(int yy=Math.max(2,solid+1);yy<liquidY;yy++)
+                    queue.add(new Op(w,x,yy,z,fill));
+                queue.add(new Op(w,x,liquidY,z,nativeTop));
+                restoredColumns++;
+            }
+        }
+
+        if(restoredColumns>0)
+            plugin.getLogger().info("[terrain-tunnel-nearfield-water] faction="+
+                p.faction+" columns="+restoredColumns+" radius="+radius);
     }
 
     private void cleanupSmallSurfaceLiquids(World w,HcfBasePlan p,

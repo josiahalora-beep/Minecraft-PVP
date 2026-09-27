@@ -1106,7 +1106,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     @EventHandler public void onDeath(PlayerDeathEvent e) {
         String n = e.getEntity().getName().toLowerCase(Locale.ENGLISH);
         if(fakePlayers!=null && fakePlayers.hasBody(e.getEntity().getName()))
-            fakePlayers.noteDeathEvent(e.getEntity().getName());
+            fakePlayers.noteDeathEvent(e.getEntity().getName(),e.getDrops(),e.getEntity().getLocation());
 
         if(activeDuel!=null &&
            (e.getEntity().getName().equalsIgnoreCase(activeDuel.human) ||
@@ -1749,6 +1749,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             p.sendMessage(color("&e/simactor kill <player>"));
             p.sendMessage(color("&e/simactor despawn <player>"));
             p.sendMessage(color("&e/simactor probe <player> &7(one-body death/DTR gate)"));
+            p.sendMessage(color("&e/simactor dropprobe <player> &7(Gate 2: normal world drops)"));
             p.sendMessage(color("&7"+fakePlayers.supportSummary()));
             return true;
         }
@@ -1850,6 +1851,79 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             p.sendMessage(color(fakePlayers.kill(args[1])
                 ?"&aIssued lethal damage to "+args[1]+". Watch the normal death/DTR pipeline."
                 :"&cNo live CombatBody exists for "+args[1]+"."));
+            return true;
+        }
+
+        if(sub.equals("dropprobe")) {
+            if(args.length<2) {
+                p.sendMessage(color("&cUsage: /simactor dropprobe <logical-online simulated player>"));
+                return true;
+            }
+            if(!fakePlayers.supported()) {
+                p.sendMessage(color("&c[CombatBody Gate 2] FAIL: server is not CraftBukkit/Spigot v1_8_R3."));
+                return true;
+            }
+            if(!fakePlayers.probeAllowed()) {
+                p.sendMessage(color("&c[CombatBody Gate 2] FAIL: probe mode is disabled."));
+                return true;
+            }
+
+            final ActorDirectory.Snapshot a=actors.resolve(args[1]);
+            if(a==null || !simWorld.hasIdentity(args[1])) {
+                p.sendMessage(color("&c[CombatBody Gate 2] Unknown simulated identity."));
+                return true;
+            }
+            if(!a.logicalOnline) {
+                p.sendMessage(color("&c[CombatBody Gate 2] Choose a logical-online simulated player."));
+                return true;
+            }
+            if(a.runtime==ActorDirectory.Runtime.MINEFLAYER || a.runtime==ActorDirectory.Runtime.HUMAN) {
+                p.sendMessage(color("&c[CombatBody Gate 2] Refusing: "+a.name+" already has a connected client."));
+                return true;
+            }
+
+            Location at=duelCenterLocation();
+            if(at==null) at=a.location;
+            if(at==null) {
+                p.sendMessage(color("&c[CombatBody Gate 2] No probe location is available."));
+                return true;
+            }
+
+            try {
+                final String actorName=a.name;
+                fakePlayers.spawn(actorName,at,true);
+                if(!fakePlayers.prepareDropProbe(actorName)) {
+                    p.sendMessage(color("&c[CombatBody Gate 2] Could not prepare marked inventory."));
+                    fakePlayers.despawn(actorName);
+                    return true;
+                }
+
+                p.sendMessage(color("&e[CombatBody Gate 2] Started for &f"+actorName+
+                    "&e. Killing through the normal PlayerDeathEvent path."));
+
+                Bukkit.getScheduler().runTaskLater(this,new Runnable() {
+                    public void run() {
+                        if(!fakePlayers.kill(actorName) && p.isOnline())
+                            p.sendMessage(color("&c[CombatBody Gate 2] Lethal damage call failed."));
+                    }
+                },1L);
+
+                Bukkit.getScheduler().runTaskLater(this,new Runnable() {
+                    public void run() {
+                        NmsFakePlayerRuntime.DropProbeSnapshot result=fakePlayers.dropProbeSnapshot(actorName);
+                        boolean pass=result!=null && result.pass();
+                        String details=result==null?"no-result":result.summary();
+                        getLogger().info("[CombatBody Gate2 command] actor="+actorName+" "+
+                            (pass?"PASS":"FAIL")+" "+details);
+                        if(p.isOnline()) {
+                            p.sendMessage(color((pass?"&a":"&c")+"[CombatBody Gate 2] "+
+                                (pass?"PASS":"FAIL")+" &7"+details));
+                        }
+                    }
+                },8L);
+            } catch(Exception ex) {
+                p.sendMessage(color("&c[CombatBody Gate 2] Spawn failed: "+ex.getMessage()));
+            }
             return true;
         }
 

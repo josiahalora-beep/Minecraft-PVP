@@ -2,13 +2,19 @@ package dev.jorel.eracore;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
+import org.bukkit.Material;
+import org.bukkit.entity.Item;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.PlayerInventory;
+import org.bukkit.inventory.meta.ItemMeta;
 
 import java.lang.reflect.Array;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
@@ -33,6 +39,45 @@ final class NmsFakePlayerRuntime {
         }
     }
 
+    static final class DropProbeSnapshot {
+        final String marker;
+        final int expectedStacks;
+        final int eventStacks;
+        final int worldStacks;
+        final boolean deathEventSeen;
+        final boolean worldScanComplete;
+
+        DropProbeSnapshot(String marker,int expectedStacks,int eventStacks,int worldStacks,
+                          boolean deathEventSeen,boolean worldScanComplete) {
+            this.marker=marker;this.expectedStacks=expectedStacks;
+            this.eventStacks=eventStacks;this.worldStacks=worldStacks;
+            this.deathEventSeen=deathEventSeen;this.worldScanComplete=worldScanComplete;
+        }
+
+        boolean pass() {
+            return deathEventSeen && worldScanComplete &&
+                eventStacks>=expectedStacks && worldStacks>=expectedStacks;
+        }
+
+        String summary() {
+            return "eventDrops="+eventStacks+"/"+expectedStacks+
+                " worldDrops="+worldStacks+"/"+expectedStacks+
+                " deathEvent="+deathEventSeen+
+                " scanComplete="+worldScanComplete;
+        }
+    }
+
+    private static final class DropProbe {
+        String actor;
+        String marker;
+        int expectedStacks=2;
+        int eventStacks;
+        int worldStacks;
+        boolean deathEventSeen;
+        boolean worldScanComplete;
+        Location deathLocation;
+    }
+
     private static final class Body {
         String name;
         UUID uuid;
@@ -47,6 +92,7 @@ final class NmsFakePlayerRuntime {
 
     private final EraCore plugin;
     private final Map<String,Body> bodies=new LinkedHashMap<String,Body>();
+    private final Map<String,DropProbe> dropProbes=new LinkedHashMap<String,DropProbe>();
 
     NmsFakePlayerRuntime(EraCore plugin){this.plugin=plugin;}
 
@@ -158,6 +204,87 @@ final class NmsFakePlayerRuntime {
         return b.bukkit;
     }
 
+    boolean prepareDropProbe(String name) {
+        Body b=bodies.get(key(name));
+        if(b==null || b.bukkit==null) return false;
+
+        String marker="GATE2-"+Long.toHexString(System.nanoTime())+"-"+Integer.toHexString(name.hashCode());
+        PlayerInventory inv=b.bukkit.getInventory();
+        inv.clear();
+        inv.setArmorContents(new ItemStack[4]);
+
+        ItemStack sword=marked(new ItemStack(Material.DIAMOND_SWORD,1),marker+"-SWORD");
+        ItemStack pearls=marked(new ItemStack(Material.ENDER_PEARL,3),marker+"-PEARLS");
+        inv.setItem(0,sword);
+        inv.setItem(1,pearls);
+        try { b.bukkit.updateInventory(); } catch(Throwable ignored){}
+
+        DropProbe probe=new DropProbe();
+        probe.actor=b.name;
+        probe.marker=marker;
+        dropProbes.put(key(name),probe);
+        plugin.getLogger().info("[CombatBody Gate2] prepared actor="+b.name+
+            " marker="+marker+" expectedStacks="+probe.expectedStacks);
+        return true;
+    }
+
+    DropProbeSnapshot dropProbeSnapshot(String name) {
+        DropProbe p=dropProbes.get(key(name));
+        if(p==null) return null;
+        return new DropProbeSnapshot(p.marker,p.expectedStacks,p.eventStacks,p.worldStacks,
+            p.deathEventSeen,p.worldScanComplete);
+    }
+
+    private ItemStack marked(ItemStack stack,String label) {
+        ItemMeta meta=stack.getItemMeta();
+        if(meta!=null) {
+            meta.setDisplayName(label);
+            stack.setItemMeta(meta);
+        }
+        return stack;
+    }
+
+    private boolean hasMarker(ItemStack stack,String marker) {
+        if(stack==null || marker==null || !stack.hasItemMeta()) return false;
+        ItemMeta meta=stack.getItemMeta();
+        return meta!=null && meta.hasDisplayName() && meta.getDisplayName().startsWith(marker);
+    }
+
+    private int countMarked(List<ItemStack> drops,String marker) {
+        int n=0;
+        if(drops==null) return 0;
+        for(ItemStack stack:drops) if(hasMarker(stack,marker)) n++;
+        return n;
+    }
+
+    private void scanWorldDrops(final DropProbe probe) {
+        if(probe==null) return;
+        Location at=probe.deathLocation;
+        if(at==null || at.getWorld()==null) {
+            probe.worldScanComplete=true;
+            probe.worldStacks=0;
+            return;
+        }
+
+        int found=0;
+        for(org.bukkit.entity.Entity entity:at.getWorld().getEntities()) {
+            if(!(entity instanceof Item)) continue;
+            if(entity.getLocation().distanceSquared(at)>36.0) continue;
+            Item drop=(Item)entity;
+            if(!hasMarker(drop.getItemStack(),probe.marker)) continue;
+            found++;
+            drop.remove();
+        }
+        probe.worldStacks=found;
+        probe.worldScanComplete=true;
+        boolean pass=probe.deathEventSeen &&
+            probe.eventStacks>=probe.expectedStacks &&
+            probe.worldStacks>=probe.expectedStacks;
+        plugin.getLogger().info("[CombatBody Gate2] actor="+probe.actor+" "+
+            (pass?"PASS":"FAIL")+" eventDrops="+probe.eventStacks+"/"+probe.expectedStacks+
+            " worldDrops="+probe.worldStacks+"/"+probe.expectedStacks);
+    }
+
     boolean damage(String name,double amount) {
         Body b=bodies.get(key(name));
         if(b==null || b.bukkit==null) return false;
@@ -182,15 +309,30 @@ final class NmsFakePlayerRuntime {
         }
     }
 
-    void noteDeathEvent(String name) {
+    void noteDeathEvent(String name,List<ItemStack> drops,Location deathLocation) {
         final Body b=bodies.get(key(name));
         if(b==null) return;
         b.deathEventSeen=true;
-        // Leave the dead body around briefly so vanilla/CraftBukkit can finish
-        // death/drop processing before our experimental runtime removes it.
+
+        final DropProbe probe=dropProbes.get(key(name));
+        if(probe!=null) {
+            probe.deathEventSeen=true;
+            probe.deathLocation=deathLocation==null?null:deathLocation.clone();
+            probe.eventStacks=countMarked(drops,probe.marker);
+            plugin.getLogger().info("[CombatBody Gate2] death-event actor="+b.name+
+                " eventDrops="+probe.eventStacks+"/"+probe.expectedStacks);
+            Bukkit.getScheduler().runTaskLater(plugin,new Runnable(){
+                public void run(){scanWorldDrops(probe);}
+            },2L);
+        }
+
         Bukkit.getScheduler().runTaskLater(plugin,new Runnable(){
             public void run(){despawn(b.name);}
         },10L);
+    }
+
+    void noteDeathEvent(String name) {
+        noteDeathEvent(name,null,null);
     }
 
     boolean deathEventSeen(String name) {
@@ -212,6 +354,7 @@ final class NmsFakePlayerRuntime {
         String[] names=new String[bodies.size()];
         int i=0; for(Body b:bodies.values()) names[i++]=b.name;
         for(String name:names) despawn(name);
+        dropProbes.clear();
     }
 
     private void showToOnlinePlayers(Body b) {

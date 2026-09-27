@@ -177,8 +177,26 @@ validated behaviors:
 - role-dependent mistakes;
 - loot/resource discipline.
 
-Only after the death/DTR gate passes should those behaviors be moved into a
-shared HCF combat policy usable by both Mineflayer and the NMS body.
+### Gate 2 — normal death drops
+
+After the death/DTR gate, run:
+
+```text
+/simactor dropprobe <logical-online simulated player>
+```
+
+The probe equips the CombatBody with two uniquely marked synthetic stacks,
+kills it through the normal Bukkit death path, and requires both:
+
+1. both marked stacks are present in `PlayerDeathEvent.getDrops()`;
+2. both become real nearby Bukkit `Item` entities after the event returns.
+
+The synthetic drops are removed after the world-entity proof so the test does
+not contaminate persistent HCF inventories. A PASS is logged as
+`[CombatBody Gate2] ... PASS`. There is no fake-player-only drop shortcut.
+
+Only after the death/DTR and normal-drop gates pass should R24 combat behavior
+be moved into a shared HCF combat policy usable by both Mineflayer and the NMS body.
 
 ## Production promotion criteria
 

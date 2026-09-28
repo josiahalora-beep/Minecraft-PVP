@@ -74,6 +74,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     private HcfAtmosphereDirector atmosphereDirector;
     private NmsFakePlayerRuntime fakePlayers;
     private CombatBodyPvpDirector combatBodyPvp;
+    private CombatBodyScaleDirector combatBodyScale;
     private HcfRaidPrototypeDirector raidPrototype;
     private ActorDirectory actors;
     private HcfElevatorDirector elevatorDirector;
@@ -216,6 +217,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         simWorld = new SimWorldDirector(this);
         fakePlayers = new NmsFakePlayerRuntime(this);
         combatBodyPvp = new CombatBodyPvpDirector(this,fakePlayers);
+        combatBodyScale = new CombatBodyScaleDirector(this,fakePlayers,simWorld);
         raidPrototype = new HcfRaidPrototypeDirector(this,fakePlayers);
         actors = new ActorDirectory(this,simWorld,fakePlayers);
         simChat = new SimChatDirector(this, simWorld);
@@ -304,6 +306,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
     @Override public void onDisable() {
         if (raidPrototype != null) raidPrototype.stop();
+        if (combatBodyScale != null) combatBodyScale.stop();
         if (combatBodyPvp != null) combatBodyPvp.stop();
         if (fakePlayers != null) fakePlayers.shutdown();
         if (worldBuildDirector != null) worldBuildDirector.stop();
@@ -1766,6 +1769,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             p.sendMessage(color("&e/simactor probe <player> &7(one-body death/DTR gate)"));
             p.sendMessage(color("&e/simactor materializeprobe <player> &7(Gate 4 state continuity)"));
             p.sendMessage(color("&e/simactor raidprobe <attacker> <defender> <backup> &7(open-gate raid prototype)"));
+            p.sendMessage(color("&e/simactor scaleprobe [maxBodies] &7(Gate 5: 2/4/8/12/16 active-body benchmark)"));
             p.sendMessage(color("&e/simactor dropprobe <player> &7(Gate 2: normal world drops)"));
             p.sendMessage(color("&7"+fakePlayers.supportSummary()));
             return true;
@@ -1868,6 +1872,54 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             p.sendMessage(color(fakePlayers.kill(args[1])
                 ?"&aIssued lethal damage to "+args[1]+". Watch the normal death/DTR pipeline."
                 :"&cNo live CombatBody exists for "+args[1]+"."));
+            return true;
+        }
+
+        if(sub.equals("scaleprobe")) {
+            if(combatBodyScale==null || !fakePlayers.supported() || !fakePlayers.probeAllowed()) {
+                p.sendMessage(color("&c[CombatBody Gate 5] Runtime/probe support is unavailable."));
+                return true;
+            }
+            int maxBodies=16;
+            if(args.length>=2) {
+                try { maxBodies=Integer.parseInt(args[1]); } catch(Exception ignored) {}
+            }
+            maxBodies=Math.max(2,Math.min(16,maxBodies));
+            if((maxBodies&1)==1) maxBodies--;
+
+            Location center=duelCenterLocation();
+            if(center==null) center=p.getLocation();
+            if(center==null || center.getWorld()==null) {
+                p.sendMessage(color("&c[CombatBody Gate 5] No benchmark world is available."));
+                return true;
+            }
+
+            if(!combatBodyScale.startProbe(center,maxBodies)) {
+                p.sendMessage(color("&c[CombatBody Gate 5] Could not start scale probe (already active or not enough logical-online identities)."));
+                return true;
+            }
+
+            final int requested=maxBodies;
+            p.sendMessage(color("&e[CombatBody Gate 5] Running active-body scale probe through &f"+requested+
+                " &ebodies. Required single-player HCF target: &f12&e."));
+
+            new BukkitRunnable() {
+                int waited=0;
+                public void run() {
+                    waited+=10;
+                    CombatBodyScaleDirector.ProbeSnapshot result=combatBodyScale.snapshot();
+                    if((result==null || !result.complete) && waited<2400) return;
+
+                    boolean pass=result!=null && result.pass;
+                    String details=result==null?"no-result":result.summary();
+                    getLogger().info("[CombatBody Gate5 command] "+(pass?"PASS":"FAIL")+
+                        " "+details+" waitedTicks="+waited);
+                    if(p.isOnline())
+                        p.sendMessage(color((pass?"&a":"&c")+"[CombatBody Gate 5] "+
+                            (pass?"PASS ":"FAIL ")+"&7"+details));
+                    cancel();
+                }
+            }.runTaskTimer(this,10L,10L);
             return true;
         }
 

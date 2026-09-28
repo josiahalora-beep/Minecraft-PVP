@@ -2328,6 +2328,18 @@ final class SimWorldDirector {
         return p!=null && p.logicalOnline && p.bannedUntil<=System.currentTimeMillis();
     }
 
+    List<String> logicalOnlineIdentityNames(int limit) {
+        int cap=Math.max(1,limit);
+        List<String> out=new ArrayList<String>();
+        for(SimPlayer p:players.values()) {
+            if(p==null || !p.logicalOnline || p.bannedUntil>System.currentTimeMillis()) continue;
+            if(p.name==null || p.name.trim().isEmpty()) continue;
+            out.add(p.name);
+            if(out.size()>=cap) break;
+        }
+        return out;
+    }
+
     String factionOfIdentity(String name) {
         SimPlayer p=name==null?null:players.get(key(name));
         return p==null || p.faction==null?"":p.faction;

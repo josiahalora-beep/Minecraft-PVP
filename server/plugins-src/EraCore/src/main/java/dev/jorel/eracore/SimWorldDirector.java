@@ -3068,7 +3068,9 @@ final class SimWorldDirector {
         else if("RIVAL".equals(intent)) interest-=28;
         else if("TRAPPER".equals(intent)) interest-=38;
 
-        if(prestigePresenceNearBase(target)) interest+=65;
+        boolean present=prestigePresenceNearBase(target) ||
+            prestigePresenceNearFactionBase(target,f);
+        if(present) interest+=65;
         else interest-=28;
 
         long epoch=System.currentTimeMillis()/90000L;
@@ -3080,13 +3082,15 @@ final class SimWorldDirector {
         if(watcher==null || target==null) return null;
         int h=Math.abs(key(watcher.name).hashCode());
         double angle=(h%360)*Math.PI/180.0;
-        // Stay visibly outside the target's structure/claim edge instead of
-        // spawning spectators against glass or inside exterior details.
-        int radius=baseTerrainRadius(target)+12+(h%12);
+        // A resident reacting to a famous passer comes outside its OWN claim.
+        // A faction intentionally visiting the prestige base travels to the
+        // prestige perimeter instead.
+        SimFaction scene=prestigePresenceNearFactionBase(target,watcher)?watcher:target;
+        int radius=baseTerrainRadius(scene)+12+(h%12);
         return new int[]{
-            target.baseX+(int)Math.round(Math.cos(angle)*radius),
-            target.baseY+1,
-            target.baseZ+(int)Math.round(Math.sin(angle)*radius)
+            scene.baseX+(int)Math.round(Math.cos(angle)*radius),
+            scene.baseY+1,
+            scene.baseZ+(int)Math.round(Math.sin(angle)*radius)
         };
     }
 
@@ -8343,8 +8347,9 @@ final class SimWorldDirector {
             f.name,f.leader,target.leader);
     }
 
-    private boolean prestigePresenceNearBase(SimFaction target) {
-        if(target==null || (target.baseX==0 && target.baseZ==0)) return false;
+    private boolean prestigePresenceNearFactionBase(SimFaction prestigeFaction,SimFaction aroundFaction) {
+        if(prestigeFaction==null || aroundFaction==null ||
+           (aroundFaction.baseX==0 && aroundFaction.baseZ==0)) return false;
         World overworld=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
         if(overworld==null) return false;
         int radius=Math.max(70,plugin.getConfig().getInt("prestige-neighborhood.presence-radius",135));
@@ -8360,11 +8365,16 @@ final class SimWorldDirector {
                 SimPlayer sp=players.get(key(body.getName()));
                 factionName=sp==null?"":sp.faction;
             }
-            if(factionName==null || !factionName.equalsIgnoreCase(target.name)) continue;
-            if(distSq(body.getLocation().getX(),body.getLocation().getZ(),target.baseX,target.baseZ)<=r2)
+            if(factionName==null || !factionName.equalsIgnoreCase(prestigeFaction.name)) continue;
+            if(distSq(body.getLocation().getX(),body.getLocation().getZ(),
+                      aroundFaction.baseX,aroundFaction.baseZ)<=r2)
                 return true;
         }
         return false;
+    }
+
+    private boolean prestigePresenceNearBase(SimFaction target) {
+        return prestigePresenceNearFactionBase(target,target);
     }
 
     private String prestigeFaceForFaction(SimFaction target) {
@@ -8386,7 +8396,8 @@ final class SimWorldDirector {
 
     private void maybeNeighborhoodReaction(SimPlayer p,SimFaction f,SimFaction target,String intent) {
         if(p==null || f==null || target==null || !p.logicalOnline ||
-           !prestigePresenceNearBase(target)) return;
+           (!prestigePresenceNearBase(target) &&
+            !prestigePresenceNearFactionBase(target,f))) return;
         long now=System.currentTimeMillis();
         String k=key(p.name);
         Long next=nextNeighborhoodReactionAt.get(k);
@@ -8425,7 +8436,7 @@ final class SimWorldDirector {
         String intent=neighborhoodIntentToward(f,target.name);
         if("RIVAL".equals(intent)) score+=55;
         if("TRAPPER".equals(intent)) score+=45;
-        if(prestigePresenceNearBase(target)) score+=55;
+        if(prestigePresenceNearBase(target) || prestigePresenceNearFactionBase(target,f)) score+=55;
         if("leader".equals(p.role)) score+=18;
         if(p.combatClass==CombatClass.BARD || p.combatClass==CombatClass.ARCHER) score-=18;
 
@@ -8439,11 +8450,15 @@ final class SimWorldDirector {
         if(camper==null || target==null) return null;
         int h=Math.abs((key(camper.name)+"|"+key(p==null?"":p.name)).hashCode());
         double angle=(h%360)*Math.PI/180.0;
-        int radius=baseTerrainRadius(target)+18+(h%18);
+        // If the prestige faction is physically passing this faction's own
+        // claim, residents come to their own perimeter/gate instead of
+        // magically travelling to the prestige faction's home.
+        SimFaction scene=prestigePresenceNearFactionBase(target,camper)?camper:target;
+        int radius=baseTerrainRadius(scene)+18+(h%18);
         return new int[]{
-            target.baseX+(int)Math.round(Math.cos(angle)*radius),
-            target.baseY+1,
-            target.baseZ+(int)Math.round(Math.sin(angle)*radius)
+            scene.baseX+(int)Math.round(Math.cos(angle)*radius),
+            scene.baseY+1,
+            scene.baseZ+(int)Math.round(Math.sin(angle)*radius)
         };
     }
 
@@ -8473,6 +8488,56 @@ final class SimWorldDirector {
                 f.watchTarget="";
                 f.watchUntil=0L;
                 continue;
+            }
+
+            // Physical prestige pass-by reaction. If the owner or a creator
+            // from another faction actually runs past this claim, the faction
+            // can wake Mineflayer residents and decide whether to watch/talk,
+            // pressure, bait/trap, or simply ignore the passer.
+            SimFaction visitingPrestige=null;
+            int visitingPull=-1;
+            for(SimFaction pf:prestigeFactions) {
+                if(pf.name.equalsIgnoreCase(f.name)) continue;
+                if(!prestigePresenceNearFactionBase(pf,f)) continue;
+                int pull=prestigePullForFaction(pf);
+                if(pull>visitingPull){visitingPull=pull;visitingPrestige=pf;}
+            }
+            if(visitingPrestige!=null &&
+               (f.watchTarget==null||f.watchTarget.isEmpty()) &&
+               (f.campTarget==null||f.campTarget.isEmpty())) {
+                String intent=(f.neighborhoodTarget!=null &&
+                    f.neighborhoodTarget.equalsIgnoreCase(visitingPrestige.name))
+                    ?f.neighborhoodIntent:chooseNeighborhoodIntent(f,visitingPrestige);
+                SimPlayer leader=players.get(key(f.leader));
+                int aggression=leader==null?50:leader.aggression;
+                int risk=leader==null?50:leader.riskTolerance;
+                if("FAN".equalsIgnoreCase(intent) || "FRIENDLY".equalsIgnoreCase(intent) ||
+                   ("OPPORTUNIST".equalsIgnoreCase(intent) && aggression+risk<125)) {
+                    f.watchTarget=visitingPrestige.name;
+                    f.watchUntil=now+(1+rng.nextInt(4))*60L*1000L;
+                    recordHistory("PASSBY",3,f.name+" came outside its own claim when "+
+                        visitingPrestige.name+" passed by",f.name,f.leader,visitingPrestige.leader);
+                } else {
+                    f.campTarget=visitingPrestige.name;
+                    if("RIVAL".equalsIgnoreCase(intent) || "TRAPPER".equalsIgnoreCase(intent))
+                        recordRivalry(f.name,visitingPrestige.name,1+rng.nextInt(3));
+                    recordHistory("PASSBY",4,f.name+" came out to pressure/bait "+
+                        visitingPrestige.name+" as they passed the claim",
+                        f.name,f.leader,visitingPrestige.leader);
+                }
+            }
+
+            // Transient passer pressure should decay after the prestige player
+            // leaves. Durable neighborhood rivals/trappers keep their separate
+            // long-term camp behavior.
+            if(f.campTarget!=null && !f.campTarget.isEmpty()) {
+                SimFaction camped=factions.get(key(f.campTarget));
+                boolean durable=camped!=null && f.neighborhoodTarget!=null &&
+                    f.neighborhoodTarget.equalsIgnoreCase(camped.name) &&
+                    ("RIVAL".equalsIgnoreCase(f.neighborhoodIntent) ||
+                     "TRAPPER".equalsIgnoreCase(f.neighborhoodIntent));
+                boolean stillHere=camped!=null && prestigePresenceNearFactionBase(camped,f);
+                if(!durable && !stillHere && rng.nextInt(100)<28) f.campTarget="";
             }
 
             SimFaction neighborhood=(f.neighborhoodTarget==null||f.neighborhoodTarget.isEmpty())

@@ -8815,9 +8815,17 @@ final class SimWorldDirector {
     private String nextFactionName() {
         for (int i = 0; i < FACTION_NAMES.length; i++) {
             String candidate = FACTION_NAMES[(factionNameCursor++) % FACTION_NAMES.length];
-            if (!factions.containsKey(key(candidate))) return candidate;
+            // Check both simulation state and the authoritative faction layer.
+            // A human-created faction can exist before SimWorld knows about it.
+            if (!factions.containsKey(key(candidate)) &&
+                plugin.factionMemberCountAuthority(candidate) < 0) return candidate;
         }
-        return "Faction" + (factionNameCursor++);
+        String candidate;
+        do {
+            candidate = "Faction" + (factionNameCursor++);
+        } while (factions.containsKey(key(candidate)) ||
+                 plugin.factionMemberCountAuthority(candidate) >= 0);
+        return candidate;
     }
 
     private boolean recruitBestCandidate(SimFaction f) {

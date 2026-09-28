@@ -34,6 +34,8 @@ $coordOut = Join-Path $logs 'coordinator.out.log'
 $coordErr = Join-Path $logs 'coordinator.err.log'
 $workerOut = Join-Path $logs 'worker.out.log'
 $workerErr = Join-Path $logs 'worker.err.log'
+$ollamaOut = Join-Path $logs 'ollama.out.log'
+$ollamaErr = Join-Path $logs 'ollama.err.log'
 
 function Port-IsOpen([int]$Port) {
     try {
@@ -62,6 +64,69 @@ function Node-ProcessRunning([string]$Pattern) {
     }
     catch {
         return $false
+    }
+}
+
+function Stop-ProjectNodeProcesses {
+    try {
+        $targets = @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction Stop |
+            Where-Object {
+                $_.CommandLine -match 'worker-coordinator\.js' -or
+                $_.CommandLine -match 'worker-pool\.js'
+            })
+        foreach ($proc in $targets) {
+            Write-Host "Stopping stale HCF Node process PID $($proc.ProcessId)..." -ForegroundColor DarkGray
+            Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue
+        }
+        if ($targets.Count -gt 0) { Start-Sleep -Milliseconds 800 }
+    }
+    catch {}
+}
+
+function Find-Ollama {
+    $cmd = Get-Command ollama.exe -ErrorAction SilentlyContinue
+    if ($null -ne $cmd) { return $cmd.Source }
+
+    $candidate = Join-Path $env:LOCALAPPDATA 'Programs\Ollama\ollama.exe'
+    if (Test-Path $candidate) { return $candidate }
+
+    return $null
+}
+
+function Start-LocalOllama {
+    $env:HCF_AI_PROVIDER = 'ollama'
+    $env:HCF_OLLAMA_URL = 'http://127.0.0.1:11434'
+    $env:HCF_OLLAMA_MODEL = 'qwen3:4b'
+
+    if (Port-IsOpen 11434) {
+        Write-Host 'Ollama is already available on 127.0.0.1:11434.' -ForegroundColor Green
+        return
+    }
+
+    $ollama = Find-Ollama
+    if ([string]::IsNullOrWhiteSpace($ollama)) {
+        Write-Host 'Ollama executable was not found; community AI will use deterministic fallback.' -ForegroundColor Yellow
+        return
+    }
+
+    Write-Host 'Starting local Ollama for HCF community AI...' -ForegroundColor Cyan
+    Remove-Item $ollamaOut, $ollamaErr -Force -ErrorAction SilentlyContinue
+    Start-Process -FilePath $ollama -ArgumentList 'serve' -WindowStyle Hidden -RedirectStandardOutput $ollamaOut -RedirectStandardError $ollamaErr | Out-Null
+
+    $ollamaTries = 0
+    while (!(Port-IsOpen 11434) -and $ollamaTries -lt 40) {
+        Start-Sleep -Milliseconds 500
+        $ollamaTries++
+    }
+
+    if (Port-IsOpen 11434) {
+        Write-Host 'Ollama ready: qwen3:4b on 127.0.0.1:11434.' -ForegroundColor Green
+    }
+    else {
+        Write-Host 'Ollama did not open port 11434; community AI will use deterministic fallback.' -ForegroundColor Yellow
+        if (Test-Path $ollamaErr) {
+            Get-Content $ollamaErr -Tail 12 | ForEach-Object { Write-Host $_ -ForegroundColor DarkGray }
+        }
     }
 }
 
@@ -129,6 +194,8 @@ if (Port-IsOpen 25565) {
 }
 
 Repair-SimulationState
+Stop-ProjectNodeProcesses
+Start-LocalOllama
 
 $javaHome = (Get-Content $javaHomeFile -Raw).Trim()
 if ([string]::IsNullOrWhiteSpace($javaHome)) {

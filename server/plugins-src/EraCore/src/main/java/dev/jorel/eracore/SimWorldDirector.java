@@ -4476,6 +4476,8 @@ final class SimWorldDirector {
             if(dispatched) return;
 
             if (fallback != null && !fallback.trim().isEmpty()) {
+                if(looksFactionJoinRequest(rawMessage))
+                    maybeFallbackFactionInvite(respondent,speakerName,rawMessage);
                 deliverHumanPublicReply(respondent,speakerName,rawMessage,fallback);
                 rememberPublic(respondent.name, fallback);
                 return;
@@ -4645,6 +4647,12 @@ final class SimWorldDirector {
         final String fallback=casualReply(sim,lower);
         final String humanName=human.getName();
         lastReplyTarget.put(key(humanName),sim.name);
+
+        // Real social actions must not depend on LLM availability or request
+        // budget. Apply the authoritative HCF recruitment rules immediately;
+        // AI only supplies the conversational wording/memory layer.
+        if(looksFactionJoinRequest(text))
+            maybeFallbackFactionInvite(sim,humanName,text);
 
         return aiChat.request("private",humanName,sim.name,semanticContext(sim,humanName),text,new AiChatBridge.Handler() {
             public void complete(AiChatBridge.AiReply ai) {

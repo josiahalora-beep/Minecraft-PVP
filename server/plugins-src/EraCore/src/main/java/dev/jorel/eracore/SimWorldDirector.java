@@ -1749,7 +1749,7 @@ final class SimWorldDirector {
         }
     }
 
-    private static double distSq    private static double distSq(double ax,double az,double bx,double bz) {
+    private static double distSq(double ax,double az,double bx,double bz) {
         double dx=ax-bx,dz=az-bz;
         return dx*dx+dz*dz;
     }
@@ -8567,7 +8567,7 @@ final class SimWorldDirector {
         }
     }
 
-    private void createNextLeaderFaction()    private void createNextLeaderFaction() {
+    private void createNextLeaderFaction() {
         SimPlayer best = null;
         for (SimPlayer p : players.values()) {
             if (!p.leaderCandidate || !p.faction.isEmpty() || !p.logicalOnline) continue;
@@ -9838,7 +9838,7 @@ final class SimWorldDirector {
         return new BaseSiteChoice(kept[0],kept[1]);
     }
 
-    private List<String> squareClaims    private List<String> squareClaims(String world, int cx, int cz, int radius) {
+    private List<String> squareClaims(String world, int cx, int cz, int radius) {
         List<String> out = new ArrayList<String>();
         for (int x = cx - radius; x <= cx + radius; x++) {
             for (int z = cz - radius; z <= cz + radius; z++) {

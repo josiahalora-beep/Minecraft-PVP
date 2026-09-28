@@ -466,9 +466,9 @@ infrastructure:
   # Uploaded PotPvP arena. Local coordinates are the authored combat center/floor
   # inside the schematic selection, not world coordinates.
   duel-schematic-enabled: true
-  duel-schematic: pvp1-1528348984.schematic
-  duel-schematic-local-center-x: 83
-  duel-schematic-local-center-z: 86
+  duel-schematic: pvp1-duel-1.8.schematic
+  duel-schematic-local-center-x: 49
+  duel-schematic-local-center-z: 49
   duel-schematic-local-floor-y: 15
   nether-y: 70
   end-y: 68

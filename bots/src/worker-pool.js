@@ -1710,7 +1710,7 @@ const HOSTILE_MOBS = new Set([
 ])
 
 function entityMobName(entity) {
-  return String(entity?.mobType || entity?.name || entity?.displayName || '').toLowerCase().replace(/\s+/g,'_')
+  return String(entity?.displayName || entity?.name || '').toLowerCase().replace(/\s+/g,'_')
 }
 
 function nearestHostileMob(state, radius=14) {

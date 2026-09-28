@@ -38,10 +38,13 @@ final class LegacySchematicComposer {
 
     private abstract static class Job {
         final String label;
+        final Runnable completion;
         long processed=0,changed=0;
-        Job(String label){this.label=label;}
+        Job(String label){this(label,null);}
+        Job(String label,Runnable completion){this.label=label;this.completion=completion;}
         abstract boolean step(int budget);
         abstract int progressPercent();
+        void completed(){if(completion!=null) completion.run();}
     }
 
     private final class PasteJob extends Job {
@@ -52,7 +55,10 @@ final class LegacySchematicComposer {
         int cursor=0;
         int lastLogged=-1;
         PasteJob(String label,World world,Schematic s,int ax,int ay,int az,boolean pasteAir) {
-            super(label);this.world=world;this.s=s;this.ax=ax;this.ay=ay;this.az=az;this.pasteAir=pasteAir;
+            this(label,world,s,ax,ay,az,pasteAir,null);
+        }
+        PasteJob(String label,World world,Schematic s,int ax,int ay,int az,boolean pasteAir,Runnable completion) {
+            super(label,completion);this.world=world;this.s=s;this.ax=ax;this.ay=ay;this.az=az;this.pasteAir=pasteAir;
         }
         boolean step(int budget) {
             int volume=s.volume(),writes=0,scanned=0;
@@ -496,6 +502,54 @@ final class LegacySchematicComposer {
         }
     }
 
+    boolean queueCenteredStandalonePaste(String label,World world,String name,
+            int centerX,int floorY,int centerZ,
+            int localCenterX,int localFloorY,int localCenterZ,
+            boolean pasteAir,Runnable completion) {
+        if(world==null || busy()) return false;
+        if(!hasAsset(name)) {
+            plugin.getLogger().warning("[composer] missing standalone asset: "+name);
+            return false;
+        }
+        try {
+            Schematic s=load(name);
+            int converted=sanitizeLegacy18(s);
+            int ax=centerX-localCenterX-s.offX;
+            int ay=floorY-localFloorY-s.offY;
+            int az=centerZ-localCenterZ-s.offZ;
+            jobs.add(new PasteJob(label,world,s,ax,ay,az,pasteAir,completion));
+            productionRun=false;
+            ensureRunner();
+            plugin.getLogger().info("[composer] queued standalone "+label+
+                " asset="+name+" anchor="+ax+","+ay+","+az+
+                " localCenter="+localCenterX+","+localFloorY+","+localCenterZ+
+                " convertedLegacyBlocks="+converted);
+            return true;
+        } catch(Exception e) {
+            jobs.clear();
+            plugin.getLogger().severe("Could not queue standalone schematic "+name+": "+e.getMessage());
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    private int sanitizeLegacy18(Schematic s) {
+        int converted=0;
+        for(int i=0;i<s.volume();i++) {
+            int id=s.blockId(i);
+            if(id!=251) continue; // concrete -> same-color stained clay on 1.8.8
+            s.blocks[i]=(byte)159;
+            if(s.add!=null && (i>>1)<s.add.length) {
+                int v=s.add[i>>1]&0xFF;
+                if((i&1)==0) v&=0xF0;
+                else v&=0x0F;
+                s.add[i>>1]=(byte)v;
+            }
+            converted++;
+        }
+        return converted;
+    }
+
     private String asset(String key,String fallback) {
         return plugin.getConfig().getString("world-composer.assets."+key,fallback);
     }
@@ -533,6 +587,8 @@ final class LegacySchematicComposer {
                     if(done) {
                         jobs.removeFirst();
                         plugin.getLogger().info("[composer] completed "+j.label+" changed="+j.changed);
+                        try { j.completed(); }
+                        catch(Throwable t) { plugin.getLogger().severe("[composer] completion callback failed for "+j.label+": "+t.getMessage()); }
                     }
                 }
                 if(jobs.isEmpty()) {

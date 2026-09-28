@@ -183,7 +183,12 @@ final class CombatBodyPvpDirector {
         }
 
         long last=left?p.lastAttackA:p.lastAttackB;
-        if(now-last<240L) {
+        // Respect vanilla 1.8's same-damage hurt-resistance window.
+        // At 240ms every alternating W-tap attempt was guaranteed to occur while
+        // the target was still damage-immune, so only the non-W-tap hits could
+        // register. Keep normal footwork between swings, but space scored melee
+        // attempts far enough apart that a real sprint-reset hit can land.
+        if(now-last<520L) {
             bodies.combatMoveToward(self,enemy.getLocation(),0.12,strafe);
             return;
         }

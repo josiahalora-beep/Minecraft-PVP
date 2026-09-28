@@ -54,11 +54,112 @@ function Node-ProcessRunning([string]$Pattern) {
 function Repair-KnownSimulationYaml {
     if (!(Test-Path $simFile)) { return }
 
-    # Read/write explicitly as UTF-8 so Windows PowerShell 5.1 cannot reinterpret
-    # a UTF-8 BOM as literal YAML content.
     $utf8 = New-Object System.Text.UTF8Encoding($false)
     $text = [System.IO.File]::ReadAllText($simFile,[System.Text.Encoding]::UTF8)
     $text = $text.TrimStart([char]0xFEFF)
+
+    # If the live file is one of the historical header-corruption shapes, prefer
+    # EraCore's own last-known-readable snapshot rather than guessing at state.
+    $looksStructurallyBroken =
+        ($text -match '(?m)^\s*:\s*terrain-repair-version:') -or
+        ($text -match '(?m)^\s{2,}schema:\s*4\s*
+
+if (Port-IsOpen 25565) {
+    Write-Host '' -ForegroundColor Yellow
+    Write-Host 'Minecraft is already running on port 25565.' -ForegroundColor Yellow
+    Write-Host 'Type STOP in the Minecraft server console first, then run this launcher again.' -ForegroundColor Yellow
+    Write-Host 'This launcher will not force-kill Java because that can corrupt/save an incomplete world state.' -ForegroundColor DarkGray
+    exit 2
+}
+
+Repair-KnownSimulationYaml
+
+$javaHome = (Get-Content $javaHomeFile -Raw).Trim()
+if ([string]::IsNullOrWhiteSpace($javaHome)) { throw 'server\java8-home.txt is empty.' }
+
+Write-Host 'Rebuilding latest EraCore...' -ForegroundColor Cyan
+& $buildPlugin -SpigotJar $spigotJar -JavaHome $javaHome
+if ($LASTEXITCODE -ne 0) { throw 'EraCore build failed.' }
+
+Write-Host 'Starting Minecraft server...' -ForegroundColor Cyan
+Start-Process -FilePath 'cmd.exe' -ArgumentList '/k',('call "' + $serverBat + '"') -WorkingDirectory $server
+
+Write-Host 'Waiting for Minecraft 127.0.0.1:25565...' -ForegroundColor DarkGray
+$tries=0
+while (!(Port-IsOpen 25565) -and $tries -lt 120) {
+    Start-Sleep -Seconds 1
+    $tries++
+}
+if (!(Port-IsOpen 25565)) { throw 'Minecraft server did not open port 25565.' }
+
+if (!(Test-Path (Join-Path $bots 'node_modules\yaml'))) {
+    Write-Host 'Installing Mineflayer runtime dependencies...' -ForegroundColor Cyan
+    Push-Location $bots
+    try {
+        & $npmCmd.Source install --no-audit --no-fund
+        if ($LASTEXITCODE -ne 0) { throw 'npm install failed for bots runtime.' }
+    } finally {
+        Pop-Location
+    }
+}
+
+if (!(Node-ProcessRunning 'worker-coordinator\.js')) {
+    Write-Host 'Starting HCF worker coordinator on 127.0.0.1:8770...' -ForegroundColor Cyan
+    Remove-Item $coordOut,$coordErr -Force -ErrorAction SilentlyContinue
+    Start-Process -FilePath $nodeCmd.Source -ArgumentList '.\src\worker-coordinator.js' -WorkingDirectory $bots -RedirectStandardOutput $coordOut -RedirectStandardError $coordErr | Out-Null
+}
+
+$tries=0
+while (!(Port-IsOpen 8770) -and $tries -lt 60) {
+    Start-Sleep -Milliseconds 500
+    $tries++
+}
+if (!(Port-IsOpen 8770)) {
+    Write-Host ''
+    Write-Host 'Coordinator failed to open 8770. Last output:' -ForegroundColor Red
+    if (Test-Path $coordOut) { Get-Content $coordOut -Tail 30 | ForEach-Object { Write-Host $_ } }
+    if (Test-Path $coordErr) { Get-Content $coordErr -Tail 30 | ForEach-Object { Write-Host $_ -ForegroundColor Red } }
+    throw "Worker coordinator did not open port 8770. Logs: $coordOut / $coordErr"
+}
+
+if (!(Node-ProcessRunning 'worker-pool\.js')) {
+    Write-Host "Starting adaptive home worker '$NodeId' (hard capacity $Bodies)..." -ForegroundColor Cyan
+    $env:WORKER_COORDINATOR_URL = 'http://127.0.0.1:8770'
+    $env:WORKER_NODE_ID = $NodeId
+    $env:WORKER_NODE_PRIORITY = [string]$Priority
+    $env:WORKER_MAX = [string]$Bodies
+    $env:MC_HOST = '127.0.0.1'
+    $env:MC_PORT = '25565'
+    $env:HCF_AI_LOCAL = '0'
+    Remove-Item $workerOut,$workerErr -Force -ErrorAction SilentlyContinue
+    Start-Process -FilePath $nodeCmd.Source -ArgumentList '.\src\worker-pool.js' -WorkingDirectory $bots -RedirectStandardOutput $workerOut -RedirectStandardError $workerErr | Out-Null
+} else {
+    Write-Host 'Mineflayer worker pool is already running.' -ForegroundColor Yellow
+}
+
+Write-Host ''
+Write-Host 'DAEGON HCF STACK IS RUNNING.' -ForegroundColor Green
+Write-Host 'Coordinator: http://127.0.0.1:8770' -ForegroundColor DarkGray
+Write-Host "Home node: $NodeId  hard capacity=$Bodies  priority=$Priority" -ForegroundColor DarkGray
+Write-Host 'Actual HOT body count remains adaptive to EraCore/server budget and node load.' -ForegroundColor Green
+Write-Host "Worker logs: $workerOut / $workerErr" -ForegroundColor DarkGray
+) -or
+        ($text -match '\\xef\\xbb\\xbf') -or
+        ($text -match '(?m)^\?\s+"')
+
+    if ($looksStructurallyBroken) {
+        $lastGood = Join-Path (Split-Path -Parent $simFile) 'simulation.lastgood.yml'
+        if (Test-Path $lastGood) {
+            $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+            $backup = "$simFile.pre-lastgood-restore-$stamp.bak"
+            Copy-Item -LiteralPath $simFile -Destination $backup -Force
+            Copy-Item -LiteralPath $lastGood -Destination $simFile -Force
+            Write-Host 'Restored EraCore simulation.lastgood.yml over the malformed live state.' -ForegroundColor Yellow
+            Write-Host "Malformed copy preserved at: $backup" -ForegroundColor DarkGray
+            return
+        }
+    }
+
     $pattern = '(?m)^\s*:\s*terrain-repair-version:\s*\d+\s*\r?\n?'
     $matches = [regex]::Matches($text,$pattern)
     if ($matches.Count -eq 0) { return }

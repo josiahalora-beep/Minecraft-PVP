@@ -10,6 +10,7 @@ on:
     paths:
       - 'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/EraCore.java'
       - 'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfInfrastructureDirector.java'
+      - 'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/SimWorldDirector.java'
       - 'server/plugins-src/EraCore/src/main/resources/config.yml'
       - 'bots/src/worker-pool.js'
       - 'bots/src/worker-coordinator.js'

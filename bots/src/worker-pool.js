@@ -2560,6 +2560,22 @@ async function localMotion(state, action) {
     if(action==='spectate') {
       const attentionIntent=String(state.job?.attentionIntent || 'WATCH').toUpperCase()
 
+      // Passive spectators cannot reliably identify the attacker from a generic
+      // Mineflayer health event. Never guess and swing at the prestige player
+      // they were following; create distance until the combat director has an
+      // authoritative opponent.
+      if((state.provokedUntil||0)>Date.now()) {
+        const threat=nearestRoamStranger(state,10)
+        await equipBestWeapon(state)
+        if(threat) {
+          try { await bot.lookAt(threat.position.offset(0,1.2,0),false) } catch {}
+          bot.setControlState('back',true)
+          bot.setControlState('sprint',bot.entity.position.distanceTo(threat.position)<5)
+        }
+        await sleep(Math.round(rand(260,520)))
+        continue
+      }
+
       // Fans/friends/watchers follow the actual named prestige player while they
       // can see them.  They keep social distance instead of pathing into the
       // player's hitbox or standing forever at one static base coordinate.
@@ -2600,20 +2616,8 @@ async function localMotion(state, action) {
         }
       }
 
-      // Spectators do not start fights just because another faction is nearby.
-      // If someone damages them, however, they defend themselves briefly.
-      if((state.provokedUntil||0)>Date.now() && stranger) {
-        const dist=bot.entity.position.distanceTo(stranger.position)
-        await equipBestWeapon(state)
-        try { await bot.lookAt(stranger.position.offset(0,1.2,0),false) } catch {}
-        if(dist<=3.4) {
-          try { bot.attack(stranger,true) } catch {}
-          bot.setControlState('back',true)
-          bot.setControlState('sprint',true)
-          await sleep(Math.round(rand(240,420)))
-          continue
-        }
-      }
+      // Spectators stay non-hostile unless the combat director explicitly
+      // promotes the encounter into a real fight.
 
       stopMovement(bot)
       if(stranger) {

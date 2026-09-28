@@ -8,9 +8,16 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $server = Join-Path $root 'server'
 $serverBat = Join-Path $server 'start-server.bat'
+$spigotJar = Join-Path $server 'spigot-1.8.8.jar'
+$javaHomeFile = Join-Path $server 'java8-home.txt'
+$buildPlugin = Join-Path $server 'build-plugin.ps1'
 $bots = Join-Path $root 'bots'
+$simFile = Join-Path $server 'plugins\EraCore\simulation.yml'
 
 if (!(Test-Path $serverBat)) { throw "Missing $serverBat" }
+if (!(Test-Path $spigotJar)) { throw "Missing $spigotJar" }
+if (!(Test-Path $javaHomeFile)) { throw "Missing $javaHomeFile" }
+if (!(Test-Path $buildPlugin)) { throw "Missing $buildPlugin" }
 if (!(Test-Path (Join-Path $bots 'package.json'))) { throw "Missing bots\package.json" }
 
 $nodeCmd = Get-Command node.exe -ErrorAction SilentlyContinue
@@ -22,6 +29,8 @@ $logs = Join-Path $root 'logs'
 New-Item -ItemType Directory -Path $logs -Force | Out-Null
 $coordOut = Join-Path $logs 'coordinator.out.log'
 $coordErr = Join-Path $logs 'coordinator.err.log'
+$workerOut = Join-Path $logs 'worker.out.log'
+$workerErr = Join-Path $logs 'worker.err.log'
 
 function Port-IsOpen([int]$Port) {
     try {
@@ -42,10 +51,40 @@ function Node-ProcessRunning([string]$Pattern) {
     } catch { return $false }
 }
 
-if (!(Port-IsOpen 25565)) {
-    Write-Host 'Starting Minecraft server...' -ForegroundColor Cyan
-    Start-Process -FilePath 'cmd.exe' -ArgumentList '/k',('"' + $serverBat + '"') -WorkingDirectory $server
+function Repair-KnownSimulationYaml {
+    if (!(Test-Path $simFile)) { return }
+    $lines = @(Get-Content -LiteralPath $simFile)
+    $bad = @($lines | Where-Object { $_ -match '^\s*:\s*terrain-repair-version:\s*\d+\s*$' })
+    if ($bad.Count -eq 0) { return }
+
+    $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+    $backup = "$simFile.pre-start-repair-$stamp.bak"
+    Copy-Item -LiteralPath $simFile -Destination $backup -Force
+    $fixed = @($lines | Where-Object { $_ -notmatch '^\s*:\s*terrain-repair-version:\s*\d+\s*$' })
+    [System.IO.File]::WriteAllLines($simFile,$fixed,(New-Object System.Text.UTF8Encoding($false)))
+    Write-Host "Repaired $($bad.Count) known malformed terrain marker line(s)." -ForegroundColor Yellow
+    Write-Host "Backup: $backup" -ForegroundColor DarkGray
 }
+
+if (Port-IsOpen 25565) {
+    Write-Host '' -ForegroundColor Yellow
+    Write-Host 'Minecraft is already running on port 25565.' -ForegroundColor Yellow
+    Write-Host 'Type STOP in the Minecraft server console first, then run this launcher again.' -ForegroundColor Yellow
+    Write-Host 'This launcher will not force-kill Java because that can corrupt/save an incomplete world state.' -ForegroundColor DarkGray
+    exit 2
+}
+
+Repair-KnownSimulationYaml
+
+$javaHome = (Get-Content $javaHomeFile -Raw).Trim()
+if ([string]::IsNullOrWhiteSpace($javaHome)) { throw 'server\java8-home.txt is empty.' }
+
+Write-Host 'Rebuilding latest EraCore...' -ForegroundColor Cyan
+& $buildPlugin -SpigotJar $spigotJar -JavaHome $javaHome
+if ($LASTEXITCODE -ne 0) { throw 'EraCore build failed.' }
+
+Write-Host 'Starting Minecraft server...' -ForegroundColor Cyan
+Start-Process -FilePath 'cmd.exe' -ArgumentList '/k',('call "' + $serverBat + '"') -WorkingDirectory $server
 
 Write-Host 'Waiting for Minecraft 127.0.0.1:25565...' -ForegroundColor DarkGray
 $tries=0
@@ -58,9 +97,12 @@ if (!(Port-IsOpen 25565)) { throw 'Minecraft server did not open port 25565.' }
 if (!(Test-Path (Join-Path $bots 'node_modules\yaml'))) {
     Write-Host 'Installing Mineflayer runtime dependencies...' -ForegroundColor Cyan
     Push-Location $bots
-    try { & $npmCmd.Source install --no-audit --no-fund }
-    finally { Pop-Location }
-    if ($LASTEXITCODE -ne 0) { throw 'npm install failed for bots runtime.' }
+    try {
+        & $npmCmd.Source install --no-audit --no-fund
+        if ($LASTEXITCODE -ne 0) { throw 'npm install failed for bots runtime.' }
+    } finally {
+        Pop-Location
+    }
 }
 
 if (!(Node-ProcessRunning 'worker-coordinator\.js')) {
@@ -84,18 +126,15 @@ if (!(Port-IsOpen 8770)) {
 
 if (!(Node-ProcessRunning 'worker-pool\.js')) {
     Write-Host "Starting adaptive home worker '$NodeId' (hard capacity $Bodies)..." -ForegroundColor Cyan
-    $cmd = @(
-        'set "WORKER_COORDINATOR_URL=http://127.0.0.1:8770"',
-        'set "WORKER_NODE_ID='+$NodeId+'"',
-        'set "WORKER_NODE_PRIORITY='+$Priority+'"',
-        'set "WORKER_MAX='+$Bodies+'"',
-        'set "MC_HOST=127.0.0.1"',
-        'set "MC_PORT=25565"',
-        'set "HCF_AI_LOCAL=0"',
-        'cd /d "'+$bots+'"',
-        'npm run workers'
-    ) -join ' && '
-    Start-Process -FilePath 'cmd.exe' -ArgumentList '/k',$cmd -WorkingDirectory $bots
+    $env:WORKER_COORDINATOR_URL = 'http://127.0.0.1:8770'
+    $env:WORKER_NODE_ID = $NodeId
+    $env:WORKER_NODE_PRIORITY = [string]$Priority
+    $env:WORKER_MAX = [string]$Bodies
+    $env:MC_HOST = '127.0.0.1'
+    $env:MC_PORT = '25565'
+    $env:HCF_AI_LOCAL = '0'
+    Remove-Item $workerOut,$workerErr -Force -ErrorAction SilentlyContinue
+    Start-Process -FilePath $nodeCmd.Source -ArgumentList '.\src\worker-pool.js' -WorkingDirectory $bots -RedirectStandardOutput $workerOut -RedirectStandardError $workerErr | Out-Null
 } else {
     Write-Host 'Mineflayer worker pool is already running.' -ForegroundColor Yellow
 }
@@ -105,3 +144,4 @@ Write-Host 'DAEGON HCF STACK IS RUNNING.' -ForegroundColor Green
 Write-Host 'Coordinator: http://127.0.0.1:8770' -ForegroundColor DarkGray
 Write-Host "Home node: $NodeId  hard capacity=$Bodies  priority=$Priority" -ForegroundColor DarkGray
 Write-Host 'Actual HOT body count remains adaptive to EraCore/server budget and node load.' -ForegroundColor Green
+Write-Host "Worker logs: $workerOut / $workerErr" -ForegroundColor DarkGray

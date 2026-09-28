@@ -170,9 +170,9 @@ Write-Host "Worker logs: $workerOut / $workerErr" -ForegroundColor DarkGray
     $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
     $backup = "$simFile.pre-start-repair-$stamp.bak"
     Copy-Item -LiteralPath $simFile -Destination $backup -Force
-    $fixed = [regex]::Replace($text,$pattern,'',1)
+    $fixed = [regex]::Replace($text,$pattern,"meta:`r`n",1)
     [System.IO.File]::WriteAllText($simFile,$fixed,$utf8)
-    Write-Host 'Repaired the known malformed terrain marker without changing UTF-8 encoding.' -ForegroundColor Yellow
+    Write-Host 'Restored the missing meta: YAML parent without changing UTF-8 encoding.' -ForegroundColor Yellow
     Write-Host "Backup: $backup" -ForegroundColor DarkGray
 }
 

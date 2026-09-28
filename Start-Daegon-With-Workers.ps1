@@ -53,16 +53,25 @@ function Node-ProcessRunning([string]$Pattern) {
 
 function Repair-KnownSimulationYaml {
     if (!(Test-Path $simFile)) { return }
-    $lines = @(Get-Content -LiteralPath $simFile)
-    $bad = @($lines | Where-Object { $_ -match '^\s*:\s*terrain-repair-version:\s*\d+\s*$' })
-    if ($bad.Count -eq 0) { return }
+
+    # Read/write explicitly as UTF-8 so Windows PowerShell 5.1 cannot reinterpret
+    # a UTF-8 BOM as literal YAML content.
+    $utf8 = New-Object System.Text.UTF8Encoding($false)
+    $text = [System.IO.File]::ReadAllText($simFile,[System.Text.Encoding]::UTF8)
+    $text = $text.TrimStart([char]0xFEFF)
+    $pattern = '(?m)^\s*:\s*terrain-repair-version:\s*\d+\s*\r?\n?'
+    $matches = [regex]::Matches($text,$pattern)
+    if ($matches.Count -eq 0) { return }
+    if ($matches.Count -gt 1) {
+        throw "simulation.yml contains multiple malformed terrain markers; refusing automatic repair."
+    }
 
     $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
     $backup = "$simFile.pre-start-repair-$stamp.bak"
     Copy-Item -LiteralPath $simFile -Destination $backup -Force
-    $fixed = @($lines | Where-Object { $_ -notmatch '^\s*:\s*terrain-repair-version:\s*\d+\s*$' })
-    [System.IO.File]::WriteAllLines($simFile,$fixed,(New-Object System.Text.UTF8Encoding($false)))
-    Write-Host "Repaired $($bad.Count) known malformed terrain marker line(s)." -ForegroundColor Yellow
+    $fixed = [regex]::Replace($text,$pattern,'',1)
+    [System.IO.File]::WriteAllText($simFile,$fixed,$utf8)
+    Write-Host 'Repaired the known malformed terrain marker without changing UTF-8 encoding.' -ForegroundColor Yellow
     Write-Host "Backup: $backup" -ForegroundColor DarkGray
 }
 

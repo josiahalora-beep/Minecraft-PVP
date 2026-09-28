@@ -107,6 +107,11 @@ jobs:
           c['sim-world']['logical-online-peak']=24
           c['sim-world']['logical-online-late-night']=24
           c['sim-world']['tick-seconds']=5
+          c['combat-director']=c['combat-director']||{}
+          c['combat-director']['visible-fight-chance-percent']=0
+          c['combat-director']['sotw-scrim-chance-percent']=0
+          c.duels=c.duels||{}
+          c.duels['random-challenges']=false
           c['infrastructure']=c['infrastructure']||{}
           c['infrastructure']['blocks-per-tick']=1200
           c['worker-pool']=c['worker-pool']||{}

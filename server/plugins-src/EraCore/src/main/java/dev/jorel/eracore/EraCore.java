@@ -4469,8 +4469,9 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
                 return true;
             }
             Faction target=factions.get(a[1].toLowerCase(Locale.ENGLISH));
+            if(target==null) target=factionOf(a[1]);
             if(target==null||!target.invites.contains(p.getName().toLowerCase(Locale.ENGLISH))) {
-                p.sendMessage(color("&cNo invite from that faction."));
+                p.sendMessage(color("&cNo invite from that faction/player."));
                 return true;
             }
             if(target.members.size() >= SimWorldDirector.MAX_FACTION_MEMBERS) {

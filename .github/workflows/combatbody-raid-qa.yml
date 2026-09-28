@@ -1,8 +1,8 @@
 name: combatbody-raid-prototype
 
 concurrency:
-  group: combatbody-raid-prototype
-  cancel-in-progress: true
+  group: combatbody-raid-prototype-${{ github.sha }}
+  cancel-in-progress: false
 
 on:
   workflow_dispatch:

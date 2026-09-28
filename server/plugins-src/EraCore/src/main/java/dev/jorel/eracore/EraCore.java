@@ -74,6 +74,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     private HcfAtmosphereDirector atmosphereDirector;
     private NmsFakePlayerRuntime fakePlayers;
     private CombatBodyPvpDirector combatBodyPvp;
+    private HcfRaidPrototypeDirector raidPrototype;
     private ActorDirectory actors;
     private HcfElevatorDirector elevatorDirector;
     private HcfTravelDirector travelDirector;
@@ -215,6 +216,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         simWorld = new SimWorldDirector(this);
         fakePlayers = new NmsFakePlayerRuntime(this);
         combatBodyPvp = new CombatBodyPvpDirector(this,fakePlayers);
+        raidPrototype = new HcfRaidPrototypeDirector(this,fakePlayers);
         actors = new ActorDirectory(this,simWorld,fakePlayers);
         simChat = new SimChatDirector(this, simWorld);
         spawnPresence = new SpawnPresenceDirector(this, warpManager);
@@ -301,6 +303,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     @Override public void onDisable() {
+        if (raidPrototype != null) raidPrototype.stop();
         if (combatBodyPvp != null) combatBodyPvp.stop();
         if (fakePlayers != null) fakePlayers.shutdown();
         if (worldBuildDirector != null) worldBuildDirector.stop();
@@ -1762,6 +1765,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             p.sendMessage(color("&e/simactor despawn <player>"));
             p.sendMessage(color("&e/simactor probe <player> &7(one-body death/DTR gate)"));
             p.sendMessage(color("&e/simactor materializeprobe <player> &7(Gate 4 state continuity)"));
+            p.sendMessage(color("&e/simactor raidprobe <attacker> <defender> <backup> &7(open-gate raid prototype)"));
             p.sendMessage(color("&e/simactor dropprobe <player> &7(Gate 2: normal world drops)"));
             p.sendMessage(color("&7"+fakePlayers.supportSummary()));
             return true;
@@ -1864,6 +1868,120 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             p.sendMessage(color(fakePlayers.kill(args[1])
                 ?"&aIssued lethal damage to "+args[1]+". Watch the normal death/DTR pipeline."
                 :"&cNo live CombatBody exists for "+args[1]+"."));
+            return true;
+        }
+
+        if(sub.equals("raidprobe")) {
+            if(args.length<4) {
+                p.sendMessage(color("&cUsage: /simactor raidprobe <attacker> <defender> <backup>"));
+                return true;
+            }
+            if(raidPrototype==null || !fakePlayers.supported() || !fakePlayers.probeAllowed()) {
+                p.sendMessage(color("&c[Raid Prototype] Runtime/probe support is unavailable."));
+                return true;
+            }
+
+            final ActorDirectory.Snapshot attacker=actors.resolve(args[1]);
+            final ActorDirectory.Snapshot defender=actors.resolve(args[2]);
+            final ActorDirectory.Snapshot backup=actors.resolve(args[3]);
+            if(attacker==null || defender==null || backup==null ||
+               !simWorld.hasIdentity(args[1]) || !simWorld.hasIdentity(args[2]) ||
+               !simWorld.hasIdentity(args[3])) {
+                p.sendMessage(color("&c[Raid Prototype] All three names must be simulated identities."));
+                return true;
+            }
+            if(!attacker.logicalOnline || !defender.logicalOnline || !backup.logicalOnline ||
+               attacker.runtime==ActorDirectory.Runtime.MINEFLAYER ||
+               defender.runtime==ActorDirectory.Runtime.MINEFLAYER ||
+               backup.runtime==ActorDirectory.Runtime.MINEFLAYER ||
+               attacker.runtime==ActorDirectory.Runtime.HUMAN ||
+               defender.runtime==ActorDirectory.Runtime.HUMAN ||
+               backup.runtime==ActorDirectory.Runtime.HUMAN) {
+                p.sendMessage(color("&c[Raid Prototype] All three identities must be logical-online and clientless."));
+                return true;
+            }
+
+            String attackerFaction=simWorld.factionOfIdentity(attacker.name);
+            String defenderFaction=simWorld.factionOfIdentity(defender.name);
+            String backupFaction=simWorld.factionOfIdentity(backup.name);
+            if(attackerFaction.isEmpty() || defenderFaction.isEmpty() ||
+               !defenderFaction.equalsIgnoreCase(backupFaction) ||
+               attackerFaction.equalsIgnoreCase(defenderFaction)) {
+                p.sendMessage(color("&c[Raid Prototype] Need one attacker from a different faction and two same-faction defenders."));
+                return true;
+            }
+
+            Location center=duelCenterLocation();
+            if(center==null) center=p.getLocation();
+            final HcfRaidPrototypeDirector.Arena arena=raidPrototype.prepareArena(center);
+            if(arena==null) {
+                p.sendMessage(color("&c[Raid Prototype] Could not prepare the temporary gate arena."));
+                return true;
+            }
+
+            try {
+                final Player attackBody=fakePlayers.spawn(attacker.name,arena.attackerStart,true);
+                final Player defendBody=fakePlayers.spawn(defender.name,arena.defenderStart,true);
+                final Player backupBody=fakePlayers.spawn(backup.name,arena.backupStart,true);
+                prepareHcfCombatKit(attackBody,SimWorldDirector.CombatClass.DIAMOND);
+                prepareHcfCombatKit(defendBody,SimWorldDirector.CombatClass.DIAMOND);
+                prepareHcfCombatKit(backupBody,SimWorldDirector.CombatClass.DIAMOND);
+
+                final String probeId="TESTTEAM_RAID_"+System.currentTimeMillis();
+                combatPreparedFight.put(attacker.name.toLowerCase(Locale.ENGLISH),probeId);
+                combatPreparedFight.put(defender.name.toLowerCase(Locale.ENGLISH),probeId);
+                combatPreparedFight.put(backup.name.toLowerCase(Locale.ENGLISH),probeId);
+
+                if(!raidPrototype.startProbe(attacker.name,defender.name,backup.name,arena)) {
+                    fakePlayers.despawn(attacker.name);
+                    fakePlayers.despawn(defender.name);
+                    fakePlayers.despawn(backup.name);
+                    raidPrototype.cleanupArena();
+                    combatPreparedFight.remove(attacker.name.toLowerCase(Locale.ENGLISH));
+                    combatPreparedFight.remove(defender.name.toLowerCase(Locale.ENGLISH));
+                    combatPreparedFight.remove(backup.name.toLowerCase(Locale.ENGLISH));
+                    p.sendMessage(color("&c[Raid Prototype] Could not start interaction controller."));
+                    return true;
+                }
+
+                p.sendMessage(color("&e[Raid Prototype] &f"+attacker.name+
+                    " &evs &f"+defender.name+" + "+backup.name+
+                    "&e: open-gate pearl, hold-front, backup collapse."));
+                new BukkitRunnable() {
+                    int waited=0;
+                    public void run() {
+                        waited+=5;
+                        HcfRaidPrototypeDirector.ProbeSnapshot result=raidPrototype.snapshot();
+                        if((result==null || !result.complete) && waited<300) return;
+
+                        boolean pass=result!=null && result.pass;
+                        String details=result==null?"no-result":result.summary();
+                        getLogger().info("[Raid Prototype command] "+(pass?"PASS":"FAIL")+
+                            " "+details+" waitedTicks="+waited);
+                        if(p.isOnline())
+                            p.sendMessage(color((pass?"&a":"&c")+"[Raid Prototype] "+
+                                (pass?"PASS ":"FAIL ")+"&7"+details));
+
+                        fakePlayers.despawn(attacker.name);
+                        fakePlayers.despawn(defender.name);
+                        fakePlayers.despawn(backup.name);
+                        combatPreparedFight.remove(attacker.name.toLowerCase(Locale.ENGLISH));
+                        combatPreparedFight.remove(defender.name.toLowerCase(Locale.ENGLISH));
+                        combatPreparedFight.remove(backup.name.toLowerCase(Locale.ENGLISH));
+                        raidPrototype.cleanupArena();
+                        cancel();
+                    }
+                }.runTaskTimer(this,5L,5L);
+            } catch(Exception ex) {
+                fakePlayers.despawn(attacker.name);
+                fakePlayers.despawn(defender.name);
+                fakePlayers.despawn(backup.name);
+                combatPreparedFight.remove(attacker.name.toLowerCase(Locale.ENGLISH));
+                combatPreparedFight.remove(defender.name.toLowerCase(Locale.ENGLISH));
+                combatPreparedFight.remove(backup.name.toLowerCase(Locale.ENGLISH));
+                raidPrototype.cleanupArena();
+                p.sendMessage(color("&c[Raid Prototype] Spawn/setup failed: "+ex.getMessage()));
+            }
             return true;
         }
 

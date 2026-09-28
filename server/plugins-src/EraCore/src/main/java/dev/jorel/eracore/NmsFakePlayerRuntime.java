@@ -3,6 +3,7 @@ package dev.jorel.eracore;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.entity.EnderPearl;
 import org.bukkit.entity.Item;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.ThrownPotion;
@@ -419,6 +420,71 @@ final class NmsFakePlayerRuntime {
             return landed;
         } catch(Throwable ex) {
             plugin.getLogger().warning("[CombatBody Gate3] attack failed "+attacker+" -> "+target+": "+root(ex));
+            return false;
+        }
+    }
+
+    int combatPearlCount(String name) {
+        Body b=bodies.get(key(name));
+        if(b==null || b.bukkit==null) return 0;
+        int total=0;
+        for(ItemStack item:b.bukkit.getInventory().getContents()) {
+            if(item!=null && item.getType()==Material.ENDER_PEARL) total+=item.getAmount();
+        }
+        return total;
+    }
+
+    boolean combatSetPosition(String name,Location at) {
+        Body b=bodies.get(key(name));
+        if(b==null || b.bukkit==null || at==null || at.getWorld()==null) return false;
+        if(!b.bukkit.getWorld().equals(at.getWorld())) return false;
+        try {
+            invoke(b.handle,"setPositionRotation",
+                at.getX(),at.getY(),at.getZ(),at.getYaw(),at.getPitch());
+            return true;
+        } catch(Throwable ex) {
+            plugin.getLogger().warning("[CombatBody Raid] reset failed for "+name+": "+root(ex));
+            return false;
+        }
+    }
+
+    boolean combatThrowPearl(String name,Location target) {
+        Body b=bodies.get(key(name));
+        if(b==null || b.bukkit==null || target==null || target.getWorld()==null) return false;
+        if(!b.bukkit.getWorld().equals(target.getWorld())) return false;
+
+        PlayerInventory inv=b.bukkit.getInventory();
+        int slot=-1;
+        ItemStack source=null;
+        for(int i=0;i<inv.getSize();i++) {
+            ItemStack item=inv.getItem(i);
+            if(item!=null && item.getType()==Material.ENDER_PEARL && item.getAmount()>0) {
+                slot=i;source=item;break;
+            }
+        }
+        if(slot<0 || source==null) return false;
+
+        try {
+            Location eye=b.bukkit.getEyeLocation().clone();
+            face(b,target.clone().add(0.0,0.8,0.0));
+            Vector velocity=target.clone().add(0.0,0.8,0.0).toVector()
+                .subtract(eye.toVector());
+            if(velocity.lengthSquared()<0.001) return false;
+            velocity.normalize().multiply(1.55);
+
+            if(source.getAmount()<=1) inv.setItem(slot,null);
+            else {
+                source.setAmount(source.getAmount()-1);
+                inv.setItem(slot,source);
+            }
+
+            EnderPearl pearl=eye.getWorld().spawn(eye,EnderPearl.class);
+            pearl.setShooter(b.bukkit);
+            pearl.setVelocity(velocity);
+            b.bukkit.updateInventory();
+            return true;
+        } catch(Throwable ex) {
+            plugin.getLogger().warning("[CombatBody Raid] pearl failed for "+name+": "+root(ex));
             return false;
         }
     }

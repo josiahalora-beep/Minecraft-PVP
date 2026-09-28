@@ -223,3 +223,24 @@ R23 performance comparison
 ```
 
 Until then, `actors.fake-player.enabled` remains false.
+
+
+## Post-Gate-4 raid-first sequence and prestige capes
+
+Gate 4 materialization continuity is complete before the raid prototype. The
+next high-value test is the embodied open-gate raid interaction; population
+scaling/performance is measured only after that interaction is worth scaling.
+
+For later visual/materialization polish, cape eligibility is a deliberate
+community-status signal:
+
+- faction leaders;
+- creator / YouTuber identities;
+- elite or high-prestige PvP identities.
+
+Do not give every simulated player a cape. The point is the old HCF social read:
+a cape should make a player feel recognizable or important from across a road
+fight. On vanilla 1.8.x a cape is part of the player profile texture payload, so
+the implementation must use a client-compatible profile/cape path rather than
+faking a cape with armor, banners, or particles. This visual requirement must
+not block the raid prototype or performance measurement.

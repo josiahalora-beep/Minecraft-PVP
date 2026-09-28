@@ -7,6 +7,9 @@ import org.bukkit.entity.EnderPearl;
 import org.bukkit.entity.Item;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.ThrownPotion;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.Listener;
+import org.bukkit.event.entity.ProjectileHitEvent;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.inventory.ItemStack;
@@ -35,7 +38,7 @@ import java.util.UUID;
  * against spigot-api only. Production use stays disabled until the one-body
  * PlayerDeathEvent -> existing EraCore DTR authority probe passes locally.
  */
-final class NmsFakePlayerRuntime {
+final class NmsFakePlayerRuntime implements Listener {
     static final class BodySnapshot {
         final String name;
         final UUID uuid;
@@ -87,6 +90,12 @@ final class NmsFakePlayerRuntime {
         Location deathLocation;
     }
 
+    private static final class PendingPearl {
+        String actor;
+        Location launch;
+        double healthAtLaunch;
+    }
+
     private static final class Body {
         String name;
         UUID uuid;
@@ -119,6 +128,7 @@ final class NmsFakePlayerRuntime {
     private final EraCore plugin;
     private final Map<String,Body> bodies=new LinkedHashMap<String,Body>();
     private final Map<String,DropProbe> dropProbes=new LinkedHashMap<String,DropProbe>();
+    private final Map<UUID,PendingPearl> pendingPearls=new LinkedHashMap<UUID,PendingPearl>();
     private final Map<String,DormantState> dormantStates=new LinkedHashMap<String,DormantState>();
     private final File dormantFile;
     private final YamlConfiguration dormantData;
@@ -129,6 +139,7 @@ final class NmsFakePlayerRuntime {
         dormantFile=new File(plugin.getDataFolder(),"combatbody-state.yml");
         dormantData=YamlConfiguration.loadConfiguration(dormantFile);
         loadDormantStates();
+        plugin.getServer().getPluginManager().registerEvents(this,plugin);
     }
 
     boolean enabled() {
@@ -484,10 +495,17 @@ final class NmsFakePlayerRuntime {
                 return false;
             }
 
+            PendingPearl pending=new PendingPearl();
+            pending.actor=b.name;
+            pending.launch=b.bukkit.getLocation().clone();
+            pending.healthAtLaunch=b.bukkit.getHealth();
+            pendingPearls.put(pearl.getUniqueId(),pending);
+
             // Inventory mutation is transactional: a failed projectile launch
             // never silently destroys the actor's pearl.
             ItemStack live=inv.getItem(slot);
             if(live==null || live.getType()!=Material.ENDER_PEARL || live.getAmount()<=0) {
+                pendingPearls.remove(pearl.getUniqueId());
                 pearl.remove();
                 return false;
             }
@@ -536,6 +554,83 @@ final class NmsFakePlayerRuntime {
             plugin.getLogger().warning("[CombatBody Gate3] pot failed for "+name+": "+root(ex));
             return false;
         }
+    }
+
+    @EventHandler
+    public void onCombatPearlHit(ProjectileHitEvent event) {
+        if(event==null || !(event.getEntity() instanceof EnderPearl)) return;
+        final EnderPearl pearl=(EnderPearl)event.getEntity();
+        final PendingPearl pending=pendingPearls.remove(pearl.getUniqueId());
+        if(pending==null) return;
+
+        final Location impact=pearl.getLocation().clone();
+        Bukkit.getScheduler().runTask(plugin,new Runnable() {
+            public void run() {
+                Body b=bodies.get(key(pending.actor));
+                if(b==null || b.bukkit==null || impact.getWorld()==null ||
+                   !b.bukkit.getWorld().equals(impact.getWorld())) return;
+                try {
+                    Location current=b.bukkit.getLocation();
+                    boolean nativeMoved=pending.launch!=null &&
+                        current.getWorld()!=null &&
+                        current.getWorld().equals(pending.launch.getWorld()) &&
+                        current.distanceSquared(pending.launch)>4.0;
+
+                    boolean manualTeleport=false;
+                    if(!nativeMoved) {
+                        Location landing=safePearlLanding(impact,current.getYaw(),current.getPitch());
+                        if(landing!=null) {
+                            invoke(b.handle,"setPositionRotation",
+                                landing.getX(),landing.getY(),landing.getZ(),
+                                landing.getYaw(),landing.getPitch());
+                            manualTeleport=true;
+                        }
+                    }
+
+                    // Vanilla ender pearls deal 5.0 damage. If the native
+                    // client-oriented path already applied it, do not double-hit.
+                    double health=b.bukkit.getHealth();
+                    if(health>pending.healthAtLaunch-4.5)
+                        b.bukkit.damage(5.0);
+
+                    plugin.getLogger().info("[CombatBody Raid] pearl impact actor="+b.name+
+                        " nativeMoved="+nativeMoved+
+                        " manualTeleport="+manualTeleport+
+                        " at="+String.format(Locale.US,"%.2f,%.2f,%.2f",
+                            impact.getX(),impact.getY(),impact.getZ()));
+                } catch(Throwable ex) {
+                    plugin.getLogger().warning("[CombatBody Raid] impact handoff failed for "+
+                        pending.actor+": "+ex.getClass().getSimpleName()+": "+root(ex));
+                }
+            }
+        });
+    }
+
+    private Location safePearlLanding(Location impact,float yaw,float pitch) {
+        if(impact==null || impact.getWorld()==null) return null;
+        Location out=impact.clone();
+        int x=(int)Math.floor(out.getX());
+        int y=Math.max(1,(int)Math.floor(out.getY()));
+        int z=(int)Math.floor(out.getZ());
+
+        // The projectile can report a position fractionally inside the block it
+        // struck. Move upward only as much as needed to find a two-block player
+        // column; never jump horizontally through raid geometry.
+        for(int dy=0;dy<=3;dy++) {
+            int yy=y+dy;
+            if(yy+1>=out.getWorld().getMaxHeight()) break;
+            Material feet=out.getWorld().getBlockAt(x,yy,z).getType();
+            Material head=out.getWorld().getBlockAt(x,yy+1,z).getType();
+            if(!feet.isSolid() && !head.isSolid()) {
+                out.setX(x+0.5);
+                out.setY(yy+0.05);
+                out.setZ(z+0.5);
+                out.setYaw(yaw);
+                out.setPitch(pitch);
+                return out;
+            }
+        }
+        return null;
     }
 
     private void face(Body b,Location target) throws Exception {
@@ -613,6 +708,12 @@ final class NmsFakePlayerRuntime {
     private boolean removeBody(String name,boolean preserveState) {
         Body b=bodies.remove(key(name));
         if(b==null) return false;
+        java.util.Iterator<Map.Entry<UUID,PendingPearl>> pearlIt=pendingPearls.entrySet().iterator();
+        while(pearlIt.hasNext()) {
+            Map.Entry<UUID,PendingPearl> e=pearlIt.next();
+            PendingPearl pp=e.getValue();
+            if(pp!=null && b.name.equalsIgnoreCase(pp.actor)) pearlIt.remove();
+        }
         if(preserveState) captureDormantState(b);
         hideFromOnlinePlayers(b);
         try {invoke(b.worldHandle,"removeEntity",b.handle);}
@@ -636,6 +737,7 @@ final class NmsFakePlayerRuntime {
         int i=0; for(Body b:bodies.values()) names[i++]=b.name;
         for(String name:names) removeBody(name,true);
         dropProbes.clear();
+        pendingPearls.clear();
         saveDormantFile();
     }
 

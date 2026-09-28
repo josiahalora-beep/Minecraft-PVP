@@ -135,8 +135,7 @@ final class HcfWorldBuildDirector {
             plugin.getConfig().set("world-build.active",false);
             plugin.saveConfig();
             if(fullSotwBuild) {
-                plugin.restartSotwProtectionClock();
-                plugin.getLogger().info("[SOTW] Protection clock started now that the production map is READY.");
+                plugin.getLogger().info("[SOTW] Production map READY; the protection clock continues from SOTW start.");
             }
             plugin.getLogger().info("[world-build] READY: production structures/resources are materialized.");
             if(plugin.hasHumanOnline())

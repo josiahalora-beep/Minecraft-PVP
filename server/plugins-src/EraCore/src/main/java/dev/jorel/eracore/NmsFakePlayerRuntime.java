@@ -319,13 +319,32 @@ final class NmsFakePlayerRuntime {
             if(mag<0.001) return false;
             dx/=mag; dz/=mag;
             double sideX=-dz,sideZ=dx;
-            Vector velocity=new Vector(
-                dx*forward+sideX*strafe,
-                b.bukkit.getVelocity().getY(),
-                dz*forward+sideZ*strafe);
+
+            // A connected player's movement packets drive EntityPlayer position.
+            // A clientless CombatBody has no inbound movement packets, so Bukkit
+            // velocity alone is not authoritative enough to move it. Advance the
+            // real NMS EntityPlayer in small physical steps instead. This keeps
+            // the same server entity, hitbox, collision/death pipeline and tracker
+            // visibility while making movement independent of a network client.
+            double stepX=dx*forward+sideX*strafe;
+            double stepZ=dz*forward+sideZ*strafe;
+            double nx=here.getX()+stepX;
+            double nz=here.getZ()+stepZ;
+
+            // Do not step into a solid body-height column. The Gate-3 arena is
+            // flat, but this makes the primitive safe enough for later embodied
+            // coordination tests instead of blindly teleporting through walls.
+            int feetY=here.getBlockY();
+            Material feet=here.getWorld().getBlockAt(
+                (int)Math.floor(nx),feetY,(int)Math.floor(nz)).getType();
+            Material head=here.getWorld().getBlockAt(
+                (int)Math.floor(nx),feetY+1,(int)Math.floor(nz)).getType();
+            if(feet.isSolid() || head.isSolid()) return false;
+
             face(b,target);
             b.bukkit.setSprinting(true);
-            b.bukkit.setVelocity(velocity);
+            invoke(b.handle,"setPositionRotation",
+                nx,here.getY(),nz,b.bukkit.getLocation().getYaw(),b.bukkit.getLocation().getPitch());
             return true;
         } catch(Throwable t) {
             plugin.getLogger().warning("[CombatBody Gate3] movement failed for "+b.name+": "+root(t));

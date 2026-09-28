@@ -1,7 +1,10 @@
 import http from 'node:http'
 
 const PORT = Number(process.env.HCF_AI_PORT || 8765)
-const MODEL = process.env.HCF_AI_MODEL || 'gpt-5-mini'
+const PROVIDER = String(process.env.HCF_AI_PROVIDER || 'ollama').toLowerCase()
+const OLLAMA_URL = String(process.env.HCF_OLLAMA_URL || 'http://127.0.0.1:11434').replace(/\/$/, '')
+const OLLAMA_MODEL = process.env.HCF_OLLAMA_MODEL || 'qwen3:4b'
+const OPENAI_MODEL = process.env.HCF_AI_MODEL || 'gpt-5-mini'
 const API_KEY = process.env.OPENAI_API_KEY || ''
 const MAX_PER_MINUTE = Math.max(4, Number(process.env.HCF_AI_MAX_PER_MINUTE || 36))
 
@@ -77,27 +80,10 @@ function promptFor(data) {
   ].join('\n')
 }
 
-async function modelReply(data) {
-  const response = await fetch('https://api.openai.com/v1/responses', {
-    method: 'POST',
-    headers: {
-      'Authorization': 'Bearer ' + API_KEY,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      instructions: 'Follow the HCF simulation rules exactly. Output only the requested compact JSON object.',
-      input: promptFor(data),
-      max_output_tokens: 180
-    })
-  })
-
-  if (!response.ok) throw new Error('OpenAI ' + response.status)
-  const json = await response.json()
-  const text = String(json.output_text || '').trim()
-  const match = text.match(/\{[\s\S]*\}/)
+async function parseModelJson(text) {
+  const raw = String(text || '').trim()
+  const match = raw.match(/\{[\s\S]*\}/)
   if (!match) throw new Error('no json output')
-
   const parsed = JSON.parse(match[0])
   return {
     reply: cleanLine(parsed.reply, 180),
@@ -109,17 +95,66 @@ async function modelReply(data) {
   }
 }
 
+async function ollamaReply(data) {
+  const response = await fetch(OLLAMA_URL + '/api/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: OLLAMA_MODEL,
+      prompt: promptFor(data),
+      stream: false,
+      format: 'json',
+      options: {
+        temperature: 0.72,
+        num_ctx: 4096,
+        num_predict: 180
+      }
+    })
+  })
+  if (!response.ok) throw new Error('Ollama ' + response.status)
+  const json = await response.json()
+  return parseModelJson(json.response)
+}
+
+async function openAiReply(data) {
+  if (!API_KEY) throw new Error('OPENAI_API_KEY not configured')
+  const response = await fetch('https://api.openai.com/v1/responses', {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer ' + API_KEY,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      model: OPENAI_MODEL,
+      instructions: 'Follow the HCF simulation rules exactly. Output only the requested compact JSON object.',
+      input: promptFor(data),
+      max_output_tokens: 180
+    })
+  })
+  if (!response.ok) throw new Error('OpenAI ' + response.status)
+  const json = await response.json()
+  return parseModelJson(json.output_text)
+}
+
+async function modelReply(data) {
+  if (PROVIDER === 'openai') return openAiReply(data)
+
+  try {
+    return await ollamaReply(data)
+  } catch (ollamaErr) {
+    if (API_KEY) {
+      console.warn('[community-ai] Ollama unavailable, trying OpenAI fallback: ' + String(ollamaErr?.message || ollamaErr))
+      return openAiReply(data)
+    }
+    throw ollamaErr
+  }
+}
+
 export function startCommunityAiBridge() {
   const server = http.createServer(async (req, res) => {
     if (req.method !== 'POST' || req.url !== '/reply') {
       res.writeHead(404)
       res.end('not found')
-      return
-    }
-
-    if (!API_KEY) {
-      res.writeHead(503)
-      res.end('OPENAI_API_KEY not configured')
       return
     }
 
@@ -164,8 +199,11 @@ export function startCommunityAiBridge() {
   })
 
   server.listen(PORT, '127.0.0.1', () => {
+    const provider = PROVIDER === 'openai' ? 'openai' : 'ollama'
+    const model = provider === 'openai' ? OPENAI_MODEL : OLLAMA_MODEL
     console.log('[community-ai] localhost bridge on 127.0.0.1:' + PORT +
-      ' model=' + MODEL + (API_KEY ? '' : ' (OPENAI_API_KEY missing; deterministic fallback active)'))
+      ' provider=' + provider + ' model=' + model +
+      (provider === 'ollama' ? ' endpoint=' + OLLAMA_URL : ''))
   })
 
   return server

@@ -453,35 +453,106 @@ final class HcfRaidPrototypeDirector {
         }
     }
 
-    private static int[] decisionMatrix() {
+    private int[] decisionMatrix() {
         int pass=0,total=0;
 
-        total++; if(attackerDecision(new AttackerContext(
-            true,true,2,1,3.0,2.0,3,3,"DIAMOND",80,82,75))==AttackerDecision.PEARL_ENTRY) pass++;
-        total++; if(attackerDecision(new AttackerContext(
-            false,true,2,1,3.0,2.0,3,3,"DIAMOND",90,90,90))==AttackerDecision.HOLD_OUTSIDE) pass++;
-        total++; if(attackerDecision(new AttackerContext(
-            true,false,2,1,3.0,2.0,3,3,"DIAMOND",90,90,90))==AttackerDecision.HOLD_OUTSIDE) pass++;
-        total++; if(attackerDecision(new AttackerContext(
-            true,true,3,1,3.0,1.0,2,3,"BARD",90,90,90))==AttackerDecision.HOLD_OUTSIDE) pass++;
-        total++; if(attackerDecision(new AttackerContext(
-            true,true,1,2,0.8,3.0,3,3,"DIAMOND",55,70,65))==AttackerDecision.ABORT) pass++;
-        total++; if(attackerDecision(new AttackerContext(
-            true,true,3,1,3.0,0.8,3,2,"DIAMOND",50,68,60))==AttackerDecision.PEARL_ENTRY) pass++;
+        // Twelve PAIRED situations. A trial passes only when both the attacker
+        // and defender choose the pre-declared HCF response. These outcomes are
+        // fixed before embodied QA so the raid gate cannot be passed by one
+        // convenient anecdote.
+        AttackerContext[] attackers=new AttackerContext[]{
+            new AttackerContext(true,true,2,1,3.0,2.0,3,3,"DIAMOND",80,82,75),
+            new AttackerContext(false,true,2,1,3.0,3.0,3,3,"DIAMOND",90,90,90),
+            new AttackerContext(true,false,2,1,3.0,3.0,3,3,"DIAMOND",90,90,90),
+            new AttackerContext(true,true,3,1,3.0,1.0,2,3,"BARD",90,90,90),
+            new AttackerContext(true,true,1,2,0.8,3.0,3,3,"DIAMOND",55,70,65),
+            new AttackerContext(true,true,2,1,3.0,0.8,4,3,"DIAMOND",60,75,70),
+            new AttackerContext(true,true,2,1,3.0,0.8,3,3,"DIAMOND",65,75,70),
+            new AttackerContext(true,true,1,3,3.0,3.0,3,3,"DIAMOND",55,65,55),
+            new AttackerContext(true,true,3,2,3.0,3.0,3,3,"DIAMOND",70,75,65),
+            new AttackerContext(true,true,2,1,3.0,2.0,3,3,"ARCHER",90,90,90),
+            new AttackerContext(true,true,1,1,3.0,3.0,2,4,"DIAMOND",55,60,55),
+            new AttackerContext(true,true,2,2,3.0,3.0,3,3,"DIAMOND",75,78,70)
+        };
+        DefenderContext[] defenders=new DefenderContext[]{
+            new DefenderContext(1,2,2.0,3,3,true,"DIAMOND",62,74,84),
+            new DefenderContext(2,1,3.0,3,3,true,"DIAMOND",50,70,60),
+            new DefenderContext(2,1,3.0,3,3,true,"DIAMOND",50,70,60),
+            new DefenderContext(1,3,3.0,3,3,true,"DIAMOND",55,75,80),
+            new DefenderContext(2,1,3.0,3,3,true,"DIAMOND",55,75,65),
+            new DefenderContext(1,2,0.8,4,3,true,"DIAMOND",50,75,70),
+            new DefenderContext(1,2,0.8,3,3,false,"DIAMOND",50,75,70),
+            new DefenderContext(3,1,2.7,3,3,true,"DIAMOND",55,80,75),
+            new DefenderContext(2,2,3.0,3,3,true,"BARD",50,80,85),
+            new DefenderContext(1,2,3.0,3,3,true,"DIAMOND",50,75,85),
+            new DefenderContext(1,1,3.0,2,4,true,"DIAMOND",50,75,65),
+            new DefenderContext(2,2,3.0,3,3,true,"DIAMOND",50,78,90)
+        };
+        AttackerDecision[] expectedAttackers=new AttackerDecision[]{
+            AttackerDecision.PEARL_ENTRY,
+            AttackerDecision.HOLD_OUTSIDE,
+            AttackerDecision.HOLD_OUTSIDE,
+            AttackerDecision.HOLD_OUTSIDE,
+            AttackerDecision.ABORT,
+            AttackerDecision.PEARL_ENTRY,
+            AttackerDecision.PEARL_ENTRY,
+            AttackerDecision.HOLD_OUTSIDE,
+            AttackerDecision.PEARL_ENTRY,
+            AttackerDecision.HOLD_OUTSIDE,
+            AttackerDecision.HOLD_OUTSIDE,
+            AttackerDecision.PEARL_ENTRY
+        };
+        DefenderDecision[] expectedDefenders=new DefenderDecision[]{
+            DefenderDecision.CALL_BACKUP,
+            DefenderDecision.HOLD_GATE,
+            DefenderDecision.HOLD_GATE,
+            DefenderDecision.CALL_BACKUP,
+            DefenderDecision.HOLD_GATE,
+            DefenderDecision.RETREAT,
+            DefenderDecision.CALL_BACKUP,
+            DefenderDecision.HOLD_GATE,
+            DefenderDecision.CALL_BACKUP,
+            DefenderDecision.CALL_BACKUP,
+            DefenderDecision.HOLD_GATE,
+            DefenderDecision.CALL_BACKUP
+        };
+        String[] names={
+            "standard-open-gate","closed-gate","blocked-pearl-line","bard-stays-outside",
+            "attacker-low-dtr-abort","raidable-defender-retreat","low-dtr-no-escape",
+            "defender-numbers","bard-defense-backup","archer-stays-outside",
+            "attacker-gear-deficit","teamwork-collapse"
+        };
 
-        total++; if(defenderDecision(new DefenderContext(
-            2,1,3.0,3,3,true,"DIAMOND",50,70,60))==DefenderDecision.HOLD_GATE) pass++;
-        total++; if(defenderDecision(new DefenderContext(
-            1,2,3.0,3,3,true,"DIAMOND",60,70,80))==DefenderDecision.CALL_BACKUP) pass++;
-        total++; if(defenderDecision(new DefenderContext(
-            1,1,0.8,4,3,true,"DIAMOND",50,75,70))==DefenderDecision.RETREAT) pass++;
-        total++; if(defenderDecision(new DefenderContext(
-            1,1,0.8,3,3,false,"DIAMOND",50,75,70))==DefenderDecision.CALL_BACKUP) pass++;
-        total++; if(defenderDecision(new DefenderContext(
-            3,1,2.7,3,3,true,"DIAMOND",55,80,75))==DefenderDecision.HOLD_GATE) pass++;
-        total++; if(defenderDecision(new DefenderContext(
-            2,2,3.0,3,3,true,"BARD",50,80,85))==DefenderDecision.CALL_BACKUP) pass++;
-
+        for(int i=0;i<names.length;i++) {
+            total++;
+            AttackerDecision actualA=attackerDecision(attackers[i]);
+            DefenderDecision actualD=defenderDecision(defenders[i]);
+            boolean ok=actualA==expectedAttackers[i] && actualD==expectedDefenders[i];
+            if(ok) pass++;
+            logDecisionTrial(i+1,names[i],attackers[i],defenders[i],
+                expectedAttackers[i],actualA,expectedDefenders[i],actualD,ok);
+        }
         return new int[]{pass,total};
+    }
+
+    private void logDecisionTrial(int number,String name,AttackerContext a,DefenderContext d,
+                                  AttackerDecision expectedA,AttackerDecision actualA,
+                                  DefenderDecision expectedD,DefenderDecision actualD,
+                                  boolean pass) {
+        plugin.getLogger().info("[Raid Matrix] trial="+number+
+            " name="+name+" "+(pass?"PASS":"FAIL")+
+            " attacker="+actualA+"/"+expectedA+
+            " defender="+actualD+"/"+expectedD+
+            " gateOpen="+a.enemyGateOpen+
+            " pearlLine="+a.validPearlLine+
+            " numbers="+a.ourNearby+":"+a.theirVisible+
+            " dtr="+String.format(Locale.US,"%.1f:%.1f",a.ourDtr,a.theirDtr)+
+            " gear="+a.ourGear+":"+a.theirGear+
+            " class="+a.combatClass+
+            " defenderNumbers="+d.defenderNearby+":"+d.attackersVisible+
+            " defenderDtr="+String.format(Locale.US,"%.1f",d.defenderDtr)+
+            " defenderGear="+d.defenderGear+":"+d.attackerVisibleGear+
+            " escape="+d.escapeRouteKnown+
+            " defenderClass="+d.combatClass);
     }
 }

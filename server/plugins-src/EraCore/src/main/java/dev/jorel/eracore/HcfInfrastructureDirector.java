@@ -20,7 +20,7 @@ import java.util.*;
  */
 @SuppressWarnings("deprecation")
 final class HcfInfrastructureDirector {
-    private static final int VERSION=6;
+    private static final int VERSION=7;
 
     private static final class Op {
         final World world;
@@ -36,21 +36,25 @@ final class HcfInfrastructureDirector {
     private final EraCore plugin;
     private final WarpManager warps;
     private final HcfZoneDisplayDirector zones;
+    private final LegacySchematicComposer composer;
     private final File file;
     private final YamlConfiguration data;
     private final ArrayDeque<Op> queue=new ArrayDeque<Op>();
     private BukkitTask task;
     private BukkitTask readinessTask;
     private boolean duelReady;
+    private boolean duelSchematicBuilding;
 
     private Location duelCenter;
     private Location duelHuman;
     private Location duelSim;
 
-    HcfInfrastructureDirector(EraCore plugin,WarpManager warps,HcfZoneDisplayDirector zones) {
+    HcfInfrastructureDirector(EraCore plugin,WarpManager warps,HcfZoneDisplayDirector zones,
+            LegacySchematicComposer composer) {
         this.plugin=plugin;
         this.warps=warps;
         this.zones=zones;
+        this.composer=composer;
         this.file=new File(plugin.getDataFolder(),"infrastructure.yml");
         this.data=YamlConfiguration.loadConfiguration(file);
     }
@@ -126,18 +130,31 @@ final class HcfInfrastructureDirector {
                 queueClassicHcfSpawn(overworld);
             }
 
-            // Duels live in their own flat world and cannot contaminate HCF map
-            // geometry, so this remains the only infrastructure we materialize
-            // automatically in production mode. Version 6 deliberately rebuilds
-            // the complete combat volume once to purge stale blocks from older
-            // arena revisions, not just the two spawn columns.
-            queueDuelArena(duelWorld,dcx,dfloor,dcz);
+            // Prefer the uploaded production PotPvP arena. It is composed in the
+            // isolated duel world, centered on 0,0, with its authored floor at
+            // duel-floor-y. AIR is pasted too so stale blocks from the previous
+            // generated arena cannot suffocate fighters.
+            boolean externalDuel=plugin.getConfig().getBoolean("infrastructure.duel-schematic-enabled",true);
+            if(externalDuel) {
+                String asset=plugin.getConfig().getString("infrastructure.duel-schematic","pvp1-1528348984.schematic");
+                if(composer!=null && composer.hasAsset(asset)) {
+                    if(!queueDuelSchematic(duelWorld,asset,dcx,dfloor,dcz)) {
+                        scheduleRetry();
+                        return;
+                    }
+                } else {
+                    plugin.getLogger().warning("Configured duel schematic is missing; falling back to generated arena: "+asset);
+                    queueDuelArena(duelWorld,dcx,dfloor,dcz);
+                }
+            } else {
+                queueDuelArena(duelWorld,dcx,dfloor,dcz);
+            }
 
             if(!productionSchematics) {
                 if(netherHub!=null) queueDimensionHub(netherHub,Material.NETHER_BRICK,Material.NETHER_FENCE,Material.GLOWSTONE);
                 if(endHub!=null) queueDimensionHub(endHub,Material.ENDER_STONE,Material.IRON_FENCE,Material.GLOWSTONE);
             }
-            runQueue();
+            if(!queue.isEmpty()) runQueue();
         } else {
             // Version already built: still repair critical spawn columns and warps.
             duelReady=validateSpawn(duelHuman) && validateSpawn(duelSim);
@@ -154,12 +171,11 @@ final class HcfInfrastructureDirector {
 
     boolean duelReady() {
         if(duelHuman==null || duelSim==null) return false;
-        // A valid two-block spawn column is not enough while queueDuelArena is
-        // still mutating the surrounding combat volume. Starting during that
-        // window caused fighters to appear intersecting stale/rebuilt blocks.
-        if(task!=null || !queue.isEmpty()) return false;
-        ensureSafePad(duelHuman,2,Material.SMOOTH_BRICK);
-        ensureSafePad(duelSim,2,Material.SMOOTH_BRICK);
+        // Do not start while either the generated fallback or uploaded arena is
+        // still mutating the combat volume.
+        if(duelSchematicBuilding || task!=null || !queue.isEmpty()) return false;
+        if(!validateSpawn(duelHuman)) ensureSafePad(duelHuman,2,Material.SMOOTH_BRICK);
+        if(!validateSpawn(duelSim)) ensureSafePad(duelSim,2,Material.SMOOTH_BRICK);
         duelReady=validateSpawn(duelHuman)&&validateSpawn(duelSim);
         return duelReady;
     }
@@ -398,6 +414,41 @@ final class HcfInfrastructureDirector {
             Math.max(floorY+Math.max(4,headroom),w.getHighestBlockYAt(x,z)+8));
         for(int yy=floorY+1;yy<=top;yy++)
             queue.add(new Op(w,x,yy,z,Material.AIR));
+    }
+
+    private boolean queueDuelSchematic(final World w,String asset,final int cx,final int floorY,final int cz) {
+        int localCenterX=plugin.getConfig().getInt("infrastructure.duel-schematic-local-center-x",83);
+        int localCenterZ=plugin.getConfig().getInt("infrastructure.duel-schematic-local-center-z",86);
+        int localFloorY=plugin.getConfig().getInt("infrastructure.duel-schematic-local-floor-y",15);
+        duelSchematicBuilding=true;
+        boolean queued=composer.queueCenteredStandalonePaste(
+            "HCF PotPvP Duel Arena",w,asset,cx,floorY,cz,
+            localCenterX,localFloorY,localCenterZ,true,new Runnable() {
+                public void run() {
+                    duelSchematicBuilding=false;
+                    duelReady=validateSpawn(duelHuman)&&validateSpawn(duelSim);
+                    if(!duelReady) {
+                        plugin.getLogger().severe("Uploaded duel arena completed but duel spawn validation failed.");
+                        return;
+                    }
+                    data.set("version",VERSION);
+                    save();
+                    plugin.getLogger().info("HCF infrastructure ready: uploaded PotPvP duel arena built and duel spawns validated.");
+                }
+            });
+        if(!queued) duelSchematicBuilding=false;
+        return queued;
+    }
+
+    private void scheduleRetry() {
+        if(readinessTask!=null) return;
+        readinessTask=Bukkit.getScheduler().runTaskLater(plugin,new Runnable() {
+            public void run() {
+                readinessTask=null;
+                start();
+            }
+        },20L);
+        plugin.getLogger().info("HCF infrastructure waiting for schematic compositor to become idle.");
     }
 
     private void queueDuelArena(World w,int cx,int floorY,int cz) {

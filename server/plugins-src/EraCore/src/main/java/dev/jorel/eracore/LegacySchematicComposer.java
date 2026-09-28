@@ -344,7 +344,7 @@ final class LegacySchematicComposer {
     }
 
     boolean hasAsset(String name) {
-        return new File(assetDir,name).isFile();
+        return file(name).isFile() || !encodedAssetParts(name).isEmpty();
     }
 
     List<String> missingProductionAssets() {
@@ -613,9 +613,50 @@ final class LegacySchematicComposer {
 
     private File file(String name){return new File(assetDir,name);}
 
+    private List<File> encodedAssetParts(final String name) {
+        File[] found=assetDir.listFiles(new FileFilter() {
+            public boolean accept(File f) {
+                return f.isFile() && f.getName().startsWith(name+".b64.");
+            }
+        });
+        if(found==null || found.length==0) return Collections.emptyList();
+        Arrays.sort(found,new Comparator<File>() {
+            public int compare(File a,File b){return a.getName().compareTo(b.getName());}
+        });
+        return Arrays.asList(found);
+    }
+
+    private File materializeEncodedAsset(String name)throws IOException {
+        File target=file(name);
+        if(target.isFile()) return target;
+        List<File> parts=encodedAssetParts(name);
+        if(parts.isEmpty()) throw new FileNotFoundException(target.getAbsolutePath());
+
+        StringBuilder encoded=new StringBuilder();
+        for(File part:parts) {
+            BufferedReader reader=new BufferedReader(new InputStreamReader(new FileInputStream(part),"UTF-8"));
+            try {
+                String line;
+                while((line=reader.readLine())!=null) encoded.append(line.trim());
+            } finally { reader.close(); }
+        }
+
+        byte[] decoded;
+        try { decoded=Base64.getDecoder().decode(encoded.toString()); }
+        catch(IllegalArgumentException bad) { throw new IOException("Invalid base64 schematic payload for "+name,bad); }
+
+        if(!assetDir.exists() && !assetDir.mkdirs())
+            throw new IOException("Could not create map asset directory "+assetDir.getAbsolutePath());
+        FileOutputStream out=new FileOutputStream(target);
+        try { out.write(decoded); }
+        finally { out.close(); }
+        plugin.getLogger().info("[composer] reconstructed encoded asset "+name+
+            " parts="+parts.size()+" bytes="+decoded.length);
+        return target;
+    }
+
     private Schematic load(String name)throws IOException {
-        File f=file(name);
-        if(!f.isFile()) throw new FileNotFoundException(f.getAbsolutePath());
+        File f=materializeEncodedAsset(name);
         DataInputStream in=new DataInputStream(new BufferedInputStream(new GZIPInputStream(new FileInputStream(f))));
         try {
             int rootType=in.readUnsignedByte();

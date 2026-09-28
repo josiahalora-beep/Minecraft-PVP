@@ -5987,16 +5987,17 @@ final class SimWorldDirector {
         sotwTicks++;
         updateLogicalSessionsAndGoals();
 
-        // During a fresh SOTW physical map build, identities may be logically
-        // online and chat, but claims/economy/base/event strategy must wait for
-        // the authoritative geometry to exist.
+        // Social SOTW progression is independent of physical map composition.
+        // Players must be able to form/recruit factions while spawn/KOTH assets
+        // are still being pasted. Only geometry-dependent strategy waits for READY.
+        communityTick();
+        formationTick();
+
         if(!plugin.productionWorldReady()) {
             if(sotwTicks%4L==0L) save();
             return;
         }
 
-        communityTick();
-        formationTick();
         applyCreatorFactionSpecializations();
         updateCampTargets();
         economy.tickAll(logicallyOnlinePlayers(), factions, sotwTicks);
@@ -8176,16 +8177,12 @@ final class SimWorldDirector {
     }
 
     boolean sotwProtectionActive() {
-        // A full SOTW map build is pre-game setup. Protection remains active
-        // and its clock stays frozen until HcfWorldBuildDirector reaches READY.
-        if(!plugin.productionWorldReady()) return true;
         long mins = plugin.getConfig().getLong("sotw.protection-minutes", 60L);
         return System.currentTimeMillis() - sotwStartedAt < mins * 60L * 1000L;
     }
 
     long sotwMillisLeft() {
         long total=plugin.getConfig().getLong("sotw.protection-minutes",60L)*60L*1000L;
-        if(!plugin.productionWorldReady()) return total;
         return Math.max(0L,total-(System.currentTimeMillis()-sotwStartedAt));
     }
 

@@ -2796,6 +2796,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
         if(a[0].equalsIgnoreCase("status")) {
             p.sendMessage(color("&7Visible fight: &f"+simWorld.visibleFightSummary()));
+            p.sendMessage(color("&7Readiness: &f"+simWorld.visibleFightReadinessSummary()));
             return true;
         }
 

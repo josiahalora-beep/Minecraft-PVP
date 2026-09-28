@@ -1975,6 +1975,9 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
             try {
                 final Player body=fakePlayers.spawn(a.name,at,true);
+                final String gate2Token="Gate2LootProbe:"+a.name+":"+System.currentTimeMillis();
+                armCombatBodyDropProbe(body,gate2Token);
+                final Location gate2DeathAt=body.getLocation().clone();
                 final double hp0=body.getHealth();
                 fakePlayers.damage(a.name,2.0);
                 final double hp1=body.getHealth();
@@ -2000,21 +2003,38 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
                         boolean damageWorked=hp1<hp0;
                         boolean dtrWorked=!Double.isNaN(afterDtr) &&
                             afterDtr<=beforeDtr-expectedLoss+0.0001;
-                        boolean pass=damageWorked && eventSeen && dtrWorked;
+                        CombatBodyDropProof drops=inspectCombatBodyDropProbe(gate2DeathAt,gate2Token,true);
+                        boolean gate1Pass=damageWorked && eventSeen && dtrWorked;
+                        boolean gate2Pass=gate1Pass && drops.complete();
+                        getLogger().info("[CombatBody Gate2] actor="+actorName+
+                            " gate1="+gate1Pass+
+                            " worldLoot="+drops.complete()+
+                            " marker="+drops.marker+
+                            " pearls="+drops.pearls+"/7"+
+                            " heals="+drops.heals+"/3"+
+                            " helmet="+drops.helmet+"/1"+
+                            " entities="+drops.entities);
                         if(p.isOnline()) {
-                            p.sendMessage(color((pass?"&a":"&c")+"[CombatBody gate] "+
-                                (pass?"PASS":"FAIL")+
+                            p.sendMessage(color((gate1Pass?"&a":"&c")+"[CombatBody Gate1] "+
+                                (gate1Pass?"PASS":"FAIL")+
                                 " &7PlayerDeathEvent=&f"+eventSeen+
                                 " &7DTR=&f"+String.format(Locale.US,"%.2f",beforeDtr)+
                                 "->"+String.format(Locale.US,"%.2f",afterDtr)+
                                 " &7expectedLoss=&f"+String.format(Locale.US,"%.2f",expectedLoss)));
-                            if(pass)
-                                p.sendMessage(color("&aThe fake player used the existing EraCore death/DTR authority path. No bot-only DTR shortcut was used."));
+                            p.sendMessage(color((gate2Pass?"&a":"&c")+"[CombatBody Gate2] "+
+                                (gate2Pass?"PASS":"FAIL")+
+                                " &7worldLoot=&f"+drops.complete()+
+                                " &7marker=&f"+drops.marker+
+                                " &7pearls=&f"+drops.pearls+"/7"+
+                                " &7HealII=&f"+drops.heals+"/3"+
+                                " &7helmet=&f"+drops.helmet+"/1"));
+                            if(gate2Pass)
+                                p.sendMessage(color("&aGate 2 closed: the CombatBody death produced normal recoverable world item entities through the existing death pipeline."));
                             else
-                                p.sendMessage(color("&cDo not enable production CombatBodies yet. Keep fights on Mineflayer and inspect the server log."));
+                                p.sendMessage(color("&cGate 2 remains open. Do not move production CombatBodies to PvP until physical death loot is proven."));
                         }
                     }
-                },6L);
+                },4L);
             } catch(Exception ex) {
                 p.sendMessage(color("&c[CombatBody gate] spawn failed: "+ex.getMessage()));
             }
@@ -2023,6 +2043,68 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
         p.sendMessage(color("&cUnknown /simactor action. Use /simactor for help."));
         return true;
+    }
+
+    private static final class CombatBodyDropProof {
+        int marker;
+        int pearls;
+        int heals;
+        int helmet;
+        int entities;
+        boolean complete() {
+            return marker>=1 && pearls>=7 && heals>=3 && helmet>=1;
+        }
+    }
+
+    private void armCombatBodyDropProbe(Player body,String token) {
+        body.getInventory().clear();
+        body.getInventory().setArmorContents(new ItemStack[4]);
+        body.getInventory().setItem(0,tagCombatBodyProbeItem(
+            new ItemStack(Material.BLAZE_ROD,1),token,"Gate 2 marker"));
+        body.getInventory().setItem(1,tagCombatBodyProbeItem(
+            new ItemStack(Material.ENDER_PEARL,7),token,"Gate 2 pearls"));
+        body.getInventory().setItem(2,tagCombatBodyProbeItem(
+            new ItemStack(Material.POTION,3,(short)16421),token,"Gate 2 Healing II"));
+        body.getInventory().setHelmet(tagCombatBodyProbeItem(
+            new ItemStack(Material.DIAMOND_HELMET,1),token,"Gate 2 armor"));
+        body.updateInventory();
+    }
+
+    private ItemStack tagCombatBodyProbeItem(ItemStack item,String token,String name) {
+        org.bukkit.inventory.meta.ItemMeta meta=item.getItemMeta();
+        if(meta!=null) {
+            meta.setDisplayName(color("&d"+name));
+            meta.setLore(java.util.Collections.singletonList(token));
+            item.setItemMeta(meta);
+        }
+        return item;
+    }
+
+    private CombatBodyDropProof inspectCombatBodyDropProbe(Location at,String token,boolean cleanup) {
+        CombatBodyDropProof out=new CombatBodyDropProof();
+        if(at==null || at.getWorld()==null) return out;
+        for(org.bukkit.entity.Entity entity:at.getWorld().getNearbyEntities(at,6.0,6.0,6.0)) {
+            if(!(entity instanceof org.bukkit.entity.Item)) continue;
+            org.bukkit.entity.Item dropped=(org.bukkit.entity.Item)entity;
+            ItemStack item=dropped.getItemStack();
+            if(item==null || !combatBodyProbeTagged(item,token)) continue;
+            out.entities++;
+            if(item.getType()==Material.BLAZE_ROD) out.marker+=item.getAmount();
+            else if(item.getType()==Material.ENDER_PEARL) out.pearls+=item.getAmount();
+            else if(item.getType()==Material.POTION && item.getDurability()==(short)16421)
+                out.heals+=item.getAmount();
+            else if(item.getType()==Material.DIAMOND_HELMET) out.helmet+=item.getAmount();
+            if(cleanup) dropped.remove();
+        }
+        return out;
+    }
+
+    private boolean combatBodyProbeTagged(ItemStack item,String token) {
+        if(item==null || token==null || !item.hasItemMeta()) return false;
+        org.bukkit.inventory.meta.ItemMeta meta=item.getItemMeta();
+        if(meta==null || !meta.hasLore()) return false;
+        for(String line:meta.getLore()) if(token.equals(line)) return true;
+        return false;
     }
 
     private boolean ownerOnly(Player p) {

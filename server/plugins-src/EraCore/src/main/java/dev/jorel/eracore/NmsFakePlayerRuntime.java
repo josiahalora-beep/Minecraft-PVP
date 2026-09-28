@@ -227,7 +227,7 @@ final class NmsFakePlayerRuntime implements Listener {
         if(at==null || at.getWorld()==null) throw new IllegalArgumentException("Missing spawn world/location.");
         if(hasBody(name)) return bodies.get(key(name)).bukkit;
 
-        int maxBodies=probe?Math.max(1,Math.min(4,
+        int maxBodies=probe?Math.max(1,Math.min(32,
             plugin.getConfig().getInt("actors.fake-player.probe-max-bodies",2))):
             Math.max(1,Math.min(64,
             plugin.getConfig().getInt("actors.fake-player.max-bodies",8)));

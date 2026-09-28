@@ -715,12 +715,14 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         getConfig().set("creator-tag.head-prefix","&c[YT] &f");
         getConfig().set("creator-tag.chat-prefix","&c[YT] &r");
         getConfig().set("creator-tag.creators",Arrays.asList(
-            "Stimpy","PainfulPvP","MeeZoid","lolitsalex","Verzide","HateFoo","Skimpy","Zigy","Dylan_"));
+            "Stimpy","PainfulPvP","MeeZoid","lolitsalex","Verzide","Tenebrous","iMakeMcVids","HateFoo","Skimpy","Zigy","Dylan_"));
         getConfig().set("creator-tag.subscriber-counts.PainfulPvP",1090000);
         getConfig().set("creator-tag.subscriber-counts.Stimpy",322000);
         getConfig().set("creator-tag.subscriber-counts.MeeZoid",151000);
-        getConfig().set("creator-tag.subscriber-counts.lolitsalex",128000);
+        getConfig().set("creator-tag.subscriber-counts.lolitsalex",129000);
         getConfig().set("creator-tag.subscriber-counts.Verzide",94000);
+        getConfig().set("creator-tag.subscriber-counts.Tenebrous",77600);
+        getConfig().set("creator-tag.subscriber-counts.iMakeMcVids",54900);
         getConfig().set("creator-tag.subscriber-counts.Zigy",43200);
         getConfig().set("creator-tag.subscriber-counts.Dylan_",40000);
         getConfig().set("creator-tag.legacy-popularity-tiers.HateFoo",3);
@@ -731,7 +733,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         getConfig().set("creator-tag.cape-eligible",Arrays.asList(
             "Stimpy","PainfulPvP","MeeZoid","lolitsalex","Verzide","HateFoo"));
         getConfig().set("worker-pool.creator-bodies",Arrays.asList(
-            "Stimpy","PainfulPvP","MeeZoid","lolitsalex","Verzide","HateFoo","Skimpy","Zigy","Dylan_"));
+            "Stimpy","PainfulPvP","MeeZoid","lolitsalex","Verzide","Tenebrous","iMakeMcVids","HateFoo","Skimpy","Zigy","Dylan_"));
 
         // Phase 1 authored HCF world foundation. These values intentionally
         // override the old 3k procedural-terrain layout above on both upgrades
@@ -4976,6 +4978,21 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if(canonical==null) return false;
         if(officer) addCasePreserving(f.officers,canonical);
         else removeIgnoreCase(f.officers,canonical);
+        saveFactions();
+        return true;
+    }
+
+    synchronized boolean setSimFactionLeaderAuthority(String factionName,String memberName) {
+        Faction f=factions.get(factionName==null?"":factionName.toLowerCase(Locale.ENGLISH));
+        if(f==null || memberName==null) return false;
+        String canonical=factionMemberName(f,memberName);
+        if(canonical==null) return false;
+        if(f.leader!=null && f.leader.equalsIgnoreCase(canonical)) return true;
+        String oldLeader=f.leader;
+        f.leader=canonical;
+        removeIgnoreCase(f.officers,canonical);
+        if(oldLeader!=null && !oldLeader.isEmpty() && !oldLeader.equalsIgnoreCase(canonical))
+            addCasePreserving(f.officers,oldLeader);
         saveFactions();
         return true;
     }

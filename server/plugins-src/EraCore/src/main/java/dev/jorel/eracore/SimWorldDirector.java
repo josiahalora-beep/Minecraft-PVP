@@ -4381,6 +4381,8 @@ final class SimWorldDirector {
          .append("; ownerAffinity=").append(p.ownerAffinity)
          .append("; publicNamePrestige=").append(namePrestigeTier(p.name))
          .append("; knownCreator=").append(plugin.isCreatorIdentity(p.name))
+         .append("; creatorSubscribers=").append(plugin.creatorSubscriberCount(p.name))
+         .append("; creatorPopularityTier=").append(plugin.creatorPopularityTier(p.name))
          .append("; hcfExperience=").append(isHcfNovice(p)?"novice":(p.gameSense>=72?"veteran":"intermediate"))
          .append("; speechStyle=").append(speechStyleFor(p))
          .append("; kills=").append(p.kills)
@@ -5036,8 +5038,8 @@ final class SimWorldDirector {
         for(SimPlayer p:candidates) {
             weighted.add(p);
             if(plugin.isCreatorIdentity(p.name)) {
-                weighted.add(p);
-                weighted.add(p);
+                int fame=Math.max(1,plugin.creatorPopularityTier(p.name));
+                for(int i=0;i<fame;i++) weighted.add(p);
             } else if(namePrestigeTier(p.name)>=2) {
                 weighted.add(p);
             }
@@ -6460,7 +6462,11 @@ final class SimWorldDirector {
 
     private void maybeCreatorPvpDrama() {
         List<SimPlayer> creators=new ArrayList<SimPlayer>();
-        for(SimPlayer p:players.values()) if(p.logicalOnline && plugin.isCreatorIdentity(p.name)) creators.add(p);
+        for(SimPlayer p:players.values()) {
+            if(!p.logicalOnline || !plugin.isCreatorIdentity(p.name)) continue;
+            int fame=Math.max(1,plugin.creatorPopularityTier(p.name));
+            for(int i=0;i<fame;i++) creators.add(p);
+        }
         if(creators.isEmpty()) return;
         SimPlayer creator=creators.get(rng.nextInt(creators.size()));
 
@@ -7803,6 +7809,10 @@ final class SimWorldDirector {
     private void expandPopulationIfConfigured() {
         List<String> names=uniquePlayerNames();
         int target=Math.max(30,Math.min(180,plugin.getConfig().getInt("sim-world.population",90)));
+        int missingCreators=0;
+        for(String creator:plugin.getConfig().getStringList("creator-tag.creators"))
+            if(creator!=null && !players.containsKey(key(canonicalIdentityName(creator)))) missingCreators++;
+        target=Math.max(target,players.size()+missingCreators);
         target=Math.min(target,names.size());
         if(players.size()>=target) return;
 
@@ -8085,23 +8095,77 @@ final class SimWorldDirector {
     }
 
     private void applyCreatorFactionSpecializations() {
+        SimPlayer stimpy=players.get("stimpy");
+        if(stimpy!=null && stimpy.faction!=null && !stimpy.faction.isEmpty()) {
+            SimFaction sf=factions.get(key(stimpy.faction));
+            if(sf!=null) {
+                if(sf.leader==null || !sf.leader.equalsIgnoreCase(stimpy.name)) {
+                    String oldLeader=sf.leader;
+                    if(plugin.setSimFactionLeaderAuthority(sf.name,stimpy.name)) {
+                        sf.leader=stimpy.name;
+                        stimpy.role="leader";
+                        stimpy.factionTitle="leader";
+                        SimPlayer old=oldLeader==null?null:players.get(key(oldLeader));
+                        if(old!=null) { old.role=old.preferredJob; old.factionTitle="officer"; }
+                    }
+                }
+                sf.powerFaction=true;
+                sf.underdog=false;
+                sf.archetype="PVP";
+                sf.targetSize=MAX_FACTION_MEMBERS;
+                sf.recoveryMode=false;
+                sf.p4Sets=Math.max(sf.p4Sets,12);
+                sf.sharp4Swords=Math.max(sf.sharp4Swords,12);
+                sf.bardSets=Math.max(sf.bardSets,3);
+                sf.archerSets=Math.max(sf.archerSets,3);
+                sf.rogueSets=Math.max(sf.rogueSets,3);
+                sf.healPots=Math.max(sf.healPots,384);
+                sf.pearls=Math.max(sf.pearls,192);
+                sf.xp=Math.max(sf.xp,5000);
+                sf.books=Math.max(sf.books,128);
+                sf.lapis=Math.max(sf.lapis,512);
+                sf.wood=Math.max(sf.wood,4096);
+                sf.stone=Math.max(sf.stone,4096);
+                sf.iron=Math.max(sf.iron,1024);
+                sf.diamonds=Math.max(sf.diamonds,512);
+                sf.obsidian=Math.max(sf.obsidian,512);
+                sf.glass=Math.max(sf.glass,2048);
+                sf.cane=Math.max(sf.cane,2048);
+                sf.glowstone=Math.max(sf.glowstone,1024);
+                sf.gunpowder=Math.max(sf.gunpowder,1024);
+                sf.treasury=Math.max(sf.treasury,100000.0);
+            }
+            String owner=plugin.getConfig().getString("owner.name","");
+            if(owner!=null && !owner.trim().isEmpty()) {
+                SocialEdge e=relationship(stimpy.name,owner,true);
+                e.affinity=100;e.trust=100;e.respect=100;e.grudge=0;
+                stimpy.ownerAffinity=100;
+                rememberRelationship(e,"owner is my permanent teammate and shot-caller in this simulation");
+            }
+        }
+
         SimPlayer alex=players.get("lolitsalex");
-        if (alex==null || alex.faction==null || alex.faction.isEmpty()) return;
+        if(alex==null || alex.faction==null || alex.faction.isEmpty()) return;
         SimFaction f=factions.get(key(alex.faction));
         if(f==null) return;
-
         f.archetype="TRAPPER";
         if(f.trapPreset==null || "none".equalsIgnoreCase(f.trapPreset)) {
             int tr=rng.nextInt(100);
             f.trapPreset = tr < 38 ? "fall_trap" : (tr < 82 ? "fence_gate_bow" : "drop_chute");
         }
-
-        // Existing live SOTW bases get only the trap add-on, not a destructive
-        // full-base replacement.
         if(f.storage && f.baseX!=0 && !f.specialTrapBuilt) {
             plugin.queueSimTrapAddon(f.name,f.trapPreset,f.baseX,f.baseY,f.baseZ);
             f.specialTrapBuilt=true;
         }
+    }
+
+    private int creatorPopularityForFaction(SimFaction f) {
+        if(f==null) return 0;
+        int best=0;
+        for(String member:f.members)
+            if(plugin.isCreatorIdentity(member))
+                best=Math.max(best,plugin.creatorPopularityTier(member));
+        return best;
     }
 
     private void updateCampTargets() {
@@ -8142,7 +8206,11 @@ final class SimWorldDirector {
                     (leader.aggression<55?8:0));
                 if(rng.nextInt(100)<Math.max(4,Math.min(34,interest))) {
                     List<SimFaction> options=new ArrayList<SimFaction>();
-                    for(SimFaction cf:creatorFactions) if(!cf.name.equalsIgnoreCase(f.name)) options.add(cf);
+                    for(SimFaction cf:creatorFactions) {
+                        if(cf.name.equalsIgnoreCase(f.name)) continue;
+                        int fame=Math.max(1,creatorPopularityForFaction(cf));
+                        for(int i=0;i<fame;i++) options.add(cf);
+                    }
                     if(!options.isEmpty()) {
                         SimFaction cf=options.get(rng.nextInt(options.size()));
                         f.watchTarget=cf.name;
@@ -9591,7 +9659,9 @@ final class SimWorldDirector {
     }
 
     boolean issueFactionOrder(String factionName,String issuer,String requested) {
-        if(factionName==null || requested==null || !plugin.factionManagerAuthority(factionName,issuer))
+        boolean globalOwner=isConfiguredOwner(issuer);
+        if(factionName==null || requested==null ||
+           (!globalOwner && !plugin.factionManagerAuthority(factionName,issuer)))
             return false;
         SimFaction f=factions.get(key(factionName));
         if(f==null) return false;
@@ -9821,6 +9891,12 @@ final class SimWorldDirector {
     private List<String> uniquePlayerNames() {
         List<String> out=new ArrayList<String>();
         Set<String> seen=new HashSet<String>();
+        for(String raw:plugin.getConfig().getStringList("creator-tag.creators")) {
+            if(raw==null) continue;
+            String name=canonicalIdentityName(raw).trim();
+            if(name.isEmpty() || name.length()>16) continue;
+            if(seen.add(key(name))) out.add(name);
+        }
         for(String raw:PLAYER_NAMES) {
             if(raw==null) continue;
             String name=canonicalIdentityName(raw).trim();
@@ -9828,10 +9904,8 @@ final class SimWorldDirector {
             String lower=key(name);
             if(seen.add(lower)) out.add(name);
         }
-        if(out.size()!=PLAYER_NAMES.length) {
-            plugin.getLogger().warning("Player-name pool normalized from "+PLAYER_NAMES.length+
-                " entries to "+out.size()+" case-insensitive unique identities.");
-        }
+        if(out.size()<PLAYER_NAMES.length)
+            plugin.getLogger().warning("Player-name pool normalized duplicate/invalid identities; unique="+out.size()+".");
         return out;
     }
 
@@ -9963,8 +10037,15 @@ final class SimWorldDirector {
         p.sociability=Math.max(p.sociability,92);
         p.patience=Math.max(p.patience,88);
         p.reputation=Math.max(p.reputation,250);
+        p.economicIq=100;
+        p.balance=Math.max(p.balance,100000.0);
         p.donorLevel=4;
+        p.donationUsd=Math.max(p.donationUsd,500.0);
         p.ownerAffinity=100;
+        p.moderationTrust=100;
+        p.bannedUntil=0L;
+        p.logicalOnline=true;
+        p.sessionTicksLeft=Math.max(p.sessionTicksLeft,480);
         p.leaderCandidate=true;
         p.underdogLeader=false;
         p.combatClass=CombatClass.DIAMOND;

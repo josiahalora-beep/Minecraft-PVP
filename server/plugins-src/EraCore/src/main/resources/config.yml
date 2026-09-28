@@ -109,6 +109,8 @@ creator-tag:
     - MeeZoid
     - lolitsalex
     - Verzide
+    - Tenebrous
+    - iMakeMcVids
     - HateFoo
     - Skimpy
     - Zigy
@@ -117,8 +119,10 @@ creator-tag:
     PainfulPvP: 1090000
     Stimpy: 322000
     MeeZoid: 151000
-    lolitsalex: 128000
+    lolitsalex: 129000
     Verzide: 94000
+    Tenebrous: 77600
+    iMakeMcVids: 54900
     Zigy: 43200
     Dylan_: 40000
   legacy-popularity-tiers:
@@ -184,6 +188,8 @@ sim-chat:
     - MeeZoid
     - lolitsalex
     - Verzide
+    - Tenebrous
+    - iMakeMcVids
     - HateFoo
     - Skimpy
     - Zigy
@@ -409,6 +415,8 @@ worker-pool:
     - MeeZoid
     - lolitsalex
     - Verzide
+    - Tenebrous
+    - iMakeMcVids
     - HateFoo
     - Skimpy
     - Zigy

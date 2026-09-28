@@ -30,30 +30,34 @@ async function waitPair(timeoutMs=90000) {
   throw new Error('No two logical-online factioned simulated players became available')
 }
 
-const bot=createBot('GateOwner',{physicsEnabled:false,viewDistance:'tiny'})
-bot.on('message',m=>console.log('[CHAT]',m.toString()))
-await waitForSpawn(bot,30000)
-await sleep(2500)
-
 const [a,b]=await waitPair()
 console.log('[GATE3] pair='+a+' vs '+b)
 
-const pass=new Promise((resolve,reject)=>{
-  const timer=setTimeout(()=>reject(new Error('Timed out waiting for Gate 3 PASS')),45000)
-  const onMessage=msg=>{
-    const line=msg.toString()
-    if(!line.includes('[CombatBody Gate 3]')) return
-    if(line.includes('PASS')) {
-      clearTimeout(timer);bot.removeListener('message',onMessage);resolve(line)
-    } else if(line.includes('FAIL')) {
-      clearTimeout(timer);bot.removeListener('message',onMessage);reject(new Error(line))
-    }
-  }
-  bot.on('message',onMessage)
-})
+const bot=createBot('GateOwner',{physicsEnabled:false,viewDistance:'tiny'})
+bot.on('message',m=>console.log('[CHAT]',m.toString()))
+await waitForSpawn(bot,30000)
+await sleep(800)
 
+// The disposable owner only needs to deliver the owner-only command. Do not
+// make Gate 3 depend on this client surviving the full mechanics probe: the
+// disposable flat world can kick a physics-disabled client for floating.
 bot.chat('/simactor combatprobe '+a+' '+b)
-const line=await pass
-console.log('[GATE3] '+line)
-bot.quit('Gate 3 complete')
-await sleep(500)
+await sleep(1200)
+try { bot.quit('Gate 3 command delivered') } catch {}
+
+const serverLog='../server/gate3-server.log'
+const end=Date.now()+30000
+let verdict=''
+while(Date.now()<end) {
+  let log=''
+  try { log=fs.readFileSync(serverLog,'utf8') } catch {}
+  const lines=log.split(/\r?\n/).filter(line=>line.includes('[CombatBody Gate3 command]'))
+  if(lines.length) {
+    const line=lines[lines.length-1]
+    if(line.includes('PASS')) { verdict=line; break }
+    if(line.includes('FAIL')) throw new Error(line)
+  }
+  await sleep(250)
+}
+if(!verdict) throw new Error('Timed out waiting for server-side Gate 3 verdict')
+console.log('[GATE3] '+verdict)

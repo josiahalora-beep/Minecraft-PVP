@@ -5,9 +5,11 @@ import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.entity.Item;
 import org.bukkit.entity.Player;
+import org.bukkit.entity.ThrownPotion;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.util.Vector;
 
 import java.lang.reflect.Array;
 import java.lang.reflect.Constructor;
@@ -143,7 +145,9 @@ final class NmsFakePlayerRuntime {
         if(at==null || at.getWorld()==null) throw new IllegalArgumentException("Missing spawn world/location.");
         if(hasBody(name)) return bodies.get(key(name)).bukkit;
 
-        int maxBodies=probe?1:Math.max(1,Math.min(64,
+        int maxBodies=probe?Math.max(1,Math.min(4,
+            plugin.getConfig().getInt("actors.fake-player.probe-max-bodies",2))):
+            Math.max(1,Math.min(64,
             plugin.getConfig().getInt("actors.fake-player.max-bodies",8)));
         if(bodies.size()>=maxBodies)
             throw new IllegalStateException("CombatBody cap reached ("+maxBodies+").");
@@ -290,6 +294,116 @@ final class NmsFakePlayerRuntime {
         plugin.getLogger().info("[CombatBody Gate2] actor="+probe.actor+" "+
             (pass?"PASS":"FAIL")+" eventDrops="+probe.eventStacks+"/"+probe.expectedStacks+
             " worldDrops="+probe.worldStacks+"/"+probe.expectedStacks);
+    }
+
+    int combatHealPotionCount(String name) {
+        Body b=bodies.get(key(name));
+        if(b==null || b.bukkit==null) return 0;
+        int total=0;
+        for(ItemStack item:b.bukkit.getInventory().getContents()) {
+            if(item!=null && item.getType()==Material.POTION &&
+               item.getDurability()==(short)16421) total+=item.getAmount();
+        }
+        return total;
+    }
+
+    boolean combatMoveToward(String name,Location target,double forward,double strafe) {
+        Body b=bodies.get(key(name));
+        if(b==null || b.bukkit==null || target==null || target.getWorld()==null) return false;
+        if(!b.bukkit.getWorld().equals(target.getWorld())) return false;
+        try {
+            Location here=b.bukkit.getLocation();
+            double dx=target.getX()-here.getX();
+            double dz=target.getZ()-here.getZ();
+            double mag=Math.sqrt(dx*dx+dz*dz);
+            if(mag<0.001) return false;
+            dx/=mag; dz/=mag;
+            double sideX=-dz,sideZ=dx;
+            Vector velocity=new Vector(
+                dx*forward+sideX*strafe,
+                b.bukkit.getVelocity().getY(),
+                dz*forward+sideZ*strafe);
+            face(b,target);
+            b.bukkit.setSprinting(true);
+            b.bukkit.setVelocity(velocity);
+            return true;
+        } catch(Throwable t) {
+            plugin.getLogger().warning("[CombatBody Gate3] movement failed for "+b.name+": "+root(t));
+            return false;
+        }
+    }
+
+    boolean combatAttack(String attacker,String target,boolean wTap) {
+        final Body a=bodies.get(key(attacker));
+        Body t=bodies.get(key(target));
+        if(a==null || t==null || a.bukkit==null || t.bukkit==null) return false;
+        try {
+            face(a,t.bukkit.getLocation().add(0.0,1.0,0.0));
+            a.bukkit.setSprinting(true);
+            double before=t.bukkit.getHealth();
+            invoke(a.handle,"attack",t.handle);
+            boolean landed=t.bukkit.getHealth()<before;
+            if(wTap) {
+                a.bukkit.setSprinting(false);
+                Bukkit.getScheduler().runTaskLater(plugin,new Runnable(){
+                    public void run() {
+                        Body live=bodies.get(key(a.name));
+                        if(live!=null && live.bukkit!=null) {
+                            try {live.bukkit.setSprinting(true);} catch(Throwable ignored){}
+                        }
+                    }
+                },1L);
+            }
+            return landed;
+        } catch(Throwable ex) {
+            plugin.getLogger().warning("[CombatBody Gate3] attack failed "+attacker+" -> "+target+": "+root(ex));
+            return false;
+        }
+    }
+
+    boolean combatSplashHealAtFeet(String name) {
+        Body b=bodies.get(key(name));
+        if(b==null || b.bukkit==null) return false;
+        PlayerInventory inv=b.bukkit.getInventory();
+        int slot=-1;
+        ItemStack source=null;
+        for(int i=0;i<inv.getSize();i++) {
+            ItemStack item=inv.getItem(i);
+            if(item!=null && item.getType()==Material.POTION &&
+               item.getDurability()==(short)16421) {
+                slot=i;source=item;break;
+            }
+        }
+        if(slot<0 || source==null) return false;
+        try {
+            if(source.getAmount()<=1) inv.setItem(slot,null);
+            else {
+                source.setAmount(source.getAmount()-1);
+                inv.setItem(slot,source);
+            }
+            Location eye=b.bukkit.getEyeLocation().clone();
+            ThrownPotion potion=eye.getWorld().spawn(eye,ThrownPotion.class);
+            potion.setShooter(b.bukkit);
+            potion.setItem(new ItemStack(Material.POTION,1,(short)16421));
+            potion.setVelocity(new Vector(0.0,-1.15,0.0));
+            b.bukkit.updateInventory();
+            return true;
+        } catch(Throwable ex) {
+            plugin.getLogger().warning("[CombatBody Gate3] pot failed for "+name+": "+root(ex));
+            return false;
+        }
+    }
+
+    private void face(Body b,Location target) throws Exception {
+        Location here=b.bukkit.getLocation();
+        double dx=target.getX()-here.getX();
+        double dy=target.getY()-(here.getY()+1.62);
+        double dz=target.getZ()-here.getZ();
+        double horizontal=Math.max(0.001,Math.sqrt(dx*dx+dz*dz));
+        float yaw=(float)Math.toDegrees(Math.atan2(-dx,dz));
+        float pitch=(float)-Math.toDegrees(Math.atan2(dy,horizontal));
+        invoke(b.handle,"setPositionRotation",
+            here.getX(),here.getY(),here.getZ(),yaw,pitch);
     }
 
     boolean damage(String name,double amount) {

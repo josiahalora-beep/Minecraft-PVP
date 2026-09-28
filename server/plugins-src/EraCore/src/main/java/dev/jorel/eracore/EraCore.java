@@ -73,6 +73,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     private HcfTerrainDirector terrainDirector;
     private HcfAtmosphereDirector atmosphereDirector;
     private NmsFakePlayerRuntime fakePlayers;
+    private CombatBodyPvpDirector combatBodyPvp;
     private ActorDirectory actors;
     private HcfElevatorDirector elevatorDirector;
     private HcfTravelDirector travelDirector;
@@ -213,6 +214,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         configureWorldBorders();
         simWorld = new SimWorldDirector(this);
         fakePlayers = new NmsFakePlayerRuntime(this);
+        combatBodyPvp = new CombatBodyPvpDirector(this,fakePlayers);
         actors = new ActorDirectory(this,simWorld,fakePlayers);
         simChat = new SimChatDirector(this, simWorld);
         spawnPresence = new SpawnPresenceDirector(this, warpManager);
@@ -299,6 +301,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     @Override public void onDisable() {
+        if (combatBodyPvp != null) combatBodyPvp.stop();
         if (fakePlayers != null) fakePlayers.shutdown();
         if (worldBuildDirector != null) worldBuildDirector.stop();
         if (terrainDirector != null) terrainDirector.stop();
@@ -1854,6 +1857,89 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             return true;
         }
 
+        if(sub.equals("combatprobe")) {
+            if(args.length<3) {
+                p.sendMessage(color("&cUsage: /simactor combatprobe <playerA> <playerB>"));
+                return true;
+            }
+            if(combatBodyPvp==null || !fakePlayers.supported() || !fakePlayers.probeAllowed()) {
+                p.sendMessage(color("&c[CombatBody Gate 3] Runtime/probe support is unavailable."));
+                return true;
+            }
+            final ActorDirectory.Snapshot a=actors.resolve(args[1]);
+            final ActorDirectory.Snapshot b=actors.resolve(args[2]);
+            if(a==null || b==null || !simWorld.hasIdentity(args[1]) || !simWorld.hasIdentity(args[2]) ||
+               a.name.equalsIgnoreCase(b.name)) {
+                p.sendMessage(color("&c[CombatBody Gate 3] Choose two distinct simulated identities."));
+                return true;
+            }
+            if(!a.logicalOnline || !b.logicalOnline ||
+               a.runtime==ActorDirectory.Runtime.MINEFLAYER || a.runtime==ActorDirectory.Runtime.HUMAN ||
+               b.runtime==ActorDirectory.Runtime.MINEFLAYER || b.runtime==ActorDirectory.Runtime.HUMAN) {
+                p.sendMessage(color("&c[CombatBody Gate 3] Both identities must be logical-online and clientless."));
+                return true;
+            }
+
+            Location center=duelCenterLocation();
+            if(center==null) center=p.getLocation();
+            World w=center.getWorld();
+            if(w==null) {
+                p.sendMessage(color("&c[CombatBody Gate 3] No probe world is available."));
+                return true;
+            }
+            int yA=Math.max(4,w.getHighestBlockYAt(center.getBlockX()-4,center.getBlockZ())+1);
+            int yB=Math.max(4,w.getHighestBlockYAt(center.getBlockX()+4,center.getBlockZ())+1);
+            Location atA=new Location(w,center.getX()-4.0,yA,center.getZ(),-90f,0f);
+            Location atB=new Location(w,center.getX()+4.0,yB,center.getZ(),90f,0f);
+
+            try {
+                final Player bodyA=fakePlayers.spawn(a.name,atA,true);
+                final Player bodyB=fakePlayers.spawn(b.name,atB,true);
+                prepareHcfCombatKit(bodyA,SimWorldDirector.CombatClass.DIAMOND);
+                prepareHcfCombatKit(bodyB,SimWorldDirector.CombatClass.DIAMOND);
+                final String probeId="TESTTEAM_GATE3_"+System.currentTimeMillis();
+                combatPreparedFight.put(a.name.toLowerCase(Locale.ENGLISH),probeId);
+                combatPreparedFight.put(b.name.toLowerCase(Locale.ENGLISH),probeId);
+
+                if(!combatBodyPvp.startProbe(a.name,b.name)) {
+                    fakePlayers.despawn(a.name);
+                    fakePlayers.despawn(b.name);
+                    combatPreparedFight.remove(a.name.toLowerCase(Locale.ENGLISH));
+                    combatPreparedFight.remove(b.name.toLowerCase(Locale.ENGLISH));
+                    p.sendMessage(color("&c[CombatBody Gate 3] Could not start mechanics controller."));
+                    return true;
+                }
+
+                p.sendMessage(color("&e[CombatBody Gate 3] Started &f"+a.name+" &evs &f"+b.name+
+                    "&e: movement, NMS hits, W-tap, and physical Healing II."));
+                new BukkitRunnable() {
+                    int waited=0;
+                    public void run() {
+                        waited+=5;
+                        CombatBodyPvpDirector.ProbeSnapshot result=combatBodyPvp.snapshot();
+                        if((result==null || !result.complete) && waited<240) return;
+                        boolean pass=result!=null && result.pass;
+                        String details=result==null?"no-result":result.summary();
+                        getLogger().info("[CombatBody Gate3 command] "+(pass?"PASS":"FAIL")+
+                            " "+details+" waitedTicks="+waited);
+                        if(p.isOnline())
+                            p.sendMessage(color((pass?"&a":"&c")+"[CombatBody Gate 3] "+
+                                (pass?"PASS":"FAIL")+" &7"+details));
+                        fakePlayers.despawn(a.name);
+                        fakePlayers.despawn(b.name);
+                        combatPreparedFight.remove(a.name.toLowerCase(Locale.ENGLISH));
+                        combatPreparedFight.remove(b.name.toLowerCase(Locale.ENGLISH));
+                        cancel();
+                    }
+                }.runTaskTimer(this,5L,5L);
+            } catch(Exception ex) {
+                fakePlayers.despawn(a.name);
+                fakePlayers.despawn(b.name);
+                p.sendMessage(color("&c[CombatBody Gate 3] Spawn/start failed: "+ex.getMessage()));
+            }
+            return true;
+        }
+
         if(sub.equals("dropprobe")) {
             if(args.length<2) {
                 p.sendMessage(color("&cUsage: /simactor dropprobe <logical-online simulated player>"));
@@ -1975,9 +2061,6 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
             try {
                 final Player body=fakePlayers.spawn(a.name,at,true);
-                final String gate2Token="Gate2LootProbe:"+a.name+":"+System.currentTimeMillis();
-                armCombatBodyDropProbe(body,gate2Token);
-                final Location gate2DeathAt=body.getLocation().clone();
                 final double hp0=body.getHealth();
                 fakePlayers.damage(a.name,2.0);
                 final double hp1=body.getHealth();
@@ -2003,38 +2086,21 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
                         boolean damageWorked=hp1<hp0;
                         boolean dtrWorked=!Double.isNaN(afterDtr) &&
                             afterDtr<=beforeDtr-expectedLoss+0.0001;
-                        CombatBodyDropProof drops=inspectCombatBodyDropProbe(gate2DeathAt,gate2Token,true);
-                        boolean gate1Pass=damageWorked && eventSeen && dtrWorked;
-                        boolean gate2Pass=gate1Pass && drops.complete();
-                        getLogger().info("[CombatBody Gate2] actor="+actorName+
-                            " gate1="+gate1Pass+
-                            " worldLoot="+drops.complete()+
-                            " marker="+drops.marker+
-                            " pearls="+drops.pearls+"/7"+
-                            " heals="+drops.heals+"/3"+
-                            " helmet="+drops.helmet+"/1"+
-                            " entities="+drops.entities);
+                        boolean pass=damageWorked && eventSeen && dtrWorked;
                         if(p.isOnline()) {
-                            p.sendMessage(color((gate1Pass?"&a":"&c")+"[CombatBody Gate1] "+
-                                (gate1Pass?"PASS":"FAIL")+
+                            p.sendMessage(color((pass?"&a":"&c")+"[CombatBody gate] "+
+                                (pass?"PASS":"FAIL")+
                                 " &7PlayerDeathEvent=&f"+eventSeen+
                                 " &7DTR=&f"+String.format(Locale.US,"%.2f",beforeDtr)+
                                 "->"+String.format(Locale.US,"%.2f",afterDtr)+
                                 " &7expectedLoss=&f"+String.format(Locale.US,"%.2f",expectedLoss)));
-                            p.sendMessage(color((gate2Pass?"&a":"&c")+"[CombatBody Gate2] "+
-                                (gate2Pass?"PASS":"FAIL")+
-                                " &7worldLoot=&f"+drops.complete()+
-                                " &7marker=&f"+drops.marker+
-                                " &7pearls=&f"+drops.pearls+"/7"+
-                                " &7HealII=&f"+drops.heals+"/3"+
-                                " &7helmet=&f"+drops.helmet+"/1"));
-                            if(gate2Pass)
-                                p.sendMessage(color("&aGate 2 closed: the CombatBody death produced normal recoverable world item entities through the existing death pipeline."));
+                            if(pass)
+                                p.sendMessage(color("&aThe fake player used the existing EraCore death/DTR authority path. No bot-only DTR shortcut was used."));
                             else
-                                p.sendMessage(color("&cGate 2 remains open. Do not move production CombatBodies to PvP until physical death loot is proven."));
+                                p.sendMessage(color("&cDo not enable production CombatBodies yet. Keep fights on Mineflayer and inspect the server log."));
                         }
                     }
-                },4L);
+                },6L);
             } catch(Exception ex) {
                 p.sendMessage(color("&c[CombatBody gate] spawn failed: "+ex.getMessage()));
             }
@@ -2043,68 +2109,6 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
 
         p.sendMessage(color("&cUnknown /simactor action. Use /simactor for help."));
         return true;
-    }
-
-    private static final class CombatBodyDropProof {
-        int marker;
-        int pearls;
-        int heals;
-        int helmet;
-        int entities;
-        boolean complete() {
-            return marker>=1 && pearls>=7 && heals>=3 && helmet>=1;
-        }
-    }
-
-    private void armCombatBodyDropProbe(Player body,String token) {
-        body.getInventory().clear();
-        body.getInventory().setArmorContents(new ItemStack[4]);
-        body.getInventory().setItem(0,tagCombatBodyProbeItem(
-            new ItemStack(Material.BLAZE_ROD,1),token,"Gate 2 marker"));
-        body.getInventory().setItem(1,tagCombatBodyProbeItem(
-            new ItemStack(Material.ENDER_PEARL,7),token,"Gate 2 pearls"));
-        body.getInventory().setItem(2,tagCombatBodyProbeItem(
-            new ItemStack(Material.POTION,3,(short)16421),token,"Gate 2 Healing II"));
-        body.getInventory().setHelmet(tagCombatBodyProbeItem(
-            new ItemStack(Material.DIAMOND_HELMET,1),token,"Gate 2 armor"));
-        body.updateInventory();
-    }
-
-    private ItemStack tagCombatBodyProbeItem(ItemStack item,String token,String name) {
-        org.bukkit.inventory.meta.ItemMeta meta=item.getItemMeta();
-        if(meta!=null) {
-            meta.setDisplayName(color("&d"+name));
-            meta.setLore(java.util.Collections.singletonList(token));
-            item.setItemMeta(meta);
-        }
-        return item;
-    }
-
-    private CombatBodyDropProof inspectCombatBodyDropProbe(Location at,String token,boolean cleanup) {
-        CombatBodyDropProof out=new CombatBodyDropProof();
-        if(at==null || at.getWorld()==null) return out;
-        for(org.bukkit.entity.Entity entity:at.getWorld().getNearbyEntities(at,6.0,6.0,6.0)) {
-            if(!(entity instanceof org.bukkit.entity.Item)) continue;
-            org.bukkit.entity.Item dropped=(org.bukkit.entity.Item)entity;
-            ItemStack item=dropped.getItemStack();
-            if(item==null || !combatBodyProbeTagged(item,token)) continue;
-            out.entities++;
-            if(item.getType()==Material.BLAZE_ROD) out.marker+=item.getAmount();
-            else if(item.getType()==Material.ENDER_PEARL) out.pearls+=item.getAmount();
-            else if(item.getType()==Material.POTION && item.getDurability()==(short)16421)
-                out.heals+=item.getAmount();
-            else if(item.getType()==Material.DIAMOND_HELMET) out.helmet+=item.getAmount();
-            if(cleanup) dropped.remove();
-        }
-        return out;
-    }
-
-    private boolean combatBodyProbeTagged(ItemStack item,String token) {
-        if(item==null || token==null || !item.hasItemMeta()) return false;
-        org.bukkit.inventory.meta.ItemMeta meta=item.getItemMeta();
-        if(meta==null || !meta.hasLore()) return false;
-        for(String line:meta.getLore()) if(token.equals(line)) return true;
-        return false;
     }
 
     private boolean ownerOnly(Player p) {

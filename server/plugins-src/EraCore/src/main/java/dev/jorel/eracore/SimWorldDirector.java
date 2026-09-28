@@ -1288,8 +1288,11 @@ final class SimWorldDirector {
         Player observer = combatObserver();
 
         if (sotwProtectionActive()) {
+            // Owner calibration fights are explicit test sessions and must not
+            // be erased by the ambient SOTW combat director. They already use
+            // isolated TESTTEAM_* accounting and prepared-test damage rules.
             if(visibleFight!=null && visibleFight.id!=null &&
-               visibleFight.id.startsWith("TESTTEAM_SOTW_")) {
+               visibleFight.id.startsWith("TESTTEAM_")) {
                 if(now>=visibleFight.expiresAt) clearVisibleFight();
                 else writeCombatFile();
                 return;

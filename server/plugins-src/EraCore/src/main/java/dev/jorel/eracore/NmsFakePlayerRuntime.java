@@ -654,6 +654,14 @@ final class NmsFakePlayerRuntime implements Listener {
                 int yy=baseY+dy;
                 if(yy<=0 || yy+1>=world.getMaxHeight()) continue;
                 if(!pearlBodyColumnClear(world,bx,yy,bz)) continue;
+                // An OPEN fence gate is passable along the projectile ray, but
+                // it is not a stable player destination. Landing centered in
+                // the gate cell leaves the CombatBody straddling the doorway
+                // instead of reproducing the far-side teleport a connected
+                // 1.8 client gets from an ender pearl.
+                if(world.getBlockAt(bx,yy,bz).getType()==Material.FENCE_GATE ||
+                   world.getBlockAt(bx,yy+1,bz).getType()==Material.FENCE_GATE)
+                    continue;
 
                 Location out=new Location(world,bx+0.5,yy+0.05,bz+0.5,yaw,pitch);
                 return out;

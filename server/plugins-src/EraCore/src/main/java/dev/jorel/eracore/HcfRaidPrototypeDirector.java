@@ -347,7 +347,7 @@ final class HcfRaidPrototypeDirector {
                     bodies.combatPearlCount(p.attacker)<before;
             }
             if(p.firstPearlLaunched &&
-               attacker.getLocation().getZ()>p.arena.gate.getZ()+1.0) {
+               attacker.getLocation().getBlockZ()>p.arena.gate.getBlockZ()) {
                 p.openGateEntry=true;
                 p.attackerCallout="pearled in gate still open";
                 // Reset the exact same body for the defended repetition.

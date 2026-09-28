@@ -243,7 +243,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         resourceDirector = new HcfResourceDirector(this,mapDirector);
         schematicComposer = new LegacySchematicComposer(this);
         worldBuildDirector = new HcfWorldBuildDirector(this,mapDirector,terrainDirector,resourceDirector,schematicComposer);
-        infrastructure = new HcfInfrastructureDirector(this,warpManager,hcfZones);
+        infrastructure = new HcfInfrastructureDirector(this,warpManager,hcfZones,schematicComposer);
         logicalTab = new LogicalTabListDirector(this, simWorld);
         sidebar = new HcfSidebarDirector(this,simWorld,eventDirector);
         spawnRewards = new SpawnRewardsDirector(this, warpManager);

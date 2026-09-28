@@ -4441,7 +4441,7 @@ final class SimWorldDirector {
                             maybeFallbackFactionInvite(respondent,speakerName,rawMessage);
                         }
 
-                        enqueue(respondent.name,reply,true);
+                        deliverHumanPublicReply(respondent,speakerName,rawMessage,reply);
                         rememberPublic(respondent.name,reply);
 
                         // A second person can join the same conversation, but semantic
@@ -4463,7 +4463,7 @@ final class SimWorldDirector {
             if(dispatched) return;
 
             if (fallback != null && !fallback.trim().isEmpty()) {
-                enqueue(respondent.name, fallback, true);
+                deliverHumanPublicReply(respondent,speakerName,rawMessage,fallback);
                 rememberPublic(respondent.name, fallback);
                 return;
             }
@@ -4475,6 +4475,17 @@ final class SimWorldDirector {
             if (fighter != null) enqueue(fighter.name, fighter.skill >= 80 ? "im down" : "give me a min", true);
         }
 
+    }
+
+    private void deliverHumanPublicReply(SimPlayer responder,String speaker,String original,String reply) {
+        if(responder==null || reply==null || reply.trim().isEmpty()) return;
+        String m=original==null?"":original.toLowerCase(Locale.ENGLISH);
+        boolean direct=m.contains(responder.name.toLowerCase(Locale.ENGLISH));
+        // Explicit name mentions are conversations, not ambient server chatter.
+        // Deliver them immediately so a physically embodied identity such as
+        // Stimpy visibly answers the human who addressed them.
+        if(direct) plugin.broadcastSimulatedChat(responder.name,reply);
+        else enqueue(responder.name,reply,true);
     }
 
     private boolean shouldUseAiForPublicChat(String message,SimPlayer responder,String speaker,String fallback) {

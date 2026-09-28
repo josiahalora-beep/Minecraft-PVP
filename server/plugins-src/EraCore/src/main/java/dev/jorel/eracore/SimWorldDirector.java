@@ -2345,6 +2345,96 @@ final class SimWorldDirector {
         return p==null || p.faction==null?"":p.faction;
     }
 
+    HcfRaidPolicy.AttackerDecision raidAttackerDecision(String attackerName,String defenderFaction,
+                                                        boolean enemyGateOpen,boolean validPearlLine) {
+        SimPlayer attacker=players.get(key(attackerName));
+        SimFaction ours=attacker==null?null:factions.get(key(attacker.faction));
+        SimFaction theirs=factions.get(key(defenderFaction));
+        if(attacker==null || ours==null || theirs==null ||
+           ours.name.equalsIgnoreCase(theirs.name)) return HcfRaidPolicy.AttackerDecision.ABORT;
+
+        return HcfRaidPolicy.attackerDecision(new HcfRaidPolicy.AttackerContext(
+            enemyGateOpen,validPearlLine,raidOnlineCount(ours),raidOnlineCount(theirs),
+            plugin.factionDtr(ours.name),plugin.factionDtr(theirs.name),
+            raidGearScore(ours),raidGearScore(theirs),attacker.combatClass.name(),
+            attacker.riskTolerance,attacker.gameSense,attacker.aggression));
+    }
+
+    HcfRaidPolicy.DefenderDecision raidDefenderDecision(String defenderName,String attackerFaction) {
+        SimPlayer defender=players.get(key(defenderName));
+        SimFaction ours=defender==null?null:factions.get(key(defender.faction));
+        SimFaction theirs=factions.get(key(attackerFaction));
+        if(defender==null || ours==null || theirs==null ||
+           ours.name.equalsIgnoreCase(theirs.name)) return HcfRaidPolicy.DefenderDecision.RETREAT;
+
+        boolean escapeRouteKnown=ours.claimed || ours.baseX!=0 || ours.baseZ!=0;
+        return HcfRaidPolicy.defenderDecision(new HcfRaidPolicy.DefenderContext(
+            raidOnlineCount(ours),raidOnlineCount(theirs),plugin.factionDtr(ours.name),
+            raidGearScore(theirs),raidGearScore(ours),escapeRouteKnown,
+            defender.combatClass.name(),defender.riskTolerance,defender.composure,defender.teamwork));
+    }
+
+    String raidPolicyStatus(String attackerName,String defenderName,
+                            boolean enemyGateOpen,boolean validPearlLine) {
+        SimPlayer attacker=players.get(key(attackerName));
+        SimPlayer defender=players.get(key(defenderName));
+        if(attacker==null || defender==null) return "unavailable reason=missing-identity";
+        if(attacker.faction==null || attacker.faction.isEmpty() ||
+           defender.faction==null || defender.faction.isEmpty() ||
+           attacker.faction.equalsIgnoreCase(defender.faction))
+            return "unavailable reason=faction-pair";
+
+        SimFaction ours=factions.get(key(attacker.faction));
+        SimFaction theirs=factions.get(key(defender.faction));
+        if(ours==null || theirs==null) return "unavailable reason=missing-faction";
+
+        HcfRaidPolicy.AttackerDecision attack=raidAttackerDecision(
+            attacker.name,theirs.name,enemyGateOpen,validPearlLine);
+        HcfRaidPolicy.DefenderDecision defend=raidDefenderDecision(defender.name,ours.name);
+
+        return "attacker="+attacker.name+
+            " attackerFaction="+ours.name+
+            " defender="+defender.name+
+            " defenderFaction="+theirs.name+
+            " gateOpen="+enemyGateOpen+
+            " lineValid="+validPearlLine+
+            " ourNearby="+raidOnlineCount(ours)+
+            " theirVisible="+raidOnlineCount(theirs)+
+            " ourDtr="+String.format(Locale.US,"%.2f",plugin.factionDtr(ours.name))+
+            " theirDtr="+String.format(Locale.US,"%.2f",plugin.factionDtr(theirs.name))+
+            " ourGear="+raidGearScore(ours)+
+            " theirGear="+raidGearScore(theirs)+
+            " attackerClass="+attacker.combatClass.name()+
+            " attackerRisk="+attacker.riskTolerance+
+            " attackerSense="+attacker.gameSense+
+            " attackerAggression="+attacker.aggression+
+            " defenderClass="+defender.combatClass.name()+
+            " defenderComposure="+defender.composure+
+            " defenderTeamwork="+defender.teamwork+
+            " attackerDecision="+attack.name()+
+            " defenderDecision="+defend.name();
+    }
+
+    private int raidOnlineCount(SimFaction f) {
+        if(f==null) return 0;
+        int n=0; long now=System.currentTimeMillis();
+        for(String member:f.members) {
+            SimPlayer p=players.get(key(member));
+            if(p!=null && p.logicalOnline && p.bannedUntil<=now) n++;
+        }
+        return n;
+    }
+
+    private int raidGearScore(SimFaction f) {
+        if(f==null) return 0;
+        int score=1;
+        int combatSets=f.p4Sets+f.bardSets+f.archerSets+f.rogueSets;
+        if(combatSets>=1) score=2;
+        if(combatSets>=Math.max(2,authoritativeFactionSize(f))) score=3;
+        if(f.healPots>=24 && f.pearls>=4) score=Math.min(4,score+1);
+        return score;
+    }
+
     void ownerSetDonorLevel(String name,int level) {
         SimPlayer p=name==null?null:players.get(key(name));
         if(p==null) return;

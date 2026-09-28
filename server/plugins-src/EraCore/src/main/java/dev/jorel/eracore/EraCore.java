@@ -1819,6 +1819,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             p.sendMessage(color("&e/simactor probe <player> &7(one-body death/DTR gate)"));
             p.sendMessage(color("&e/simactor materializeprobe <player> &7(Gate 4 state continuity)"));
             p.sendMessage(color("&e/simactor raidprobe <attacker> <defender> <backup> &7(open-gate raid prototype)"));
+            p.sendMessage(color("&e/simactor raidpolicy <attacker> <defender> [gateOpen] [lineValid] &7(real SimWorld raid decision)"));
             p.sendMessage(color("&e/simactor scaleprobe [maxBodies] &7(Gate 5: 2/4/8/12/16 active-body benchmark)"));
             p.sendMessage(color("&e/simactor dropprobe <player> &7(Gate 2: normal world drops)"));
             p.sendMessage(color("&e/simactor admin <player> inspect"));
@@ -2016,6 +2017,20 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
                     cancel();
                 }
             }.runTaskTimer(this,10L,10L);
+            return true;
+        }
+
+        if(sub.equals("raidpolicy")) {
+            if(args.length<3) {
+                p.sendMessage(color("&cUsage: /simactor raidpolicy <attacker> <defender> [gateOpen] [lineValid]"));
+                return true;
+            }
+            boolean gateOpen=args.length<4 || Boolean.parseBoolean(args[3]);
+            boolean lineValid=args.length<5 || Boolean.parseBoolean(args[4]);
+            String details=simWorld.raidPolicyStatus(args[1],args[2],gateOpen,lineValid);
+            boolean ok=!details.startsWith("unavailable");
+            getLogger().info("[Raid Policy command] "+(ok?"PASS ":"FAIL ")+details);
+            p.sendMessage(color((ok?"&a":"&c")+"[Raid Policy] &7"+details));
             return true;
         }
 

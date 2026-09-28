@@ -10,6 +10,8 @@ on:
     paths:
       - 'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/NmsFakePlayerRuntime.java'
       - 'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfRaidPrototypeDirector.java'
+      - 'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfRaidPolicy.java'
+      - 'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/SimWorldDirector.java'
       - 'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/EraCore.java'
       - 'bots/src/combatbody-raid-qa.js'
       - '.github/workflows/combatbody-raid-qa.yml'
@@ -147,6 +149,7 @@ jobs:
             echo "ERROR: at least one paired raid-decision trial failed" >&2
             exit 1
           fi
+          grep -E "\[Raid Policy command\] PASS attacker=.* attackerFaction=.* defender=.* defenderFaction=.* gateOpen=true lineValid=true .*attackerDecision=(PEARL_ENTRY|HOLD_OUTSIDE|ABORT) defenderDecision=(HOLD_GATE|CALL_BACKUP|RETREAT)" server/raid-prototype-server.log
           grep -E "\[Raid Prototype command\] PASS matrix=12/12 .*line=true .*pearl=true .*entry=true .*hold=true .*backup=true .*secondPearl=true .*pressure=true" server/raid-prototype-server.log
           if [ -f server/raid-prototype-server.pid ]; then
             kill "$(cat server/raid-prototype-server.pid)" || true

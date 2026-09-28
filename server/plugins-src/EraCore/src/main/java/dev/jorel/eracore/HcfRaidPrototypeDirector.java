@@ -177,40 +177,22 @@ final class HcfRaidPrototypeDirector {
 
     static AttackerDecision attackerDecision(AttackerContext c) {
         if(c==null) return AttackerDecision.ABORT;
-        if(!c.enemyGateOpen || !c.validPearlLine) return AttackerDecision.HOLD_OUTSIDE;
-
-        // Support classes should normally preserve the outside support lane
-        // instead of racing the Diamond through the first visible opening.
-        if(("BARD".equals(c.combatClass) || "ARCHER".equals(c.combatClass)) && c.ourNearby>1)
-            return AttackerDecision.HOLD_OUTSIDE;
-
-        if(c.ourDtr<=1.01 && c.theirVisible>=c.ourNearby && c.theirDtr>1.01)
-            return AttackerDecision.ABORT;
-
-        int score=c.riskTolerance/2+c.gameSense/3+c.aggression/5;
-        score+=(c.ourNearby-c.theirVisible)*14;
-        score+=(c.ourGear-c.theirGear)*9;
-        if(c.theirDtr<=1.01) score+=18;
-        if(c.ourDtr<=1.01) score-=22;
-        if("DIAMOND".equals(c.combatClass)) score+=10;
-        return score>=70?AttackerDecision.PEARL_ENTRY:AttackerDecision.HOLD_OUTSIDE;
+        HcfRaidPolicy.AttackerDecision d=HcfRaidPolicy.attackerDecision(
+            new HcfRaidPolicy.AttackerContext(
+                c.enemyGateOpen,c.validPearlLine,c.ourNearby,c.theirVisible,
+                c.ourDtr,c.theirDtr,c.ourGear,c.theirGear,c.combatClass,
+                c.riskTolerance,c.gameSense,c.aggression));
+        return AttackerDecision.valueOf(d.name());
     }
 
     static DefenderDecision defenderDecision(DefenderContext c) {
         if(c==null) return DefenderDecision.RETREAT;
-
-        // Low DTR plus a real gear deficit is the point where preserving the
-        // faction matters more than ego-holding the doorway.
-        if(c.defenderDtr<=1.01 && c.attackerVisibleGear>c.defenderGear && c.escapeRouteKnown)
-            return DefenderDecision.RETREAT;
-
-        // A defender can still physically hold the front while asking another
-        // member to collapse. This is deliberately distinct from RETREAT.
-        if(c.attackersVisible>c.defenderNearby || c.defenderDtr<=2.01 ||
-           (c.teamwork>=72 && c.attackersVisible>=2))
-            return DefenderDecision.CALL_BACKUP;
-
-        return DefenderDecision.HOLD_GATE;
+        HcfRaidPolicy.DefenderDecision d=HcfRaidPolicy.defenderDecision(
+            new HcfRaidPolicy.DefenderContext(
+                c.defenderNearby,c.attackersVisible,c.defenderDtr,
+                c.attackerVisibleGear,c.defenderGear,c.escapeRouteKnown,
+                c.combatClass,c.riskTolerance,c.composure,c.teamwork));
+        return DefenderDecision.valueOf(d.name());
     }
 
     Arena prepareArena(Location near) {

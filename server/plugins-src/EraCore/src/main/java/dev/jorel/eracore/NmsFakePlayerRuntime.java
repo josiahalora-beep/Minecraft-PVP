@@ -465,26 +465,42 @@ final class NmsFakePlayerRuntime {
         if(slot<0 || source==null) return false;
 
         try {
+            // Use CraftLivingEntity's native projectile factory. In Spigot 1.8
+            // World#spawn(EnderPearl.class) followed by setShooter(fakePlayer)
+            // can dereference connection state that a clientless EntityPlayer
+            // intentionally does not have. launchProjectile constructs the
+            // EntityEnderPearl with this EntityPlayer as its shooter from the
+            // start, which is the same server path used by living entities.
             Location eye=b.bukkit.getEyeLocation().clone();
-            face(b,target.clone().add(0.0,0.8,0.0));
-            Vector velocity=target.clone().add(0.0,0.8,0.0).toVector()
-                .subtract(eye.toVector());
+            Location aim=target.clone().add(0.0,0.8,0.0);
+            face(b,aim);
+            Vector velocity=aim.toVector().subtract(eye.toVector());
             if(velocity.lengthSquared()<0.001) return false;
             velocity.normalize().multiply(1.55);
 
-            if(source.getAmount()<=1) inv.setItem(slot,null);
-            else {
-                source.setAmount(source.getAmount()-1);
-                inv.setItem(slot,source);
+            EnderPearl pearl=b.bukkit.launchProjectile(EnderPearl.class,velocity);
+            if(pearl==null || !pearl.isValid()) {
+                if(pearl!=null) pearl.remove();
+                return false;
             }
 
-            EnderPearl pearl=eye.getWorld().spawn(eye,EnderPearl.class);
-            pearl.setShooter(b.bukkit);
-            pearl.setVelocity(velocity);
+            // Inventory mutation is transactional: a failed projectile launch
+            // never silently destroys the actor's pearl.
+            ItemStack live=inv.getItem(slot);
+            if(live==null || live.getType()!=Material.ENDER_PEARL || live.getAmount()<=0) {
+                pearl.remove();
+                return false;
+            }
+            if(live.getAmount()<=1) inv.setItem(slot,null);
+            else {
+                live.setAmount(live.getAmount()-1);
+                inv.setItem(slot,live);
+            }
             b.bukkit.updateInventory();
             return true;
         } catch(Throwable ex) {
-            plugin.getLogger().warning("[CombatBody Raid] pearl failed for "+name+": "+root(ex));
+            plugin.getLogger().warning("[CombatBody Raid] pearl failed for "+name+
+                ": "+ex.getClass().getSimpleName()+": "+root(ex));
             return false;
         }
     }

@@ -257,6 +257,7 @@ final class NmsFakePlayerRuntime implements Listener {
         Object worldServer=invoke(craftWorld.cast(spawnAt.getWorld()),"getHandle");
         UUID uuid=ActorDirectory.stableOfflineUuid(name);
         Object profile=newInstance(gameProfile,uuid,name);
+        applyPrestigeCape(profile,name,uuid);
         Object interact=newInstance(pim,worldServer);
         Object ep=newInstance(entityPlayer,mcServer,worldServer,profile,interact);
 
@@ -1147,6 +1148,27 @@ final class NmsFakePlayerRuntime implements Listener {
         Object handle=invoke(viewer,"getHandle");
         Object connection=getField(handle,"playerConnection");
         invoke(connection,"sendPacket",packet);
+    }
+
+    private void applyPrestigeCape(Object profile,String name,UUID uuid) {
+        if(profile==null || !plugin.isPrestigeCapeIdentity(name)) return;
+        String url=plugin.getConfig().getString("creator-tag.cape-texture-url","");
+        if(url==null || !url.startsWith("https://textures.minecraft.net/texture/")) return;
+        try {
+            String json="{\"timestamp\":"+System.currentTimeMillis()+
+                ",\"profileId\":\""+uuid.toString().replace("-","")+
+                "\",\"profileName\":\""+name+
+                "\",\"textures\":{\"CAPE\":{\"url\":\""+url+"\"}}}";
+            String value=java.util.Base64.getEncoder().encodeToString(
+                json.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            Class<?> property=Class.forName("com.mojang.authlib.properties.Property");
+            Object capeProperty=newInstance(property,"textures",value);
+            Object properties=invoke(profile,"getProperties");
+            invoke(properties,"put","textures",capeProperty);
+            plugin.getLogger().info("[Creator Cape] profile="+name+" source=mojang-common-cape");
+        } catch(Throwable ex) {
+            plugin.getLogger().warning("[Creator Cape] could not attach cape to "+name+": "+root(ex));
+        }
     }
 
     private Object enumValue(String simple,String name) throws Exception {

@@ -101,12 +101,40 @@ creator-tag:
   head-prefix: '&c[YT] &f'
   chat-prefix: '&c[YT] &r'
   # Marcel / Stimp / Stimpypvp are aliases of the same creator identity.
-  # Only one simulated player is seeded so the same person never appears twice.
+  # Subscriber counts are a 2026-09-28 public snapshot. Unknown values are not
+  # fabricated; legacy HCF notoriety is represented separately below.
   creators:
     - Stimpy
     - PainfulPvP
+    - MeeZoid
     - lolitsalex
+    - Verzide
+    - HateFoo
     - Skimpy
+    - Zigy
+    - Dylan_
+  subscriber-counts:
+    PainfulPvP: 1090000
+    Stimpy: 322000
+    MeeZoid: 151000
+    lolitsalex: 128000
+    Verzide: 94000
+    Zigy: 43200
+    Dylan_: 40000
+  legacy-popularity-tiers:
+    HateFoo: 3
+    Skimpy: 2
+  cape-enabled: true
+  # Official Mojang-hosted Common Cape texture used as a prestige cosmetic for
+  # selected simulated profiles. It does not grant a cape to any real account.
+  cape-texture-url: 'https://textures.minecraft.net/texture/5ec930cdd2629c8771655c60eebeb867b4b6559b0e6d3bc71c40c96347fa03f0'
+  cape-eligible:
+    - Stimpy
+    - PainfulPvP
+    - MeeZoid
+    - lolitsalex
+    - Verzide
+    - HateFoo
 
 ai-chat:
   enabled: true
@@ -153,8 +181,13 @@ sim-chat:
     - ClutchKid
     - Stimpy
     - PainfulPvP
+    - MeeZoid
     - lolitsalex
+    - Verzide
+    - HateFoo
     - Skimpy
+    - Zigy
+    - Dylan_
   fans:
     - xRico
     - PurpleDino
@@ -197,7 +230,7 @@ logical-tab:
   refresh-seconds: 10
 
 sim-world:
-  population: 150
+  population: 160
   tick-seconds: 30
   factions-per-tick: 4
   underdog-leaders: 2
@@ -373,8 +406,13 @@ worker-pool:
   creator-bodies:
     - Stimpy
     - PainfulPvP
+    - MeeZoid
     - lolitsalex
+    - Verzide
+    - HateFoo
     - Skimpy
+    - Zigy
+    - Dylan_
 
 safezones:
   combat-tag-seconds: 60

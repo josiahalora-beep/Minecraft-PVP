@@ -470,7 +470,7 @@ final class SimWorldDirector {
     private static final Pattern MONEY = Pattern.compile("(?:\\$\\s*)?(\\d{2,7})");
 
     private static final String[] PLAYER_NAMES = {
-        "Stimpy","PainfulPvP","lolitsalex","Skimpy","Vexon","Mints","Syrup","Aero","Zyro","Riven","Axion","Sora",
+        "Stimpy","PainfulPvP","MeeZoid","lolitsalex","Verzide","HateFoo","Skimpy","Zigy","Dylan_","Vexon","Mints","Syrup","Aero","Zyro","Riven","Axion","Sora",
         "Kairo","Vivid","Swerve","Recoil","Talon","Cinder","Fable","Haze","Nero","Rook","Dusk","Lucid",
         "Cipher","Drift","Flare","Lunar","Karma","Morrow","Raze","Orbit","Mango","Kiwi","Grape","Quartz",
         "Mercy","Tempo","Riot","Sage","Jaxon","Viper","Frost","Blade","Pulse","Vapor","Ryder","Axiom",
@@ -2343,6 +2343,84 @@ final class SimWorldDirector {
     String factionOfIdentity(String name) {
         SimPlayer p=name==null?null:players.get(key(name));
         return p==null || p.faction==null?"":p.faction;
+    }
+
+    void ownerSetDonorLevel(String name,int level) {
+        SimPlayer p=name==null?null:players.get(key(name));
+        if(p==null) return;
+        p.donorLevel=Math.max(0,Math.min(4,level));
+        if(isStimpyIdentity(p.name)) p.donorLevel=4;
+        save();
+    }
+
+    String ownerInspectIdentity(String name) {
+        SimPlayer p=name==null?null:players.get(key(name));
+        if(p==null) return "FAIL unknown identity="+name;
+        return "PASS name="+p.name+
+            " faction="+(p.faction==null||p.faction.isEmpty()?"solo":p.faction)+
+            " title="+p.factionTitle+
+            " class="+p.combatClass.name()+
+            " online="+p.logicalOnline+
+            " goal="+p.currentGoal+
+            " skill="+p.skill+
+            " mechanics="+p.mechanics+
+            " pvpIq="+p.pvpIq+
+            " gameSense="+p.gameSense+
+            " leadership="+p.leadership+
+            " teamwork="+p.teamwork+
+            " loyalty="+p.loyalty+
+            " ownerAffinity="+p.ownerAffinity+
+            " reputation="+p.reputation+
+            " donor="+p.donorLevel+
+            " popularityTier="+namePrestigeTier(p.name);
+    }
+
+    String ownerSetIdentityTrait(String name,String trait,int raw) {
+        SimPlayer p=name==null?null:players.get(key(name));
+        if(p==null) return "FAIL unknown identity="+name;
+        String t=trait==null?"":trait.toLowerCase(Locale.ENGLISH).replace("-","");
+        int v=Math.max(0,Math.min(100,raw));
+        if("skill".equals(t)) p.skill=v;
+        else if("mechanics".equals(t)) p.mechanics=v;
+        else if("pvpiq".equals(t)) p.pvpIq=v;
+        else if("gamesense".equals(t)) p.gameSense=v;
+        else if("aggression".equals(t)) p.aggression=v;
+        else if("leadership".equals(t)) p.leadership=v;
+        else if("composure".equals(t)) p.composure=v;
+        else if("charisma".equals(t)) p.charisma=v;
+        else if("decisiveness".equals(t)) p.decisiveness=v;
+        else if("standards".equals(t)) p.standards=v;
+        else if("teamwork".equals(t)) p.teamwork=v;
+        else if("loyalty".equals(t)) p.loyalty=v;
+        else if("risktolerance".equals(t)) p.riskTolerance=v;
+        else if("owneraffinity".equals(t)) p.ownerAffinity=Math.max(-100,Math.min(100,raw));
+        else if("reputation".equals(t)) p.reputation=Math.max(0,Math.min(9999,raw));
+        else return "FAIL unsupported trait="+trait;
+        applyCreatorSimulationOverrides(p);
+        save();
+        return "PASS trait "+p.name+" "+trait+"="+
+            ("owneraffinity".equals(t)?p.ownerAffinity:("reputation".equals(t)?p.reputation:v));
+    }
+
+    String ownerSetIdentityGoal(String name,String goal) {
+        SimPlayer p=name==null?null:players.get(key(name));
+        if(p==null) return "FAIL unknown identity="+name;
+        String g=goal==null?"":goal.toLowerCase(Locale.ENGLISH);
+        if(!Arrays.asList("idle","patrol","safe","gear","farm","brew","mine","build",
+                          "social","recruit","supply","gather","scout").contains(g))
+            return "FAIL unsupported goal="+goal;
+        p.currentGoal=g;p.nextGoalTick=Long.MAX_VALUE/4;
+        save();
+        return "PASS goal "+p.name+"="+g;
+    }
+
+    String ownerSetIdentityOnline(String name,boolean online) {
+        SimPlayer p=name==null?null:players.get(key(name));
+        if(p==null) return "FAIL unknown identity="+name;
+        p.logicalOnline=online;
+        if(online) p.sessionTicksLeft=Math.max(p.sessionTicksLeft,240);
+        save();
+        return "PASS online "+p.name+"="+online;
     }
 
     Location logicalLocationFor(String name) {
@@ -4684,9 +4762,14 @@ final class SimWorldDirector {
         SocialEdge rel=relationship(responder.name,speaker,true);
         if(rel.affinity<=-55 || rel.grudge>=75) return false;
 
-        // A normal member can vouch to the leader. Owners are influential, but
-        // a player who genuinely dislikes/distrusts the owner still does not
-        // automatically help them.
+        // User-defined Stimpy canon: he always wants the configured owner in
+        // his faction and will make room for them if necessary.
+        if(isStimpyIdentity(responder.name) && isConfiguredOwner(speaker)) {
+            if(authoritativeFactionSize(f)<MAX_FACTION_MEMBERS) return true;
+            return replaceableMember(f,100000)!=null;
+        }
+
+        // Other personalities retain their own relationship agency.
         if(isConfiguredOwner(speaker) && rel.affinity<0 && rel.trust<45) return false;
         if(!isConfiguredOwner(speaker) && rel.affinity<5 && rel.trust<48 &&
            plugin.publicRankLevel(speaker)<2 && !plugin.isCreatorIdentity(speaker)) return false;
@@ -4703,18 +4786,21 @@ final class SimWorldDirector {
         if(!mayInviteSpeaker(responder,speaker)) return false;
         SimFaction f=factions.get(key(responder.faction));
         if(f==null) return false;
+        boolean stimpyOwner=isStimpyIdentity(responder.name) && isConfiguredOwner(speaker);
 
         // A human recruit follows the same rulebook as simulated candidates.
         // Do not let conversational fallback/direct-invite paths bypass a
         // faction's required tryout rule, and never kick an existing member to
         // make room until the candidate has actually passed.
-        if(plugin.factionTryoutRequired(f.name) && !passedRequiredTryout) {
+        if(plugin.factionTryoutRequired(f.name) && !passedRequiredTryout && !stimpyOwner) {
             beginHumanFactionTryout(f,speaker);
             return false;
         }
 
         if(authoritativeFactionSize(f)>=MAX_FACTION_MEMBERS) {
-            SimPlayer kicked=replaceableMember(f,recruitInfluenceForSpeaker(f,responder,speaker));
+            SimPlayer kicked=stimpyOwner
+                ?replaceableMember(f,100000)
+                :replaceableMember(f,recruitInfluenceForSpeaker(f,responder,speaker));
             if(kicked==null || !plugin.removeSimFactionMemberAuthority(f.name,kicked.name)) return false;
             f.members.remove(kicked.name);
             recordFactionKick(f,kicked,speaker);
@@ -4724,9 +4810,15 @@ final class SimWorldDirector {
         if(!plugin.inviteHumanToSimFaction(f.name,f.leader,speaker)) return false;
 
         SocialEdge e=relationship(responder.name,speaker,true);
-        e.affinity=clampAffinity(e.affinity+3);
-        e.trust=clampSocial(e.trust+1);
-        rememberRelationship(e,"vouched for "+speaker+" to join "+f.name);
+        if(stimpyOwner) {
+            e.affinity=100;e.trust=100;e.respect=100;e.grudge=0;
+            responder.ownerAffinity=100;
+            rememberRelationship(e,"owner is my permanent first-choice teammate and shot-caller");
+        } else {
+            e.affinity=clampAffinity(e.affinity+3);
+            e.trust=clampSocial(e.trust+1);
+            rememberRelationship(e,"vouched for "+speaker+" to join "+f.name);
+        }
 
         SimPlayer leader=players.get(key(f.leader));
         if(leader!=null) {
@@ -7430,6 +7522,7 @@ final class SimWorldDirector {
             p.farmInvestment = s.getDouble("farm-investment", 0.0);
             p.farmCycles = s.getLong("farm-cycles", 0L);
             p.farmReady = s.getBoolean("farm-ready", false);
+            applyCreatorSimulationOverrides(p);
             ConfigurationSection st = s.getConfigurationSection("stock");
             if (st != null) for (String item : st.getKeys(false)) p.stock.put(item, st.getInt(item));
             p.stock.remove("speedpot");
@@ -7625,6 +7718,7 @@ final class SimWorldDirector {
 
 
         Collections.shuffle(names,new Random(2015L+players.size()*31L));
+        prioritizeConfiguredCreators(names);
         int added=0;
         for(String name:names) {
             if(players.size()>=target) break;
@@ -7668,6 +7762,7 @@ final class SimWorldDirector {
             p.factionTitle="member";
             p.combatClass=classFor(p);
             applyCreatorOpeningAccess(p);
+            applyCreatorSimulationOverrides(p);
             int lq=leaderQuality(p);
             p.leaderCandidate=lq>=76 ||
                 (p.reputation>=15 && p.leadership>=68 && p.decisiveness>=65);
@@ -7708,6 +7803,7 @@ final class SimWorldDirector {
         int target = Math.max(30, Math.min(180, plugin.getConfig().getInt("sim-world.population", 90)));
         target = Math.min(target,names.size());
         Collections.shuffle(names, new Random(2015L));
+        prioritizeConfiguredCreators(names);
 
         int count = Math.min(target, names.size());
         for (int i = 0; i < count; i++) {
@@ -7760,6 +7856,7 @@ final class SimWorldDirector {
             p.factionTitle = "member";
             p.combatClass = classFor(p);
             applyCreatorOpeningAccess(p);
+            applyCreatorSimulationOverrides(p);
 
             // Leadership is separate from PvP. Strong public PvPers can become
             // leaders, but most serious factions are seeded by people with
@@ -7994,6 +8091,8 @@ final class SimWorldDirector {
             else {
                 int ps=leaderQuality(p)+p.charisma/3+p.reputation/4+(p.underdogLeader?-10:12);
                 int bs=leaderQuality(best)+best.charisma/3+best.reputation/4+(best.underdogLeader?-10:12);
+                if(isStimpyIdentity(p.name)) ps+=10000;
+                if(isStimpyIdentity(best.name)) bs+=10000;
                 if(ps>bs) best=p;
             }
         }
@@ -8070,7 +8169,12 @@ final class SimWorldDirector {
             if (p.combatClass == CombatClass.ARCHER && classCount(f,CombatClass.ARCHER) >= 1) continue;
 
             int score = candidateScore(f, p);
-            score += rng.nextInt(17) - 8;
+            SimPlayer recruitingLeader=players.get(key(f.leader));
+            if(recruitingLeader!=null && isStimpyIdentity(recruitingLeader.name)) {
+                score += p.skill*3 + p.mechanics*2 + p.pvpIq*2 + p.gameSense + p.teamwork;
+            } else {
+                score += rng.nextInt(17) - 8;
+            }
             if (score > bestScore) {
                 best = p;
                 bestScore = score;
@@ -8080,6 +8184,7 @@ final class SimWorldDirector {
         if(best==null) return false;
 
         SimPlayer leader=players.get(key(f.leader));
+        boolean stimpyLeader=leader!=null && isStimpyIdentity(leader.name);
         int quality=leaderQuality(leader);
         int threshold=55;
         if(leader!=null) threshold+=Math.max(0,(leader.standards-50)/2);
@@ -8089,7 +8194,7 @@ final class SimWorldDirector {
         boolean tryout=false;
         boolean passed=true;
         boolean requiredTryout=plugin.factionTryoutRequired(f.name);
-        if(leader!=null &&
+        if(!stimpyLeader && leader!=null &&
            (requiredTryout || ((f.powerFaction || leader.standards>=72) &&
                               bestScore<threshold+35 && rng.nextInt(100)<55))) {
             tryout=true;
@@ -9602,6 +9707,27 @@ final class SimWorldDirector {
         for(int i=1;i<Math.min(4,candidates.size());i++) candidates.get(i).staffRole="MOD";
     }
 
+    private void prioritizeConfiguredCreators(List<String> names) {
+        if(names==null || names.isEmpty()) return;
+        final List<String> configured=plugin.getConfig().getStringList("creator-tag.creators");
+        Collections.sort(names,new Comparator<String>() {
+            public int compare(String a,String b) {
+                int ai=creatorIndex(configured,a),bi=creatorIndex(configured,b);
+                if(ai>=0 && bi>=0) return Integer.compare(ai,bi);
+                if(ai>=0) return -1;
+                if(bi>=0) return 1;
+                return 0;
+            }
+        });
+    }
+
+    private int creatorIndex(List<String> configured,String name) {
+        if(configured==null || name==null) return -1;
+        for(int i=0;i<configured.size();i++)
+            if(configured.get(i).equalsIgnoreCase(name)) return i;
+        return -1;
+    }
+
     private List<String> uniquePlayerNames() {
         List<String> out=new ArrayList<String>();
         Set<String> seen=new HashSet<String>();
@@ -9621,7 +9747,7 @@ final class SimWorldDirector {
 
     private int namePrestigeTier(String name) {
         if(name==null || name.isEmpty()) return 0;
-        if(plugin.isCreatorIdentity(name)) return 3;
+        if(plugin.isCreatorIdentity(name)) return plugin.creatorPopularityTier(name);
 
         String lower=name.toLowerCase(Locale.ENGLISH);
         boolean letters=name.matches("[A-Za-z]+");
@@ -9643,10 +9769,12 @@ final class SimWorldDirector {
     private int skillRollForName(String name) {
         int base=skillRoll();
         int tier=namePrestigeTier(name);
-        if(tier==2) {
-            // Most genuinely rare 4-6 character accounts were associated with
-            // established/serious players, while preserving occasional bought
-            // names, alts and overrated handles.
+        if(tier>=3) {
+            // Creator popularity is a public social signal, not a direct skill
+            // rating. Give only a small established-player floor here; explicit
+            // creator combat personas are handled separately.
+            base=Math.max(base,62+rng.nextInt(18));
+        } else if(tier==2) {
             if(rng.nextInt(100)<82) base=Math.max(base,80+rng.nextInt(16));
             else base=Math.max(base,58+rng.nextInt(21));
         } else if(tier==1) {
@@ -9697,7 +9825,11 @@ final class SimWorldDirector {
     private void applyCreatorCombatOverrides(SimPlayer p) {
         if(p==null) return;
         String n=key(p.name);
-        if(n.equals("stimpy")||n.equals("stimpypvp")||n.equals("marcel")||n.equals("painfulpvp")) {
+        if(isStimpyIdentity(p.name)) {
+            p.mechanics=100;
+            p.pvpIq=100;
+            p.gameSense=100;
+        } else if(n.equals("painfulpvp")) {
             p.mechanics=Math.max(p.mechanics,94);
             p.pvpIq=Math.max(p.pvpIq,88);
             p.gameSense=Math.max(p.gameSense,84);
@@ -9710,6 +9842,42 @@ final class SimWorldDirector {
             p.pvpIq=Math.max(p.pvpIq,74);
             p.gameSense=Math.max(p.gameSense,72);
         }
+    }
+
+    private boolean isStimpyIdentity(String name) {
+        String n=key(canonicalIdentityName(name));
+        return n.equals("stimpy");
+    }
+
+    private void applyCreatorSimulationOverrides(SimPlayer p) {
+        if(p==null) return;
+        applyCreatorCombatOverrides(p);
+        if(!isStimpyIdentity(p.name)) return;
+
+        // User-defined simulation canon: Stimpy is the apex player/leader and
+        // has absolute positive affinity toward the configured owner.
+        p.mechanics=100;
+        p.pvpIq=100;
+        p.gameSense=100;
+        p.skill=100;
+        p.aggression=Math.max(p.aggression,96);
+        p.leadership=100;
+        p.composure=100;
+        p.charisma=100;
+        p.decisiveness=100;
+        p.standards=100;
+        p.politicalIq=100;
+        p.teamwork=100;
+        p.loyalty=100;
+        p.riskTolerance=Math.max(p.riskTolerance,90);
+        p.sociability=Math.max(p.sociability,92);
+        p.patience=Math.max(p.patience,88);
+        p.reputation=Math.max(p.reputation,250);
+        p.donorLevel=4;
+        p.ownerAffinity=100;
+        p.leaderCandidate=true;
+        p.underdogLeader=false;
+        p.combatClass=CombatClass.DIAMOND;
     }
 
     private int leadershipTrait(String name,String trait,int base) {
@@ -9748,8 +9916,9 @@ final class SimWorldDirector {
     }
 
     private int creatorSkillOverride(String name, int rolled) {
-        String n = key(name);
-        if (n.equals("stimpy") || n.equals("stimpypvp") || n.equals("marcel") || n.equals("painfulpvp")) return 95 + rng.nextInt(6);
+        String n = key(canonicalIdentityName(name));
+        if (n.equals("stimpy")) return 100;
+        if (n.equals("painfulpvp")) return 95 + rng.nextInt(6);
         if (n.equals("lolitsalex")) return 86 + rng.nextInt(7);
         if (n.equals("skimpy")) return 78 + rng.nextInt(8);
         return rolled;

@@ -715,9 +715,23 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         getConfig().set("creator-tag.head-prefix","&c[YT] &f");
         getConfig().set("creator-tag.chat-prefix","&c[YT] &r");
         getConfig().set("creator-tag.creators",Arrays.asList(
-            "Stimpy","PainfulPvP","lolitsalex","Skimpy"));
+            "Stimpy","PainfulPvP","MeeZoid","lolitsalex","Verzide","HateFoo","Skimpy","Zigy","Dylan_"));
+        getConfig().set("creator-tag.subscriber-counts.PainfulPvP",1090000);
+        getConfig().set("creator-tag.subscriber-counts.Stimpy",322000);
+        getConfig().set("creator-tag.subscriber-counts.MeeZoid",151000);
+        getConfig().set("creator-tag.subscriber-counts.lolitsalex",128000);
+        getConfig().set("creator-tag.subscriber-counts.Verzide",94000);
+        getConfig().set("creator-tag.subscriber-counts.Zigy",43200);
+        getConfig().set("creator-tag.subscriber-counts.Dylan_",40000);
+        getConfig().set("creator-tag.legacy-popularity-tiers.HateFoo",3);
+        getConfig().set("creator-tag.legacy-popularity-tiers.Skimpy",2);
+        getConfig().set("creator-tag.cape-enabled",true);
+        getConfig().set("creator-tag.cape-texture-url",
+            "https://textures.minecraft.net/texture/5ec930cdd2629c8771655c60eebeb867b4b6559b0e6d3bc71c40c96347fa03f0");
+        getConfig().set("creator-tag.cape-eligible",Arrays.asList(
+            "Stimpy","PainfulPvP","MeeZoid","lolitsalex","Verzide","HateFoo"));
         getConfig().set("worker-pool.creator-bodies",Arrays.asList(
-            "Stimpy","PainfulPvP","lolitsalex","Skimpy"));
+            "Stimpy","PainfulPvP","MeeZoid","lolitsalex","Verzide","HateFoo","Skimpy","Zigy","Dylan_"));
 
         // Phase 1 authored HCF world foundation. These values intentionally
         // override the old 3k procedural-terrain layout above on both upgrades
@@ -1235,6 +1249,11 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     private void setRank(String name, Rank rank) {
         ranksData.set(name.toLowerCase(Locale.ENGLISH), rank.name());
         saveYaml(ranksData, ranksFile);
+        // Simulated identities keep donor entitlement in simulation.yml.
+        // Keep /rank authoritative for them too instead of changing only a
+        // ranks.yml value that simRankFor() would otherwise ignore.
+        if(simWorld!=null && simWorld.contains(name))
+            simWorld.ownerSetDonorLevel(name,rank==Rank.OWNER?4:rank.level);
         Player p = Bukkit.getPlayerExact(name);
         if (p != null) {
             applyCreatorTag(p);
@@ -1247,6 +1266,37 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         for (String creator : getConfig().getStringList("creator-tag.creators")) {
             if (creator.equalsIgnoreCase(name)) return true;
         }
+        return false;
+    }
+
+    int creatorSubscriberCount(String name) {
+        if(name==null) return -1;
+        ConfigurationSection s=getConfig().getConfigurationSection("creator-tag.subscriber-counts");
+        if(s==null) return -1;
+        for(String key:s.getKeys(false))
+            if(key.equalsIgnoreCase(name)) return Math.max(0,s.getInt(key,-1));
+        return -1;
+    }
+
+    int creatorPopularityTier(String name) {
+        int subscribers=creatorSubscriberCount(name);
+        if(subscribers>=1000000) return 5;
+        if(subscribers>=250000) return 4;
+        if(subscribers>=100000) return 3;
+        if(subscribers>=50000) return 2;
+        if(subscribers>=25000) return 1;
+        ConfigurationSection s=getConfig().getConfigurationSection("creator-tag.legacy-popularity-tiers");
+        if(s!=null && name!=null) {
+            for(String key:s.getKeys(false))
+                if(key.equalsIgnoreCase(name)) return Math.max(0,Math.min(5,s.getInt(key,0)));
+        }
+        return 0;
+    }
+
+    boolean isPrestigeCapeIdentity(String name) {
+        if(!getConfig().getBoolean("creator-tag.cape-enabled",true) || name==null) return false;
+        for(String candidate:getConfig().getStringList("creator-tag.cape-eligible"))
+            if(candidate.equalsIgnoreCase(name)) return true;
         return false;
     }
 
@@ -1771,11 +1821,57 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             p.sendMessage(color("&e/simactor raidprobe <attacker> <defender> <backup> &7(open-gate raid prototype)"));
             p.sendMessage(color("&e/simactor scaleprobe [maxBodies] &7(Gate 5: 2/4/8/12/16 active-body benchmark)"));
             p.sendMessage(color("&e/simactor dropprobe <player> &7(Gate 2: normal world drops)"));
+            p.sendMessage(color("&e/simactor admin <player> inspect"));
+            p.sendMessage(color("&e/simactor admin <player> trait <name> <value>"));
+            p.sendMessage(color("&e/simactor admin <player> goal <goal>"));
+            p.sendMessage(color("&e/simactor admin <player> online <true|false>"));
             p.sendMessage(color("&7"+fakePlayers.supportSummary()));
             return true;
         }
 
         String sub=args[0].toLowerCase(Locale.ENGLISH);
+        if(sub.equals("admin")) {
+            if(args.length<3) {
+                p.sendMessage(color("&cUsage: /simactor admin <player> <inspect|trait|goal|online> ..."));
+                return true;
+            }
+            String target=args[1];
+            String op=args[2].toLowerCase(Locale.ENGLISH);
+            String result;
+            if("inspect".equals(op)) {
+                result=simWorld.ownerInspectIdentity(target);
+            } else if("trait".equals(op)) {
+                if(args.length<5) {
+                    p.sendMessage(color("&cUsage: /simactor admin <player> trait <trait> <value>"));
+                    return true;
+                }
+                int value;
+                try { value=Integer.parseInt(args[4]); }
+                catch(Exception ex) {
+                    p.sendMessage(color("&cTrait value must be an integer."));
+                    return true;
+                }
+                result=simWorld.ownerSetIdentityTrait(target,args[3],value);
+            } else if("goal".equals(op)) {
+                if(args.length<4) {
+                    p.sendMessage(color("&cUsage: /simactor admin <player> goal <goal>"));
+                    return true;
+                }
+                result=simWorld.ownerSetIdentityGoal(target,args[3]);
+            } else if("online".equals(op)) {
+                if(args.length<4) {
+                    p.sendMessage(color("&cUsage: /simactor admin <player> online <true|false>"));
+                    return true;
+                }
+                result=simWorld.ownerSetIdentityOnline(target,Boolean.parseBoolean(args[3]));
+            } else {
+                result="FAIL unknown admin operation";
+            }
+            p.sendMessage(color((result.startsWith("PASS")?"&a":"&c")+"[Sim Admin] &7"+result));
+            getLogger().info("[Sim Admin] owner="+p.getName()+" "+result);
+            return true;
+        }
+
         if(sub.equals("status")) {
             if(args.length<2) {
                 p.sendMessage(color("&cUsage: /simactor status <player>"));
@@ -3535,7 +3631,13 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             s.sendMessage(color("&cOwner only."));
             return true;
         }
+        if(a.length==2 && a[0].equalsIgnoreCase("get")) {
+            Rank r=effectiveRank(a[1]);
+            s.sendMessage(color("&e"+a[1]+" &7effective rank: "+r.prefix));
+            return true;
+        }
         if (a.length != 3 || !a[0].equalsIgnoreCase("set")) {
+            s.sendMessage("/rank get <player>");
             s.sendMessage("/rank set <player> <member|basic|silver|gold|platinum|owner>");
             return true;
         }

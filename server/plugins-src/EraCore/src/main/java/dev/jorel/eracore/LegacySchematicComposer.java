@@ -20,6 +20,7 @@ import java.util.zip.GZIPInputStream;
  */
 @SuppressWarnings("deprecation")
 final class LegacySchematicComposer {
+    private static final int PRODUCTION_LAYOUT_VERSION=4;
     static final class Schematic {
         int width,height,length;
         int offX,offY,offZ;
@@ -374,11 +375,12 @@ final class LegacySchematicComposer {
             return false;
         }
         try {
+            prepareProductionCheckpoints();
             World over=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
             if(over==null) return false;
             Schematic spawn=load(name);
             validateSpawnRoadContract(spawn);
-            jobs.add(new PasteJob("HCF Spawn",over,spawn,0,
+            addProductionJob(new PasteJob("HCF Spawn",over,spawn,0,
                 plugin.getConfig().getInt("world-composer.spawn-anchor-y",66),0,false));
             productionRun=false;
             ensureRunner();
@@ -406,10 +408,10 @@ final class LegacySchematicComposer {
             Schematic spawn=load(name);
             validateSpawnRoadContract(spawn);
             int border=plugin.getConfig().getInt("map.world-border",2000)/2;
-            jobs.add(new SpawnRoadSurfaceJob("North HCF spawn road",over,spawn,0,0,0,border));
-            jobs.add(new SpawnRoadSurfaceJob("South HCF spawn road",over,spawn,0,0,1,border));
-            jobs.add(new SpawnRoadSurfaceJob("West HCF spawn road",over,spawn,0,0,2,border));
-            jobs.add(new SpawnRoadSurfaceJob("East HCF spawn road",over,spawn,0,0,3,border));
+            addProductionJob(new SpawnRoadSurfaceJob("North HCF spawn road",over,spawn,0,0,0,border));
+            addProductionJob(new SpawnRoadSurfaceJob("South HCF spawn road",over,spawn,0,0,1,border));
+            addProductionJob(new SpawnRoadSurfaceJob("West HCF spawn road",over,spawn,0,0,2,border));
+            addProductionJob(new SpawnRoadSurfaceJob("East HCF spawn road",over,spawn,0,0,3,border));
             productionRun=false;
             ensureRunner();
             plugin.getLogger().info("[composer] queued roads-only HCF pass border="+border+
@@ -458,21 +460,21 @@ final class LegacySchematicComposer {
             int endstyleY=plugin.canonicalHcfTerrainY(-ko,-ko);
             int egyptY=plugin.canonicalHcfTerrainY( ko, ko);
             int frostY=plugin.canonicalHcfTerrainY(-ko, ko);
-            jobs.add(new PasteJob("Classic KOTH",over,load(asset("koth-classic","KOTH2-production-1.8.schematic")), ko,classicY,-ko,false));
-            jobs.add(new PasteJob("EndStyle KOTH",over,load(asset("koth-endstyle","EndStyleKOTH-production-1.8.schematic")),-ko,endstyleY,-ko,false));
-            jobs.add(new PasteJob("Egypt KOTH",over,load(asset("koth-egypt","EgyptKOTH-production-1.8.schematic")), ko,egyptY,ko,false));
-            jobs.add(new PasteJob("Frost KOTH",over,load(asset("koth-frost","KOTH-Forty-1.8-converted.schematic")),-ko,frostY,ko,false));
+            addProductionJob(new PasteJob("Classic KOTH",over,load(asset("koth-classic","KOTH2-production-1.8.schematic")), ko,classicY,-ko,false));
+            addProductionJob(new PasteJob("EndStyle KOTH",over,load(asset("koth-endstyle","EndStyleKOTH-production-1.8.schematic")),-ko,endstyleY,-ko,false));
+            addProductionJob(new PasteJob("Egypt KOTH",over,load(asset("koth-egypt","EgyptKOTH-production-1.8.schematic")), ko,egyptY,ko,false));
+            addProductionJob(new PasteJob("Frost KOTH",over,load(asset("koth-frost","KOTH-Forty-1.8-converted.schematic")),-ko,frostY,ko,false));
 
             int conquestX=plugin.getConfig().getInt("map-layout.conquest-x",0);
             int conquestZ=plugin.getConfig().getInt("map-layout.conquest-z",775);
             int conquestY=plugin.canonicalHcfTerrainY(conquestX,conquestZ);
-            jobs.add(new PasteJob("Conquest",over,load(asset("conquest","conquest.schematic")),
+            addProductionJob(new PasteJob("Conquest",over,load(asset("conquest","conquest.schematic")),
                 conquestX,conquestY,conquestZ,false));
 
             if(!qaOverworldOnly) {
-                jobs.add(new PasteJob("Nether Spawn",nether,load(asset("nether-spawn","NetherSpawnWillzaTeam.schematic")),
+                addProductionJob(new PasteJob("Nether Spawn",nether,load(asset("nether-spawn","NetherSpawnWillzaTeam.schematic")),
                     0,plugin.getConfig().getInt("world-composer.nether-anchor-y",70),0,true));
-                jobs.add(new PasteJob("Magic End",end,load(asset("end","magical-hcf-end-xayden-bt.schematic")),
+                addProductionJob(new PasteJob("Magic End",end,load(asset("end","magical-hcf-end-xayden-bt.schematic")),
                     0,plugin.getConfig().getInt("world-composer.end-anchor-y",68),0,true));
             } else {
                 plugin.getLogger().info("[composer] QA Overworld-only mode: skipping Nether Spawn and Magic End composition.");
@@ -500,6 +502,40 @@ final class LegacySchematicComposer {
             e.printStackTrace();
             return false;
         }
+    }
+
+    private void prepareProductionCheckpoints() {
+        int version=plugin.getConfig().getInt("map.structure-checkpoint-layout-version",0);
+        if(version==PRODUCTION_LAYOUT_VERSION) return;
+        plugin.getConfig().set("map.completed-structure-jobs",null);
+        plugin.getConfig().set("map.structure-checkpoint-layout-version",PRODUCTION_LAYOUT_VERSION);
+        plugin.saveConfig();
+    }
+
+    private boolean productionJobComplete(String label) {
+        if(label==null || label.isEmpty()) return false;
+        List<String> completed=plugin.getConfig().getStringList("map.completed-structure-jobs");
+        for(String x:completed) if(label.equalsIgnoreCase(x)) return true;
+        return false;
+    }
+
+    private void addProductionJob(Job job) {
+        if(job==null) return;
+        if(productionJobComplete(job.label)) {
+            plugin.getLogger().info("[composer] checkpoint skip "+job.label);
+            return;
+        }
+        jobs.add(job);
+    }
+
+    private void markProductionJobComplete(String label) {
+        if(label==null || label.isEmpty() || productionJobComplete(label)) return;
+        List<String> completed=new ArrayList<String>(
+            plugin.getConfig().getStringList("map.completed-structure-jobs"));
+        completed.add(label);
+        plugin.getConfig().set("map.completed-structure-jobs",completed);
+        plugin.getConfig().set("map.structure-checkpoint-layout-version",PRODUCTION_LAYOUT_VERSION);
+        plugin.saveConfig();
     }
 
     boolean queueCenteredStandalonePaste(String label,World world,String name,
@@ -587,6 +623,7 @@ final class LegacySchematicComposer {
                     if(done) {
                         jobs.removeFirst();
                         plugin.getLogger().info("[composer] completed "+j.label+" changed="+j.changed);
+                        if(productionRun) markProductionJobComplete(j.label);
                         try { j.completed(); }
                         catch(Throwable t) { plugin.getLogger().severe("[composer] completion callback failed for "+j.label+": "+t.getMessage()); }
                     }
@@ -595,7 +632,7 @@ final class LegacySchematicComposer {
                     if(productionRun) {
                         plugin.finalizeProductionSpawn();
                         plugin.getConfig().set("map.structures-complete",true);
-                        plugin.getConfig().set("map.production-layout-version",4);
+                        plugin.getConfig().set("map.production-layout-version",PRODUCTION_LAYOUT_VERSION);
                         plugin.saveConfig();
                         plugin.getLogger().info("[composer] production HCF structures complete; HCF spawn finalized and resource stage may begin.");
                     }

@@ -105,7 +105,16 @@ final class CombatBodyScaleDirector {
         if(at==null || at.getWorld()==null || task!=null) return false;
         int max=Math.max(2,Math.min(16,maxBodies));
         if((max&1)==1) max--;
-        List<String> candidates=simWorld.logicalOnlineIdentityNames(max);
+        int permanentCount=plugin.getConfig().getStringList("worker-pool.permanent-mineflayer").size();
+        List<String> pool=simWorld.logicalOnlineIdentityNames(
+            Math.min(180,max+Math.max(8,permanentCount)));
+        List<String> candidates=new ArrayList<String>();
+        for(String name:pool) {
+            if(plugin.isPermanentMineflayerIdentity(name)) continue;
+            if(plugin.getServer().getPlayerExact(name)!=null) continue;
+            candidates.add(name);
+            if(candidates.size()>=max) break;
+        }
         if(candidates.size()<max) return false;
 
         stopBodiesOnly();

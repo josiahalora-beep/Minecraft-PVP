@@ -3,6 +3,19 @@ import YAML from 'yaml'
 import { createBot, sleep, waitForSpawn } from './common.js'
 
 const simulationFile=process.env.SIMULATION_FILE || '../server/plugins/EraCore/simulation.yml'
+const configFile=process.env.ERACORE_CONFIG || '../server/plugins/EraCore/config.yml'
+
+function permanentMineflayer() {
+  try {
+    const cfg=YAML.parse(fs.readFileSync(configFile,'utf8')) || {}
+    const xs=cfg?.['worker-pool']?.['permanent-mineflayer']
+    return new Set((Array.isArray(xs)?xs:['Stimpy']).map(x=>String(x).toLowerCase()))
+  } catch {
+    return new Set(['stimpy'])
+  }
+}
+
+const permanent=permanentMineflayer()
 
 function trio() {
   if(!fs.existsSync(simulationFile)) return null
@@ -12,6 +25,7 @@ function trio() {
 
   const players=Object.values(data.players || {}).filter(p =>
     p?.name && String(p.name).length<=16 &&
+    !permanent.has(String(p.name).toLowerCase()) &&
     p['logical-online']===true &&
     String(p.faction || '').trim()
   )

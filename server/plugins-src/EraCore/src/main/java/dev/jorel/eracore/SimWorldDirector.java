@@ -269,6 +269,8 @@ final class SimWorldDirector {
         String targetBlock = "";
         String event = "none";
         String pvpIntent = "AVOID";
+        String attentionIntent = "NONE";
+        String attentionTarget = "";
         int desiredPartySize = 1;
         int homeX;
         int homeY;
@@ -316,6 +318,8 @@ final class SimWorldDirector {
                 " targetBlock=" + targetBlock +
                 " event=" + event +
                 " pvpIntent=" + pvpIntent +
+                " attentionIntent=" + (attentionIntent == null || attentionIntent.isEmpty() ? "NONE" : attentionIntent) +
+                " attentionTarget=" + (attentionTarget == null || attentionTarget.isEmpty() ? "none" : attentionTarget) +
                 " partySize=" + desiredPartySize +
                 " homeX=" + homeX + " homeY=" + homeY + " homeZ=" + homeZ +
                 " gateX=" + gateX + " gateY=" + gateY + " gateZ=" + gateZ +
@@ -2905,12 +2909,41 @@ final class SimWorldDirector {
                 break;
 
             case PVP_READY:
-                if(shouldCampTarget(p,f)) {
+                Player livePrestigeVisitor=prestigeVisitorNearBase(f);
+                String residentIntent=residentReactionIntent(p,f,livePrestigeVisitor);
+                if(livePrestigeVisitor!=null && !"IGNORE".equals(residentIntent)) {
+                    t.attentionTarget=livePrestigeVisitor.getName();
+                    t.attentionIntent=residentIntent;
+                    if("FIGHT".equals(residentIntent)) {
+                        t.action="patrol";
+                        t.zone="spawn";
+                        t.pvpIntent=authoritativeFactionSize(f)>=3?"TEAMFIGHT":"SMALL_TEAM";
+                        t.x=livePrestigeVisitor.getLocation().getBlockX();
+                        t.y=livePrestigeVisitor.getLocation().getBlockY();
+                        t.z=livePrestigeVisitor.getLocation().getBlockZ();
+                        t.priority=102+p.aggression/5+p.pvpIq/7;
+                    } else if("TRAP".equals(residentIntent)) {
+                        t.action="patrol";
+                        t.zone="spawn";
+                        t.pvpIntent="TRAP_PLAY";
+                        t.x=frontGate[0];t.y=frontGate[1];t.z=frontGate[2];
+                        t.priority=100+p.gameSense/5+p.patience/8;
+                    } else {
+                        t.action="spectate";
+                        t.zone="spawn";
+                        t.pvpIntent="AVOID";
+                        t.x=frontGate[0];t.y=frontGate[1];t.z=frontGate[2];
+                        t.priority=86+p.sociability/5+p.patience/8;
+                    }
+                    maybeResidentReactionChat(p,livePrestigeVisitor,residentIntent);
+                } else if(shouldCampTarget(p,f)) {
                     SimFaction camped=factions.get(key(f.campTarget));
                     int[] camp=campPoint(f,camped,p);
                     String neighborhoodIntent=neighborhoodIntentToward(f,f.campTarget);
                     t.action="patrol";
                     t.zone="spawn";
+                    t.attentionTarget=prestigeFaceForFaction(camped);
+                    t.attentionIntent=neighborhoodIntent.isEmpty()?"OPPORTUNIST":neighborhoodIntent;
                     if("TRAPPER".equals(neighborhoodIntent)) t.pvpIntent="TRAP_PLAY";
                     else if("RIVAL".equals(neighborhoodIntent) &&
                             ("AVOID".equals(t.pvpIntent) || t.pvpIntent==null)) t.pvpIntent="SMALL_TEAM";
@@ -2923,10 +2956,13 @@ final class SimWorldDirector {
                     int[] watch=spectatePoint(f,watched);
                     t.action="spectate";
                     t.zone="spawn";
+                    t.attentionTarget=prestigeFaceForFaction(watched);
+                    String neighborhoodIntent=neighborhoodIntentToward(f,f.watchTarget);
+                    t.attentionIntent=neighborhoodIntent.isEmpty()?"WATCH":neighborhoodIntent;
                     t.pvpIntent="AVOID";
                     if(watch!=null){t.x=watch[0];t.y=watch[1];t.z=watch[2];}
                     t.priority=66+p.sociability/4+p.teamwork/7;
-                    maybeNeighborhoodReaction(p,f,watched,neighborhoodIntentToward(f,f.watchTarget));
+                    maybeNeighborhoodReaction(p,f,watched,neighborhoodIntent);
                 } else if(shouldContestActiveEvent(p,f)) {
                     int[] eventPoint=plugin.activeHcfEventPoint();
                     t.action="patrol";
@@ -8392,6 +8428,85 @@ final class SimWorldDirector {
         }
         if(!best.isEmpty()) return best;
         return target.leader==null||target.leader.isEmpty()?target.name:target.leader;
+    }
+
+    private Player prestigeVisitorNearBase(SimFaction home) {
+        if(home==null || (home.baseX==0 && home.baseZ==0)) return null;
+        World overworld=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
+        if(overworld==null) return null;
+        int radius=Math.max(60,plugin.getConfig().getInt("prestige-neighborhood.resident-reaction-radius",110));
+        double best=(double)radius*radius;
+        Player found=null;
+
+        for(Player body:Bukkit.getOnlinePlayers()) {
+            if(!body.getWorld().equals(overworld)) continue;
+            if(!isConfiguredOwner(body.getName()) && !plugin.isCreatorIdentity(body.getName())) continue;
+            String factionName=plugin.factionNameFor(body.getName());
+            if(factionName!=null && factionName.equalsIgnoreCase(home.name)) continue;
+            double d=distSq(body.getLocation().getX(),body.getLocation().getZ(),home.baseX,home.baseZ);
+            if(d<=best){best=d;found=body;}
+        }
+        return found;
+    }
+
+    private String residentReactionIntent(SimPlayer p,SimFaction home,Player visitor) {
+        if(p==null || home==null || visitor==null || home.recoveryMode ||
+           plugin.factionDtr(home.name)<=1.01) return "IGNORE";
+
+        String visitorFaction=plugin.factionNameFor(visitor.getName());
+        String motive=neighborhoodIntentToward(home,visitorFaction);
+        if(motive.isEmpty()) motive="OPPORTUNIST";
+
+        long epoch=System.currentTimeMillis()/60000L;
+        int roll=Math.abs((key(p.name)+"|resident|"+key(visitor.getName())+"|"+epoch).hashCode())%100;
+        int social=p.sociability+p.teamwork/2+p.politicalIq/3;
+        int fight=p.aggression+p.riskTolerance+p.pvpIq/2;
+        int trap=p.gameSense+p.patience+p.pvpIq/2+
+            ("TRAPPER".equals(home.archetype)?55:0);
+
+        if("FAN".equals(motive) || "FRIENDLY".equals(motive)) {
+            if(social>=115 && roll<72) return "TALK";
+            if(fight>=175 && roll<18) return "FIGHT";
+            return "WATCH";
+        }
+        if("RIVAL".equals(motive)) {
+            if("TRAPPER".equals(home.archetype) && trap>=175 && roll<45) return "TRAP";
+            return fight>=145 && roll<78 ? "FIGHT" : "WATCH";
+        }
+        if("TRAPPER".equals(motive)) {
+            if(p.combatClass==CombatClass.BARD || p.combatClass==CombatClass.ARCHER)
+                return "WATCH";
+            return trap>=145 && roll<82 ? "TRAP" : "WATCH";
+        }
+
+        if(fight>=175 && roll<42) return "FIGHT";
+        if(trap>=180 && roll<28) return "TRAP";
+        if(social>=120 && roll<68) return "TALK";
+        return "WATCH";
+    }
+
+    private void maybeResidentReactionChat(SimPlayer p,Player visitor,String intent) {
+        if(p==null || visitor==null || intent==null || "IGNORE".equals(intent) || !p.logicalOnline) return;
+        long now=System.currentTimeMillis();
+        String k=key(p.name)+"|resident";
+        Long next=nextNeighborhoodReactionAt.get(k);
+        if(next!=null && now<next) return;
+        nextNeighborhoodReactionAt.put(k,now+(75+rng.nextInt(126))*1000L);
+
+        String who=visitor.getName();
+        if("TALK".equals(intent)) {
+            enqueue(p.name,oneOf("yo "+who+" whats up",who+" you guys roaming?",
+                "we're chill dont swing","you keep running by our claim lol","whats good "+who),false);
+        } else if("FIGHT".equals(intent)) {
+            enqueue(p.name,oneOf(who+" come road","you fighting?","come outside our claim",
+                "you keep running past us fight","we're out front"),false);
+        } else if("TRAP".equals(intent)) {
+            enqueue(p.name,oneOf(who+" come here for a sec","1v1 by our claim?",
+                "come front gate","yo "+who+" come over here"),false);
+        } else if("WATCH".equals(intent) && rng.nextInt(100)<28) {
+            enqueue(p.name,oneOf("thats "+who+" outside","yo "+who,
+                "why is "+who+" by our claim","everyone look outside"),false);
+        }
     }
 
     private void maybeNeighborhoodReaction(SimPlayer p,SimFaction f,SimFaction target,String intent) {

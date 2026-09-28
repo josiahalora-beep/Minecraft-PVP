@@ -138,16 +138,7 @@ async function openAiReply(data) {
 
 async function modelReply(data) {
   if (PROVIDER === 'openai') return openAiReply(data)
-
-  try {
-    return await ollamaReply(data)
-  } catch (ollamaErr) {
-    if (API_KEY) {
-      console.warn('[community-ai] Ollama unavailable, trying OpenAI fallback: ' + String(ollamaErr?.message || ollamaErr))
-      return openAiReply(data)
-    }
-    throw ollamaErr
-  }
+  return ollamaReply(data)
 }
 
 export function startCommunityAiBridge() {

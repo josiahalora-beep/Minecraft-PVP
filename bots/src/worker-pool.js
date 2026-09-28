@@ -2253,6 +2253,16 @@ async function doPhysicalWork(state, action) {
   return false
 }
 
+function namedPlayerEntity(bot, name) {
+  const wanted=String(name || '').toLowerCase()
+  if(!wanted || wanted==='none' || !bot?.players) return null
+  for(const [playerName,rec] of Object.entries(bot.players)) {
+    if(String(playerName).toLowerCase()!==wanted) continue
+    return rec?.entity || null
+  }
+  return null
+}
+
 function nearestRoamStranger(state, radius=48) {
   const bot=state.bot
   if(!bot?.entity) return null
@@ -2540,9 +2550,46 @@ async function localMotion(state, action) {
   while (Date.now() < endAt && state.bot?.entity && !state.combat) {
     stopMovement(bot)
 
-    const stranger=(action==='patrol' || action==='solo_loot' || action==='spectate') ? nearestRoamStranger(state,48) : null
+    const attentionEntity=namedPlayerEntity(bot,state.job?.attentionTarget)
+    const attentionDistance=attentionEntity ? bot.entity.position.distanceTo(attentionEntity.position) : Infinity
+    const attentionAction=(action==='patrol' || action==='spectate') && attentionEntity && attentionDistance<=72
+    const stranger=(action==='patrol' || action==='solo_loot' || action==='spectate')
+      ? (attentionAction ? attentionEntity : nearestRoamStranger(state,48))
+      : null
 
     if(action==='spectate') {
+      const attentionIntent=String(state.job?.attentionIntent || 'WATCH').toUpperCase()
+
+      // Fans/friends/watchers follow the actual named prestige player while they
+      // can see them.  They keep social distance instead of pathing into the
+      // player's hitbox or standing forever at one static base coordinate.
+      if(attentionEntity) {
+        const dist=bot.entity.position.distanceTo(attentionEntity.position)
+        const minDist=attentionIntent==='TALK' ? 5.0 :
+          (attentionIntent==='FAN' || attentionIntent==='FRIENDLY' ? 6.5 : 8.0)
+        const maxDist=attentionIntent==='TALK' ? 10.5 :
+          (attentionIntent==='FAN' || attentionIntent==='FRIENDLY' ? 13.0 : 16.0)
+
+        if(dist>maxDist) {
+          await smartGoto(state,
+            attentionEntity.position.x,attentionEntity.position.y,attentionEntity.position.z,
+            Math.max(4,Math.floor(minDist)),3200,false)
+          continue
+        }
+
+        try { await bot.lookAt(attentionEntity.position.offset(0,1.25,0),false) } catch {}
+        if(dist<minDist) {
+          bot.setControlState('back',true)
+          bot.setControlState('sprint',dist<3.5)
+          await sleep(Math.round(rand(220,420)))
+          continue
+        }
+
+        stopMovement(bot)
+        await sleep(Math.round(rand(450,900)))
+        continue
+      }
+
       const tx=Number(state.job?.x),ty=Number(state.job?.y),tz=Number(state.job?.z)
       if([tx,ty,tz].every(Number.isFinite)) {
         const dx=bot.entity.position.x-tx,dz=bot.entity.position.z-tz
@@ -2662,8 +2709,29 @@ async function localMotion(state, action) {
 
     if(stranger) {
       const dist=bot.entity.position.distanceTo(stranger.position)
+      const trapBait=intent==='TRAP_PLAY' &&
+        String(state.job?.attentionIntent || '').toUpperCase()==='TRAP'
       const mayCommit=intent==='SOLO_HUNT' || intent==='TRAP_PLAY' || desired<=1 ||
         nearbyAllies>=requiredNearby
+
+      // A resident trying to trap a prestige passer does not sprint 40 blocks
+      // away from its own gate. It watches the target, holds the assigned bait
+      // point, and only collapses once the target comes close enough.
+      if(trapBait && dist>11) {
+        const tx=Number(state.job?.x),ty=Number(state.job?.y),tz=Number(state.job?.z)
+        if([tx,ty,tz].every(Number.isFinite)) {
+          const dx=bot.entity.position.x-tx,dz=bot.entity.position.z-tz
+          if(dx*dx+dz*dz>5*5) {
+            await smartGoto(state,tx,ty,tz,3,2600,false)
+            continue
+          }
+        }
+        try { await bot.lookAt(stranger.position.offset(0,1.2,0),false) } catch {}
+        stopMovement(bot)
+        await sleep(220)
+        continue
+      }
+
       if(mayCommit && dist>5) {
         await smartGoto(state,stranger.position.x,stranger.position.y,stranger.position.z,3,2800,false)
         continue

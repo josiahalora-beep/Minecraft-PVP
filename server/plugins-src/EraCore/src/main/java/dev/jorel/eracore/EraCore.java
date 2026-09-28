@@ -393,6 +393,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         getConfig().set("map.auto-bootstrap",true);
         getConfig().set("map.complete",false);
         getConfig().set("map.structures-complete",false);
+        getConfig().set("map.completed-structure-jobs",null);
+        getConfig().set("map.structure-checkpoint-layout-version",4);
         getConfig().set("world-build.active",true);
         getConfig().set("world-build.terrain-complete",false);
         getConfig().set("world-build.complete",false);

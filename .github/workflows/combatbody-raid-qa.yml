@@ -10,6 +10,8 @@ on:
     paths:
       - 'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/NmsFakePlayerRuntime.java'
       - 'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfRaidPrototypeDirector.java'
+      - 'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfLiveRaidDirector.java'
+      - 'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfGateDirector.java'
       - 'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfRaidPolicy.java'
       - 'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/SimWorldDirector.java'
       - 'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/EraCore.java'

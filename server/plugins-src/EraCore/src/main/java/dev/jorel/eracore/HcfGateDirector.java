@@ -1,6 +1,7 @@
 package dev.jorel.eracore;
 
 import org.bukkit.Bukkit;
+import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.block.Block;
@@ -47,7 +48,7 @@ final class HcfGateDirector implements Listener {
         if(opening) scheduleClose(group);
     }
 
-    private List<Block> connectedGateGroup(Block start) {
+    List<Block> connectedGateGroup(Block start) {
         List<Block> out=new ArrayList<Block>();
         ArrayDeque<Block> q=new ArrayDeque<Block>();
         Set<String> seen=new HashSet<String>();
@@ -68,11 +69,33 @@ final class HcfGateDirector implements Listener {
         return out;
     }
 
-    private boolean isOpen(Block b) {
-        return (b.getData() & 0x4) != 0;
+    List<Block> connectedGateGroupNear(Location expected,int radius) {
+        List<Block> empty=new ArrayList<Block>();
+        if(expected==null || expected.getWorld()==null) return empty;
+        World w=expected.getWorld();
+        int r=Math.max(1,Math.min(8,radius));
+        Block best=null;
+        double bestD=Double.MAX_VALUE;
+        for(int dx=-r;dx<=r;dx++) for(int dz=-r;dz<=r;dz++) for(int dy=-3;dy<=3;dy++) {
+            Block b=w.getBlockAt(expected.getBlockX()+dx,expected.getBlockY()+dy,expected.getBlockZ()+dz);
+            if(b.getType()!=Material.FENCE_GATE) continue;
+            double d=dx*dx+dz*dz+dy*dy*0.35;
+            if(d<bestD) { best=b;bestD=d; }
+        }
+        return best==null?empty:connectedGateGroup(best);
     }
 
-    private void setGroupOpen(List<Block> group,boolean open) {
+    boolean isOpen(Block b) {
+        return b!=null && b.getType()==Material.FENCE_GATE && (b.getData() & 0x4) != 0;
+    }
+
+    boolean isGroupOpen(List<Block> group) {
+        if(group==null || group.isEmpty()) return false;
+        for(Block b:group) if(!isOpen(b)) return false;
+        return true;
+    }
+
+    void setGroupOpen(List<Block> group,boolean open) {
         for(Block b:group) {
             if(b.getType()!=Material.FENCE_GATE) continue;
             byte data=b.getData();

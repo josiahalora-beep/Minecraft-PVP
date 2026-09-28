@@ -2345,6 +2345,26 @@ final class SimWorldDirector {
         return p==null || p.faction==null?"":p.faction;
     }
 
+    CombatClass combatClassForIdentity(String name) {
+        SimPlayer p=name==null?null:players.get(key(name));
+        return p==null || p.combatClass==null?CombatClass.DIAMOND:p.combatClass;
+    }
+
+    Location raidBaseCenter(String factionName) {
+        SimFaction f=factions.get(key(factionName));
+        if(f==null || (f.baseX==0 && f.baseZ==0) || Bukkit.getWorlds().isEmpty()) return null;
+        World w=Bukkit.getWorlds().get(0);
+        return new Location(w,f.baseX+0.5,f.baseY+1.0,f.baseZ+0.5);
+    }
+
+    Location raidBaseGateLocation(String factionName) {
+        SimFaction f=factions.get(key(factionName));
+        if(f==null || (f.baseX==0 && f.baseZ==0) || Bukkit.getWorlds().isEmpty()) return null;
+        World w=Bukkit.getWorlds().get(0);
+        int[] a=plugin.simBaseAnchor(f.name,f.basePreset,"gate",f.baseX,f.baseY,f.baseZ);
+        return new Location(w,a[0]+0.5,a[1],a[2]+0.5);
+    }
+
     HcfRaidPolicy.AttackerDecision raidAttackerDecision(String attackerName,String defenderFaction,
                                                         boolean enemyGateOpen,boolean validPearlLine) {
         SimPlayer attacker=players.get(key(attackerName));

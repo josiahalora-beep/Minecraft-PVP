@@ -76,6 +76,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     private CombatBodyPvpDirector combatBodyPvp;
     private CombatBodyScaleDirector combatBodyScale;
     private HcfRaidPrototypeDirector raidPrototype;
+    private HcfLiveRaidDirector liveRaid;
     private ActorDirectory actors;
     private HcfElevatorDirector elevatorDirector;
     private HcfTravelDirector travelDirector;
@@ -226,6 +227,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         hcfBaseBuilder = new HcfBaseBuilder(this);
         autoBrewer = new HcfAutoBrewerDirector(this);
         gateDirector = new HcfGateDirector(this);
+        liveRaid = new HcfLiveRaidDirector(this,fakePlayers,simWorld,gateDirector);
         terrainDirector = new HcfTerrainDirector(this);
         atmosphereDirector = new HcfAtmosphereDirector(this);
         elevatorDirector = new HcfElevatorDirector(this);
@@ -305,6 +307,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     @Override public void onDisable() {
+        if (liveRaid != null) liveRaid.stop();
         if (raidPrototype != null) raidPrototype.stop();
         if (combatBodyScale != null) combatBodyScale.stop();
         if (combatBodyPvp != null) combatBodyPvp.stop();
@@ -1820,7 +1823,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             p.sendMessage(color("&e/simactor despawn <player>"));
             p.sendMessage(color("&e/simactor probe <player> &7(one-body death/DTR gate)"));
             p.sendMessage(color("&e/simactor materializeprobe <player> &7(Gate 4 state continuity)"));
-            p.sendMessage(color("&e/simactor raidprobe <attacker> <defender> <backup> &7(open-gate raid prototype)"));
+            p.sendMessage(color("&e/simactor raidprobe <attacker> <defender> <backup> &7(open-gate raid regression)"));
+            p.sendMessage(color("&e/simactor raidlive <attacker> <defender> <backup> [support] &7(real-base Phase 6 raid loop)"));
             p.sendMessage(color("&e/simactor raidpolicy <attacker> <defender> [gateOpen] [lineValid] &7(real SimWorld raid decision)"));
             p.sendMessage(color("&e/simactor scaleprobe [maxBodies] &7(Gate 5: 2/4/8/12/16 active-body benchmark)"));
             p.sendMessage(color("&e/simactor dropprobe <player> &7(Gate 2: normal world drops)"));
@@ -2021,6 +2025,8 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             }.runTaskTimer(this,10L,10L);
             return true;
         }
+
+        if(sub.equals("raidlive")) return cmdLiveRaid(p,args);
 
         if(sub.equals("raidpolicy")) {
             if(args.length<3) {
@@ -2871,6 +2877,125 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         }
 
         p.sendMessage("/simcombat <sync|release|loot|status|director>");
+        return true;
+    }
+
+
+    private boolean cmdLiveRaid(final Player p,String[] args) {
+        if(args.length<4) {
+            p.sendMessage(color("&cUsage: /simactor raidlive <attacker> <defender> <backup> [support]"));
+            return true;
+        }
+        if(liveRaid==null || !fakePlayers.supported() || !fakePlayers.probeAllowed()) {
+            p.sendMessage(color("&c[Phase 6 Live Raid] CombatBody runtime/probe support is unavailable."));
+            return true;
+        }
+
+        final ActorDirectory.Snapshot attacker=actors.resolve(args[1]);
+        final ActorDirectory.Snapshot defender=actors.resolve(args[2]);
+        final ActorDirectory.Snapshot backup=actors.resolve(args[3]);
+        final ActorDirectory.Snapshot support=args.length>=5?actors.resolve(args[4]):null;
+        if(attacker==null || defender==null || backup==null ||
+           !simWorld.hasIdentity(args[1]) || !simWorld.hasIdentity(args[2]) ||
+           !simWorld.hasIdentity(args[3]) ||
+           (args.length>=5 && (support==null || !simWorld.hasIdentity(args[4])))) {
+            p.sendMessage(color("&c[Phase 6 Live Raid] Every supplied name must be a simulated identity."));
+            return true;
+        }
+
+        List<ActorDirectory.Snapshot> raidActors=new ArrayList<ActorDirectory.Snapshot>();
+        raidActors.add(attacker);raidActors.add(defender);raidActors.add(backup);
+        if(support!=null) raidActors.add(support);
+        Set<String> unique=new HashSet<String>();
+        for(ActorDirectory.Snapshot a:raidActors) {
+            if(a==null || !unique.add(a.name.toLowerCase(Locale.ENGLISH)) || !a.logicalOnline ||
+               a.runtime==ActorDirectory.Runtime.MINEFLAYER || a.runtime==ActorDirectory.Runtime.HUMAN) {
+                p.sendMessage(color("&c[Phase 6 Live Raid] Actors must be distinct, logical-online, and clientless."));
+                return true;
+            }
+        }
+
+        final String attackerFaction=simWorld.factionOfIdentity(attacker.name);
+        final String defenderFaction=simWorld.factionOfIdentity(defender.name);
+        final String backupFaction=simWorld.factionOfIdentity(backup.name);
+        final String supportFaction=support==null?"":simWorld.factionOfIdentity(support.name);
+        if(attackerFaction.isEmpty() || defenderFaction.isEmpty() ||
+           attackerFaction.equalsIgnoreCase(defenderFaction) ||
+           !defenderFaction.equalsIgnoreCase(backupFaction) ||
+           (support!=null && !attackerFaction.equalsIgnoreCase(supportFaction))) {
+            p.sendMessage(color("&c[Phase 6 Live Raid] Need attacker(+optional support) vs two same-faction defenders."));
+            return true;
+        }
+
+        final HcfLiveRaidDirector.Arena arena=liveRaid.prepareArena(defenderFaction);
+        if(arena==null) {
+            p.sendMessage(color("&c[Phase 6 Live Raid] No materialized real fence-gate group exists at "+defenderFaction+
+                "'s canonical base gate. This command will not substitute a test pad."));
+            return true;
+        }
+
+        final String supportName=support==null?"":support.name;
+        try {
+            final Player attackBody=fakePlayers.spawn(attacker.name,arena.attackerStart,true);
+            final Player defendBody=fakePlayers.spawn(defender.name,arena.defenderStart,true);
+            final Player backupBody=fakePlayers.spawn(backup.name,arena.backupStart,true);
+            prepareHcfCombatKit(attackBody,simWorld.combatClassForIdentity(attacker.name));
+            prepareHcfCombatKit(defendBody,simWorld.combatClassForIdentity(defender.name));
+            prepareHcfCombatKit(backupBody,simWorld.combatClassForIdentity(backup.name));
+
+            if(support!=null) {
+                Player supportBody=fakePlayers.spawn(support.name,arena.supportStart,true);
+                prepareHcfCombatKit(supportBody,simWorld.combatClassForIdentity(support.name));
+            }
+
+            final String fightId="PHASE6_LIVE_RAID_"+System.currentTimeMillis();
+            for(ActorDirectory.Snapshot a:raidActors)
+                combatPreparedFight.put(a.name.toLowerCase(Locale.ENGLISH),fightId);
+
+            if(!liveRaid.start(attacker.name,defender.name,backup.name,supportName,arena)) {
+                for(ActorDirectory.Snapshot a:raidActors) {
+                    fakePlayers.despawn(a.name);
+                    combatPreparedFight.remove(a.name.toLowerCase(Locale.ENGLISH));
+                }
+                liveRaid.stop();
+                p.sendMessage(color("&c[Phase 6 Live Raid] Could not start the real-base raid controller."));
+                return true;
+            }
+
+            p.sendMessage(color("&e[Phase 6 Live Raid] Using &f"+defenderFaction+
+                "&e's real base gate. Policy comes from live faction/DTR/gear/class state."));
+            new BukkitRunnable() {
+                int waited=0;
+                public void run() {
+                    waited+=5;
+                    HcfLiveRaidDirector.Snapshot result=liveRaid.snapshot();
+                    if((result==null || !result.complete) && waited<400) return;
+
+                    boolean pass=result!=null && result.pass;
+                    String details=result==null?"no-result":result.summary();
+                    getLogger().info("[Phase 6 Live Raid command] "+(pass?"PASS":"FAIL")+
+                        " "+details+" waitedTicks="+waited);
+                    if(p.isOnline())
+                        p.sendMessage(color((pass?"&a":"&c")+"[Phase 6 Live Raid] "+
+                            (pass?"PASS ":"FAIL ")+"&7"+details));
+
+                    if(result==null || !result.complete) liveRaid.stop();
+                    else liveRaid.cleanupArena();
+                    for(ActorDirectory.Snapshot a:raidActors) {
+                        fakePlayers.despawn(a.name);
+                        combatPreparedFight.remove(a.name.toLowerCase(Locale.ENGLISH));
+                    }
+                    cancel();
+                }
+            }.runTaskTimer(this,5L,5L);
+        } catch(Exception ex) {
+            liveRaid.stop();
+            for(ActorDirectory.Snapshot a:raidActors) {
+                fakePlayers.despawn(a.name);
+                combatPreparedFight.remove(a.name.toLowerCase(Locale.ENGLISH));
+            }
+            p.sendMessage(color("&c[Phase 6 Live Raid] Setup failed: "+ex.getMessage()));
+        }
         return true;
     }
 

@@ -404,7 +404,7 @@ final class HcfRaidPrototypeDirector {
         task=null;
     }
 
-    private boolean validPearlLine(Location from,Location to) {
+    static boolean validPearlLine(Location from,Location to) {
         if(from==null || to==null || from.getWorld()==null ||
            !from.getWorld().equals(to.getWorld())) return false;
         World w=from.getWorld();

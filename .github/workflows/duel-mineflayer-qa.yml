@@ -1,0 +1,195 @@
+name: duel-mineflayer-regression
+
+concurrency:
+  group: duel-mineflayer-regression
+  cancel-in-progress: true
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/EraCore.java'
+      - 'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/HcfInfrastructureDirector.java'
+      - 'server/plugins-src/EraCore/src/main/resources/config.yml'
+      - 'bots/src/worker-pool.js'
+      - 'bots/src/worker-coordinator.js'
+      - 'bots/src/duel-spawn-qa.js'
+      - '.github/workflows/duel-mineflayer-qa.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  duel:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '8'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build EraCore
+        working-directory: server/plugins-src/EraCore
+        run: mvn -B package
+
+      - name: Build Spigot 1.8.8
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .duel/buildtools
+          cd .duel/buildtools
+          curl -fsSL https://hub.spigotmc.org/jenkins/job/BuildTools/lastSuccessfulBuild/artifact/target/BuildTools.jar -o BuildTools.jar
+          java -jar BuildTools.jar --rev 1.8.8
+          SPIGOT="$(find . -maxdepth 3 -type f -name 'spigot-1.8.8*.jar' | head -1)"
+          test -n "$SPIGOT"
+          cp "$SPIGOT" ../../server/spigot-1.8.8.jar
+
+      - name: Install Mineflayer dependencies
+        working-directory: bots
+        run: npm install --no-audit --no-fund
+
+      - name: Prepare disposable duel server
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p server/plugins/EraCore duel-output
+          cp server/plugins-src/EraCore/target/EraCore.jar server/plugins/EraCore.jar
+          cp server/plugins-src/EraCore/src/main/resources/config.yml server/plugins/EraCore/config.yml
+          printf 'eula=true\n' > server/eula.txt
+          cat > server/server.properties <<'EOF'
+          server-port=25565
+          online-mode=false
+          level-type=FLAT
+          generate-structures=false
+          spawn-protection=0
+          view-distance=5
+          enable-rcon=true
+          rcon.password=eracore-duel
+          rcon.port=25575
+          EOF
+          cd bots
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs'
+          import YAML from 'yaml'
+          const p='../server/plugins/EraCore/config.yml'
+          const c=YAML.parse(fs.readFileSync(p,'utf8'))||{}
+          c.owner=c.owner||{}
+          c.owner.name='DuelOwner'
+          c.owner['claim-first-human']=false
+          c.map=c.map||{}
+          c.map['auto-bootstrap']=false
+          c.map.complete=true
+          c.map['structures-complete']=true
+          c['world-build']=c['world-build']||{}
+          c['world-build'].active=false
+          c['world-build']['terrain-complete']=true
+          c['world-build']['resources-complete']=true
+          c['world-build'].complete=true
+          c['world-composer']=c['world-composer']||{}
+          c['world-composer'].enabled=false
+          c['base-builder']=c['base-builder']||{}
+          c['base-builder']['lazy-materialization']=false
+          c['ai-chat']=c['ai-chat']||{}
+          c['ai-chat'].enabled=false
+          c['sim-chat']=c['sim-chat']||{}
+          c['sim-chat'].enabled=false
+          c['spawn-presence']=c['spawn-presence']||{}
+          c['spawn-presence'].enabled=false
+          c['sim-world']=c['sim-world']||{}
+          c['sim-world'].population=24
+          c['sim-world']['logical-online-min']=24
+          c['sim-world']['logical-online-peak']=24
+          c['sim-world']['logical-online-late-night']=24
+          c['sim-world']['tick-seconds']=5
+          c['infrastructure']=c['infrastructure']||{}
+          c['infrastructure']['blocks-per-tick']=1200
+          c['worker-pool']=c['worker-pool']||{}
+          c['worker-pool']['max-bodies']=1
+          c['worker-pool']['offline-bodies']=1
+          c['worker-pool']['node-default-bodies']=1
+          c['worker-pool']['max-per-faction']=1
+          c['worker-pool']['reassess-seconds']=3
+          c['worker-pool']['sync-seconds']=4
+          c['worker-pool']['anchor-bodies']=5
+          c['worker-pool']['prestige-bodies']=0
+          c['worker-pool']['fight-ambient-bodies']=0
+          c['worker-pool']['creator-bodies']=['Stimpy']
+          c['worker-pool']['permanent-mineflayer']=['Stimpy']
+          c.actors=c.actors||{}
+          c.actors['fake-player']=c.actors['fake-player']||{}
+          c.actors['fake-player'].enabled=false
+          c.actors['fake-player']['allow-probe']=false
+          fs.writeFileSync(p,YAML.stringify(c))
+          NODE
+
+      - name: Start Spigot and wait for full duel arena
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd server
+          nohup java -Xms512M -Xmx2G -jar spigot-1.8.8.jar nogui > duel-server.log 2>&1 &
+          echo $! > duel-server.pid
+          python3 - <<'PY'
+          import socket,time
+          end=time.time()+120
+          while time.time()<end:
+              s=socket.socket();s.settimeout(1)
+              try:
+                  s.connect(('127.0.0.1',25565))
+                  print('Spigot duel server ready')
+                  break
+              except OSError:
+                  time.sleep(1)
+              finally:
+                  s.close()
+          else:
+              raise SystemExit('Spigot did not open 25565')
+          end=time.time()+90
+          while time.time()<end:
+              try:
+                  log=open('duel-server.log',errors='ignore').read()
+              except OSError:
+                  log=''
+              if 'HCF infrastructure ready: duel arena built' in log or 'HCF infrastructure build complete: duel arena' in log:
+                  print('Duel arena full build complete')
+                  raise SystemExit(0)
+              time.sleep(1)
+          raise SystemExit('Duel arena did not finish building')
+          PY
+
+      - name: Start permanent Stimpy Mineflayer worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd bots
+          nohup env WORKER_MAX=1 WORKER_OFFLINE=1 node src/worker-pool.js > ../duel-output/worker.log 2>&1 &
+          echo $! > ../duel-output/worker.pid
+
+      - name: Run human vs permanent-Mineflayer duel regression
+        working-directory: bots
+        run: node src/duel-spawn-qa.js | tee ../duel-output/client.log
+
+      - name: Verify duel evidence
+        if: always()
+        shell: bash
+        run: |
+          cp server/duel-server.log duel-output/server.log || true
+          grep -E '\[DUEL-QA\] PASS humanSpawnClear=true stimpyRuntime=MINEFLAYER duelArena=true' duel-output/client.log
+          grep -E 'Stimpy HOT anchor:permanent-mineflayer' duel-output/worker.log
+          grep -E '\[Duel Projection\] PASS actor=Stimpy .*safeSpawn=true exact=true world=duel_arena x=18 y=65 z=0' server/duel-server.log
+          if [ -f duel-output/worker.pid ]; then kill "$(cat duel-output/worker.pid)" || true; fi
+          if [ -f server/duel-server.pid ]; then kill "$(cat server/duel-server.pid)" || true; fi
+
+      - name: Upload duel evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: duel-mineflayer-evidence
+          path: duel-output/
+          if-no-files-found: error
+          retention-days: 14

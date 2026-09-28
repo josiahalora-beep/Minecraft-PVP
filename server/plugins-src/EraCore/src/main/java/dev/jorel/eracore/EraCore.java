@@ -3039,7 +3039,25 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             boolean exactDuelSpawn=freshProjection && ca.fightId.startsWith("DUEL_");
             if (exactDuelSpawn || !p.getWorld().equals(world) ||
                 p.getLocation().distanceSquared(target) > 28.0*28.0) {
-                p.teleport(target);
+                boolean teleported=p.teleport(target);
+                if(exactDuelSpawn) {
+                    Location landed=p.getLocation();
+                    boolean exact=landed.getWorld()!=null && landed.getWorld().equals(world) &&
+                        landed.getBlockX()==target.getBlockX() &&
+                        landed.getBlockY()==target.getBlockY() &&
+                        landed.getBlockZ()==target.getBlockZ();
+                    Block floor=world.getBlockAt(target.getBlockX(),target.getBlockY()-1,target.getBlockZ());
+                    Block feet=world.getBlockAt(target.getBlockX(),target.getBlockY(),target.getBlockZ());
+                    Block head=world.getBlockAt(target.getBlockX(),target.getBlockY()+1,target.getBlockZ());
+                    boolean safe=floor.getType()!=Material.AIR &&
+                        feet.getType()==Material.AIR && head.getType()==Material.AIR;
+                    boolean pass=teleported && exact && safe;
+                    getLogger().info("[Duel Projection] "+(pass?"PASS":"FAIL")+
+                        " actor="+p.getName()+" fight="+ca.fightId+
+                        " safeSpawn="+safe+" exact="+exact+
+                        " world="+world.getName()+
+                        " x="+target.getBlockX()+" y="+target.getBlockY()+" z="+target.getBlockZ());
+                }
             }
         }
 

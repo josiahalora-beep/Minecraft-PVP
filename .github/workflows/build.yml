@@ -46,6 +46,7 @@ jobs:
         run: |
           node --check bots/src/common.js
           node --check bots/src/duel-bot.js
+          node --check bots/src/duel-spawn-qa.js
           node --check bots/src/idle-benchmark.js
           node --check bots/src/state-handoff.js
           node --check bots/src/team-combat.js

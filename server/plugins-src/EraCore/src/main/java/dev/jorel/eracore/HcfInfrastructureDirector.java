@@ -154,6 +154,10 @@ final class HcfInfrastructureDirector {
 
     boolean duelReady() {
         if(duelHuman==null || duelSim==null) return false;
+        // A valid two-block spawn column is not enough while queueDuelArena is
+        // still mutating the surrounding combat volume. Starting during that
+        // window caused fighters to appear intersecting stale/rebuilt blocks.
+        if(task!=null || !queue.isEmpty()) return false;
         ensureSafePad(duelHuman,2,Material.SMOOTH_BRICK);
         ensureSafePad(duelSim,2,Material.SMOOTH_BRICK);
         duelReady=validateSpawn(duelHuman)&&validateSpawn(duelSim);

@@ -285,7 +285,8 @@ final class HcfRaidPrototypeDirector {
             " matrix="+p.matrixPassed+"/"+p.matrixTotal+
             " attackerDecision="+p.attackerDecision+
             " defenderDecision="+p.defenderDecision+
-            " line="+p.lineValid);
+            " line="+p.lineValid+
+            " criteria=12/12+openGatePearl+entry+hold+backup+secondPearl+pressure");
         return true;
     }
 

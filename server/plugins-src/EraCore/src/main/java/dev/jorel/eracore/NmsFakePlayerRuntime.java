@@ -578,7 +578,8 @@ final class NmsFakePlayerRuntime implements Listener {
 
                     boolean manualTeleport=false;
                     if(!nativeMoved) {
-                        Location landing=safePearlLanding(impact,current.getYaw(),current.getPitch());
+                        Location landing=safePearlLanding(
+                            pending.launch,impact,current.getYaw(),current.getPitch());
                         if(landing!=null) {
                             invoke(b.handle,"setPositionRotation",
                                 landing.getX(),landing.getY(),landing.getZ(),
@@ -593,11 +594,14 @@ final class NmsFakePlayerRuntime implements Listener {
                     if(health>pending.healthAtLaunch-4.5)
                         b.bukkit.damage(5.0);
 
+                    Location after=b.bukkit.getLocation();
                     plugin.getLogger().info("[CombatBody Raid] pearl impact actor="+b.name+
                         " nativeMoved="+nativeMoved+
                         " manualTeleport="+manualTeleport+
-                        " at="+String.format(Locale.US,"%.2f,%.2f,%.2f",
-                            impact.getX(),impact.getY(),impact.getZ()));
+                        " impact="+String.format(Locale.US,"%.2f,%.2f,%.2f",
+                            impact.getX(),impact.getY(),impact.getZ())+
+                        " body="+String.format(Locale.US,"%.2f,%.2f,%.2f",
+                            after.getX(),after.getY(),after.getZ()));
                 } catch(Throwable ex) {
                     plugin.getLogger().warning("[CombatBody Raid] impact handoff failed for "+
                         pending.actor+": "+ex.getClass().getSimpleName()+": "+root(ex));
@@ -606,31 +610,82 @@ final class NmsFakePlayerRuntime implements Listener {
         });
     }
 
-    private Location safePearlLanding(Location impact,float yaw,float pitch) {
+    private Location safePearlLanding(Location launch,Location impact,float yaw,float pitch) {
         if(impact==null || impact.getWorld()==null) return null;
-        Location out=impact.clone();
-        int x=(int)Math.floor(out.getX());
-        int y=Math.max(1,(int)Math.floor(out.getY()));
-        int z=(int)Math.floor(out.getZ());
+        World world=impact.getWorld();
 
-        // The projectile can report a position fractionally inside the block it
-        // struck. Move upward only as much as needed to find a two-block player
-        // column; never jump horizontally through raid geometry.
-        for(int dy=0;dy<=3;dy++) {
-            int yy=y+dy;
-            if(yy+1>=out.getWorld().getMaxHeight()) break;
-            Material feet=out.getWorld().getBlockAt(x,yy,z).getType();
-            Material head=out.getWorld().getBlockAt(x,yy+1,z).getType();
-            if(!feet.isSolid() && !head.isSolid()) {
-                out.setX(x+0.5);
-                out.setY(yy+0.05);
-                out.setZ(z+0.5);
-                out.setYaw(yaw);
-                out.setPitch(pitch);
+        double dirX=0.0,dirZ=0.0;
+        if(launch!=null && launch.getWorld()!=null && launch.getWorld().equals(world)) {
+            dirX=impact.getX()-launch.getX();
+            dirZ=impact.getZ()-launch.getZ();
+        }
+        double mag=Math.sqrt(dirX*dirX+dirZ*dirZ);
+        if(mag<0.001) {
+            // Fall back to the body's facing direction only when the recorded
+            // flight vector is unavailable.
+            double rad=Math.toRadians(yaw);
+            dirX=-Math.sin(rad);
+            dirZ=Math.cos(rad);
+        } else {
+            dirX/=mag;
+            dirZ/=mag;
+        }
+
+        // ProjectileHitEvent can fire while the pearl center is still
+        // fractionally inside the open gate block. A real connected player is
+        // teleported to the valid space on the far side. Search ONLY forward
+        // along the pearl's actual travel vector, within two blocks of impact.
+        // This permits an open 1.8 fence gate but cannot hop sideways through a
+        // closed gate or solid wall.
+        double[] forward={0.20,0.55,0.90,1.25,1.60,1.95};
+        int baseY=Math.max(1,(int)Math.floor(impact.getY()));
+        for(double distance:forward) {
+            double px=impact.getX()+dirX*distance;
+            double pz=impact.getZ()+dirZ*distance;
+            int bx=(int)Math.floor(px);
+            int bz=(int)Math.floor(pz);
+
+            if(!pearlPathPassable(world,impact.getX(),impact.getZ(),px,pz,baseY))
+                continue;
+
+            for(int dy=-1;dy<=2;dy++) {
+                int yy=baseY+dy;
+                if(yy<=0 || yy+1>=world.getMaxHeight()) continue;
+                if(!pearlBodyColumnClear(world,bx,yy,bz)) continue;
+
+                Location out=new Location(world,bx+0.5,yy+0.05,bz+0.5,yaw,pitch);
                 return out;
             }
         }
         return null;
+    }
+
+    private boolean pearlPathPassable(World world,double fromX,double fromZ,
+                                      double toX,double toZ,int y) {
+        int steps=8;
+        for(int i=0;i<=steps;i++) {
+            double t=i/(double)steps;
+            int x=(int)Math.floor(fromX+(toX-fromX)*t);
+            int z=(int)Math.floor(fromZ+(toZ-fromZ)*t);
+            if(!pearlCellPassable(world,x,y,z) || !pearlCellPassable(world,x,y+1,z))
+                return false;
+        }
+        return true;
+    }
+
+    private boolean pearlBodyColumnClear(World world,int x,int y,int z) {
+        return pearlCellPassable(world,x,y,z) &&
+            pearlCellPassable(world,x,y+1,z);
+    }
+
+    private boolean pearlCellPassable(World world,int x,int y,int z) {
+        Block block=world.getBlockAt(x,y,z);
+        Material material=block.getType();
+        if(material==Material.FENCE_GATE) {
+            // 1.8 fence-gate data bit 0x4 is the open flag.
+            return (block.getData()&0x4)!=0;
+        }
+        return !material.isSolid();
     }
 
     private void face(Body b,Location target) throws Exception {

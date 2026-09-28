@@ -3495,18 +3495,18 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         }
 
         Player online = Bukkit.getPlayerExact(targetName);
-        if (online != null) {
-            online.sendMessage(color("&8[&7From &f" + p.getName() + "&8] &f" + b.toString()));
-            p.sendMessage(color("&8[&7To &f" + online.getName() + "&8] &f" + b.toString()));
-            return true;
-        }
 
+        // A HOT/Mineflayer body is still the same persistent simulated person.
+        // Route messages through its AI/social brain before treating the socket
+        // as an ordinary human player, otherwise permanent bodies such as Stimpy
+        // can receive text but can never answer or take faction actions.
         if (simWorld != null && simWorld.contains(targetName)) {
             p.sendMessage(color("&8[&7To &r" + factionPrefix(targetName) + "&f" + targetName + "&8] &f" + b.toString()));
+            if(online!=null)
+                online.sendMessage(color("&8[&7From &f" + p.getName() + "&8] &f" + b.toString()));
 
-            // Semantic casual conversation goes through the optional AI sidecar.
-            // Trade/economy messages stay authoritative in the deterministic
-            // transaction engine so an LLM can never create items or money.
+            // Semantic casual conversation goes through the optional local AI
+            // sidecar. Trade/economy remains deterministic and authoritative.
             if(simWorld.requestPrivateAi(p,targetName,b.toString())) return true;
 
             final String reply = simWorld.handlePrivate(p, targetName, b.toString());
@@ -3516,8 +3516,14 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
                     public void run() {
                         if (p.isOnline()) sendSimulatedPrivate(p, from, reply);
                     }
-                }, 22L + new Random().nextInt(35));
+                }, 10L + new Random().nextInt(16));
             }
+            return true;
+        }
+
+        if (online != null) {
+            online.sendMessage(color("&8[&7From &f" + p.getName() + "&8] &f" + b.toString()));
+            p.sendMessage(color("&8[&7To &f" + online.getName() + "&8] &f" + b.toString()));
             return true;
         }
 

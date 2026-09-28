@@ -23,6 +23,35 @@ UUID.nameUUIDFromBytes(("OfflinePlayer:" + exactPlayerName).getBytes(UTF_8))
 This lets the logical tab identity, a Mineflayer client, and a future CombatBody
 represent the same persistent player.
 
+## Production runtime split
+
+The actor is the person; Mineflayer and CombatBody are interchangeable physical
+runtimes for most simulated identities, not different personalities or brains.
+
+Production policy:
+
+- **Mineflayer** is the full-client realism runtime for persistent world life:
+  pathfinding through real bases/roads/portals, inventories, chests, gathering,
+  building, social presence, and any interaction where a real client matters.
+- **CombatBody** is the scalable server-native embodiment for transient physical
+  combat/raid density when keeping every participant as a full client would waste
+  Node capacity.
+- Combat and raid decisions come from the same shared HCF policy regardless of
+  runtime. A CombatBody must not receive a second simplified personality.
+- An identity may have only one physical runtime at a time. State handoff preserves
+  UUID, inventory, health, location, faction, role, relationships and combat state.
+- `worker-pool.permanent-mineflayer` is the explicit exception to runtime swapping.
+  **Stimpy is permanently Mineflayer while the worker system is running**, including
+  PvP, duels and raids. He reconnects as Mineflayer after client/network failure and
+  is never substituted with a CombatBody.
+- Other creators remain high-priority Mineflayer anchors, but may yield scarce
+  full-client slots during large fights unless separately added to
+  `permanent-mineflayer`.
+
+This means the target architecture is hybrid: permanent/high-value full clients
+plus cheap CombatBodies for scalable embodied fights, with ABSTRACT actors filling
+the rest of the population when nobody needs to see them.
+
 ## Critical gate before production CombatBodies
 
 The fake-player runtime is deliberately disabled by default.

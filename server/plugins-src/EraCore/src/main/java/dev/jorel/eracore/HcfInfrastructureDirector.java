@@ -20,7 +20,7 @@ import java.util.*;
  */
 @SuppressWarnings("deprecation")
 final class HcfInfrastructureDirector {
-    private static final int VERSION=5;
+    private static final int VERSION=6;
 
     private static final class Op {
         final World world;
@@ -128,7 +128,9 @@ final class HcfInfrastructureDirector {
 
             // Duels live in their own flat world and cannot contaminate HCF map
             // geometry, so this remains the only infrastructure we materialize
-            // automatically in production mode.
+            // automatically in production mode. Version 6 deliberately rebuilds
+            // the complete combat volume once to purge stale blocks from older
+            // arena revisions, not just the two spawn columns.
             queueDuelArena(duelWorld,dcx,dfloor,dcz);
 
             if(!productionSchematics) {

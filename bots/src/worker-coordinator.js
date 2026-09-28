@@ -34,11 +34,15 @@ function readYaml(file) {
 function settingsFrom(config) {
   const w = config?.['worker-pool'] || {}
   const creators = Array.isArray(w['creator-bodies']) ? w['creator-bodies'].map(String) : []
+  const permanent = Array.isArray(w['permanent-mineflayer']) && w['permanent-mineflayer'].length
+    ? w['permanent-mineflayer'].map(String)
+    : ['Stimpy']
   return {
     maxBodies: clamp(Number(w['max-bodies'] || 40), 1, 64),
     offlineBodies: clamp(Number(w['offline-bodies'] || 24), 1, 64),
     maxPerFaction: clamp(Number(w['max-per-faction'] || 5), 1, 8),
     creatorBodies: creators,
+    permanentMineflayer: permanent,
     anchorBodies: clamp(Number(w['anchor-bodies'] || 20), 5, 32),
     prestigeBodies: clamp(Number(w['prestige-bodies'] || 10), 0, 20),
     fightAmbientBodies: clamp(Number(w['fight-ambient-bodies'] ?? 2), 0, 6)
@@ -142,9 +146,38 @@ function combatCandidatesFrom(combat) {
 function candidatesFrom(data, settings, combat) {
   const players = data?.players || {}
   const factions = data?.factions || {}
+  const permanentSet = new Set(settings.permanentMineflayer.map(x => x.toLowerCase()))
   const combatCandidates = combatCandidatesFrom(combat)
   const combatNames = new Set(combatCandidates.map(x => x.name.toLowerCase()))
+  for (const cand of combatCandidates) {
+    if (!permanentSet.has(cand.name.toLowerCase())) continue
+    cand.permanent=true
+    cand.pinned=true
+    cand.score=1000000 + Number(cand.score || 0)
+    cand.anchorReason='permanent-mineflayer'
+  }
   const out = [...combatCandidates]
+  const permanentNames=new Set()
+  for (const configured of settings.permanentMineflayer) {
+    const p=findPlayer(data,configured)
+    if(!p || p['logical-online']===false || combatNames.has(String(p.name||configured).toLowerCase())) continue
+    const factionName=String(p.faction || '')
+    const faction=factionName
+      ? (factions[factionName.toLowerCase()] || Object.values(factions).find(f => String(f?.name || '').toLowerCase()===factionName.toLowerCase()) || {})
+      : {}
+    out.push({
+      name:String(p.name || configured),
+      faction:String(faction?.name || factionName || 'none'),
+      stage:String(faction?.stage || 'RECRUITING'),
+      score:1000000,
+      recovery:Boolean(faction?.['recovery-mode']),
+      pinned:true,
+      permanent:true,
+      anchorReason:'permanent-mineflayer',
+      mapGoal:mapGoalFor({player:p,faction})
+    })
+    permanentNames.add(String(p.name || configured).toLowerCase())
+  }
 
   // Reserve scarce physical bodies for identities whose continued presence
   // makes the server feel coherent: creators, faction leaders/builders and the
@@ -152,7 +185,9 @@ function candidatesFrom(data, settings, combat) {
   const creatorSet = new Set(settings.creatorBodies.map(x => x.toLowerCase()))
   const anchorPool = []
   for (const p of Object.values(players)) {
-    if (!p?.name || p['logical-online'] === false || combatNames.has(String(p.name).toLowerCase())) continue
+    if (!p?.name || p['logical-online'] === false ||
+        combatNames.has(String(p.name).toLowerCase()) ||
+        permanentSet.has(String(p.name).toLowerCase())) continue
     const factionName=String(p.faction || '')
     const faction=factionName
       ? (factions[factionName.toLowerCase()] || Object.values(factions).find(f => String(f?.name || '').toLowerCase()===factionName.toLowerCase()) || {})
@@ -173,7 +208,10 @@ function candidatesFrom(data, settings, combat) {
     .slice(0,settings.prestigeBodies)
 
   const anchors=[...mandatory,...prestige]
-  const pinnedNames=new Set(anchors.map(x=>String(x.p.name).toLowerCase()))
+  const pinnedNames=new Set([
+    ...permanentNames,
+    ...anchors.map(x=>String(x.p.name).toLowerCase())
+  ])
 
   for (const x of anchors) {
     const p=x.p
@@ -231,6 +269,7 @@ function candidatesFrom(data, settings, combat) {
   }
 
   out.sort((a,b) => {
+    if (Boolean(a.permanent) !== Boolean(b.permanent)) return a.permanent ? -1 : 1
     if (Boolean(a.combat) !== Boolean(b.combat)) return a.combat ? -1 : 1
     if (a.pinned !== b.pinned) return a.pinned ? -1 : 1
     if (a.recovery !== b.recovery) return a.recovery ? 1 : -1
@@ -264,8 +303,9 @@ function chooseGlobal(data, settings, target, combat) {
     return true
   }
 
-  for (const c of candidates.filter(x => x.combat)) add(c)
-  for (const c of candidates.filter(x => x.pinned)) add(c)
+  for (const c of candidates.filter(x => x.permanent)) add(c)
+  for (const c of candidates.filter(x => x.combat && !x.permanent)) add(c)
+  for (const c of candidates.filter(x => x.pinned && !x.permanent && !x.combat)) add(c)
   for (const c of candidates.filter(x => live.has(x.name.toLowerCase()) && !x.combat && !x.pinned)) add(c)
   for (const c of candidates) add(c)
   return chosen
@@ -300,14 +340,22 @@ function targetFor(settings, combat) {
   const capacity = Math.max(0, totalCapacity())
   if (!capacity) return 0
   const budget = observedServerBudget(settings)
-  const combatCount = combatCandidatesFrom(combat).length
+  const combatCandidates = combatCandidatesFrom(combat)
+  const combatCount = combatCandidates.length
+  const combatNames = new Set(combatCandidates.map(x => x.name.toLowerCase()))
+  const permanentExtra = settings.permanentMineflayer
+    .filter(n => !combatNames.has(String(n).toLowerCase())).length
   const requested = [...nodes.values()].some(n => Number(n.humanCount) > 0)
     ? settings.maxBodies
     : settings.offlineBodies
   let target = Math.min(capacity, budget, requested)
+  target = Math.max(Math.min(capacity,settings.permanentMineflayer.length),target)
 
   if (combatCount > 0) {
-    target = Math.min(capacity, budget, Math.max(combatCount, Math.min(settings.maxBodies, combatCount + settings.fightAmbientBodies)))
+    const fightFloor=Math.min(capacity,combatCount+permanentExtra)
+    const desiredFight=Math.max(fightFloor,
+      Math.min(settings.maxBodies,combatCount+permanentExtra+settings.fightAmbientBodies))
+    target = Math.max(fightFloor,Math.min(capacity,budget,desiredFight))
   }
 
   if (target < lastGlobalTarget) lastGlobalTarget = target

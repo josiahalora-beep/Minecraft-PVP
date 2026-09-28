@@ -59,6 +59,9 @@ function runtimeSettings() {
   const creatorBodies = Array.isArray(w['creator-bodies']) && w['creator-bodies'].length
     ? w['creator-bodies'].map(String)
     : FALLBACK_CREATORS
+  const permanentMineflayer = Array.isArray(w['permanent-mineflayer']) && w['permanent-mineflayer'].length
+    ? w['permanent-mineflayer'].map(String)
+    : ['Stimpy']
 
   return {
     maxBodies: distributedMode
@@ -76,7 +79,8 @@ function runtimeSettings() {
     fightAmbientBodies: clamp(Number(w['fight-ambient-bodies'] ?? 1), 0, 3),
     anchorBodies: clamp(Number(w['anchor-bodies'] || 20), 5, 32),
     prestigeBodies: clamp(Number(w['prestige-bodies'] || 10), 0, 20),
-    creatorBodies
+    creatorBodies,
+    permanentMineflayer
   }
 }
 
@@ -222,7 +226,8 @@ function candidateForName(data, name, pinned = false) {
     stage,
     score: pinned ? 100000 : roleScore(stage, p),
     recovery: Boolean(faction?.['recovery-mode']),
-    pinned
+    pinned,
+    mapGoal: mapGoalFor({player:p,faction:faction || {}})
   }
 }
 
@@ -287,13 +292,36 @@ function candidatesFrom(data, settings, combat = null) {
   const players = data?.players || {}
   const factions = data?.factions || {}
   const out = []
+  const permanentSet = new Set(settings.permanentMineflayer.map(x => x.toLowerCase()))
   const combatCandidates = combatCandidatesFrom(combat)
   const combatNames = new Set(combatCandidates.map(x => x.name.toLowerCase()))
+  for (const cand of combatCandidates) {
+    if (!permanentSet.has(cand.name.toLowerCase())) continue
+    cand.permanent=true
+    cand.pinned=true
+    cand.score=1000000 + Number(cand.score || 0)
+    cand.anchorReason='permanent-mineflayer'
+  }
   out.push(...combatCandidates)
+
+  const permanentNames=new Set()
+  for (const configured of settings.permanentMineflayer) {
+    const p=findPlayer(data,configured)
+    if(!p || p['logical-online']===false || combatNames.has(String(p.name||configured).toLowerCase())) continue
+    const cand=candidateForName(data,configured,true)
+    if(!cand) continue
+    cand.permanent=true
+    cand.score=1000000
+    cand.anchorReason='permanent-mineflayer'
+    out.push(cand)
+    permanentNames.add(cand.name.toLowerCase())
+  }
 
   const anchorPool=[]
   for(const p of Object.values(players)) {
-    if(!p?.name || p['logical-online']===false || combatNames.has(String(p.name).toLowerCase())) continue
+    if(!p?.name || p['logical-online']===false ||
+       combatNames.has(String(p.name).toLowerCase()) ||
+       permanentSet.has(String(p.name).toLowerCase())) continue
     const fn=String(p.faction || '')
     const faction=fn
       ? (factions[fn.toLowerCase()] || Object.values(factions).find(f=>String(f?.name||'').toLowerCase()===fn.toLowerCase()) || {})
@@ -306,7 +334,10 @@ function candidatesFrom(data, settings, combat = null) {
   const prestige=anchorPool.filter(x=>!used.has(String(x.p.name).toLowerCase()))
     .sort((a,b)=>prestigeScore(b.p)-prestigeScore(a.p)).slice(0,settings.prestigeBodies)
   const anchors=[...mandatory,...prestige]
-  const pinnedNames=new Set(anchors.map(x=>String(x.p.name).toLowerCase()))
+  const pinnedNames=new Set([
+    ...permanentNames,
+    ...anchors.map(x=>String(x.p.name).toLowerCase())
+  ])
 
   for(const x of anchors) {
     const p=x.p, faction=x.faction || {}
@@ -364,6 +395,7 @@ function candidatesFrom(data, settings, combat = null) {
   }
 
   out.sort((a, b) => {
+    if (Boolean(a.permanent) !== Boolean(b.permanent)) return a.permanent ? -1 : 1
     if (Boolean(a.combat) !== Boolean(b.combat)) return a.combat ? -1 : 1
     if (a.pinned !== b.pinned) return a.pinned ? -1 : 1
     if (a.recovery !== b.recovery) return a.recovery ? 1 : -1
@@ -377,16 +409,24 @@ function chooseActive(data, settings, targetCount, combat = null) {
   const chosen = []
   const perFaction = new Map()
 
-  // Visible combat identities take first priority. They are the people the
-  // human can actually see fighting, so represent them physically whenever possible.
-  for (const cand of candidates.filter(c => c.combat)) {
+  // Permanent full clients are the only identities allowed to outrank a new
+  // visible fight. Stimpy remains one continuous Mineflayer person instead of
+  // disappearing or being swapped to a CombatBody when PvP begins.
+  for (const cand of candidates.filter(c => c.permanent)) {
     if (chosen.length >= targetCount) break
     chosen.push(cand)
     if (cand.faction !== 'none') perFaction.set(cand.faction, (perFaction.get(cand.faction) || 0) + 1)
   }
 
-  // Creator bodies remain reserved after visible combat slots.
-  for (const cand of candidates.filter(c => c.pinned)) {
+  // Visible combat identities take every remaining fight slot.
+  for (const cand of candidates.filter(c => c.combat && !c.permanent)) {
+    if (chosen.length >= targetCount) break
+    chosen.push(cand)
+    if (cand.faction !== 'none') perFaction.set(cand.faction, (perFaction.get(cand.faction) || 0) + 1)
+  }
+
+  // Other creator/leader/builder anchors remain sticky but may yield to combat.
+  for (const cand of candidates.filter(c => c.pinned && !c.permanent && !c.combat)) {
     if (chosen.length >= targetCount) break
     chosen.push(cand)
     if (cand.faction !== 'none') perFaction.set(cand.faction, (perFaction.get(cand.faction) || 0) + 1)
@@ -2838,6 +2878,7 @@ async function connectIdentity(candidate, settings) {
     faction: candidate.faction,
     stage: candidate.stage,
     pinned: candidate.pinned,
+    permanent: Boolean(candidate.permanent),
     bot: null,
     job: null,
     reconnectAt: 0,
@@ -3045,6 +3086,9 @@ function effectiveTarget(settings, data, combat = null) {
   const creatorsPresent = settings.creatorBodies
     .map(n => candidateForName(data, n, true))
     .filter(Boolean).length
+  const permanentPresent = settings.permanentMineflayer
+    .map(n => candidateForName(data, n, true))
+    .filter(Boolean).length
 
   const observedBudget=clamp(Number(serverBudget || settings.maxBodies),1,settings.maxBodies)
   if(observedBudget < appliedServerBudget) {
@@ -3077,13 +3121,21 @@ function effectiveTarget(settings, data, combat = null) {
   // Visible combat consumes the physical budget instead of stacking on top of
   // ordinary workers. Reserve every combatant first, then at most a tiny ambient
   // slice for world activity. This is what makes 5v5+ fights viable.
-  const combatCount = combatCandidatesFrom(combat).length
+  const combatCandidates = combatCandidatesFrom(combat)
+  const combatCount = combatCandidates.length
+  const combatNames = new Set(combatCandidates.map(x => x.name.toLowerCase()))
+  const permanentExtra = settings.permanentMineflayer
+    .filter(n => candidateForName(data,n,true) && !combatNames.has(String(n).toLowerCase())).length
   if (combatCount > 0) {
-    target = Math.min(settings.maxBodies, combatCount + settings.fightAmbientBodies)
-    target = Math.max(Math.min(combatCount, settings.maxBodies), target)
+    const fightFloor=Math.min(settings.maxBodies,combatCount+permanentExtra)
+    target = Math.min(settings.maxBodies, combatCount + permanentExtra + settings.fightAmbientBodies)
+    target = Math.max(fightFloor, target)
   }
 
-  return clamp(target, combatCount > 0 ? Math.min(combatCount, settings.maxBodies) : (creatorsPresent || 1), settings.maxBodies)
+  const floor = combatCount > 0
+    ? Math.min(settings.maxBodies,combatCount+permanentExtra)
+    : Math.max(permanentPresent,creatorsPresent || 1)
+  return clamp(target, floor, settings.maxBodies)
 }
 
 async function reconcileDistributed() {
@@ -3119,6 +3171,7 @@ async function reconcileDistributed() {
     state.faction=String(cand.faction||'none')
     state.stage=String(cand.stage||'')
     state.pinned=Boolean(cand.pinned)
+    state.permanent=Boolean(cand.permanent)
     state.mapGoal=cand.mapGoal || state.mapGoal || null
     state.anchorReason=String(cand.anchorReason || state.anchorReason || '')
     state.missingCycles=0
@@ -3193,8 +3246,13 @@ async function reconcile() {
       state.missingCycles = (state.missingCycles || 0) + 1
     }
 
-    // Creator bodies are normally sticky, but during a visible fight an
-    // unrelated creator must yield the slot to combat just like any other worker.
+    // Permanent Mineflayer identities never rotate because of capacity,
+    // score changes, or visible combat. They reconnect after network failure
+    // and only leave during an intentional worker shutdown.
+    if (settings.permanentMineflayer.some(n => n.toLowerCase()===lower)) continue
+
+    // Other creator bodies are normally sticky, but during a visible fight an
+    // unrelated creator may yield the slot to combat.
     if (state?.pinned && !combatActive && wanted.has(lower)) continue
     if (wanted.has(lower)) continue
 
@@ -3229,6 +3287,7 @@ async function reconcile() {
     state.faction = cand.faction
     state.stage = cand.stage
     state.pinned = cand.pinned
+    state.permanent = Boolean(cand.permanent)
     state.mapGoal = cand.mapGoal || state.mapGoal || null
     state.anchorReason = String(cand.anchorReason || state.anchorReason || '')
     state.missingCycles = 0

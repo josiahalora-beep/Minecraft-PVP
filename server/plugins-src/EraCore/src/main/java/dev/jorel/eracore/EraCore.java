@@ -194,6 +194,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         migrateLivingWorldConfig();
         migrateStartupPerformanceConfig();
         migrateProductionUnificationConfig();
+        ensurePermanentMineflayerConfig();
         consumeSeasonResetReceipt();
         initFiles();
         initShops();
@@ -756,6 +757,20 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         getConfig().set("migration.production-unification-version",8);
         saveConfig();
         getLogger().info("Applied production unification v8: verified authored 2k HCF world, protected PvP roads and in-border event layout.");
+    }
+
+    private void ensurePermanentMineflayerConfig() {
+        if(getConfig().contains("worker-pool.permanent-mineflayer")) return;
+        getConfig().set("worker-pool.permanent-mineflayer",Arrays.asList("Stimpy"));
+        saveConfig();
+        getLogger().info("Reserved permanent Mineflayer identity: Stimpy.");
+    }
+
+    boolean isPermanentMineflayerIdentity(String name) {
+        if(name==null) return false;
+        for(String configured:getConfig().getStringList("worker-pool.permanent-mineflayer"))
+            if(configured!=null && configured.equalsIgnoreCase(name)) return true;
+        return false;
     }
 
     private void bindCommands() {
@@ -3002,8 +3017,9 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     private void prepareCombatProjection(Player p, SimWorldDirector.CombatAssignment ca) {
         String k = p.getName().toLowerCase(Locale.ENGLISH);
         String prepared = combatPreparedFight.get(k);
+        boolean freshProjection=!ca.fightId.equals(prepared);
 
-        if (!ca.fightId.equals(prepared)) {
+        if (freshProjection) {
             if(ca.fightId.startsWith("DUEL_")) preparePotKit(p);
             else if(!simWorld.personalCombatReservationFor(p.getName(),ca.fightId))
                 prepareHcfCombatKit(p,ca.combatClass);
@@ -3016,7 +3032,13 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
         if (world == null) world = Bukkit.getWorlds().get(0);
         if (world != null) {
             Location target = new Location(world,ca.x + 0.5,ca.y,ca.z + 0.5);
-            if (!p.getWorld().equals(world) || p.getLocation().distanceSquared(target) > 28.0*28.0) {
+            // A duel is a fresh isolated round. On the first combat projection
+            // put the Mineflayer opponent on the exact validated duel spawn,
+            // even if an earlier session left it somewhere else in duel_arena.
+            // Subsequent syncs must not teleport a fighter mid-round.
+            boolean exactDuelSpawn=freshProjection && ca.fightId.startsWith("DUEL_");
+            if (exactDuelSpawn || !p.getWorld().equals(world) ||
+                p.getLocation().distanceSquared(target) > 28.0*28.0) {
                 p.teleport(target);
             }
         }

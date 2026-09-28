@@ -223,6 +223,8 @@ final class NmsFakePlayerRuntime implements Listener {
             throw new IllegalStateException("actors.fake-player.enabled=false (probe mode remains separately gated).");
         if(requested==null || requested.trim().isEmpty()) throw new IllegalArgumentException("Missing actor name.");
         String name=requested.trim();
+        if(plugin.isPermanentMineflayerIdentity(name))
+            throw new IllegalStateException(name+" is reserved as a permanent Mineflayer client.");
         if(name.length()>16) throw new IllegalArgumentException("1.8 player names are limited to 16 characters.");
         if(at==null || at.getWorld()==null) throw new IllegalArgumentException("Missing spawn world/location.");
         if(hasBody(name)) return bodies.get(key(name)).bukkit;

@@ -409,6 +409,10 @@ worker-pool:
   # followed by the most prestigious/respected players.
   anchor-bodies: 20
   prestige-bodies: 10
+  # These identities permanently consume a Mineflayer lease while the worker
+  # system is running. They are never substituted with CombatBodies.
+  permanent-mineflayer:
+    - Stimpy
   creator-bodies:
     - Stimpy
     - PainfulPvP

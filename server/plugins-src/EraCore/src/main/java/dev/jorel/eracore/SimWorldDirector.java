@@ -937,8 +937,13 @@ final class SimWorldDirector {
             if(body!=null && body.isOnline()) online++;
             else if(missing.size()<8) missing.add(ca.name);
         }
+        StringBuilder miss=new StringBuilder();
+        for(String name:missing) {
+            if(miss.length()>0) miss.append(",");
+            miss.append(name);
+        }
         return "physical="+online+"/"+expected+
-            (missing.isEmpty()?"":" missing="+join(missing,","));
+            (missing.isEmpty()?"":" missing="+miss.toString());
     }
 
     boolean hasVisibleFight() {

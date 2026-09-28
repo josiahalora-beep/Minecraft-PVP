@@ -426,6 +426,20 @@ worker-pool:
     - Zigy
     - Dylan_
 
+# Fame/owner presence shapes the social geography instead of spawning random
+# crowds. New factions may deliberately claim near a prestige faction, then
+# behave as fans, friends, rivals, trappers or opportunists according to their
+# leaders' personalities and relationships.
+prestige-neighborhood:
+  enabled: true
+  settle-near-chance-percent: 58
+  creator-tier-weight: 9
+  owner-anchor-weight: 28
+  owner-creator-synergy: 14
+  min-distance: 150
+  max-distance: 430
+  presence-radius: 135
+
 safezones:
   combat-tag-seconds: 60
   overworld-radius: 110

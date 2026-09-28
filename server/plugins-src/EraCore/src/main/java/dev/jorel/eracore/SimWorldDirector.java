@@ -141,8 +141,11 @@ final class SimWorldDirector {
         boolean recoveryMode;
         String archetype = "BALANCED";
         String campTarget = "";   // hostile/rival target
-        String watchTarget = "";  // social creator/faction spectating, not hostility
+        String watchTarget = "";  // temporary social creator/faction spectating, not hostility
         long watchUntil;
+        String neighborhoodTarget = ""; // durable prestige-neighborhood anchor faction
+        String neighborhoodIntent = ""; // FAN, FRIENDLY, RIVAL, TRAPPER, OPPORTUNIST
+        long neighborhoodSince;
         boolean specialTrapBuilt;
         int baseX;
         int baseY = 64;
@@ -179,6 +182,24 @@ final class SimWorldDirector {
         double treasury;
         long actionCounter;
         final List<String> members = new ArrayList<String>();
+    }
+
+    static final class BaseSiteChoice {
+        final int x;
+        final int z;
+        final String neighborhoodTarget;
+        final String neighborhoodIntent;
+
+        BaseSiteChoice(int x,int z) {
+            this(x,z,"","");
+        }
+
+        BaseSiteChoice(int x,int z,String target,String intent) {
+            this.x=x;
+            this.z=z;
+            this.neighborhoodTarget=target==null?"":target;
+            this.neighborhoodIntent=intent==null?"":intent;
+        }
     }
 
     static final class ChatEvent {
@@ -449,6 +470,7 @@ final class SimWorldDirector {
     private final Deque<ChatEvent> pendingChat = new ArrayDeque<ChatEvent>();
     private final Map<String,Integer> rivalries = new HashMap<String,Integer>();
     private final Map<String,Long> temporaryTruces = new HashMap<String,Long>();
+    private final Map<String,Long> nextNeighborhoodReactionAt = new HashMap<String,Long>();
     private final Deque<String> recentPublicSpeakers = new ArrayDeque<String>();
     private final Deque<String> recentPublicMessages = new ArrayDeque<String>();
     private final Map<String,String> lastPublicLineBySpeaker = new HashMap<String,String>();
@@ -1607,31 +1629,55 @@ final class SimWorldDirector {
         return n==0?45:Math.max(0,Math.min(100,total/(n*3/1)));
     }
 
+    private String neighborhoodIntentToward(SimFaction from,String targetFaction) {
+        if(from==null || targetFaction==null || from.neighborhoodTarget==null ||
+           !from.neighborhoodTarget.equalsIgnoreCase(targetFaction)) return "";
+        return from.neighborhoodIntent==null?"":from.neighborhoodIntent.toUpperCase(Locale.ENGLISH);
+    }
+
+    private boolean socialNeighborhoodIntent(String intent) {
+        return "FAN".equals(intent) || "FRIENDLY".equals(intent);
+    }
+
     private boolean shouldOpenFight(SimFaction a,SimFaction b,int sizeA,int sizeB,boolean atBase) {
         if(a==null || b==null) return false;
         if(activeTemporaryTruce(a.name,b.name)) return false;
-        int rivalry=rivalryScore(a.name,b.name);
-        if(atBase || rivalry>=28 ||
-           (a.campTarget!=null && a.campTarget.equalsIgnoreCase(b.name)) ||
-           (b.campTarget!=null && b.campTarget.equalsIgnoreCase(a.name))) return true;
 
-        int chance=58;
-        if((a.watchTarget!=null && a.watchTarget.equalsIgnoreCase(b.name)) ||
-           (b.watchTarget!=null && b.watchTarget.equalsIgnoreCase(a.name))) chance-=34;
+        int rivalry=rivalryScore(a.name,b.name);
+        String aIntent=neighborhoodIntentToward(a,b.name);
+        String bIntent=neighborhoodIntentToward(b,a.name);
+        boolean socialWatch=(a.watchTarget!=null && a.watchTarget.equalsIgnoreCase(b.name)) ||
+            (b.watchTarget!=null && b.watchTarget.equalsIgnoreCase(a.name));
+        boolean socialNeighbor=socialNeighborhoodIntent(aIntent) || socialNeighborhoodIntent(bIntent);
+        boolean activeCamp=(a.campTarget!=null && a.campTarget.equalsIgnoreCase(b.name)) ||
+            (b.campTarget!=null && b.campTarget.equalsIgnoreCase(a.name));
+
+        // Meeting at a base is no longer an automatic fight. HCF neighborhoods
+        // around famous players need room for fans, friends, scouts, rivals and
+        // trappers to make different decisions when the same people cross paths.
+        int chance=atBase?64:52;
+        if(socialWatch) chance-=34;
+        if(socialNeighbor) chance-=32;
+        if(activeCamp) chance+=24;
+        if("RIVAL".equals(aIntent)||"RIVAL".equals(bIntent)) chance+=20;
+        if("TRAPPER".equals(aIntent)||"TRAPPER".equals(bIntent)) chance+=14;
+        if("OPPORTUNIST".equals(aIntent)||"OPPORTUNIST".equals(bIntent)) chance+=5;
+
         chance+=(factionTemperament(a)+factionTemperament(b)-100)/5;
         if("PVP".equals(a.archetype) || "PVP".equals(b.archetype)) chance+=12;
-        chance+=Math.min(22,rivalry);
+        chance+=Math.min(30,rivalry);
 
         int big=Math.max(sizeA,sizeB), small=Math.min(sizeA,sizeB);
         if(big>=3 && small==1) {
             SimFaction larger=sizeA>sizeB?a:b;
             int mercy=factionMercy(larger);
-            chance-=18+mercy/5; // nice factions frequently let a lone player pass
+            chance-=18+mercy/5;
         } else if(big-small>=2) {
             chance-=10;
         }
 
-        chance=Math.max(22,Math.min(92,chance));
+        int floor=(socialWatch||socialNeighbor)?3:14;
+        chance=Math.max(floor,Math.min(94,chance));
         return rng.nextInt(100)<chance;
     }
 
@@ -1661,22 +1707,49 @@ final class SimWorldDirector {
     }
 
     private void rememberPeacefulEncounter(SimFaction a,SimFaction b,int sizeA,int sizeB) {
+        String aIntent=neighborhoodIntentToward(a,b.name);
+        String bIntent=neighborhoodIntentToward(b,a.name);
+        SimFaction socialFaction=socialNeighborhoodIntent(aIntent)?a:
+            (socialNeighborhoodIntent(bIntent)?b:null);
+        SimFaction socialTarget=socialFaction==a?b:(socialFaction==b?a:null);
+
         SimFaction larger=sizeA>=sizeB?a:b;
         SimFaction smaller=larger==a?b:a;
         String summary;
-        if(Math.max(sizeA,sizeB)>=3 && Math.min(sizeA,sizeB)==1)
+        if(socialFaction!=null) {
+            summary=socialFaction.name+" met "+socialTarget.name+
+                " outside the base and chose to watch/talk instead of forcing a fight";
+        } else if(Math.max(sizeA,sizeB)>=3 && Math.min(sizeA,sizeB)==1) {
             summary=larger.name+" let a lone "+smaller.name+" player pass in warzone";
-        else
+        } else {
             summary=a.name+" and "+b.name+" crossed paths without committing to a fight";
-        long truceMs=(60L+rng.nextInt(240))*1000L;
+        }
+
+        long truceMs=socialFaction!=null
+            ?(180L+rng.nextInt(300))*1000L
+            :(60L+rng.nextInt(240))*1000L;
         createTemporaryTruce(a.name,b.name,truceMs);
-        recordHistory("TRUCE",4,summary+"; temporary truce held for the next few minutes","",a.name,b.name);
-        SimPlayer leader=players.get(key(larger.leader));
-        if(leader!=null && leader.logicalOnline && rng.nextInt(100)<38)
-            enqueue(leader.name,oneOf("leave him hes solo","dont chase that","we're not fighting them rn","just let them go"),false);
+        recordHistory(socialFaction!=null?"SOCIAL":"TRUCE",4,
+            summary+"; temporary truce held for the next few minutes","",a.name,b.name);
+
+        SimPlayer leader=players.get(key((socialFaction!=null?socialFaction:larger).leader));
+        if(leader!=null && leader.logicalOnline) {
+            if(socialFaction!=null && rng.nextInt(100)<68) {
+                String face=prestigeFaceForFaction(socialTarget);
+                enqueue(leader.name,oneOf(
+                    "yo "+face+" whats up",
+                    "we're chill dont swing",
+                    "you guys roaming?",
+                    "we just came over to watch",
+                    "we live right by you lol"),false);
+            } else if(rng.nextInt(100)<38) {
+                enqueue(leader.name,oneOf(
+                    "leave him hes solo","dont chase that","we're not fighting them rn","just let them go"),false);
+            }
+        }
     }
 
-    private static double distSq(double ax,double az,double bx,double bz) {
+    private static double distSq    private static double distSq(double ax,double az,double bx,double bz) {
         double dx=ax-bx,dz=az-bz;
         return dx*dx+dz*dz;
     }
@@ -2832,14 +2905,28 @@ final class SimWorldDirector {
                 break;
 
             case PVP_READY:
-                if(shouldSpectateTarget(p,f)) {
+                if(shouldCampTarget(p,f)) {
+                    SimFaction camped=factions.get(key(f.campTarget));
+                    int[] camp=campPoint(f,camped,p);
+                    String neighborhoodIntent=neighborhoodIntentToward(f,f.campTarget);
+                    t.action="patrol";
+                    t.zone="spawn";
+                    if("TRAPPER".equals(neighborhoodIntent)) t.pvpIntent="TRAP_PLAY";
+                    else if("RIVAL".equals(neighborhoodIntent) &&
+                            ("AVOID".equals(t.pvpIntent) || t.pvpIntent==null)) t.pvpIntent="SMALL_TEAM";
+                    if(camp!=null){t.x=camp[0];t.y=camp[1];t.z=camp[2];}
+                    t.priority=74+p.aggression/4+p.riskTolerance/5+
+                        ("leader".equals(p.role)?10:0);
+                    maybeNeighborhoodReaction(p,f,camped,neighborhoodIntent);
+                } else if(shouldSpectateTarget(p,f)) {
                     SimFaction watched=factions.get(key(f.watchTarget));
                     int[] watch=spectatePoint(f,watched);
                     t.action="spectate";
                     t.zone="spawn";
                     t.pvpIntent="AVOID";
                     if(watch!=null){t.x=watch[0];t.y=watch[1];t.z=watch[2];}
-                    t.priority=62+p.sociability/5+p.teamwork/8;
+                    t.priority=66+p.sociability/4+p.teamwork/7;
+                    maybeNeighborhoodReaction(p,f,watched,neighborhoodIntentToward(f,f.watchTarget));
                 } else if(shouldContestActiveEvent(p,f)) {
                     int[] eventPoint=plugin.activeHcfEventPoint();
                     t.action="patrol";
@@ -2970,20 +3057,32 @@ final class SimWorldDirector {
         if(p==null || f==null || f.watchTarget==null || f.watchTarget.isEmpty() ||
            f.recoveryMode || f.watchUntil<=System.currentTimeMillis()) return false;
         SimFaction target=factions.get(key(f.watchTarget));
-        if(target==null || target.baseX==0 && target.baseZ==0) return false;
-        // A faction usually shows up as a small visible group, not necessarily
-        // every member. Aggressive players are more likely to wander off.
+        if(target==null || (target.baseX==0 && target.baseZ==0)) return false;
+
         int interest=p.sociability+p.teamwork+p.politicalIq-p.aggression/2+
             ("leader".equals(p.role)?25:0);
-        int gate=Math.abs((key(p.name)+"|watch|"+key(f.watchTarget)).hashCode())%100;
-        return gate<Math.max(30,Math.min(88,interest/2));
+        String intent=neighborhoodIntentToward(f,target.name);
+        if("FAN".equals(intent)) interest+=70;
+        else if("FRIENDLY".equals(intent)) interest+=50;
+        else if("OPPORTUNIST".equals(intent)) interest+=18;
+        else if("RIVAL".equals(intent)) interest-=28;
+        else if("TRAPPER".equals(intent)) interest-=38;
+
+        if(prestigePresenceNearBase(target)) interest+=65;
+        else interest-=28;
+
+        long epoch=System.currentTimeMillis()/90000L;
+        int gate=Math.abs((key(p.name)+"|watch|"+key(f.watchTarget)+"|"+epoch).hashCode())%100;
+        return gate<Math.max(8,Math.min(94,interest/2));
     }
 
     private int[] spectatePoint(SimFaction watcher,SimFaction target) {
         if(watcher==null || target==null) return null;
         int h=Math.abs(key(watcher.name).hashCode());
         double angle=(h%360)*Math.PI/180.0;
-        int radius=18+(h%10);
+        // Stay visibly outside the target's structure/claim edge instead of
+        // spawning spectators against glass or inside exterior details.
+        int radius=baseTerrainRadius(target)+12+(h%12);
         return new int[]{
             target.baseX+(int)Math.round(Math.cos(angle)*radius),
             target.baseY+1,
@@ -7766,6 +7865,9 @@ final class SimWorldDirector {
                 f.campTarget = s.getString("camp-target", "");
                 f.watchTarget = s.getString("watch-target", "");
                 f.watchUntil = s.getLong("watch-until",0L);
+                f.neighborhoodTarget = s.getString("neighborhood-target", "");
+                f.neighborhoodIntent = s.getString("neighborhood-intent", "");
+                f.neighborhoodSince = s.getLong("neighborhood-since",0L);
                 f.specialTrapBuilt = s.getBoolean("special-trap-built", false);
                 f.powerFaction = s.getBoolean("power-faction", false);
                 f.underdog = s.getBoolean("underdog", false);
@@ -8188,17 +8290,173 @@ final class SimWorldDirector {
         return best;
     }
 
+    private void establishNeighborhoodRelations(SimFaction f) {
+        if(f==null || f.neighborhoodTarget==null || f.neighborhoodTarget.isEmpty()) return;
+        SimFaction target=factions.get(key(f.neighborhoodTarget));
+        if(target==null) {
+            f.neighborhoodTarget="";
+            f.neighborhoodIntent="";
+            f.neighborhoodSince=0L;
+            return;
+        }
+
+        String intent=f.neighborhoodIntent==null?"OPPORTUNIST":
+            f.neighborhoodIntent.toUpperCase(Locale.ENGLISH);
+        SimPlayer leader=players.get(key(f.leader));
+        if(leader!=null && target.leader!=null && !target.leader.isEmpty()) {
+            SocialEdge e=relationship(leader.name,target.leader,true);
+            if("FAN".equals(intent)) {
+                e.affinity=clampSocial(e.affinity+12);
+                e.trust=clampSocial(e.trust+5);
+                e.respect=clampSocial(e.respect+16);
+                rememberRelationship(e,"moved near "+target.name+" because their creator/owner activity was a draw");
+            } else if("FRIENDLY".equals(intent)) {
+                e.affinity=clampSocial(e.affinity+18);
+                e.trust=clampSocial(e.trust+10);
+                e.respect=clampSocial(e.respect+8);
+                rememberRelationship(e,"chose a neighboring claim and wants friendly terms with "+target.name);
+            } else if("RIVAL".equals(intent)) {
+                e.grudge=clampSocial(e.grudge+12);
+                e.respect=clampSocial(e.respect+6);
+                recordRivalry(f.name,target.name,4+rng.nextInt(6));
+                rememberRelationship(e,"claimed nearby to compete directly with "+target.name);
+            } else if("TRAPPER".equals(intent)) {
+                e.grudge=clampSocial(e.grudge+5);
+                recordRivalry(f.name,target.name,2+rng.nextInt(4));
+                rememberRelationship(e,"claimed nearby because traffic around "+target.name+" is useful for trap play");
+            } else {
+                e.respect=clampSocial(e.respect+3);
+                rememberRelationship(e,"claimed near "+target.name+" to stay close to the server's busiest neighborhood");
+            }
+        }
+
+        if(leader!=null && ownerInFaction(target)) {
+            if("FAN".equals(intent)) leader.ownerAffinity=clampAffinity(leader.ownerAffinity+15);
+            else if("FRIENDLY".equals(intent)) leader.ownerAffinity=clampAffinity(leader.ownerAffinity+10);
+            else if("RIVAL".equals(intent)) leader.ownerAffinity=clampAffinity(leader.ownerAffinity-12);
+            else if("TRAPPER".equals(intent)) leader.ownerAffinity=clampAffinity(leader.ownerAffinity-5);
+            else leader.ownerAffinity=clampAffinity(leader.ownerAffinity+2);
+        }
+
+        recordHistory("NEIGHBORHOOD",4,f.name+" settled near "+target.name+
+            " with "+intent.toLowerCase(Locale.ENGLISH)+" intentions",
+            f.name,f.leader,target.leader);
+    }
+
+    private boolean prestigePresenceNearBase(SimFaction target) {
+        if(target==null || (target.baseX==0 && target.baseZ==0)) return false;
+        World overworld=Bukkit.getWorlds().isEmpty()?null:Bukkit.getWorlds().get(0);
+        if(overworld==null) return false;
+        int radius=Math.max(70,plugin.getConfig().getInt("prestige-neighborhood.presence-radius",135));
+        long r2=(long)radius*radius;
+
+        for(Player body:Bukkit.getOnlinePlayers()) {
+            if(!body.getWorld().equals(overworld)) continue;
+            boolean prestige=isConfiguredOwner(body.getName()) || plugin.isCreatorIdentity(body.getName());
+            if(!prestige) continue;
+
+            String factionName=plugin.factionNameFor(body.getName());
+            if((factionName==null || factionName.isEmpty())) {
+                SimPlayer sp=players.get(key(body.getName()));
+                factionName=sp==null?"":sp.faction;
+            }
+            if(factionName==null || !factionName.equalsIgnoreCase(target.name)) continue;
+            if(distSq(body.getLocation().getX(),body.getLocation().getZ(),target.baseX,target.baseZ)<=r2)
+                return true;
+        }
+        return false;
+    }
+
+    private String prestigeFaceForFaction(SimFaction target) {
+        if(target==null) return "you";
+        String owner=plugin.getConfig().getString("owner.name","");
+        if(owner!=null && !owner.isEmpty() && ownerInFaction(target) && Bukkit.getPlayerExact(owner)!=null)
+            return owner;
+
+        String best="";
+        int tier=-1;
+        for(String member:target.members) {
+            if(!plugin.isCreatorIdentity(member)) continue;
+            int t=plugin.creatorPopularityTier(member);
+            if(t>tier){tier=t;best=member;}
+        }
+        if(!best.isEmpty()) return best;
+        return target.leader==null||target.leader.isEmpty()?target.name:target.leader;
+    }
+
+    private void maybeNeighborhoodReaction(SimPlayer p,SimFaction f,SimFaction target,String intent) {
+        if(p==null || f==null || target==null || !p.logicalOnline ||
+           !prestigePresenceNearBase(target)) return;
+        long now=System.currentTimeMillis();
+        String k=key(p.name);
+        Long next=nextNeighborhoodReactionAt.get(k);
+        if(next!=null && now<next) return;
+        nextNeighborhoodReactionAt.put(k,now+(70+rng.nextInt(111))*1000L);
+
+        String face=prestigeFaceForFaction(target);
+        String mode=intent==null?"":intent.toUpperCase(Locale.ENGLISH);
+        String msg;
+        if("FAN".equals(mode)) {
+            msg=oneOf("yo "+face,"we live right by you lol","are you recording",
+                face+" come road for a sec","we keep seeing you outside our claim");
+        } else if("FRIENDLY".equals(mode)) {
+            msg=oneOf("yo "+face+" whats up","you guys roaming?","we're chill dont swing",
+                "need an extra?","we're right next door if you need us");
+        } else if("RIVAL".equals(mode)) {
+            msg=oneOf(face+" come road","you coming outside?","fight us by road",
+                "we're outside your side","you guys keep running past our claim");
+        } else if("TRAPPER".equals(mode)) {
+            msg=oneOf(face+" 1v1?","come road "+face,"yo "+face+" come outside",
+                "we're by your road","come over here");
+        } else {
+            msg=oneOf("whats happening over here","anyone fighting over here",
+                face+" you guys roaming?","this side is always active","who is outside rn");
+        }
+        enqueue(p.name,msg,false);
+    }
+
+    private boolean shouldCampTarget(SimPlayer p,SimFaction f) {
+        if(p==null || f==null || f.campTarget==null || f.campTarget.isEmpty() ||
+           f.recoveryMode) return false;
+        SimFaction target=factions.get(key(f.campTarget));
+        if(target==null || (target.baseX==0 && target.baseZ==0)) return false;
+
+        int score=p.aggression+p.riskTolerance+p.pvpIq+p.gameSense;
+        String intent=neighborhoodIntentToward(f,target.name);
+        if("RIVAL".equals(intent)) score+=55;
+        if("TRAPPER".equals(intent)) score+=45;
+        if(prestigePresenceNearBase(target)) score+=55;
+        if("leader".equals(p.role)) score+=18;
+        if(p.combatClass==CombatClass.BARD || p.combatClass==CombatClass.ARCHER) score-=18;
+
+        long epoch=System.currentTimeMillis()/90000L;
+        int gate=Math.abs((key(p.name)+"|camp|"+key(target.name)+"|"+epoch).hashCode())%100;
+        int chance=Math.max(10,Math.min(92,(score-105)/2));
+        return gate<chance;
+    }
+
+    private int[] campPoint(SimFaction camper,SimFaction target,SimPlayer p) {
+        if(camper==null || target==null) return null;
+        int h=Math.abs((key(camper.name)+"|"+key(p==null?"":p.name)).hashCode());
+        double angle=(h%360)*Math.PI/180.0;
+        int radius=baseTerrainRadius(target)+18+(h%18);
+        return new int[]{
+            target.baseX+(int)Math.round(Math.cos(angle)*radius),
+            target.baseY+1,
+            target.baseZ+(int)Math.round(Math.sin(angle)*radius)
+        };
+    }
+
     private void updateCampTargets() {
         long now=System.currentTimeMillis();
 
-        // Resolve currently visible creator factions once. Watching a creator is
-        // social/curiosity behavior and must not create rivalry by itself.
-        List<SimFaction> creatorFactions=new ArrayList<SimFaction>();
-        for(String creator:plugin.getConfig().getStringList("creator-tag.creators")) {
-            SimPlayer cp=players.get(key(creator));
-            if(cp==null || !cp.logicalOnline || cp.faction==null || cp.faction.isEmpty()) continue;
-            SimFaction cf=factions.get(key(cp.faction));
-            if(cf!=null && !creatorFactions.contains(cf)) creatorFactions.add(cf);
+        // Prestige neighborhoods include creator factions and the configured
+        // owner's faction. Fame affects both where factions choose claims and
+        // which nearby faction becomes socially/competitively interesting.
+        List<SimFaction> prestigeFactions=new ArrayList<SimFaction>();
+        for(SimFaction candidate:factions.values()) {
+            if((candidate.baseX!=0 || candidate.baseZ!=0) && prestigePullForFaction(candidate)>0)
+                prestigeFactions.add(candidate);
         }
 
         SimPlayer alex=players.get("lolitsalex");
@@ -8217,34 +8475,82 @@ final class SimWorldDirector {
                 continue;
             }
 
-            // Some factions hang around a creator faction simply to watch,
-            // talk, or be on camera. This lasts minutes, not forever.
-            if((f.watchTarget==null || f.watchTarget.isEmpty()) && !creatorFactions.isEmpty() &&
+            SimFaction neighborhood=(f.neighborhoodTarget==null||f.neighborhoodTarget.isEmpty())
+                ?null:factions.get(key(f.neighborhoodTarget));
+            if(neighborhood!=null && !neighborhood.name.equalsIgnoreCase(f.name)) {
+                String intent=f.neighborhoodIntent==null?"OPPORTUNIST":
+                    f.neighborhoodIntent.toUpperCase(Locale.ENGLISH);
+                boolean present=prestigePresenceNearBase(neighborhood);
+                SimPlayer leader=players.get(key(f.leader));
+                int sociability=leader==null?50:leader.sociability;
+                int aggression=leader==null?50:leader.aggression;
+                int risk=leader==null?50:leader.riskTolerance;
+
+                if((f.watchTarget==null||f.watchTarget.isEmpty()) &&
+                   (f.campTarget==null||f.campTarget.isEmpty())) {
+                    if("FAN".equals(intent)||"FRIENDLY".equals(intent)) {
+                        int chance=(present?72:8)+sociability/7;
+                        if(rng.nextInt(100)<Math.min(95,chance)) {
+                            f.watchTarget=neighborhood.name;
+                            f.watchUntil=now+(2+rng.nextInt(6))*60L*1000L;
+                            recordHistory("SPECTATE",3,f.name+" came outside near "+neighborhood.name+
+                                " to watch/talk while the prestige players were around",
+                                f.name,f.leader,neighborhood.leader);
+                        }
+                    } else if("RIVAL".equals(intent)||"TRAPPER".equals(intent)) {
+                        int chance=(present?58:6)+aggression/9+risk/12;
+                        if(rng.nextInt(100)<Math.min(92,chance)) {
+                            f.campTarget=neighborhood.name;
+                            recordHistory("CAMP",4,f.name+" started pressuring the road outside "+
+                                neighborhood.name,f.name,f.leader,neighborhood.leader);
+                        }
+                    } else if("OPPORTUNIST".equals(intent) && present && rng.nextInt(100)<48) {
+                        if(aggression+risk>=125) f.campTarget=neighborhood.name;
+                        else {
+                            f.watchTarget=neighborhood.name;
+                            f.watchUntil=now+(1+rng.nextInt(4))*60L*1000L;
+                        }
+                    }
+                }
+
+                // Neighborhood rivals do not stand outside forever when the
+                // people they care about are gone; they cycle home and return.
+                if(f.campTarget!=null && f.campTarget.equalsIgnoreCase(neighborhood.name) &&
+                   !present && rng.nextInt(100)<8) {
+                    f.campTarget="";
+                }
+            }
+
+            // Fallback fame-driven visits can happen even for factions that did
+            // not settle in the same neighborhood. They are temporary.
+            if((f.watchTarget==null || f.watchTarget.isEmpty()) && !prestigeFactions.isEmpty() &&
                (f.campTarget==null || f.campTarget.isEmpty())) {
                 SimPlayer leader=players.get(key(f.leader));
                 int interest=leader==null?12:(leader.sociability/5+leader.politicalIq/7+
                     (leader.aggression<55?8:0));
-                if(rng.nextInt(100)<Math.max(4,Math.min(34,interest))) {
+                if(rng.nextInt(100)<Math.max(3,Math.min(28,interest))) {
                     List<SimFaction> options=new ArrayList<SimFaction>();
-                    for(SimFaction cf:creatorFactions) {
-                        if(cf.name.equalsIgnoreCase(f.name)) continue;
-                        int fame=Math.max(1,creatorPopularityForFaction(cf));
-                        for(int i=0;i<fame;i++) options.add(cf);
+                    for(SimFaction pf:prestigeFactions) {
+                        if(pf.name.equalsIgnoreCase(f.name)) continue;
+                        int fame=Math.max(1,prestigePullForFaction(pf));
+                        int copies=Math.max(1,Math.min(12,fame/4));
+                        for(int i=0;i<copies;i++) options.add(pf);
                     }
                     if(!options.isEmpty()) {
-                        SimFaction cf=options.get(rng.nextInt(options.size()));
-                        f.watchTarget=cf.name;
+                        SimFaction pf=options.get(rng.nextInt(options.size()));
+                        f.watchTarget=pf.name;
                         f.watchUntil=now+(2+rng.nextInt(5))*60L*1000L;
-                        recordHistory("SPECTATE",3,f.name+" started hanging outside "+cf.name+
-                            " to watch the creator activity",f.name,f.leader,cf.leader);
+                        recordHistory("SPECTATE",3,f.name+" started hanging outside "+pf.name+
+                            " to watch the creator/owner activity",f.name,f.leader,pf.leader);
                     }
                 }
             }
 
-            // Hostile camping remains separate and is much less common than
-            // simply being present near a creator base.
+            // lolitsalex remains a known trapper magnet, but this is now one
+            // possible hostile motive instead of the only special neighborhood.
             if(!alexFaction.isEmpty() && !f.name.equalsIgnoreCase(alexFaction) &&
-               (f.watchTarget==null || f.watchTarget.isEmpty())) {
+               (f.watchTarget==null || f.watchTarget.isEmpty()) &&
+               (f.campTarget==null || f.campTarget.isEmpty())) {
                 if(("PVP".equals(f.archetype) && rng.nextInt(100)<18) ||
                    (f.powerFaction && rng.nextInt(100)<6)) {
                     f.campTarget=alexFaction;
@@ -8261,7 +8567,7 @@ final class SimWorldDirector {
         }
     }
 
-    private void createNextLeaderFaction() {
+    private void createNextLeaderFaction()    private void createNextLeaderFaction() {
         SimPlayer best = null;
         for (SimPlayer p : players.values()) {
             if (!p.leaderCandidate || !p.faction.isEmpty() || !p.logicalOnline) continue;
@@ -9139,6 +9445,8 @@ final class SimWorldDirector {
         int[] bestPoint = null;
         int[] bestEval = null;
         int bestScore = Integer.MAX_VALUE;
+        String bestNeighborhoodTarget = "";
+        String bestNeighborhoodIntent = "";
 
         // Phase 2B final siting rule:
         // factions scout for land that is ALREADY flat where the reference
@@ -9146,11 +9454,11 @@ final class SimWorldDirector {
         // Broad terrain may still slope naturally away from Cave/Tunnel/other
         // bases; the visible building perimeter itself should meet native grade.
         for (int attempt=0; attempt<scoutAttempts; attempt++) {
-            int[] raw = chooseBasePoint(f);
+            BaseSiteChoice raw = chooseBasePoint(f);
             // Do not chunk-center-lock faction bases. Real HCF players shift a
             // claim/base several blocks to use the natural plateau they find.
-            int x = raw[0];
-            int z = raw[1];
+            int x = raw.x;
+            int z = raw.z;
 
             int[] broad;
             int[] terrainFit;
@@ -9185,6 +9493,8 @@ final class SimWorldDirector {
                 bestScore = score;
                 bestPoint = new int[]{x,z};
                 bestEval = fit;
+                bestNeighborhoodTarget = raw.neighborhoodTarget;
+                bestNeighborhoodIntent = raw.neighborhoodIntent;
             }
 
             if(idealReferenceSite(fit,broad,biomeEdges,candidatePlan.primaryFamily,maxLiquids)) break;
@@ -9289,6 +9599,11 @@ final class SimWorldDirector {
             f.baseZ = 0;
             return false;
         }
+
+        f.neighborhoodTarget=bestNeighborhoodTarget==null?"":bestNeighborhoodTarget;
+        f.neighborhoodIntent=bestNeighborhoodIntent==null?"":bestNeighborhoodIntent;
+        f.neighborhoodSince=(f.neighborhoodTarget.isEmpty()?0L:System.currentTimeMillis());
+        establishNeighborhoodRelations(f);
         return true;
     }
 
@@ -9365,26 +9680,128 @@ final class SimWorldDirector {
         return new int[]{Math.max(minX,Math.min(maxX,x)),Math.max(minZ,Math.min(maxZ,z))};
     }
 
-    private int[] chooseBasePoint(SimFaction f) {
+    private boolean ownerInFaction(SimFaction f) {
+        if(f==null) return false;
+        String owner=plugin.getConfig().getString("owner.name","");
+        if(owner==null || owner.isEmpty()) return false;
+        String authoritative=plugin.factionNameFor(owner);
+        return authoritative!=null && !authoritative.isEmpty() && authoritative.equalsIgnoreCase(f.name);
+    }
+
+    private int prestigePullForFaction(SimFaction f) {
+        if(f==null) return 0;
+        int creatorTier=Math.max(0,creatorPopularityForFaction(f));
+        int creatorWeight=Math.max(1,plugin.getConfig().getInt("prestige-neighborhood.creator-tier-weight",9));
+        int score=creatorTier*creatorWeight;
+        boolean owner=ownerInFaction(f);
+        if(owner) score+=Math.max(8,plugin.getConfig().getInt("prestige-neighborhood.owner-anchor-weight",28));
+        if(owner && creatorTier>0)
+            score+=Math.max(0,plugin.getConfig().getInt("prestige-neighborhood.owner-creator-synergy",14));
+        if(f.powerFaction) score+=2;
+        return score;
+    }
+
+    private String chooseNeighborhoodIntent(SimFaction newcomer,SimFaction target) {
+        SimPlayer leader=newcomer==null?null:players.get(key(newcomer.leader));
+        if(leader==null) return "OPPORTUNIST";
+
+        SocialEdge rel=(target==null || target.leader==null || target.leader.isEmpty())
+            ?null:relationship(leader.name,target.leader,true);
+        int affinity=rel==null?50:rel.affinity;
+        int trust=rel==null?50:rel.trust;
+        int respect=rel==null?50:rel.respect;
+        int grudge=rel==null?0:rel.grudge;
+        int fame=prestigePullForFaction(target);
+
+        int fan=12+leader.sociability/2+leader.politicalIq/8+
+            Math.max(0,leader.ownerAffinity)/4+Math.max(0,respect-50)/2+fame/3;
+        int friendly=12+leader.teamwork/3+leader.loyalty/5+leader.sociability/5+
+            Math.max(0,affinity-50)/2+Math.max(0,trust-50)/3;
+        int rival=8+leader.aggression/3+leader.riskTolerance/4+leader.pvpIq/8+
+            grudge/2+Math.max(0,rivalryScore(newcomer.name,target.name))/2;
+        int trapper=4+leader.gameSense/8+leader.patience/10;
+        int opportunist=10+leader.politicalIq/3+leader.gameSense/5+leader.riskTolerance/8;
+
+        if("PVP".equalsIgnoreCase(newcomer.archetype)) rival+=24;
+        if("TRAPPER".equalsIgnoreCase(newcomer.archetype)) trapper+=58;
+        if(ownerInFaction(target)) {
+            if(leader.ownerAffinity>=25) { fan+=28; friendly+=18; }
+            if(leader.ownerAffinity<=-25) rival+=30;
+        }
+        if(newcomer.powerFaction) { rival+=10; opportunist+=8; }
+
+        fan=Math.max(1,fan);
+        friendly=Math.max(1,friendly);
+        rival=Math.max(1,rival);
+        trapper=Math.max(1,trapper);
+        opportunist=Math.max(1,opportunist);
+
+        int total=fan+friendly+rival+trapper+opportunist;
+        int roll=rng.nextInt(Math.max(1,total));
+        if((roll-=fan)<0) return "FAN";
+        if((roll-=friendly)<0) return "FRIENDLY";
+        if((roll-=rival)<0) return "RIVAL";
+        if((roll-=trapper)<0) return "TRAPPER";
+        return "OPPORTUNIST";
+    }
+
+    private BaseSiteChoice chooseBasePoint(SimFaction f) {
         org.bukkit.Location spawn = Bukkit.getWorlds().get(0).getSpawnLocation();
-        List<SimFaction> creatorAnchors = new ArrayList<SimFaction>();
+        List<SimFaction> prestigeAnchors = new ArrayList<SimFaction>();
+        int totalAnchorWeight=0;
         for (SimFaction x : factions.values()) {
-            if (x.baseX == 0 && x.baseZ == 0) continue;
-            SimPlayer leader = players.get(key(x.leader));
-            if (leader != null && plugin.isCreatorIdentity(leader.name)) creatorAnchors.add(x);
+            if (x==f || (x.baseX == 0 && x.baseZ == 0)) continue;
+            int pull=prestigePullForFaction(x);
+            if(pull<=0) continue;
+            prestigeAnchors.add(x);
+            totalAnchorWeight+=pull;
         }
 
         SimPlayer leader = players.get(key(f.leader));
-        boolean creatorLed = leader != null && plugin.isCreatorIdentity(leader.name);
+        boolean prestigeLed = prestigePullForFaction(f)>0;
 
-        if (!creatorLed && !creatorAnchors.isEmpty() && rng.nextInt(100) < (f.powerFaction ? 78 : 52)) {
-            SimFaction anchor = creatorAnchors.get(rng.nextInt(creatorAnchors.size()));
-            recordRivalry(f.name,anchor.name,f.powerFaction ? 7 : 3);
-            double angle = rng.nextDouble() * Math.PI * 2.0;
-            int distance = (f.powerFaction ? 140 : 220) + rng.nextInt(f.powerFaction ? 160 : 260);
-            return keepBaseInsideWorldBorder(f,spawn,
-                anchor.baseX + (int)Math.round(Math.cos(angle) * distance),
-                anchor.baseZ + (int)Math.round(Math.sin(angle) * distance));
+        if(plugin.getConfig().getBoolean("prestige-neighborhood.enabled",true) &&
+           !prestigeLed && !prestigeAnchors.isEmpty()) {
+            int baseChance=Math.max(20,Math.min(90,
+                plugin.getConfig().getInt("prestige-neighborhood.settle-near-chance-percent",58)));
+            int personality=leader==null?0:
+                leader.sociability/8+leader.politicalIq/10+leader.aggression/16+
+                ("TRAPPER".equalsIgnoreCase(f.archetype)?8:0)+
+                ("PVP".equalsIgnoreCase(f.archetype)?5:0);
+            int chance=Math.max(25,Math.min(94,baseChance+personality));
+            if(rng.nextInt(100)<chance) {
+                int pick=rng.nextInt(Math.max(1,totalAnchorWeight));
+                SimFaction anchor=prestigeAnchors.get(0);
+                for(SimFaction candidate:prestigeAnchors) {
+                    pick-=Math.max(1,prestigePullForFaction(candidate));
+                    if(pick<0){anchor=candidate;break;}
+                }
+
+                String intent=chooseNeighborhoodIntent(f,anchor);
+                int globalMin=Math.max(110,plugin.getConfig().getInt("prestige-neighborhood.min-distance",150));
+                int globalMax=Math.max(globalMin+40,
+                    plugin.getConfig().getInt("prestige-neighborhood.max-distance",430));
+                int min=globalMin,max=globalMax;
+                if("FAN".equals(intent) || "FRIENDLY".equals(intent)) {
+                    max=Math.min(globalMax,330);
+                } else if("RIVAL".equals(intent)) {
+                    min=Math.max(125,globalMin-25);
+                    max=Math.min(globalMax,310);
+                } else if("TRAPPER".equals(intent)) {
+                    min=Math.max(150,globalMin);
+                    max=Math.min(globalMax,380);
+                } else {
+                    min=Math.max(globalMin,210);
+                }
+                max=Math.max(min+20,max);
+
+                double angle = rng.nextDouble() * Math.PI * 2.0;
+                int distance=min+rng.nextInt(Math.max(1,max-min+1));
+                int[] kept=keepBaseInsideWorldBorder(f,spawn,
+                    anchor.baseX + (int)Math.round(Math.cos(angle) * distance),
+                    anchor.baseZ + (int)Math.round(Math.sin(angle) * distance));
+                return new BaseSiteChoice(kept[0],kept[1],anchor.name,intent);
+            }
         }
 
         String archetype=f.archetype==null?"BALANCED":f.archetype.toUpperCase(Locale.ENGLISH);
@@ -9402,7 +9819,8 @@ final class SimWorldDirector {
             else if(road==1){x=lateral;z=along;}
             else if(road==2){x=-along;z=lateral;}
             else{x=along;z=lateral;}
-            return keepBaseInsideWorldBorder(f,spawn,spawn.getBlockX()+x,spawn.getBlockZ()+z);
+            int[] kept=keepBaseInsideWorldBorder(f,spawn,spawn.getBlockX()+x,spawn.getBlockZ()+z);
+            return new BaseSiteChoice(kept[0],kept[1]);
         }
 
         int minRadius="ECONOMY".equals(archetype)||"UNDERDOG".equals(archetype)?720:620;
@@ -9412,15 +9830,15 @@ final class SimWorldDirector {
         int legalMax=Math.max(320,half-baseTerrainRadius(f)-buffer-16);
         int maxRadius=Math.min(configuredMax,legalMax);
         minRadius=Math.min(minRadius,maxRadius);
-        // Creator status itself deliberately does not improve land value.
         double angle = rng.nextDouble() * Math.PI * 2.0;
         int radius=minRadius+rng.nextInt(Math.max(1,maxRadius-minRadius+1));
-        return keepBaseInsideWorldBorder(f,spawn,
+        int[] kept=keepBaseInsideWorldBorder(f,spawn,
             spawn.getBlockX() + (int)Math.round(Math.cos(angle) * radius),
             spawn.getBlockZ() + (int)Math.round(Math.sin(angle) * radius));
+        return new BaseSiteChoice(kept[0],kept[1]);
     }
 
-    private List<String> squareClaims(String world, int cx, int cz, int radius) {
+    private List<String> squareClaims    private List<String> squareClaims(String world, int cx, int cz, int radius) {
         List<String> out = new ArrayList<String>();
         for (int x = cx - radius; x <= cx + radius; x++) {
             for (int z = cz - radius; z <= cz + radius; z++) {
@@ -10225,6 +10643,9 @@ final class SimWorldDirector {
             data.set(b + ".camp-target", f.campTarget);
             data.set(b + ".watch-target", f.watchTarget);
             data.set(b + ".watch-until", f.watchUntil);
+            data.set(b + ".neighborhood-target", f.neighborhoodTarget);
+            data.set(b + ".neighborhood-intent", f.neighborhoodIntent);
+            data.set(b + ".neighborhood-since", f.neighborhoodSince);
             data.set(b + ".special-trap-built", f.specialTrapBuilt);
             data.set(b + ".power-faction", f.powerFaction);
             data.set(b + ".underdog", f.underdog);

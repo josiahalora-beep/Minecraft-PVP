@@ -254,7 +254,13 @@ function candidatesFrom(data, settings, combat) {
       if (pinnedNames.has(lower) || combatNames.has(lower)) continue
       const p = players[lower] || players[name] || null
       if (!p || p['logical-online'] === false) continue
-      const score = roleScore(stage, p)
+      const watchTarget=String(faction?.['watch-target'] || '')
+      const campTarget=String(faction?.['camp-target'] || '')
+      const neighborhoodTarget=String(faction?.['neighborhood-target'] || '')
+      let score = roleScore(stage, p)
+      if(campTarget) score += 220
+      else if(watchTarget) score += 180
+      else if(neighborhoodTarget) score += 55
       if (score < 20) continue
       out.push({
         name: String(p.name || name),

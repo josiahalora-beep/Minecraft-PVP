@@ -380,7 +380,16 @@ function candidatesFrom(data, settings, combat = null) {
       if (pinnedNames.has(String(name).toLowerCase()) || combatNames.has(String(name).toLowerCase())) continue
       const p = players[String(name).toLowerCase()] || players[name] || null
       if (!p || p['logical-online'] === false) continue
-      const score = roleScore(stage, p)
+      const watchTarget=String(faction?.['watch-target'] || '')
+      const campTarget=String(faction?.['camp-target'] || '')
+      const neighborhoodTarget=String(faction?.['neighborhood-target'] || '')
+      let score = roleScore(stage, p)
+      // When a prestige neighborhood wakes up, lease real Mineflayer bodies
+      // there before generic workers. This turns owner/creator traffic into an
+      // actually populated roadside scene rather than a COLD-only simulation.
+      if(campTarget) score += 220
+      else if(watchTarget) score += 180
+      else if(neighborhoodTarget) score += 55
       if (score < 20) continue
       out.push({
         name: String(p.name || name),

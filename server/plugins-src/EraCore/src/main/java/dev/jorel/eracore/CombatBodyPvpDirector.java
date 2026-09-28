@@ -24,17 +24,19 @@ final class CombatBodyPvpDirector {
         final double maxPostPotHealth;
         final int kohiVelocityApplications;
         final boolean kohiMotionApplied;
+        final boolean kohiVectorSane;
         final double kohiHorizontal,kohiVertical;
 
         ProbeSnapshot(boolean complete,boolean pass,boolean movement,int landedHits,
                       int wTaps,int pots,boolean healObserved,double maxPostPotHealth,
                       int kohiVelocityApplications,boolean kohiMotionApplied,
-                      double kohiHorizontal,double kohiVertical) {
+                      boolean kohiVectorSane,double kohiHorizontal,double kohiVertical) {
             this.complete=complete;this.pass=pass;this.movement=movement;
             this.landedHits=landedHits;this.wTaps=wTaps;this.pots=pots;
             this.healObserved=healObserved;this.maxPostPotHealth=maxPostPotHealth;
             this.kohiVelocityApplications=kohiVelocityApplications;
             this.kohiMotionApplied=kohiMotionApplied;
+            this.kohiVectorSane=kohiVectorSane;
             this.kohiHorizontal=kohiHorizontal;this.kohiVertical=kohiVertical;
         }
 
@@ -47,6 +49,7 @@ final class CombatBodyPvpDirector {
                 " maxPostPotHealth="+String.format(java.util.Locale.US,"%.1f",maxPostPotHealth)+
                 " kohiApplications="+kohiVelocityApplications+
                 " kohiMotionApplied="+kohiMotionApplied+
+                " kohiVectorSane="+kohiVectorSane+
                 " kohiHorizontal="+String.format(java.util.Locale.US,"%.3f",kohiHorizontal)+
                 " kohiVertical="+String.format(java.util.Locale.US,"%.3f",kohiVertical);
         }
@@ -114,8 +117,9 @@ final class CombatBodyPvpDirector {
             bodies.combatLastKohiMotionApplied(p.b);
         double kh=Math.max(bodies.combatLastKohiHorizontal(p.a),bodies.combatLastKohiHorizontal(p.b));
         double kv=Math.max(bodies.combatLastKohiVertical(p.a),bodies.combatLastKohiVertical(p.b));
+        boolean sane=kohiVectorSane(kh,kv);
         return new ProbeSnapshot(p.complete,p.pass,p.movement,p.landedHits,p.wTaps,
-            p.pots,p.healObserved,p.maxPostPotHealth,ka,applied,kh,kv);
+            p.pots,p.healObserved,p.maxPostPotHealth,ka,applied,sane,kh,kv);
     }
 
     void stop() {
@@ -167,10 +171,16 @@ final class CombatBodyPvpDirector {
         drive(p,p.b,p.a,false,now);
 
         if(now>=p.endsAt) {
+            double kh=Math.max(bodies.combatLastKohiHorizontal(p.a),
+                bodies.combatLastKohiHorizontal(p.b));
+            double kv=Math.max(bodies.combatLastKohiVertical(p.a),
+                bodies.combatLastKohiVertical(p.b));
+            boolean vectorSane=kohiVectorSane(kh,kv);
             boolean kohi=bodies.combatKohiVelocityApplications(p.a)+
                 bodies.combatKohiVelocityApplications(p.b)>=1 &&
                 (bodies.combatLastKohiMotionApplied(p.a) ||
-                 bodies.combatLastKohiMotionApplied(p.b));
+                 bodies.combatLastKohiMotionApplied(p.b)) &&
+                vectorSane;
             boolean pass=p.movement && p.landedHits>=2 && p.wTaps>=1 &&
                 p.pots>=1 && p.healObserved && kohi;
             finish(p,pass,"deadline");
@@ -224,6 +234,16 @@ final class CombatBodyPvpDirector {
         }
     }
 
+    private boolean kohiVectorSane(double horizontal,double vertical) {
+        // Gate 3 uses a Sharpness-I sword with no Knockback enchant and forces
+        // sprinting before every scored hit. From a clientless zero-motion
+        // baseline the classic Kohi constants produce ~0.775 horizontal and
+        // 0.435 vertical. Keep a narrow tolerance for geometry/floating point,
+        // and reject accumulated/stale vectors.
+        return horizontal>=0.70 && horizontal<=0.90 &&
+            vertical>=0.42 && vertical<=0.45;
+    }
+
     private void finish(Probe p,boolean pass,String reason) {
         p.complete=true;
         p.pass=pass;
@@ -238,6 +258,9 @@ final class CombatBodyPvpDirector {
                 (bodies.combatKohiVelocityApplications(p.a)+bodies.combatKohiVelocityApplications(p.b))+
             " kohiMotionApplied="+
                 (bodies.combatLastKohiMotionApplied(p.a)||bodies.combatLastKohiMotionApplied(p.b))+
+            " kohiVectorSane="+kohiVectorSane(
+                Math.max(bodies.combatLastKohiHorizontal(p.a),bodies.combatLastKohiHorizontal(p.b)),
+                Math.max(bodies.combatLastKohiVertical(p.a),bodies.combatLastKohiVertical(p.b)))+
             " kohiHorizontal="+String.format(java.util.Locale.US,"%.3f",
                 Math.max(bodies.combatLastKohiHorizontal(p.a),bodies.combatLastKohiHorizontal(p.b)))+
             " kohiVertical="+String.format(java.util.Locale.US,"%.3f",

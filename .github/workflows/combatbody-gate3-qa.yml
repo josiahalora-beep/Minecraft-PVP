@@ -143,8 +143,8 @@ jobs:
         shell: bash
         run: |
           cp server/gate3-server.log gate3-output/server.log || true
-          grep -E '\[CombatBody Gate3 command\] PASS movement=true landedHits=[2-9][0-9]* wTaps=[1-9][0-9]* pots=[1-9][0-9]* healObserved=true .*kohiApplications=[1-9][0-9]* kohiMotionApplied=true' server/gate3-server.log
-          grep -E '\[CombatBody Gate3\] PASS .*movement=true .*landedHits=[2-9][0-9]* .*wTaps=[1-9][0-9]* .*pots=[1-9][0-9]* .*healObserved=true .*kohiApplications=[1-9][0-9]* .*kohiMotionApplied=true' server/gate3-server.log
+          grep -E '\[CombatBody Gate3 command\] PASS movement=true landedHits=[2-9][0-9]* wTaps=[1-9][0-9]* pots=[1-9][0-9]* healObserved=true .*kohiApplications=[1-9][0-9]* kohiMotionApplied=true kohiVectorSane=true' server/gate3-server.log
+          grep -E '\[CombatBody Gate3\] PASS .*movement=true .*landedHits=[2-9][0-9]* .*wTaps=[1-9][0-9]* .*pots=[1-9][0-9]* .*healObserved=true .*kohiApplications=[1-9][0-9]* .*kohiMotionApplied=true .*kohiVectorSane=true' server/gate3-server.log
           if [ -f server/gate3-server.pid ]; then
             kill "$(cat server/gate3-server.pid)" || true
           fi

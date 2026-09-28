@@ -615,6 +615,10 @@ final class NmsFakePlayerRuntime implements Listener {
         try {
             Object handle=invoke(victim,"getHandle");
             Vector pre=motion(handle);
+            Body fakeVictim=bodies.get(key(victim.getName()));
+            Vector calculationPre=fakeVictim==null
+                ? pre
+                : new Vector(0.0,0.0,0.0);
 
             double dx=attacker.getLocation().getX()-victim.getLocation().getX();
             double dz=attacker.getLocation().getZ()-victim.getLocation().getZ();
@@ -629,9 +633,9 @@ final class NmsFakePlayerRuntime implements Listener {
             double extraVertical=kohi("extra-vertical",0.085);
 
             Vector out=new Vector(
-                pre.getX()/friction-(dx/mag)*horizontal,
-                Math.min(pre.getY()/friction+vertical,verticalLimit),
-                pre.getZ()/friction-(dz/mag)*horizontal);
+                calculationPre.getX()/friction-(dx/mag)*horizontal,
+                Math.min(calculationPre.getY()/friction+vertical,verticalLimit),
+                calculationPre.getZ()/friction-(dz/mag)*horizontal);
 
             int extra=attacker.isSprinting()?1:0;
             ItemStack held=attacker.getItemInHand();

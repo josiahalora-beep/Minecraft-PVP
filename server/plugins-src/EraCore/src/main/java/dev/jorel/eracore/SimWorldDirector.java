@@ -927,6 +927,20 @@ final class SimWorldDirector {
             " center="+visibleFight.centerX+","+visibleFight.centerY+","+visibleFight.centerZ;
     }
 
+    String visibleFightReadinessSummary() {
+        if(visibleFight==null) return "none";
+        int expected=visibleFight.assignments.size();
+        int online=0;
+        List<String> missing=new ArrayList<String>();
+        for(CombatAssignment ca:visibleFight.assignments.values()) {
+            Player body=Bukkit.getPlayerExact(ca.name);
+            if(body!=null && body.isOnline()) online++;
+            else if(missing.size()<8) missing.add(ca.name);
+        }
+        return "physical="+online+"/"+expected+
+            (missing.isEmpty()?"":" missing="+join(missing,","));
+    }
+
     boolean hasVisibleFight() {
         return visibleFight != null;
     }

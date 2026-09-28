@@ -49,6 +49,7 @@ jobs:
           node --check bots/src/idle-benchmark.js
           node --check bots/src/state-handoff.js
           node --check bots/src/team-combat.js
+          node --check bots/src/combatbody-raid-qa.js
           node --check bots/src/worker-pool.js
           node --check bots/src/combat-profiles.js
           node --check bots/src/community-ai.js

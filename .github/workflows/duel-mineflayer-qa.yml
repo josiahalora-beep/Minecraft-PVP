@@ -79,8 +79,9 @@ jobs:
           const p='../server/plugins/EraCore/config.yml'
           const c=YAML.parse(fs.readFileSync(p,'utf8'))||{}
           c.owner=c.owner||{}
-          c.owner.name='DuelOwner'
-          c.owner['claim-first-human']=false
+          c.owner.name=''
+          c.owner.uuid=''
+          c.owner['claim-first-human']=true
           c.map=c.map||{}
           c.map['auto-bootstrap']=false
           c.map.complete=true
@@ -172,7 +173,10 @@ jobs:
 
       - name: Run human vs permanent-Mineflayer duel regression
         working-directory: bots
-        run: node src/duel-spawn-qa.js | tee ../duel-output/client.log
+        shell: bash
+        run: |
+          set -euo pipefail
+          node src/duel-spawn-qa.js | tee ../duel-output/client.log
 
       - name: Verify duel evidence
         if: always()

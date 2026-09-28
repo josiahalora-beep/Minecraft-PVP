@@ -1,6 +1,6 @@
 import { createBot, sleep, waitForSpawn } from './common.js'
 
-const bot=createBot('DuelOwner',{physicsEnabled:true,viewDistance:'tiny'})
+const bot=createBot('DuelOwner',{physicsEnabled:false,viewDistance:'tiny'})
 const messages=[]
 bot.on('message',m=>{
   const text=m.toString()

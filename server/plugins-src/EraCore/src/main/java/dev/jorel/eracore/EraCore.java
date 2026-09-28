@@ -2760,9 +2760,13 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
                 p.sendMessage(color("&cRun the teamfight test in the Overworld."));
                 return true;
             }
-            if(simWorld.hasVisibleFight()) {
-                p.sendMessage(color("&cA visible fight is already active. &7Use /teamfight stop first."));
+            if(simWorld.ownerTeamFightActive()) {
+                p.sendMessage(color("&cYour calibration fight is already active. &7Use /teamfight stop before starting another size."));
                 return true;
+            }
+            if(simWorld.hasVisibleFight()) {
+                simWorld.preemptAmbientFightForOwnerTest();
+                p.sendMessage(color("&7Ambient simulated fight cleared so owner PvP calibration can start."));
             }
 
             int size=5;

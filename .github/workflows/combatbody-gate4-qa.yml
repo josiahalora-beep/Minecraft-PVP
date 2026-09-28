@@ -1,0 +1,157 @@
+name: combatbody-gate4-materialization
+
+concurrency:
+  group: combatbody-gate4-materialization
+  cancel-in-progress: true
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/NmsFakePlayerRuntime.java'
+      - 'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/ActorDirectory.java'
+      - 'server/plugins-src/EraCore/src/main/java/dev/jorel/eracore/EraCore.java'
+      - 'bots/src/combatbody-gate4-qa.js'
+      - '.github/workflows/combatbody-gate4-qa.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  gate4:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '8'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build EraCore
+        working-directory: server/plugins-src/EraCore
+        run: mvn -B package
+
+      - name: Build Spigot 1.8.8
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .gate4/buildtools
+          cd .gate4/buildtools
+          curl -fsSL https://hub.spigotmc.org/jenkins/job/BuildTools/lastSuccessfulBuild/artifact/target/BuildTools.jar -o BuildTools.jar
+          java -jar BuildTools.jar --rev 1.8.8
+          SPIGOT="$(find . -maxdepth 3 -type f -name 'spigot-1.8.8*.jar' | head -1)"
+          test -n "$SPIGOT"
+          cp "$SPIGOT" ../../server/spigot-1.8.8.jar
+
+      - name: Install Mineflayer QA dependencies
+        working-directory: bots
+        run: npm install --no-audit --no-fund
+
+      - name: Prepare disposable Gate 4 server
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p server/plugins/EraCore gate4-output
+          cp server/plugins-src/EraCore/target/EraCore.jar server/plugins/EraCore.jar
+          cp server/plugins-src/EraCore/src/main/resources/config.yml server/plugins/EraCore/config.yml
+          printf 'eula=true\n' > server/eula.txt
+          cat > server/server.properties <<'EOF'
+          server-port=25565
+          online-mode=false
+          level-type=FLAT
+          generate-structures=false
+          spawn-protection=0
+          view-distance=5
+          EOF
+          cd bots
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs'
+          import YAML from 'yaml'
+          const p='../server/plugins/EraCore/config.yml'
+          const c=YAML.parse(fs.readFileSync(p,'utf8'))||{}
+          c.map=c.map||{}
+          c.map['auto-bootstrap']=false
+          c.map.complete=true
+          c.map['structures-complete']=true
+          c['world-build']=c['world-build']||{}
+          c['world-build'].active=false
+          c['world-build']['terrain-complete']=true
+          c['world-build']['resources-complete']=true
+          c['world-build'].complete=true
+          c['world-composer']=c['world-composer']||{}
+          c['world-composer'].enabled=false
+          c['base-builder']=c['base-builder']||{}
+          c['base-builder']['lazy-materialization']=false
+          c['ai-chat']=c['ai-chat']||{}
+          c['ai-chat'].enabled=false
+          c['sim-chat']=c['sim-chat']||{}
+          c['sim-chat'].enabled=false
+          c['spawn-presence']=c['spawn-presence']||{}
+          c['spawn-presence'].enabled=false
+          c['sim-world']=c['sim-world']||{}
+          c['sim-world'].population=24
+          c['sim-world']['logical-online-min']=24
+          c['sim-world']['logical-online-peak']=24
+          c['sim-world']['logical-online-late-night']=24
+          c['sim-world']['tick-seconds']=10
+          c.actors=c.actors||{}
+          c.actors['fake-player']=c.actors['fake-player']||{}
+          c.actors['fake-player']['allow-probe']=true
+          c.actors['fake-player']['probe-max-bodies']=2
+          c.actors['fake-player']['max-bodies']=4
+          c.actors['fake-player'].enabled=true
+          fs.writeFileSync(p,YAML.stringify(c))
+          NODE
+
+      - name: Start Spigot
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd server
+          nohup java -Xms512M -Xmx2G -jar spigot-1.8.8.jar nogui > gate4-server.log 2>&1 &
+          echo $! > gate4-server.pid
+          python3 - <<'PY'
+          import socket,time
+          end=time.time()+120
+          while time.time()<end:
+              s=socket.socket();s.settimeout(1)
+              try:
+                  s.connect(('127.0.0.1',25565))
+                  print('Spigot Gate 4 server ready')
+                  raise SystemExit(0)
+              except OSError:
+                  time.sleep(1)
+              finally:
+                  s.close()
+          raise SystemExit('Spigot did not open 25565')
+          PY
+
+      - name: Run CombatBody materialization gate
+        working-directory: bots
+        env:
+          SIMULATION_FILE: ${{ github.workspace }}/server/plugins/EraCore/simulation.yml
+        run: node src/combatbody-gate4-qa.js | tee ../gate4-output/client.log
+
+      - name: Verify Gate 4 evidence
+        if: always()
+        shell: bash
+        run: |
+          cp server/gate4-server.log gate4-output/server.log || true
+          cp server/plugins/EraCore/combatbody-state.yml gate4-output/combatbody-state.yml || true
+          grep -E '\[CombatBody Gate4 command\] PASS uuid=true faction=true online=true runtime=true location=true health=true food=true inventory=true moved=true' server/gate4-server.log
+          if [ -f server/gate4-server.pid ]; then
+            kill "$(cat server/gate4-server.pid)" || true
+          fi
+
+      - name: Upload Gate 4 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: combatbody-gate4-evidence
+          path: gate4-output/
+          if-no-files-found: error
+          retention-days: 14

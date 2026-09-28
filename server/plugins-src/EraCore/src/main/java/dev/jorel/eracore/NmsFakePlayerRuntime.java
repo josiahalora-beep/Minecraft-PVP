@@ -6,15 +6,21 @@ import org.bukkit.Material;
 import org.bukkit.entity.Item;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.ThrownPotion;
+import org.bukkit.configuration.ConfigurationSection;
+import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.util.Vector;
 
+import java.io.File;
+import java.io.IOException;
 import java.lang.reflect.Array;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -92,11 +98,37 @@ final class NmsFakePlayerRuntime {
         long spawnedAt;
     }
 
+    private static final class DormantState {
+        String name;
+        String world;
+        double x,y,z;
+        float yaw,pitch;
+        double health=20.0;
+        int food=20;
+        int heldSlot=0;
+        ItemStack[] contents=new ItemStack[36];
+        ItemStack[] armor=new ItemStack[4];
+
+        Location location() {
+            org.bukkit.World w=Bukkit.getWorld(world);
+            return w==null?null:new Location(w,x,y,z,yaw,pitch);
+        }
+    }
+
     private final EraCore plugin;
     private final Map<String,Body> bodies=new LinkedHashMap<String,Body>();
     private final Map<String,DropProbe> dropProbes=new LinkedHashMap<String,DropProbe>();
+    private final Map<String,DormantState> dormantStates=new LinkedHashMap<String,DormantState>();
+    private final File dormantFile;
+    private final YamlConfiguration dormantData;
 
-    NmsFakePlayerRuntime(EraCore plugin){this.plugin=plugin;}
+    NmsFakePlayerRuntime(EraCore plugin){
+        this.plugin=plugin;
+        if(!plugin.getDataFolder().isDirectory()) plugin.getDataFolder().mkdirs();
+        dormantFile=new File(plugin.getDataFolder(),"combatbody-state.yml");
+        dormantData=YamlConfiguration.loadConfiguration(dormantFile);
+        loadDormantStates();
+    }
 
     boolean enabled() {
         return plugin.getConfig().getBoolean("actors.fake-player.enabled",false);
@@ -155,6 +187,13 @@ final class NmsFakePlayerRuntime {
         Player connected=Bukkit.getPlayerExact(name);
         if(connected!=null) throw new IllegalStateException(name+" already has a connected Minecraft client.");
 
+        DormantState dormant=probe?null:dormantStates.get(key(name));
+        Location spawnAt=at;
+        if(dormant!=null) {
+            Location remembered=dormant.location();
+            if(remembered!=null) spawnAt=remembered;
+        }
+
         Class<?> craftServer=Class.forName("org.bukkit.craftbukkit.v1_8_R3.CraftServer");
         Class<?> craftWorld=Class.forName("org.bukkit.craftbukkit.v1_8_R3.CraftWorld");
         Class<?> gameProfile=Class.forName("com.mojang.authlib.GameProfile");
@@ -165,7 +204,7 @@ final class NmsFakePlayerRuntime {
         Class<?> playerConnection=Class.forName("net.minecraft.server.v1_8_R3.PlayerConnection");
 
         Object mcServer=invoke(craftServer.cast(Bukkit.getServer()),"getServer");
-        Object worldServer=invoke(craftWorld.cast(at.getWorld()),"getHandle");
+        Object worldServer=invoke(craftWorld.cast(spawnAt.getWorld()),"getHandle");
         UUID uuid=ActorDirectory.stableOfflineUuid(name);
         Object profile=newInstance(gameProfile,uuid,name);
         Object interact=newInstance(pim,worldServer);
@@ -180,7 +219,7 @@ final class NmsFakePlayerRuntime {
         Object pc=newInstance(playerConnection,mcServer,nm,ep);
 
         invoke(ep,"setPositionRotation",
-            at.getX(),at.getY(),at.getZ(),at.getYaw(),at.getPitch());
+            spawnAt.getX(),spawnAt.getY(),spawnAt.getZ(),spawnAt.getYaw(),spawnAt.getPitch());
 
         // EntityPlayer starts with login/spawn invulnerability. A CombatBody is
         // not a newly logged-in player: it is the physical materialization of an
@@ -207,11 +246,15 @@ final class NmsFakePlayerRuntime {
         b.spawnedAt=System.currentTimeMillis();
         bodies.put(key(name),b);
 
-        try {b.bukkit.setHealth(20.0);} catch(Exception ignored){}
-        try {b.bukkit.setFoodLevel(20);} catch(Exception ignored){}
+        if(dormant!=null) restoreDormantState(b,dormant);
+        else {
+            try {b.bukkit.setHealth(20.0);} catch(Exception ignored){}
+            try {b.bukkit.setFoodLevel(20);} catch(Exception ignored){}
+        }
         showToOnlinePlayers(b);
         plugin.getLogger().info("[CombatBody] spawned "+name+" uuid="+uuid+
-            " at "+at.getWorld().getName()+" "+at.getBlockX()+","+at.getBlockY()+","+at.getBlockZ());
+            " at "+spawnAt.getWorld().getName()+" "+spawnAt.getBlockX()+","+spawnAt.getBlockY()+","+spawnAt.getBlockZ()+
+            (dormant==null?"":" restored=true"));
         return b.bukkit;
     }
 
@@ -466,8 +509,9 @@ final class NmsFakePlayerRuntime {
             },2L);
         }
 
+        clearDormantState(b.name);
         Bukkit.getScheduler().runTaskLater(plugin,new Runnable(){
-            public void run(){despawn(b.name);}
+            public void run(){removeBody(b.name,false);}
         },10L);
     }
 
@@ -481,20 +525,149 @@ final class NmsFakePlayerRuntime {
     }
 
     boolean despawn(String name) {
+        return removeBody(name,true);
+    }
+
+    private boolean removeBody(String name,boolean preserveState) {
         Body b=bodies.remove(key(name));
         if(b==null) return false;
+        if(preserveState) captureDormantState(b);
         hideFromOnlinePlayers(b);
         try {invoke(b.worldHandle,"removeEntity",b.handle);}
         catch(Throwable ignored){}
-        plugin.getLogger().info("[CombatBody] removed "+b.name);
+        plugin.getLogger().info("[CombatBody] removed "+b.name+" preserveState="+preserveState);
         return true;
+    }
+
+    Location lastKnownLocation(String name) {
+        DormantState s=dormantStates.get(key(name));
+        Location loc=s==null?null:s.location();
+        return loc==null?null:loc.clone();
+    }
+
+    boolean hasDormantState(String name) {
+        return dormantStates.containsKey(key(name));
     }
 
     void shutdown() {
         String[] names=new String[bodies.size()];
         int i=0; for(Body b:bodies.values()) names[i++]=b.name;
-        for(String name:names) despawn(name);
+        for(String name:names) removeBody(name,true);
         dropProbes.clear();
+        saveDormantFile();
+    }
+
+    private void captureDormantState(Body b) {
+        if(b==null || b.bukkit==null) return;
+        try {
+            if(b.bukkit.isDead() || b.bukkit.getHealth()<=0.0) {
+                clearDormantState(b.name);
+                return;
+            }
+            DormantState s=new DormantState();
+            s.name=b.name;
+            Location loc=b.bukkit.getLocation();
+            s.world=loc.getWorld()==null?"":loc.getWorld().getName();
+            s.x=loc.getX();s.y=loc.getY();s.z=loc.getZ();
+            s.yaw=loc.getYaw();s.pitch=loc.getPitch();
+            s.health=b.bukkit.getHealth();
+            s.food=b.bukkit.getFoodLevel();
+            PlayerInventory inv=b.bukkit.getInventory();
+            s.heldSlot=inv.getHeldItemSlot();
+            s.contents=cloneItems(inv.getContents(),36);
+            s.armor=cloneItems(inv.getArmorContents(),4);
+            dormantStates.put(key(b.name),s);
+            writeDormantState(s);
+            saveDormantFile();
+            plugin.getLogger().info("[CombatBody Gate4] captured actor="+b.name+
+                " health="+String.format(Locale.US,"%.1f",s.health)+
+                " food="+s.food+" at="+s.world+" "+
+                String.format(Locale.US,"%.2f,%.2f,%.2f",s.x,s.y,s.z));
+        } catch(Throwable t) {
+            plugin.getLogger().warning("[CombatBody Gate4] capture failed for "+b.name+": "+root(t));
+        }
+    }
+
+    private void restoreDormantState(Body b,DormantState s) {
+        if(b==null || b.bukkit==null || s==null) return;
+        try {
+            PlayerInventory inv=b.bukkit.getInventory();
+            inv.clear();
+            inv.setArmorContents(new ItemStack[4]);
+            inv.setContents(cloneItems(s.contents,36));
+            inv.setArmorContents(cloneItems(s.armor,4));
+            inv.setHeldItemSlot(Math.max(0,Math.min(8,s.heldSlot)));
+            b.bukkit.setHealth(Math.max(0.5,Math.min(b.bukkit.getMaxHealth(),s.health)));
+            b.bukkit.setFoodLevel(Math.max(0,Math.min(20,s.food)));
+            b.bukkit.updateInventory();
+        } catch(Throwable t) {
+            plugin.getLogger().warning("[CombatBody Gate4] restore failed for "+b.name+": "+root(t));
+        }
+    }
+
+    private ItemStack[] cloneItems(ItemStack[] src,int size) {
+        ItemStack[] out=new ItemStack[size];
+        if(src==null) return out;
+        for(int i=0;i<Math.min(size,src.length);i++)
+            out[i]=src[i]==null?null:src[i].clone();
+        return out;
+    }
+
+    private void loadDormantStates() {
+        ConfigurationSection root=dormantData.getConfigurationSection("actors");
+        if(root==null) return;
+        for(String k:root.getKeys(false)) {
+            ConfigurationSection c=root.getConfigurationSection(k);
+            if(c==null) continue;
+            DormantState s=new DormantState();
+            s.name=c.getString("name",k);
+            s.world=c.getString("world","");
+            s.x=c.getDouble("x");s.y=c.getDouble("y");s.z=c.getDouble("z");
+            s.yaw=(float)c.getDouble("yaw");s.pitch=(float)c.getDouble("pitch");
+            s.health=c.getDouble("health",20.0);
+            s.food=c.getInt("food",20);
+            s.heldSlot=c.getInt("held-slot",0);
+            s.contents=readItemList(c.getList("contents"),36);
+            s.armor=readItemList(c.getList("armor"),4);
+            dormantStates.put(key(s.name),s);
+        }
+    }
+
+    private ItemStack[] readItemList(List<?> xs,int size) {
+        ItemStack[] out=new ItemStack[size];
+        if(xs==null) return out;
+        for(int i=0;i<Math.min(size,xs.size());i++) {
+            Object value=xs.get(i);
+            if(value instanceof ItemStack) out[i]=((ItemStack)value).clone();
+        }
+        return out;
+    }
+
+    private void writeDormantState(DormantState s) {
+        String base="actors."+key(s.name);
+        dormantData.set(base+".name",s.name);
+        dormantData.set(base+".world",s.world);
+        dormantData.set(base+".x",s.x);dormantData.set(base+".y",s.y);dormantData.set(base+".z",s.z);
+        dormantData.set(base+".yaw",(double)s.yaw);dormantData.set(base+".pitch",(double)s.pitch);
+        dormantData.set(base+".health",s.health);
+        dormantData.set(base+".food",s.food);
+        dormantData.set(base+".held-slot",s.heldSlot);
+        dormantData.set(base+".contents",new ArrayList<ItemStack>(Arrays.asList(cloneItems(s.contents,36))));
+        dormantData.set(base+".armor",new ArrayList<ItemStack>(Arrays.asList(cloneItems(s.armor,4))));
+    }
+
+    private void clearDormantState(String name) {
+        if(name==null) return;
+        dormantStates.remove(key(name));
+        dormantData.set("actors."+key(name),null);
+        saveDormantFile();
+    }
+
+    private void saveDormantFile() {
+        try { dormantData.save(dormantFile); }
+        catch(IOException e) {
+            plugin.getLogger().warning("[CombatBody Gate4] could not save dormant state: "+e.getMessage());
+        }
     }
 
     private void showToOnlinePlayers(Body b) {

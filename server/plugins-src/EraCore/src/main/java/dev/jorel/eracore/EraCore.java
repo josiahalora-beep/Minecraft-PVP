@@ -1761,6 +1761,7 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             p.sendMessage(color("&e/simactor kill <player>"));
             p.sendMessage(color("&e/simactor despawn <player>"));
             p.sendMessage(color("&e/simactor probe <player> &7(one-body death/DTR gate)"));
+            p.sendMessage(color("&e/simactor materializeprobe <player> &7(Gate 4 state continuity)"));
             p.sendMessage(color("&e/simactor dropprobe <player> &7(Gate 2: normal world drops)"));
             p.sendMessage(color("&7"+fakePlayers.supportSummary()));
             return true;
@@ -2116,8 +2117,127 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
             return true;
         }
 
+        if(sub.equals("materializeprobe")) {
+            if(args.length<2) {
+                p.sendMessage(color("&cUsage: /simactor materializeprobe <logical-online simulated player>"));
+                return true;
+            }
+            if(!fakePlayers.supported() || !fakePlayers.enabled()) {
+                p.sendMessage(color("&c[CombatBody Gate 4] CombatBody runtime must be enabled on this disposable test server."));
+                return true;
+            }
+            final ActorDirectory.Snapshot before=actors.resolve(args[1]);
+            if(before==null || !simWorld.hasIdentity(args[1]) || !before.logicalOnline ||
+               before.runtime!=ActorDirectory.Runtime.ABSTRACT || before.location==null) {
+                p.sendMessage(color("&c[CombatBody Gate 4] Choose a logical-online ABSTRACT simulated player with a location."));
+                return true;
+            }
+
+            final String actorName=before.name;
+            final UUID expectedUuid=before.uuid;
+            final String expectedFaction=before.faction;
+            try {
+                final Player first=fakePlayers.spawn(actorName,before.location,false);
+                final ActorDirectory.Snapshot live=actors.resolve(actorName);
+                PlayerInventory inv=first.getInventory();
+                inv.clear();
+                inv.setArmorContents(new ItemStack[4]);
+                inv.setItem(0,new ItemStack(Material.DIAMOND_SWORD,1));
+                inv.setItem(1,new ItemStack(Material.ENDER_PEARL,7));
+                inv.setItem(2,new ItemStack(Material.POTION,3,(short)16421));
+                inv.setBoots(new ItemStack(Material.IRON_BOOTS,1));
+                inv.setHeldItemSlot(1);
+                first.setHealth(13.0);
+                first.setFoodLevel(17);
+                first.updateInventory();
+
+                Location target=first.getLocation().clone().add(4.0,0.0,0.0);
+                for(int i=0;i<48 && first.getLocation().distanceSquared(target)>0.09;i++)
+                    fakePlayers.combatMoveToward(actorName,target,0.14,0.0);
+                final Location physicalFinal=first.getLocation().clone();
+                final boolean moved=physicalFinal.distanceSquared(before.location)>4.0;
+                final boolean initialInventory=gate4InventoryMatches(first);
+                fakePlayers.despawn(actorName);
+
+                final ActorDirectory.Snapshot abstractAgain=actors.resolve(actorName);
+                final boolean abstractLocation=abstractAgain!=null &&
+                    gate4LocationNear(physicalFinal,abstractAgain.location,0.35);
+
+                Bukkit.getScheduler().runTaskLater(this,new Runnable() {
+                    public void run() {
+                        boolean uuidOk=false,factionOk=false,onlineOk=false,runtimeOk=false;
+                        boolean locationOk=false,healthOk=false,foodOk=false,inventoryOk=false;
+                        String verdict="FAIL";
+                        try {
+                            Player second=fakePlayers.spawn(actorName,before.location,false);
+                            ActorDirectory.Snapshot remat=actors.resolve(actorName);
+
+                            uuidOk=remat!=null && expectedUuid.equals(remat.uuid) &&
+                                abstractAgain!=null && expectedUuid.equals(abstractAgain.uuid);
+                            factionOk=remat!=null && expectedFaction.equals(remat.faction) &&
+                                abstractAgain!=null && expectedFaction.equals(abstractAgain.faction);
+                            onlineOk=remat!=null && remat.logicalOnline &&
+                                abstractAgain!=null && abstractAgain.logicalOnline;
+                            runtimeOk=live!=null && live.runtime==ActorDirectory.Runtime.COMBAT_BODY &&
+                                abstractAgain!=null && abstractAgain.runtime==ActorDirectory.Runtime.ABSTRACT &&
+                                remat!=null && remat.runtime==ActorDirectory.Runtime.COMBAT_BODY;
+                            locationOk=moved && abstractLocation &&
+                                gate4LocationNear(physicalFinal,second.getLocation(),0.35);
+                            healthOk=Math.abs(second.getHealth()-13.0)<0.05;
+                            foodOk=second.getFoodLevel()==17;
+                            inventoryOk=initialInventory && gate4InventoryMatches(second);
+                            boolean pass=uuidOk&&factionOk&&onlineOk&&runtimeOk&&locationOk&&healthOk&&foodOk&&inventoryOk;
+                            verdict=pass?"PASS":"FAIL";
+                            String line="[CombatBody Gate4 command] "+verdict+
+                                " uuid="+uuidOk+
+                                " faction="+factionOk+
+                                " online="+onlineOk+
+                                " runtime="+runtimeOk+
+                                " location="+locationOk+
+                                " health="+healthOk+
+                                " food="+foodOk+
+                                " inventory="+inventoryOk+
+                                " moved="+moved;
+                            getLogger().info(line);
+                            if(p.isOnline()) p.sendMessage(color((pass?"&a":"&c")+line));
+                            fakePlayers.despawn(actorName);
+                        } catch(Exception ex) {
+                            getLogger().warning("[CombatBody Gate4 command] FAIL exception="+ex.getMessage());
+                            if(p.isOnline()) p.sendMessage(color("&c[CombatBody Gate 4] FAIL "+ex.getMessage()));
+                            fakePlayers.despawn(actorName);
+                        }
+                    }
+                },2L);
+            } catch(Exception ex) {
+                getLogger().warning("[CombatBody Gate4 command] FAIL spawn="+ex.getMessage());
+                p.sendMessage(color("&c[CombatBody Gate 4] spawn failed: "+ex.getMessage()));
+            }
+            return true;
+        }
+
         p.sendMessage(color("&cUnknown /simactor action. Use /simactor for help."));
         return true;
+    }
+
+    private boolean gate4LocationNear(Location a,Location b,double tolerance) {
+        if(a==null || b==null || a.getWorld()==null || b.getWorld()==null ||
+           !a.getWorld().equals(b.getWorld())) return false;
+        return a.distanceSquared(b)<=tolerance*tolerance;
+    }
+
+    private boolean gate4InventoryMatches(Player p) {
+        if(p==null) return false;
+        PlayerInventory inv=p.getInventory();
+        ItemStack sword=inv.getItem(0);
+        ItemStack pearls=inv.getItem(1);
+        ItemStack pots=inv.getItem(2);
+        ItemStack boots=inv.getBoots();
+        return sword!=null && sword.getType()==Material.DIAMOND_SWORD && sword.getAmount()==1 &&
+            pearls!=null && pearls.getType()==Material.ENDER_PEARL && pearls.getAmount()==7 &&
+            pots!=null && pots.getType()==Material.POTION && pots.getAmount()==3 &&
+            pots.getDurability()==(short)16421 &&
+            boots!=null && boots.getType()==Material.IRON_BOOTS &&
+            inv.getHeldItemSlot()==1;
     }
 
     private boolean ownerOnly(Player p) {

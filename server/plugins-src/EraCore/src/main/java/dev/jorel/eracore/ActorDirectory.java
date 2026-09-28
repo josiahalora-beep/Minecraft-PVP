@@ -79,6 +79,14 @@ final class ActorDirectory {
     Snapshot resolve(String requested) {
         if(requested==null || requested.trim().isEmpty()) return null;
 
+        if(fakePlayers!=null) {
+            NmsFakePlayerRuntime.BodySnapshot body=fakePlayers.snapshot(requested);
+            if(body!=null) {
+                String faction=simWorld==null?"":simWorld.factionOfIdentity(body.name);
+                return new Snapshot(body.name,body.uuid,Runtime.COMBAT_BODY,true,faction,body.location);
+            }
+        }
+
         Player physical=onlinePlayerIgnoreCase(requested);
         if(physical!=null) {
             boolean simulated=simWorld!=null && simWorld.hasIdentity(physical.getName());
@@ -94,24 +102,17 @@ final class ActorDirectory {
             );
         }
 
-        if(fakePlayers!=null) {
-            NmsFakePlayerRuntime.BodySnapshot body=fakePlayers.snapshot(requested);
-            if(body!=null) {
-                String faction=simWorld==null?"":simWorld.factionOfIdentity(body.name);
-                return new Snapshot(body.name,body.uuid,Runtime.COMBAT_BODY,true,faction,body.location);
-            }
-        }
-
         if(simWorld==null || !simWorld.hasIdentity(requested)) return null;
         String canonical=simWorld.canonicalIdentity(requested);
         boolean online=simWorld.isLogicalOnlineIdentity(canonical);
+        Location remembered=online && fakePlayers!=null?fakePlayers.lastKnownLocation(canonical):null;
         return new Snapshot(
             canonical,
             stableOfflineUuid(canonical),
             online?Runtime.ABSTRACT:Runtime.OFFLINE,
             online,
             simWorld.factionOfIdentity(canonical),
-            online?simWorld.logicalLocationFor(canonical):null
+            online?(remembered!=null?remembered:simWorld.logicalLocationFor(canonical)):null
         );
     }
 

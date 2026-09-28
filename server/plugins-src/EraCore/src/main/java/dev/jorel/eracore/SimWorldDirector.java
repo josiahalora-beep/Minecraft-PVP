@@ -931,6 +931,19 @@ final class SimWorldDirector {
         return visibleFight != null;
     }
 
+    boolean ownerTeamFightActive() {
+        return visibleFight!=null &&
+            visibleFight.ownerName!=null && !visibleFight.ownerName.isEmpty() &&
+            visibleFight.type!=null && visibleFight.type.endsWith("_OWNER");
+    }
+
+    boolean preemptAmbientFightForOwnerTest() {
+        if(visibleFight==null) return true;
+        if(ownerTeamFightActive()) return false;
+        clearVisibleFight();
+        return true;
+    }
+
     String currentVisibleFightId() {
         return visibleFight == null ? "" : visibleFight.id;
     }

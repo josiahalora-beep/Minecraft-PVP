@@ -83,6 +83,14 @@ rewards:
 
 pvp:
   pearl-cooldown-seconds: 16
+  kohi-knockback:
+    enabled: true
+    friction: 2.0
+    horizontal: 0.35
+    vertical: 0.35
+    vertical-limit: 0.4
+    extra-horizontal: 0.425
+    extra-vertical: 0.085
 metrics:
   enabled: true
   interval-seconds: 5

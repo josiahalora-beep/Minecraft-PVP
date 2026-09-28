@@ -22,12 +22,20 @@ final class CombatBodyPvpDirector {
         final int pots;
         final boolean healObserved;
         final double maxPostPotHealth;
+        final int kohiVelocityApplications;
+        final boolean kohiMotionApplied;
+        final double kohiHorizontal,kohiVertical;
 
         ProbeSnapshot(boolean complete,boolean pass,boolean movement,int landedHits,
-                      int wTaps,int pots,boolean healObserved,double maxPostPotHealth) {
+                      int wTaps,int pots,boolean healObserved,double maxPostPotHealth,
+                      int kohiVelocityApplications,boolean kohiMotionApplied,
+                      double kohiHorizontal,double kohiVertical) {
             this.complete=complete;this.pass=pass;this.movement=movement;
             this.landedHits=landedHits;this.wTaps=wTaps;this.pots=pots;
             this.healObserved=healObserved;this.maxPostPotHealth=maxPostPotHealth;
+            this.kohiVelocityApplications=kohiVelocityApplications;
+            this.kohiMotionApplied=kohiMotionApplied;
+            this.kohiHorizontal=kohiHorizontal;this.kohiVertical=kohiVertical;
         }
 
         String summary() {
@@ -36,7 +44,11 @@ final class CombatBodyPvpDirector {
                 " wTaps="+wTaps+
                 " pots="+pots+
                 " healObserved="+healObserved+
-                " maxPostPotHealth="+String.format(java.util.Locale.US,"%.1f",maxPostPotHealth);
+                " maxPostPotHealth="+String.format(java.util.Locale.US,"%.1f",maxPostPotHealth)+
+                " kohiApplications="+kohiVelocityApplications+
+                " kohiMotionApplied="+kohiMotionApplied+
+                " kohiHorizontal="+String.format(java.util.Locale.US,"%.3f",kohiHorizontal)+
+                " kohiVertical="+String.format(java.util.Locale.US,"%.3f",kohiVertical);
         }
     }
 
@@ -90,15 +102,20 @@ final class CombatBodyPvpDirector {
             public void run(){tick();}
         },1L,2L);
         plugin.getLogger().info("[CombatBody Gate3] START "+a+" vs "+b+
-            " criteria=movement+2hits+1wtap+1physicalHealII+healthGain");
+            " criteria=movement+2hits+1wtap+1physicalHealII+healthGain+kohiVelocity");
         return true;
     }
 
     ProbeSnapshot snapshot() {
         Probe p=probe;
         if(p==null) return null;
+        int ka=bodies.combatKohiVelocityApplications(p.a)+bodies.combatKohiVelocityApplications(p.b);
+        boolean applied=bodies.combatLastKohiMotionApplied(p.a) ||
+            bodies.combatLastKohiMotionApplied(p.b);
+        double kh=Math.max(bodies.combatLastKohiHorizontal(p.a),bodies.combatLastKohiHorizontal(p.b));
+        double kv=Math.max(bodies.combatLastKohiVertical(p.a),bodies.combatLastKohiVertical(p.b));
         return new ProbeSnapshot(p.complete,p.pass,p.movement,p.landedHits,p.wTaps,
-            p.pots,p.healObserved,p.maxPostPotHealth);
+            p.pots,p.healObserved,p.maxPostPotHealth,ka,applied,kh,kv);
     }
 
     void stop() {
@@ -150,8 +167,12 @@ final class CombatBodyPvpDirector {
         drive(p,p.b,p.a,false,now);
 
         if(now>=p.endsAt) {
+            boolean kohi=bodies.combatKohiVelocityApplications(p.a)+
+                bodies.combatKohiVelocityApplications(p.b)>=1 &&
+                (bodies.combatLastKohiMotionApplied(p.a) ||
+                 bodies.combatLastKohiMotionApplied(p.b));
             boolean pass=p.movement && p.landedHits>=2 && p.wTaps>=1 &&
-                p.pots>=1 && p.healObserved;
+                p.pots>=1 && p.healObserved && kohi;
             finish(p,pass,"deadline");
         }
     }
@@ -212,7 +233,15 @@ final class CombatBodyPvpDirector {
             " wTaps="+p.wTaps+
             " pots="+p.pots+
             " healObserved="+p.healObserved+
-            " maxPostPotHealth="+String.format(java.util.Locale.US,"%.1f",p.maxPostPotHealth));
+            " maxPostPotHealth="+String.format(java.util.Locale.US,"%.1f",p.maxPostPotHealth)+
+            " kohiApplications="+
+                (bodies.combatKohiVelocityApplications(p.a)+bodies.combatKohiVelocityApplications(p.b))+
+            " kohiMotionApplied="+
+                (bodies.combatLastKohiMotionApplied(p.a)||bodies.combatLastKohiMotionApplied(p.b))+
+            " kohiHorizontal="+String.format(java.util.Locale.US,"%.3f",
+                Math.max(bodies.combatLastKohiHorizontal(p.a),bodies.combatLastKohiHorizontal(p.b)))+
+            " kohiVertical="+String.format(java.util.Locale.US,"%.3f",
+                Math.max(bodies.combatLastKohiVertical(p.a),bodies.combatLastKohiVertical(p.b))));
         if(task!=null) task.cancel();
         task=null;
     }

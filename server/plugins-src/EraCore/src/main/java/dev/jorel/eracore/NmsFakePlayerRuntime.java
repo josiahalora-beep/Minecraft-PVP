@@ -10,13 +10,17 @@ import org.bukkit.entity.Item;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.ThrownPotion;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.ProjectileHitEvent;
+import org.bukkit.event.player.PlayerVelocityEvent;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.enchantments.Enchantment;
 import org.bukkit.util.Vector;
 
 import java.io.File;
@@ -98,6 +102,13 @@ final class NmsFakePlayerRuntime implements Listener {
         double healthAtLaunch;
     }
 
+    private static final class PendingKohiHit {
+        UUID victim;
+        Vector preMotion;
+        Vector kohiMotion;
+        long createdAt;
+    }
+
     private static final class Body {
         String name;
         UUID uuid;
@@ -108,6 +119,10 @@ final class NmsFakePlayerRuntime implements Listener {
         Player bukkit;
         boolean deathEventSeen;
         long spawnedAt;
+        int kohiVelocityApplications;
+        double lastKohiHorizontal;
+        double lastKohiVertical;
+        boolean lastKohiMotionApplied;
     }
 
     private static final class DormantState {
@@ -131,6 +146,7 @@ final class NmsFakePlayerRuntime implements Listener {
     private final Map<String,Body> bodies=new LinkedHashMap<String,Body>();
     private final Map<String,DropProbe> dropProbes=new LinkedHashMap<String,DropProbe>();
     private final Map<UUID,PendingPearl> pendingPearls=new LinkedHashMap<UUID,PendingPearl>();
+    private final Map<UUID,PendingKohiHit> pendingKohiHits=new LinkedHashMap<UUID,PendingKohiHit>();
     private final Map<String,DormantState> dormantStates=new LinkedHashMap<String,DormantState>();
     private final File dormantFile;
     private final YamlConfiguration dormantData;
@@ -169,6 +185,26 @@ final class NmsFakePlayerRuntime implements Listener {
     Player player(String name) {
         Body b=bodies.get(key(name));
         return b==null?null:b.bukkit;
+    }
+
+    int combatKohiVelocityApplications(String name) {
+        Body b=bodies.get(key(name));
+        return b==null?0:b.kohiVelocityApplications;
+    }
+
+    double combatLastKohiHorizontal(String name) {
+        Body b=bodies.get(key(name));
+        return b==null?0.0:b.lastKohiHorizontal;
+    }
+
+    double combatLastKohiVertical(String name) {
+        Body b=bodies.get(key(name));
+        return b==null?0.0:b.lastKohiVertical;
+    }
+
+    boolean combatLastKohiMotionApplied(String name) {
+        Body b=bodies.get(key(name));
+        return b!=null && b.lastKohiMotionApplied;
     }
 
     BodySnapshot snapshot(String name) {
@@ -558,6 +594,127 @@ final class NmsFakePlayerRuntime implements Listener {
         }
     }
 
+    /**
+     * Kohi/SportBukkit velocity compatibility for stock v1_8_R3.
+     *
+     * Stock Spigot saves the victim's pre-hit motion, applies knockback, fires
+     * PlayerVelocityEvent, sends PacketPlayOutEntityVelocity, then restores the
+     * saved server motion. Its event branch can reuse the saved vector instead
+     * of a modified event vector. We preserve that proven immediate-packet path,
+     * but write the canonical Kohi vector directly into NMS before serialization.
+     */
+    @EventHandler(priority=EventPriority.MONITOR,ignoreCancelled=true)
+    public void onKohiDamage(EntityDamageByEntityEvent event) {
+        if(!kohiEnabled() || event==null ||
+           !(event.getEntity() instanceof Player) ||
+           !(event.getDamager() instanceof Player) ||
+           event.getFinalDamage()<=0.0) return;
+
+        Player victim=(Player)event.getEntity();
+        Player attacker=(Player)event.getDamager();
+        try {
+            Object handle=invoke(victim,"getHandle");
+            Vector pre=motion(handle);
+
+            double dx=attacker.getLocation().getX()-victim.getLocation().getX();
+            double dz=attacker.getLocation().getZ()-victim.getLocation().getZ();
+            double mag=Math.sqrt(dx*dx+dz*dz);
+            if(mag<0.0001) return;
+
+            double friction=kohi("friction",2.0);
+            double horizontal=kohi("horizontal",0.35);
+            double vertical=kohi("vertical",0.35);
+            double verticalLimit=kohi("vertical-limit",0.4);
+            double extraHorizontal=kohi("extra-horizontal",0.425);
+            double extraVertical=kohi("extra-vertical",0.085);
+
+            Vector out=new Vector(
+                pre.getX()/friction-(dx/mag)*horizontal,
+                Math.min(pre.getY()/friction+vertical,verticalLimit),
+                pre.getZ()/friction-(dz/mag)*horizontal);
+
+            int extra=attacker.isSprinting()?1:0;
+            ItemStack held=attacker.getItemInHand();
+            if(held!=null) extra+=held.getEnchantmentLevel(Enchantment.KNOCKBACK);
+            if(extra>0) {
+                double yaw=Math.toRadians(attacker.getLocation().getYaw());
+                out.setX(out.getX()-Math.sin(yaw)*extra*extraHorizontal);
+                out.setY(out.getY()+extraVertical);
+                out.setZ(out.getZ()+Math.cos(yaw)*extra*extraHorizontal);
+            }
+
+            PendingKohiHit pending=new PendingKohiHit();
+            pending.victim=victim.getUniqueId();
+            pending.preMotion=pre;
+            pending.kohiMotion=out;
+            pending.createdAt=System.currentTimeMillis();
+            pendingKohiHits.put(pending.victim,pending);
+        } catch(Throwable t) {
+            plugin.getLogger().warning("[Kohi KB] pre-hit capture failed for "+
+                victim.getName()+": "+root(t));
+        }
+    }
+
+    @EventHandler(priority=EventPriority.HIGHEST,ignoreCancelled=false)
+    public void onKohiVelocity(final PlayerVelocityEvent event) {
+        if(!kohiEnabled() || event==null) return;
+        final Player victim=event.getPlayer();
+        final PendingKohiHit pending=pendingKohiHits.remove(victim.getUniqueId());
+        if(pending==null || System.currentTimeMillis()-pending.createdAt>500L) return;
+        if(event.isCancelled()) return;
+
+        try {
+            // Stock initializes this event with the saved pre-hit vector. If a
+            // different plugin genuinely changed it, preserve that requested
+            // vector; otherwise use the canonical Kohi result.
+            Vector outgoing=pending.kohiMotion.clone();
+            Vector eventVector=event.getVelocity();
+            if(eventVector!=null && eventVector.distanceSquared(pending.preMotion)>1.0E-8)
+                outgoing=eventVector.clone();
+
+            final Vector finalOutgoing=outgoing;
+            Object handle=invoke(victim,"getHandle");
+            setMotion(handle,finalOutgoing);
+
+            // Keep the event equal to stock's saved vector so its broken
+            // comparison branch cannot overwrite our direct NMS motion before
+            // the immediate PacketPlayOutEntityVelocity is constructed.
+            event.setVelocity(pending.preMotion.clone());
+
+            final Body body=bodies.get(key(victim.getName()));
+            if(body!=null) {
+                body.kohiVelocityApplications++;
+                body.lastKohiHorizontal=Math.sqrt(
+                    finalOutgoing.getX()*finalOutgoing.getX()+
+                    finalOutgoing.getZ()*finalOutgoing.getZ());
+                body.lastKohiVertical=finalOutgoing.getY();
+
+                // Stock correctly restores server motion after packet send. That
+                // is right for a connected human, but a clientless CombatBody
+                // has no inbound movement packets to realize the impulse. Reapply
+                // the same vector to its real EntityPlayer on the next tick.
+                Bukkit.getScheduler().runTask(plugin,new Runnable() {
+                    public void run() {
+                        Body live=bodies.get(key(victim.getName()));
+                        if(live==null || live.handle==null || live.bukkit==null) return;
+                        try {
+                            setMotion(live.handle,finalOutgoing);
+                            Vector read=motion(live.handle);
+                            live.lastKohiMotionApplied=
+                                read.distanceSquared(finalOutgoing)<1.0E-8;
+                        } catch(Throwable t) {
+                            plugin.getLogger().warning("[Kohi KB] CombatBody reapply failed for "+
+                                victim.getName()+": "+root(t));
+                        }
+                    }
+                });
+            }
+        } catch(Throwable t) {
+            plugin.getLogger().warning("[Kohi KB] velocity handoff failed for "+
+                victim.getName()+": "+root(t));
+        }
+    }
+
     @EventHandler
     public void onCombatPearlHit(ProjectileHitEvent event) {
         if(event==null || !(event.getEntity() instanceof EnderPearl)) return;
@@ -696,6 +853,28 @@ final class NmsFakePlayerRuntime implements Listener {
             return (block.getData()&0x4)!=0;
         }
         return !material.isSolid();
+    }
+
+    private boolean kohiEnabled() {
+        return plugin.getConfig().getBoolean("pvp.kohi-knockback.enabled",true);
+    }
+
+    private double kohi(String key,double fallback) {
+        return plugin.getConfig().getDouble("pvp.kohi-knockback."+key,fallback);
+    }
+
+    private static Vector motion(Object handle) throws Exception {
+        return new Vector(
+            getDoubleField(handle,"motX"),
+            getDoubleField(handle,"motY"),
+            getDoubleField(handle,"motZ"));
+    }
+
+    private static void setMotion(Object handle,Vector velocity) throws Exception {
+        setDoubleField(handle,"motX",velocity.getX());
+        setDoubleField(handle,"motY",velocity.getY());
+        setDoubleField(handle,"motZ",velocity.getZ());
+        if(velocity.getY()>0.0) setFloatField(handle,"fallDistance",0.0f);
     }
 
     private void face(Body b,Location target) throws Exception {
@@ -1045,6 +1224,44 @@ final class NmsFakePlayerRuntime implements Listener {
                 Field f=c.getDeclaredField(name);
                 f.setAccessible(true);
                 f.setInt(target,value);
+                return;
+            } catch(NoSuchFieldException ignored){c=c.getSuperclass();}
+        }
+        throw new NoSuchFieldException(name);
+    }
+
+    private static double getDoubleField(Object target,String name) throws Exception {
+        Class<?> c=target.getClass();
+        while(c!=null) {
+            try {
+                Field f=c.getDeclaredField(name);
+                f.setAccessible(true);
+                return f.getDouble(target);
+            } catch(NoSuchFieldException ignored){c=c.getSuperclass();}
+        }
+        throw new NoSuchFieldException(name);
+    }
+
+    private static void setDoubleField(Object target,String name,double value) throws Exception {
+        Class<?> c=target.getClass();
+        while(c!=null) {
+            try {
+                Field f=c.getDeclaredField(name);
+                f.setAccessible(true);
+                f.setDouble(target,value);
+                return;
+            } catch(NoSuchFieldException ignored){c=c.getSuperclass();}
+        }
+        throw new NoSuchFieldException(name);
+    }
+
+    private static void setFloatField(Object target,String name,float value) throws Exception {
+        Class<?> c=target.getClass();
+        while(c!=null) {
+            try {
+                Field f=c.getDeclaredField(name);
+                f.setAccessible(true);
+                f.setFloat(target,value);
                 return;
             } catch(NoSuchFieldException ignored){c=c.getSuperclass();}
         }

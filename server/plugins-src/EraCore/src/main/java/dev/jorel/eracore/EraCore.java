@@ -1050,9 +1050,18 @@ public final class EraCore extends JavaPlugin implements Listener, CommandExecut
     }
 
     @EventHandler(priority=EventPriority.HIGHEST, ignoreCancelled=true) public void onDamage(EntityDamageByEntityEvent e) {
-        if(isActiveDuelDamage(e)) return;
+        if(isActiveDuelDamage(e) || isPreparedTestFightDamage(e)) return;
         if(hcfZones!=null && hcfZones.handleDamage(e)) return;
         if (simWorld != null && simWorld.sotwProtectionActive()) e.setCancelled(true);
+    }
+
+    private boolean isPreparedTestFightDamage(EntityDamageByEntityEvent e) {
+        if(!(e.getEntity() instanceof Player) || !(e.getDamager() instanceof Player)) return false;
+        String victim=((Player)e.getEntity()).getName().toLowerCase(Locale.ENGLISH);
+        String attacker=((Player)e.getDamager()).getName().toLowerCase(Locale.ENGLISH);
+        String vf=combatPreparedFight.get(victim);
+        String af=combatPreparedFight.get(attacker);
+        return vf!=null && vf.startsWith("TESTTEAM_") && vf.equals(af);
     }
 
     private boolean isActiveDuelDamage(EntityDamageByEntityEvent e) {
